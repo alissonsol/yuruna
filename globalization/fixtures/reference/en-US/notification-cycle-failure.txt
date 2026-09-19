@@ -1,4 +1,4 @@
-<html lang="en"><body style="background:#ffffff;color:#111827"><pre style="white-space:pre-wrap;word-wrap:break-word;color:#111827">Cycle 000200 FAILED on <host>.
+<html lang="en-US" dir="ltr"><body style="background:#ffffff;color:#111827"><pre style="white-space:pre-wrap;word-wrap:break-word;color:#111827">Cycle 000200 FAILED on <host>.
 
   step 3/3  finalize
   guest did not answer within 300 s

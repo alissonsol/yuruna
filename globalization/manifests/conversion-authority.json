@@ -31,12 +31,6 @@
   ],
   "protocolExceptions": [
     {
-      "path": "test/modules/Test.SequenceEngine.psm1",
-      "text": "Paused (waiting for resume)",
-      "removeAfter": "2026-10-01",
-      "reason": "One-release compatibility payload beside sequence_paused_waiting_resume."
-    },
-    {
       "path": "test/modules/Test.HostGit.psm1",
       "text": "No access",
       "removeAfter": "2026-10-01",
@@ -59,6 +53,39 @@
       "text": "Paused (waiting for resume)",
       "removeAfter": "2026-10-01",
       "reason": "One-release reader for archived and N-1 action payloads without sequence_paused_waiting_resume."
+    }
+  ],
+  "literalContracts": [
+    {
+      "reason": "Exact external Git authentication diagnostic adapter, with C child-process diagnostic locale; callers receive typed repository-access states, never branch on rendered Yuruna messages.",
+      "kind": "external-process-pattern",
+      "operator": "Imatch",
+      "sha256": "23db1a9a502c35e74b9e4428050bf49d770fec6828f10549b33a977d4376aa69",
+      "function": "Test-GitRemoteAuthFailure",
+      "input": "$Output",
+      "path": "test/modules/Test.HostGit.psm1"
+    },
+    {
+      "path": "test/modules/Test.MessageHttpMigration.Tests.ps1",
+      "reason": "Exact Set-ItResult -Because skip rationale when the browser prerequisite is absent; this literal is test reporting, not the production HTTP consumer.",
+      "sha256": "164a993796ba6769dc3c2bbd08485cb46959b89452d9b5bcc426e21e73c4b8e9",
+      "kind": "test-result-reason"
+    },
+    {
+      "reason": "Exact Windows netsh http service-state queue header consumed by the external listener adapter; the returned PID and typed conflict status are independent of Yuruna display messages.",
+      "operator": "Imatch",
+      "function": "Get-PortListenerPid",
+      "path": "test/modules/Test.PortOwner.psm1",
+      "kind": "external-process-pattern",
+      "input": "$line",
+      "sha256": "77743029b57f756f4ae9d0e39a20da1ae309c99d09ed962db95ffbad665dbdb9"
+    }
+  ],
+  "generatedPowerShell": [
+    {
+      "path": "test/service/Start-StatusService.ps1",
+      "variable": "$serverScript",
+      "reason": "Deployment emits this here-string as .status-service.ps1; scan its parsed runtime code, excluding comments and preserving quoted protocol conditions."
     }
   ]
 }

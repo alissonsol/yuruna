@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -124,7 +127,7 @@ function Start-Watchdog {
         [Parameter(Mandatory)][int]$PollSeconds,
         [Parameter()][int]$PreambleTimeoutSeconds = 600
     )
-    if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutSeconds}s, preamble ${PreambleTimeoutSeconds}s)", 'Start-Job')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_f865490d58581482' -Arguments @{ runtimeDir = "$RuntimeDir"; stepTimeoutSeconds = "${StepTimeoutSeconds}"; preambleTimeoutSeconds = "${PreambleTimeoutSeconds}" }), 'Start-Job')) { return $null }
     $thresholdSeconds = $StepTimeoutSeconds
     # A preamble bound at or above the step bound buys nothing and a
     # non-positive one is the documented opt-out; both collapse to "no tighter

@@ -14,6 +14,12 @@
   }
 
   function showTab(which) {
+    return window.YurunaFirstUsable.measure('test/extension/stash-service/server/internal/httpsrv/web/new.html', 'static', function () {
+      return renderTab(which);
+    });
+  }
+
+  function renderTab(which) {
     var text = which === 'text';
     // aria-selected alongside the class, not instead of it: the class carries
     // the look and the attribute carries the state, and a reader that only had
@@ -39,7 +45,7 @@
     return Y.api('/api/stashes', { method: 'POST', body: new FormData(form) }).then(function (data) {
       window.location.href = data.permalink;
     }, function (e) {
-      msg('error', 'Create failed: ' + e.message);
+      msg('error', window.YurunaI18n.t("stash.create_failed_value1", {value1: (e.message)}));
       btn.disabled = false;
     });
   }
@@ -52,19 +58,20 @@
 
   $('form-text').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    if (!$('text').value) { msg('warn', 'Nothing to store -- paste some content first.'); return; }
+    if (!$('text').value) { msg('warn', window.YurunaI18n.t("stash.nothing_to_store_paste_some_content_first")); return; }
     submitCreate($('form-text'), submitterOf(ev, $('form-text')));
   });
 
   $('form-files').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    if (!$('files').files.length) { msg('warn', 'Choose at least one file.'); return; }
+    if (!$('files').files.length) { msg('warn', window.YurunaI18n.t("stash.choose_at_least_one_file")); return; }
     submitCreate($('form-files'), submitterOf(ev, $('form-files')));
   });
 
   // Shared footer bar: server IPs and the last-loaded time. This page carries no
   // #countdown, so nothing here auto-refreshes -- a timed reload would discard
   // the form above.
+  showTab('text');
   Y.initFooter();
   window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/new.html', 'static');
 })();

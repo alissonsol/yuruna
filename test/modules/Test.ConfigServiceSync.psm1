@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
 # (canonical key/array ordering) are the same primitives every other
 # test.config.yml writer routes through, so a synced file is byte-stable
 # against the per-cycle template reconcile instead of churning on first run.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1')     -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1')    -Force -DisableNameChecking
 # Get-PoolStorageUncPath / Get-PoolStorageServerName / Test-PoolStorageHostResolvable:
@@ -132,7 +133,7 @@ function Convert-ConfigSyncNetworkStorage {
             # reference clears the tier here too, but never silently -- the
             # previous file is backed up by the caller before the write.
             if ($localNp -or $localLp) {
-                [void]$warnings.Add("networkStorage: the reference host has no $tier storage configured; the local $tier values are being cleared (previous file kept in the .backup).")
+                [void]$warnings.Add((Format-YurunaOperatorMessage -Key 'runner.operator_33ef5efa4b4f6f93' -Arguments @{ tier = "$tier" }))
             }
             $out[$lpKey] = ''; $out[$npKey] = ''; $out[$nuKey] = ''
             if ($tier -eq 'pool') { $out['moveLogsToPoolStorage'] = $false }
@@ -188,7 +189,7 @@ function Merge-ConfigSyncReferenceConfig {
         [switch]$NoPool
     )
     if ($Reference -isnot [System.Collections.IDictionary]) {
-        throw "Merge-ConfigSyncReferenceConfig: the reference config is not a map (got $($Reference.GetType().Name))."
+        throw (Format-YurunaOperatorMessage -Key 'configsync.operator_39909717f78f9c25' -Arguments @{ name = "$($Reference.GetType().Name)" })
     }
     $warnings = [System.Collections.Generic.List[string]]::new()
     # The reference dictionary is a per-call parse owned by this sync; it is
@@ -201,7 +202,7 @@ function Merge-ConfigSyncReferenceConfig {
         foreach ($poolKey in @('networkStorage', 'pool')) {
             if ($merged.Contains($poolKey)) {
                 $merged.Remove($poolKey)
-                [void]$warnings.Add("${poolKey}: dropped (-NoPool) -- config synced without pool membership; this host will not mount the NAS, replicate cycles, or register in the pool set.")
+                [void]$warnings.Add((Format-YurunaOperatorMessage -Key 'runner.operator_1892e8b52e72fec6' -Arguments @{ poolKey = "${poolKey}" }))
             }
         }
     } else {
@@ -219,7 +220,7 @@ function Merge-ConfigSyncReferenceConfig {
     # sync, and a reference host's node is never adopted.
     if ($merged.Contains('secrets')) {
         $merged.Remove('secrets')
-        [void]$warnings.Add("secrets: the reference host's secrets node was NOT copied (credentials never cross hosts through the config sync).")
+        [void]$warnings.Add((Format-YurunaOperatorMessage -Key 'runner.operator_9a858ae5d0aa2217'))
     }
     if ($Local -is [System.Collections.IDictionary] -and $Local.Contains('secrets')) {
         $merged['secrets'] = $Local['secrets']
@@ -238,8 +239,8 @@ function Merge-ConfigSyncReferenceConfig {
                 $localProj = "$($Local['repositories']['projectUrl'])".Trim()
             }
             $refRepos['projectUrl'] = $localProj
-            $kept = if ($localProj) { "kept the local value '$localProj'" } else { 'left it empty' }
-            [void]$warnings.Add("repositories.projectUrl: the reference value '$proj' is a local path on the reference host and is not portable; $kept.")
+            $kept = if ($localProj) { (Format-YurunaOperatorMessage -Key 'configsync.operator_548c2e9979f8bf3d' -Arguments @{ localProj = "$localProj" }) } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_69ca94406cbb5c1f') }
+            [void]$warnings.Add((Format-YurunaOperatorMessage -Key 'runner.operator_41ba00697204a0ca' -Arguments @{ proj = "$proj"; kept = "$kept" }))
         }
     }
 
@@ -255,8 +256,8 @@ function Merge-ConfigSyncReferenceConfig {
                 $localClone = "$($Local['pool']['localClonePath'])".Trim()
             }
             $refPool['localClonePath'] = $localClone
-            $kept = if ($localClone) { "kept the local value '$localClone'" } else { 'left it empty (defaults to <runtime>/pool-intent)' }
-            [void]$warnings.Add("pool.localClonePath: the reference value '$clone' is an absolute path on the reference host and is not portable; $kept.")
+            $kept = if ($localClone) { (Format-YurunaOperatorMessage -Key 'configsync.operator_732d72e3a7f2581a' -Arguments @{ localClone = "$localClone" }) } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_9e1f86637c4a7e09') }
+            [void]$warnings.Add((Format-YurunaOperatorMessage -Key 'runner.operator_70119a5d0827593a' -Arguments @{ clone = "$clone"; kept = "$kept" }))
         }
     }
 
@@ -469,11 +470,7 @@ function Get-ConfigSyncEnvelopeSupport {
     if ($null -eq $IsSupported -or [bool]$IsSupported) { return @{ Supported = $true; Reason = '' } }
     return @{
         Supported = $false
-        Reason    = ("This host's runtime has no AES-GCM (PowerShell $($PSVersionTable.PSVersion) on " +
-                     "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim())), so it can neither open a " +
-                     'credential envelope nor seal one. Every Lab token enrollment and every config-sync credential exchange ' +
-                     'fails here until PowerShell is upgraded. Nothing about the code, the proxy or the vault is at fault. ' +
-                     'Confirm with test/lab/Lab-Diag.ps1, whose AesGcm line reports the same thing.')
+        Reason    = ((Format-YurunaOperatorMessage -Key 'configsync.operator_9d03f7dc75755f81' -Arguments @{ pSVersion = "$($PSVersionTable.PSVersion)"; trim = "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim())" }))
     }
 }
 
@@ -501,7 +498,7 @@ function Test-ConfigSyncEnvelopeSupport {
     $probe = $null
     try { $probe = [System.Security.Cryptography.AesGcm]::IsSupported }
     catch {
-        Write-Verbose "AesGcm.IsSupported is not exposed by this runtime ($($_.Exception.Message)); assuming the algorithm is present."
+        Write-Verbose (Format-YurunaOperatorMessage -Key 'configsync.operator_764ff5e955c8393d' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return Get-ConfigSyncEnvelopeSupport -IsSupported $probe
 }
@@ -612,10 +609,10 @@ function Get-ConfigSyncReferenceConfig {
         $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds
         $doc  = $resp.Content | ConvertFrom-Json -AsHashtable
     } catch {
-        throw "Could not fetch the reference config from $url : $($_.Exception.Message)"
+        throw (Format-YurunaOperatorMessage -Key 'configsync.operator_dd5832aa8d056afc' -Arguments @{ url = "$url"; message = "$($_.Exception.Message)" })
     }
     if ($doc -isnot [System.Collections.IDictionary]) {
-        throw "The reference config from $url did not parse as a map."
+        throw (Format-YurunaOperatorMessage -Key 'configsync.operator_aadf46f9f5285e05' -Arguments @{ url = "$url" })
     }
     return $doc
 }
@@ -651,7 +648,7 @@ function Get-ConfigSyncReferenceAliasMap {
         # to repair on the reference host.
         $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck
     } catch {
-        Write-Warning "host-aliases: $ReferenceHost is not answering ($($_.Exception.Message)). Any networkStorage name that does not resolve here has to be entered by hand."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_53ba34766fd02d32' -Arguments @{ referenceHost = "$ReferenceHost"; message = "$($_.Exception.Message)" })
         return $null
     }
     $doc = $null
@@ -687,7 +684,7 @@ function Resolve-ConfigSyncAliasResponse {
     $isMap = $Doc -is [System.Collections.IDictionary]
     if ($StatusCode -ne 200 -or -not $isMap -or -not $Doc['ok']) {
         $reason = if ($isMap -and $Doc['error']) { [string]$Doc['error'] } else { "HTTP $StatusCode" }
-        return @{ Map = $null; Warning = "host-aliases: $ReferenceHost could not supply its networkStorage name->IP map ($reason). Any name that does not resolve here has to be entered by hand; restarting the status service on $ReferenceHost (test/service/Start-StatusService.ps1 -Restart) usually clears this." }
+        return @{ Map = $null; Warning = (Format-YurunaOperatorMessage -Key 'configsync.operator_a693215e036db1c5' -Arguments @{ referenceHost = "$ReferenceHost"; reason = "$reason" }) }
     }
     $map = if ($Doc['aliases'] -is [System.Collections.IDictionary]) { $Doc['aliases'] } else { $null }
     return @{ Map = $map; Warning = $null }
@@ -741,19 +738,19 @@ function Request-ConfigSyncVaultCredential {
     try {
         $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck
     } catch {
-        return @{ Ok = $false; Password = $null; Status = 0; Error = "vault-credential request failed: $($_.Exception.Message)" }
+        return @{ Ok = $false; Password = $null; Status = 0; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_1e110e2f0d3775ed' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
     $doc = $null
     try { $doc = $resp.Content | ConvertFrom-Json -AsHashtable } catch { $null = $_ }
     if ($resp.StatusCode -ne 200 -or $doc -isnot [System.Collections.IDictionary] -or -not $doc['ok']) {
         $reason = if ($doc -is [System.Collections.IDictionary] -and $doc['error']) { [string]$doc['error'] } else { "HTTP $($resp.StatusCode)" }
-        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = "vault-credential for '$User': $reason" }
+        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_1c3a81fa1d766f68' -Arguments @{ user = "$User"; reason = "$reason" }) }
     }
     try {
         $pw = Unprotect-ConfigSyncCredential -Token $Token -User $User -ClientNonce $clientNonce -Envelope ([pscustomobject]$doc)
         return @{ Ok = $true; Password = $pw; Status = [int]$resp.StatusCode; Error = $null }
     } catch {
-        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = "vault-credential for '$User': decrypt failed (the key does not match the one that sealed the reply, or the payload was tampered with)" }
+        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_b5a627b2ae01c0f8' -Arguments @{ user = "$User" }) }
     }
 }
 
@@ -784,8 +781,8 @@ function Get-ConfigSyncCredentialReadiness {
     )
     switch ($StatusCode) {
         0 {
-            $why = if ($ServerError) { $ServerError } else { 'no response' }
-            return @{ Ready = $false; Status = 0; Error = "$ReferenceHost is not answering on the status port ($why)." }
+            $why = if ($ServerError) { $ServerError } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_88e60532873f2e23') }
+            return @{ Ready = $false; Status = 0; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_9e13d40e10a4ef3a' -Arguments @{ referenceHost = "$ReferenceHost"; why = "$why" }) }
         }
         403 {
             # Proof mismatch is the SUCCESS case for a probe: the reference holds
@@ -794,10 +791,10 @@ function Get-ConfigSyncCredentialReadiness {
             return @{ Ready = $true; Status = 403; Error = $null }
         }
         503 {
-            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no internal authentication key configured, so it cannot serve credentials to a peer. Enroll BOTH hosts with the Lab token shown on the Yuruna hosts dashboard (on ${ReferenceHost}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), then re-run this sync." }
+            return @{ Ready = $false; Status = 503; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_67b60623c8140b5b' -Arguments @{ referenceHost = "$ReferenceHost"; referenceHost2 = "${ReferenceHost}" }) }
         }
         404 {
-            return @{ Ready = $false; Status = 404; Error = "$ReferenceHost cannot serve the credential for '$User' ($ServerError)." }
+            return @{ Ready = $false; Status = 404; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_90cdc42e0c228655' -Arguments @{ referenceHost = "$ReferenceHost"; user = "$User"; serverError = "$ServerError" }) }
         }
         200 {
             # Unreachable in practice (an all-zero proof cannot verify); treat a
@@ -806,7 +803,7 @@ function Get-ConfigSyncCredentialReadiness {
         }
         default {
             $why = if ($ServerError) { $ServerError } else { "HTTP $StatusCode" }
-            return @{ Ready = $false; Status = $StatusCode; Error = "$ReferenceHost could not serve credentials ($why)." }
+            return @{ Ready = $false; Status = $StatusCode; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_504335d8f73a9c9f' -Arguments @{ referenceHost = "$ReferenceHost"; why = "$why" }) }
         }
     }
 }
@@ -868,10 +865,10 @@ function Invoke-ConfigSyncHostAlias {
     )
     $aliasScript = Join-Path $RepoRoot 'automation/Set-HostAlias.ps1'
     if (-not (Test-Path -LiteralPath $aliasScript)) {
-        Write-Warning "Set-HostAlias.ps1 not found at $aliasScript; add '$IPAddress  $Name' to the hosts file manually."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'configsync.operator_7e06c62add5ec176' -Arguments @{ aliasScript = "$aliasScript"; iPAddress = "$IPAddress"; name = "$Name" })
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess("hosts file", "Map '$Name' -> '$IPAddress'")) { return $true }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_f5c0e102b6efe224'), "Map '$Name' -> '$IPAddress'")) { return $true }
     $needsSudo = (-not $IsWindows)
     if ($needsSudo) {
         try { $needsSudo = ((& id -u 2>$null | Out-String).Trim() -ne '0') } catch { $needsSudo = $true }
@@ -891,10 +888,10 @@ function Invoke-ConfigSyncHostAlias {
             $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $Name, '-IPAddress', $IPAddress) `
                 -NonInteractive:$NonInteractive `
-                -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to map '$Name' in /etc/hosts: "
+                -Prompt (Format-YurunaOperatorMessage -Key 'configsync.operator_fd00a4e339d2a5c1' -Arguments @{ name = "$Name" })
             & sudo @sudoArgs
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "sudo Set-HostAlias for '$Name' exited $LASTEXITCODE; add '$IPAddress  $Name' to /etc/hosts manually."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'configsync.operator_21d662e284475037' -Arguments @{ name = "$Name"; lASTEXITCODE = "$LASTEXITCODE"; iPAddress = "$IPAddress" })
                 return $false
             }
         } else {
@@ -902,7 +899,7 @@ function Invoke-ConfigSyncHostAlias {
         }
         return $true
     } catch {
-        Write-Warning "Set-HostAlias for '$Name' failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2dd32a949870972e' -Arguments @{ name = "$Name"; message = "$($_.Exception.Message)" })
         return $false
     }
 }
@@ -957,46 +954,46 @@ function Sync-ConfigSyncHostAlias {
             # it does not resolve the name either). A working local mapping is
             # still a working local mapping -- keep it rather than re-prompting.
             if ($localIp) {
-                Write-Information "networkStorage server '$name' resolves to $localIp here; the reference host did not supply an address, so the local mapping is kept." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe82ced102a46bde' -Arguments @{ name = "$name"; localIp = "$localIp" }) -InformationAction Continue
                 continue
             }
             if ($NonInteractive) {
-                Write-Warning "networkStorage server '$name' does not resolve locally and the reference host could not supply an address; add it to the hosts file manually (automation/Set-HostAlias.ps1)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_056c2704a3155ed1' -Arguments @{ name = "$name" })
                 continue
             }
-            $typed = (Read-Host "networkStorage server '$name' does not resolve. IP address to map it to (Enter to skip)").Trim()
+            $typed = (Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_8f35c185912eb1c6' -Arguments @{ name = "$name" })).Trim()
             if (-not $typed) { continue }
             $refIp = $typed
         }
 
         $parsed = [System.Net.IPAddress]::Any
         if (-not [System.Net.IPAddress]::TryParse($refIp, [ref]$parsed)) {
-            Write-Warning "'$refIp' is not a valid IP address; skipping the '$name' alias."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_377f048ed2d85082' -Arguments @{ refIp = "$refIp"; name = "$name" })
             continue
         }
         $target = $parsed.ToString()
 
         if ($localIp -eq $target) {
-            Write-Information "networkStorage server '$name' already resolves to $target (the reference agrees); no change." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5157cdf2a7a41e75' -Arguments @{ name = "$name"; target = "$target" }) -InformationAction Continue
             continue
         }
         if ($localIp) {
-            Write-Information "networkStorage server '$name' resolves to $localIp here but the reference host maps it to $target; updating the hosts entry." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8a1299ffd87dc6f' -Arguments @{ name = "$name"; localIp = "$localIp"; target = "$target" }) -InformationAction Continue
         } else {
-            Write-Information "networkStorage server '$name': the reference host resolves it to $target." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_93724a8a6a68d0e6' -Arguments @{ name = "$name"; target = "$target" }) -InformationAction Continue
         }
         if ($sudoRefused) {
-            Write-Warning "Not asking again for '$name': the elevation for the previous alias was not granted. Map it by hand with '$target  $name' in /etc/hosts."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_efa65548849c32e4' -Arguments @{ name = "$name"; target = "$target" })
             continue
         }
         if (Invoke-ConfigSyncHostAlias -RepoRoot $RepoRoot -Name $name -IPAddress $target -NonInteractive:$NonInteractive) {
-            Write-Information "hosts file: mapped '$name' -> $target." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_68148e020fe75460' -Arguments @{ name = "$name"; target = "$target" }) -InformationAction Continue
         } else {
             $sudoRefused = $true
             # Said once, here, because the cost is not visible where it lands:
             # the names stay pointed wherever they pointed before, and the
             # failure surfaces later as a mount that cannot reach the share.
-            Write-Warning "The hosts entries were not written, so the networkStorage names still resolve to their previous addresses and the lab's shares will not mount. Re-run this sync once the elevation succeeds, or add the entries by hand."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_af02ae2f4290672d')
         }
     }
 }
@@ -1082,7 +1079,7 @@ function Resolve-ConfigSyncInternalAuthKey {
     }
 
     $code = $typed.ToLowerInvariant()
-    Write-Information "That is the dashboard's 6-character Lab token, not an internal authentication key -- redeeming it for the key ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f70223166f852c07') -InformationAction Continue
 
     # Resolved on demand: this module works on hosts that never reach an
     # aggregator, and loading the caching-proxy resolver up front would make
@@ -1098,7 +1095,7 @@ function Resolve-ConfigSyncInternalAuthKey {
         }
     } catch { $null = $_ }
     if (-not $baseUrl) {
-        return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = "A Lab token was entered, but no caching-proxy service this host names answered on :9400, so it cannot be redeemed here. Enroll separately and re-run this sync: pwsh test/lab/Set-LabToken.ps1 -LabToken $code -CachingProxyService <proxy-address> -BounceStatusService" }
+        return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_21a32e8df2354bc6' -Arguments @{ code = "$code" }) }
     }
 
     # https first (a provisioned proxy mints the aggregator's TLS leaf), plain
@@ -1112,25 +1109,25 @@ function Resolve-ConfigSyncInternalAuthKey {
         if ($verdict.Ok -or $verdict.Status -ne 0) { break }
     }
     if (-not $verdict -or -not $verdict.Ok) {
-        $why = if ($verdict) { $verdict.Error } else { 'the exchange could not be attempted' }
+        $why = if ($verdict) { $verdict.Error } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_8e92cae30e0c221a') }
         return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = $why }
     }
 
     if ($NoPersist) {
-        Write-Information 'Lab token accepted; using the internal authentication key for this run only.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_076859b0b8d40bc0') -InformationAction Continue
         return @{ Key = $verdict.Token; Enrolled = $false; Redeemed = $true; Error = $null }
     }
 
-    Write-Information "Lab token accepted; enrolling this host so the key is here for every later run ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_818563ad5a66e6c0') -InformationAction Continue
     $enrolled = $false
     try {
         $provision = Set-InternalAuthKey -Token $verdict.Token
         $enrolled = [bool]$provision.ok
         if (-not $enrolled) {
-            Write-Warning "The internal authentication key was fetched but could not be stored in this host's vault (keyChanged=$($provision.keyChanged), verified=$($provision.verified)); continuing with it for this run only."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_920bc1e950eec0e5' -Arguments @{ keyChanged = "$($provision.keyChanged)"; verified = "$($provision.verified)" })
         }
     } catch {
-        Write-Warning "The internal authentication key was fetched but could not be stored in this host's vault ($($_.Exception.Message)); continuing with it for this run only."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c591b9085240b247' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return @{ Key = $verdict.Token; Enrolled = $enrolled; Redeemed = $true; Error = $null }
 }
@@ -1185,7 +1182,7 @@ function Sync-ConfigSyncVaultCredential {
         Import-Module (Join-Path $RepoRoot 'test/modules/Test.Extension.psm1') -Force -DisableNameChecking
         $null = Import-Extension -Area 'authentication' -RequireSingle
     } catch {
-        Write-Warning "Could not load the authentication extension ($($_.Exception.Message)); skipping the vault-credential sync. Populate the vault manually (Set-Password)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee39d57334aa53b8' -Arguments @{ message = "$($_.Exception.Message)" })
         return [pscustomobject[]]@()
     }
 
@@ -1209,7 +1206,7 @@ function Sync-ConfigSyncVaultCredential {
     if (-not $authKey) {
         $authKey = Get-InternalAuthKeyValue
         if ($authKey) {
-            Write-Information "vault: using this host's stored internal authentication key to fetch credentials from $ReferenceHost." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8afa11662de4dcbc' -Arguments @{ referenceHost = "$ReferenceHost" }) -InformationAction Continue
         }
     }
     $keyPromptTried = $false
@@ -1245,13 +1242,13 @@ function Sync-ConfigSyncVaultCredential {
         # from standalone it is actively wrong: the entry it would keep was minted
         # here, for a share this host used to serve itself.
         if (-not $authKey -and $hasEntry -and -not $RequireReferenceValue) {
-            Write-Information "vault: '$user' has a stored credential; keeping it (no internal authentication key available to check it against $ReferenceHost)." -InformationAction Continue
-            & $record $user $resolvedKey 'kept-local' "no internal authentication key was available to check it against $ReferenceHost"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5e743da1cdfcdf13' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" }) -InformationAction Continue
+            & $record $user $resolvedKey 'kept-local' (Format-YurunaOperatorMessage -Key 'configsync.operator_14636e2b7f9a6280' -Arguments @{ referenceHost = "$ReferenceHost" })
             continue
         }
         if (-not $authKey -and $RequireReferenceValue) {
-            Write-Warning "vault: no internal authentication key is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -InternalAuthKey."
-            & $record $user $resolvedKey 'no-token' "no internal authentication key available to fetch the credential from $ReferenceHost"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ef1995d6348801eb' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" })
+            & $record $user $resolvedKey 'no-token' (Format-YurunaOperatorMessage -Key 'configsync.operator_ebe04affa70e41bf' -Arguments @{ referenceHost = "$ReferenceHost" })
             continue
         }
 
@@ -1264,13 +1261,13 @@ function Sync-ConfigSyncVaultCredential {
             # can actually serve (Ready), so the prompt is never a dead end.
             if (-not $authKey -and -not $keyPromptTried -and -not $hasEntry -and $canPrompt) {
                 $keyPromptTried = $true
-                $typed = Read-ConfigSyncSecret -Prompt "Internal authentication key -- or the dashboard's 6-character Lab token, which is redeemed for it (Enter to skip)"
+                $typed = Read-ConfigSyncSecret -Prompt (Format-YurunaOperatorMessage -Key 'configsync.operator_cb757afbb07cffde')
                 if ($typed) {
                     $resolved = Resolve-ConfigSyncInternalAuthKey -RepoRoot $RepoRoot -Value $typed
                     if ($resolved.Error) { Write-Warning $resolved.Error }
                     $authKey = [string]$resolved.Key
                     if ($resolved.Redeemed -and $resolved.Enrolled) {
-                        Write-Information 'vault: this host is now enrolled; later runs need no key at all.' -InformationAction Continue
+                        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3b1fcc74c72da88c') -InformationAction Continue
                     }
                 }
             }
@@ -1286,17 +1283,17 @@ function Sync-ConfigSyncVaultCredential {
                     # say once what would actually fix it.
                     if ($r.Status -eq 403) {
                         $authKey = ''
-                        Write-Warning "vault: that internal authentication key is not the one $ReferenceHost holds, so no credential can be fetched. Enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService) and re-run this sync."
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_45df46c63b590ee5' -Arguments @{ referenceHost = "$ReferenceHost" })
                     }
                 }
             } elseif (-not $hasEntry) {
                 # Serviceable, but we have no key and cannot (or were told not to)
                 # get one. Only worth flagging when the entry is missing; an entry
                 # that already exists is kept quietly below.
-                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no internal authentication key to unlock it; pass -InternalAuthKey, or enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_edbab3e6c6e97d54' -Arguments @{ referenceHost = "$ReferenceHost"; user = "$user" })
             }
         } else {
-            Write-Warning "vault: the '$user' credential cannot be fetched from the reference host -- $($capability.Error)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7e929f75228fd7c0' -Arguments @{ user = "$user"; error = "$($capability.Error)" })
         }
 
         if ($password) {
@@ -1308,18 +1305,16 @@ function Sync-ConfigSyncVaultCredential {
                 try { $current = [string](Get-Password -Username $user) } catch { $current = '' }
             }
             if ($hasEntry -and $current -eq $password) {
-                Write-Information "vault: '$user' already matches the credential on $ReferenceHost; no change." -InformationAction Continue
-                & $record $user $resolvedKey 'already-matches' "matches the credential on $ReferenceHost"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_579dcdc19a4bffcf' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" }) -InformationAction Continue
+                & $record $user $resolvedKey 'already-matches' (Format-YurunaOperatorMessage -Key 'configsync.operator_6c4892a60072cac0' -Arguments @{ referenceHost = "$ReferenceHost" })
                 continue
             }
-            $action = if ($hasEntry) { 'Update' } else { 'Store' }
-            if ($PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "$action the '$user' credential fetched from $ReferenceHost")) {
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_9a587adc27d9c74d' -Arguments @{ resolvedKey = "$resolvedKey" }), (Format-YurunaOperatorMessage -Key 'configsync.credential_action' -Arguments @{ hasEntry = [string]$hasEntry; user = "$user"; referenceHost = "$ReferenceHost" }))) {
                 Set-Password -Username $resolvedKey -NewPassword $password
-                $done = if ($hasEntry) { 'updated (the reference has a newer credential)' } else { 'stored' }
-                Write-Information "vault: $done the credential for '$user' (key '$resolvedKey') from $ReferenceHost." -InformationAction Continue
-                & $record $user $resolvedKey $(if ($hasEntry) { 'updated' } else { 'stored' }) "fetched from $ReferenceHost"
+                Write-Information (Format-YurunaOperatorMessage -Key 'configsync.credential_done' -Arguments @{ hasEntry = [string]$hasEntry; user = "$user"; resolvedKey = "$resolvedKey"; referenceHost = "$ReferenceHost" }) -InformationAction Continue
+                & $record $user $resolvedKey $(if ($hasEntry) { 'updated' } else { 'stored' }) (Format-YurunaOperatorMessage -Key 'configsync.operator_6d042d22c83afafc' -Arguments @{ referenceHost = "$ReferenceHost" })
             } else {
-                & $record $user $resolvedKey 'whatif' "would $($action.ToLowerInvariant()) the credential fetched from $ReferenceHost"
+                & $record $user $resolvedKey 'whatif' (Format-YurunaOperatorMessage -Key 'configsync.credential_preview' -Arguments @{ hasEntry = [string]$hasEntry; referenceHost = "$ReferenceHost" })
             }
             continue
         }
@@ -1332,32 +1327,32 @@ function Sync-ConfigSyncVaultCredential {
         # mount down as well, leaving the host worse off than before it tried.
         if ($hasEntry) {
             if ($RequireReferenceValue) {
-                Write-Warning "vault: '$user' has a stored credential but $ReferenceHost supplied nothing to check it against; it is still the value this host minted for itself."
-                & $record $user $resolvedKey 'unverified' "$ReferenceHost supplied no credential to converge on"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f5675f4c1c4608a9' -Arguments @{ user = "$user"; referenceHost = "$ReferenceHost" })
+                & $record $user $resolvedKey 'unverified' (Format-YurunaOperatorMessage -Key 'configsync.operator_a01d26f897759fcf' -Arguments @{ referenceHost = "$ReferenceHost" })
             } else {
-                Write-Information "vault: '$user' has a stored credential and the reference host supplied nothing to replace it; keeping the local one." -InformationAction Continue
-                & $record $user $resolvedKey 'kept-local' "$ReferenceHost supplied nothing to replace it"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b36976f094aa3f4e' -Arguments @{ user = "$user" }) -InformationAction Continue
+                & $record $user $resolvedKey 'kept-local' (Format-YurunaOperatorMessage -Key 'configsync.operator_922f6f240e2393dd' -Arguments @{ referenceHost = "$ReferenceHost" })
             }
             continue
         }
         $typed = ''
         if ($canPrompt) {
-            $typed = Read-ConfigSyncSecret -Prompt "Password for networkStorage user '$user' (Enter to skip)"
+            $typed = Read-ConfigSyncSecret -Prompt (Format-YurunaOperatorMessage -Key 'configsync.operator_41342d0410aa7c6d' -Arguments @{ user = "$user" })
         }
         if (-not $typed) {
-            Write-Warning "vault: no credential stored for '$user'; the networkStorage mount will stay skipped until one is set (Set-Password -Username '$resolvedKey')."
-            & $record $user $resolvedKey 'missing' 'no credential could be fetched, and none was supplied'
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ceff4f91aefb6062' -Arguments @{ user = "$user"; resolvedKey = "$resolvedKey" })
+            & $record $user $resolvedKey 'missing' (Format-YurunaOperatorMessage -Key 'configsync.operator_d8478026c13990f5')
             continue
         }
-        if ($PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "Store the credential for networkStorage user '$user'")) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_9a587adc27d9c74d' -Arguments @{ resolvedKey = "$resolvedKey" }), (Format-YurunaOperatorMessage -Key 'runner.operator_743d4c89a27b0230' -Arguments @{ user = "$user" }))) {
             Set-Password -Username $resolvedKey -NewPassword $typed
-            Write-Information "vault: stored the credential for '$user' (key '$resolvedKey')." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e0385afcaf2704d0' -Arguments @{ user = "$user"; resolvedKey = "$resolvedKey" }) -InformationAction Continue
             # Operator-typed, not reference-supplied. Reported as converged
             # because the operator is the authority the reference stands in for --
             # they read it off the lab, which is the same value.
-            & $record $user $resolvedKey 'stored' 'entered by the operator'
+            & $record $user $resolvedKey 'stored' (Format-YurunaOperatorMessage -Key 'configsync.operator_0c6e2106f0eb6822')
         } else {
-            & $record $user $resolvedKey 'whatif' 'would store the operator-entered credential'
+            & $record $user $resolvedKey 'whatif' (Format-YurunaOperatorMessage -Key 'configsync.operator_259ae96e9169d2f6')
         }
     }
     return [pscustomobject[]]@($outcome)
@@ -1507,9 +1502,9 @@ function Sync-HostConfiguration {
         $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     }
     $hostType = Get-HostType
-    if (-not $hostType) { throw "Sync-HostConfiguration: unsupported platform." }
+    if (-not $hostType) { throw (Format-YurunaOperatorMessage -Key 'configsync.operator_a610cd0fd716e5f9') }
 
-    Write-Information "Fetching test.config.yml from http://${ReferenceHost}:${StatusPort}/control/test-config ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_885ea33d3fbe29cb' -Arguments @{ referenceHost = "${ReferenceHost}"; statusPort = "${StatusPort}" }) -InformationAction Continue
     $reference = Get-ConfigSyncReferenceConfig -ReferenceHost $ReferenceHost -Port $StatusPort
 
     # --- REGION: Retired key spellings on the reference
@@ -1532,9 +1527,9 @@ function Sync-HostConfiguration {
         Import-Module $namingModule -Force -DisableNameChecking
         $migrated = @(Update-RetiredConfigKey -Config $reference -Confirm:$false)
         if ($migrated.Count -gt 0) {
-            Write-Warning ("Reference host ${ReferenceHost} still uses $($migrated.Count) retired config key name(s). They were translated for this sync; fix them at the source with 'pwsh tools/Update-TestConfigNaming.ps1' on ${ReferenceHost} so every other consumer sees them too:")
+            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_400083668bb425de' -Arguments @{ referenceHost = "${ReferenceHost}"; count = "$($migrated.Count)" }))
             foreach ($m in $migrated) {
-                $note = if ($m.Action -eq 'superseded') { ' (dropped -- the current spelling was already present)' }
+                $note = if ($m.Action -eq 'superseded') { (Format-YurunaOperatorMessage -Key 'configsync.operator_9e44a801c5e38eb2') }
                         elseif ($m.Factor -ne 1)        { " (x$($m.Factor) -> $($m.Value))" }
                         else                            { '' }
                 Write-Warning "  $($m.Old) -> $($m.New)$note"
@@ -1552,32 +1547,30 @@ function Sync-HostConfiguration {
     if ($freshness.Checked -and -not $freshness.IsCurrent) {
         $detail = [System.Collections.Generic.List[string]]::new()
         if ($freshness.Retired.Count -gt 0) {
-            [void]$detail.Add("  Retired key names still in use on ${ReferenceHost} ($($freshness.Retired.Count)):")
+            [void]$detail.Add((Format-YurunaOperatorMessage -Key 'configsync.operator_9d1be9a1af0107c6' -Arguments @{ referenceHost = "${ReferenceHost}"; count = "$($freshness.Retired.Count)" }))
             foreach ($r in $freshness.Retired) { [void]$detail.Add("    - $r") }
         }
         if ($freshness.Missing.Count -gt 0) {
-            [void]$detail.Add("  Keys this host's schema defines that ${ReferenceHost} does NOT have ($($freshness.Missing.Count)) -- they will take template defaults:")
+            [void]$detail.Add((Format-YurunaOperatorMessage -Key 'configsync.operator_03e72c207d4307ef' -Arguments @{ referenceHost = "${ReferenceHost}"; count = "$($freshness.Missing.Count)" }))
             foreach ($m in $freshness.Missing) { [void]$detail.Add("    - $m") }
         }
         if ($freshness.Unknown.Count -gt 0) {
-            [void]$detail.Add("  Keys on ${ReferenceHost} that this host's schema no longer defines ($($freshness.Unknown.Count)) -- they will be dropped:")
+            [void]$detail.Add((Format-YurunaOperatorMessage -Key 'configsync.operator_99c291e04af53ea0' -Arguments @{ referenceHost = "${ReferenceHost}"; count = "$($freshness.Unknown.Count)" }))
             foreach ($u in $freshness.Unknown) { [void]$detail.Add("    - $u") }
         }
-        $summary = "Reference host ${ReferenceHost} is NOT up to date with this host's test.config.yml.template:`n" +
-                   ($detail -join "`n") +
-                   "`n  Fix at the source: run 'pwsh tools/Update-TestConfigNaming.ps1' then 'pwsh test/Test-Config.ps1' on ${ReferenceHost}, then re-run this sync."
+        $summary = (Format-YurunaOperatorMessage -Key 'configsync.operator_202dc5f92e411bb6' -Arguments @{ referenceHost = "${ReferenceHost}"; detail = "$(($detail -join "`n"))" })
         Write-Warning $summary
         if ($AllowStaleReference) {
-            Write-Warning "Proceeding anyway (-AllowStaleReference)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d5df7de49d6582c5')
         } elseif ($NonInteractive) {
-            throw "Sync-HostConfiguration: refusing to copy a stale config from ${ReferenceHost} in -NonInteractive mode. Re-run with -AllowStaleReference to accept the drift, or bring the reference host up to date first."
+            throw (Format-YurunaOperatorMessage -Key 'configsync.operator_a07da31688eb8071' -Arguments @{ referenceHost = "${ReferenceHost}" })
         } elseif (-not $PSCmdlet.ShouldContinue(
-                    "Copy this partially-migrated configuration onto this host anyway?",
-                    "Reference host $ReferenceHost is not up to date")) {
-            throw "Sync-HostConfiguration: canceled -- ${ReferenceHost} is not up to date."
+                    (Format-YurunaOperatorMessage -Key 'configsync.operator_89d813963a42571e'),
+                    (Format-YurunaOperatorMessage -Key 'configsync.operator_fcdef223bcd5d9cb' -Arguments @{ referenceHost = "$ReferenceHost" }))) {
+            throw (Format-YurunaOperatorMessage -Key 'configsync.operator_a98b32ec2329c210' -Arguments @{ referenceHost = "${ReferenceHost}" })
         }
     } elseif ($freshness.Checked) {
-        Write-Information "Reference config from ${ReferenceHost} matches this host's schema." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6f45c80f05654384' -Arguments @{ referenceHost = "${ReferenceHost}" }) -InformationAction Continue
     }
 
     $configPath = Join-Path $RepoRoot 'test/test.config.yml'
@@ -1601,8 +1594,8 @@ function Sync-HostConfiguration {
     $wrote = $false
     $backupPath = $null
     if ($yaml -eq $currentYaml) {
-        Write-Information "test.config.yml already matches the reference (after conversion); no rewrite." -InformationAction Continue
-    } elseif ($PSCmdlet.ShouldProcess($configPath, "Replace with the converted config from $ReferenceHost")) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8611bc4c42a9779a') -InformationAction Continue
+    } elseif ($PSCmdlet.ShouldProcess($configPath, (Format-YurunaOperatorMessage -Key 'runner.operator_26170942123e2fb5' -Arguments @{ referenceHost = "$ReferenceHost" }))) {
         if ($local) {
             # Same recoverability convention as the template reconcile: the
             # pre-sync file is always one copy away.
@@ -1611,10 +1604,10 @@ function Sync-HostConfiguration {
         }
         $wrote = [bool](Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false)
         if (-not $wrote) {
-            throw "Sync-HostConfiguration: atomic write of $configPath failed."
+            throw (Format-YurunaOperatorMessage -Key 'configsync.operator_acd19bbbd8ecb77b' -Arguments @{ configPath = "$configPath" })
         }
-        $backupNote = if ($backupPath) { " (previous file backed up to $backupPath)" } else { '' }
-        Write-Information "test.config.yml updated from ${ReferenceHost}${backupNote}." -InformationAction Continue
+        $backupNote = if ($backupPath) { (Format-YurunaOperatorMessage -Key 'configsync.operator_d1da8b19d2899d33' -Arguments @{ backupPath = "$backupPath" }) } else { '' }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5691792ef0c34155' -Arguments @{ referenceHost = "${ReferenceHost}"; backupNote = "${backupNote}" }) -InformationAction Continue
     }
 
     $ns = $canonical['networkStorage']
@@ -1648,18 +1641,18 @@ function Sync-HostConfiguration {
                 'present'   { Write-Information "poolStorage: $($sudo.Message)" -InformationAction Continue }
                 'skipped'   { Write-Warning $sudo.Message }
                 'failed'    { Write-Warning "poolStorage: $($sudo.Message)" }
-                default     { Write-Verbose "poolStorage sudoers: $($sudo.Action) -- $($sudo.Message)" }
+                default     { Write-Verbose (Format-YurunaOperatorMessage -Key 'configsync.operator_265250e5e60166b6' -Arguments @{ action = "$($sudo.Action)"; message = "$($sudo.Message)" }) }
             }
         }
     }
 
     $validationExit = $null
     if (-not $SkipValidation -and -not $WhatIfPreference) {
-        Write-Information "Validating the synced config (test/Test-Config.ps1) ..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0d5b3ab6571f7a39') -InformationAction Continue
         & pwsh -NoProfile -File (Join-Path $RepoRoot 'test/Test-Config.ps1')
         $validationExit = $LASTEXITCODE
         if ($validationExit -ne 0) {
-            Write-Warning "Test-Config.ps1 reported failures (exit $validationExit); review its output above."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'configsync.operator_562b56f7b48a5230' -Arguments @{ validationExit = "$validationExit" })
         }
     }
 
@@ -1693,7 +1686,7 @@ function Get-BounceLogDelta {
             $Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
             ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
     } catch {
-        Write-Debug "bounce transcript not readable yet: $($_.Exception.Message)"
+        Write-Debug (Format-YurunaOperatorMessage -Key 'configsync.operator_d065ed41fc7b982c' -Arguments @{ message = "$($_.Exception.Message)" })
         return $result
     }
     try {
@@ -1756,7 +1749,7 @@ function Invoke-StatusServiceBounce {
     try {
         $proc = Start-Process @spawn
     } catch {
-        Write-Warning "Status-server bounce could not start: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47371277eaeea492' -Arguments @{ message = "$($_.Exception.Message)" })
         return $result
     }
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -1796,6 +1789,11 @@ function Invoke-StatusServiceBounce {
     confirmed vault entry (an unpopulated user would auto-generate a junk
     credential). Requires the authentication extension loaded; returns ''
     when it is not.
+
+    The value is returned trimmed, matching the aggregator's own read of the
+    baked key file. Both ends HMAC it to publish and compare control tags, so a
+    copy that differs only in surrounding whitespace would read as two different
+    secrets and strand every host on "onsite (token mismatch)".
 #>
 function Get-InternalAuthKeyValue {
     [CmdletBinding()]
@@ -1806,7 +1804,12 @@ function Get-InternalAuthKeyValue {
             if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) { return '' }
             $tm = Get-EffectiveUser -LogicalUser $logical
             if ($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey)) {
-                return [string](Get-Password -Username $logical)
+                # Trimmed to match the aggregator, which strips surrounding whitespace
+                # when it reads the same key off disk. The two ends HMAC this value to
+                # compare tags; a stored copy differing by one trailing newline would
+                # report the whole pool as "onsite (token mismatch)" while both sides
+                # genuinely hold the same secret.
+                return ([string](Get-Password -Username $logical)).Trim()
             }
         } catch { $null = $_ }
     }
@@ -1842,26 +1845,26 @@ function Get-LabTokenExchangeVerdict {
     switch ($StatusCode) {
         200 {
             if ([string]::IsNullOrWhiteSpace($Token)) {
-                return @{ Ok = $false; Token = ''; Status = 200; Error = "$AggregatorUrl answered the exchange but the reply did not unseal with this Lab token. Either the reply came from something other than the lab's aggregator, or the code was consumed against a different proxy; read the current code off the Yuruna hosts dashboard and re-run." }
+                return @{ Ok = $false; Token = ''; Status = 200; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_b8277d0b77dd315e' -Arguments @{ aggregatorUrl = "$AggregatorUrl" }) }
             }
             return @{ Ok = $true; Token = $Token; Status = 200; Error = $null }
         }
         0 {
-            $why = if ($ServerError) { $ServerError } else { 'no response' }
-            return @{ Ok = $false; Token = ''; Status = 0; Error = "$AggregatorUrl is not answering ($why). Check the caching-proxy-service address and that the pool-aggregator service is running on it." }
+            $why = if ($ServerError) { $ServerError } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_88e60532873f2e23') }
+            return @{ Ok = $false; Token = ''; Status = 0; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_2273c132a7fe499b' -Arguments @{ aggregatorUrl = "$AggregatorUrl"; why = "$why" }) }
         }
         403 {
-            return @{ Ok = $false; Token = ''; Status = 403; Error = "The Lab token was not accepted by $AggregatorUrl -- it rotates every minute, so read the CURRENT code off the Yuruna hosts dashboard and re-run right away." }
+            return @{ Ok = $false; Token = ''; Status = 403; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_fe98a0adcdbd07b3' -Arguments @{ aggregatorUrl = "$AggregatorUrl" }) }
         }
         429 {
-            return @{ Ok = $false; Token = ''; Status = 429; Error = "$AggregatorUrl throttled this host after too many failed attempts. Wait a few minutes, read a fresh Lab token off the dashboard, and re-run." }
+            return @{ Ok = $false; Token = ''; Status = 429; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_29ef5c3e50b93287' -Arguments @{ aggregatorUrl = "$AggregatorUrl" }) }
         }
         503 {
-            return @{ Ok = $false; Token = ''; Status = 503; Error = "$AggregatorUrl has the lab-token exchange disabled (rotation off, or the proxy holds no internal authentication key). Rebuild the caching-proxy service from a host that holds the token, or check the pool-aggregator service flags." }
+            return @{ Ok = $false; Token = ''; Status = 503; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_c593d83f1f3260d0' -Arguments @{ aggregatorUrl = "$AggregatorUrl" }) }
         }
         default {
             $why = if ($ServerError) { $ServerError } else { "HTTP $StatusCode" }
-            return @{ Ok = $false; Token = ''; Status = $StatusCode; Error = "$AggregatorUrl refused the exchange ($why)." }
+            return @{ Ok = $false; Token = ''; Status = $StatusCode; Error = (Format-YurunaOperatorMessage -Key 'configsync.operator_b636602072bf575e' -Arguments @{ aggregatorUrl = "$AggregatorUrl"; why = "$why" }) }
         }
     }
 }
@@ -1898,7 +1901,7 @@ function Unprotect-LabTokenEnvelope {
             if (-not $Envelope[$field]) {
                 # Named, because a silent empty return here reads downstream as
                 # a failed decrypt -- a different fault with different advice.
-                Write-Warning "The lab-token reply carries no '$field'. The aggregator answered and sealed something, so this is a shape mismatch between that daemon and this client, not a wrong code."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bf3c592a7c65740' -Arguments @{ field = "$field" })
                 return ''
             }
         }
@@ -1922,7 +1925,7 @@ function Unprotect-LabTokenEnvelope {
         [Array]::Clear($plain, 0, $plain.Length)
         return $opened
     } catch {
-        Write-Verbose "lab-token envelope did not authenticate: $($_.Exception.Message)"
+        Write-Verbose (Format-YurunaOperatorMessage -Key 'configsync.operator_ae8bc8821187bf0f' -Arguments @{ message = "$($_.Exception.Message)" })
         return ''
     }
 }
@@ -2026,11 +2029,11 @@ function Set-InternalAuthKey {
     $logical = 'internal-auth-key'
     foreach ($fn in @('Set-UserVaultKey', 'Set-Password', 'Get-Password', 'Test-VaultEntry', 'Get-EffectiveUser', 'Reset-UsersConfigCache')) {
         if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
-            throw "Set-InternalAuthKey requires the authentication extension: '$fn' is not available. Import test/extension/authentication/default.psm1 first."
+            throw (Format-YurunaOperatorMessage -Key 'configsync.operator_0bda1d154849ebae' -Arguments @{ fn = "$fn" })
         }
     }
     $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; retired = [string[]]@(); bounced = $false; bounceLog = $null }
-    if (-not $PSCmdlet.ShouldProcess("host vault ($logical)", 'Provision the internal authentication key')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_88f4431aaa292749' -Arguments @{ logical = "$logical" }), (Format-YurunaOperatorMessage -Key 'runner.operator_5d1e7425aad78672'))) {
         return $result
     }
     # Each step is announced on the Information stream before it runs. The vault
@@ -2042,32 +2045,32 @@ function Set-InternalAuthKey {
 
     # vaultKey == the logical name so Set-Password's -Username and the gate's
     # vaultKey resolution address the identical vault slot.
-    Write-Information "[1/$steps] users.yml: pointing logical user '$logical' at vault key '$logical' ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7ba5d08640a599cc' -Arguments @{ steps = "$steps"; logical = "$logical" }) -InformationAction Continue
     $result.keyChanged = [bool](Set-UserVaultKey -LogicalUser $logical -VaultKey $logical)
-    $keyNote = if ($result.keyChanged) { 'vaultKey updated' } else { 'vaultKey already correct, file unchanged' }
+    $keyNote = if ($result.keyChanged) { (Format-YurunaOperatorMessage -Key 'configsync.operator_9a3e9ae77884bd96') } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_fb81a6a9d802efb2') }
     Write-Information "[1/$steps] users.yml: $keyNote." -InformationAction Continue
 
-    Write-Information "[2/$steps] vault: storing the internal authentication key under '$logical' ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_95ba94e5707466db' -Arguments @{ steps = "$steps"; logical = "$logical" }) -InformationAction Continue
     $null = Set-Password -Username $logical -NewPassword $Token
     $null = Reset-UsersConfigCache -Confirm:$false
-    Write-Information "[2/$steps] vault: key stored." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_73e9bfb2f827b680' -Arguments @{ steps = "$steps" }) -InformationAction Continue
 
-    Write-Information "[3/$steps] vault: verifying the round-trip through the same resolution the control gate uses ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_72d9ea5574f8cb54' -Arguments @{ steps = "$steps" }) -InformationAction Continue
     $tm = Get-EffectiveUser -LogicalUser $logical
     $result.verified = [bool]($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey) -and ((Get-Password -Username $logical) -eq $Token))
-    $verifyNote = if ($result.verified) { 'round-trip verified' } else { 'round-trip FAILED -- the key cannot be read back' }
+    $verifyNote = if ($result.verified) { (Format-YurunaOperatorMessage -Key 'configsync.operator_10c994f8cce1fea5') } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_9dd67c3b0ec875db') }
     Write-Information "[3/$steps] vault: $verifyNote." -InformationAction Continue
 
     # Retire the names the read chain still falls back to, so one secret lives
     # under exactly one key. Strictly AFTER the verify: the fallback copy is the
     # only thing standing between a failed write and an unreachable host, and
     # deleting it first would turn a recoverable mis-store into a re-enrollment.
-    Write-Information "[4/$steps] vault: retiring superseded key names ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a83b3a51c09e16c5' -Arguments @{ steps = "$steps" }) -InformationAction Continue
     if (-not $result.verified) {
-        Write-Information "[4/$steps] vault: skipped -- the new entry did not verify, so the fallback copies stay." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aa2359b64eecf6a9' -Arguments @{ steps = "$steps" }) -InformationAction Continue
     } elseif (-not (Get-Command Remove-VaultEntry -ErrorAction SilentlyContinue) -or
               -not (Get-Command Remove-UserEntry  -ErrorAction SilentlyContinue)) {
-        Write-Information "[4/$steps] vault: skipped -- this authentication extension has no removal support." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_368d0ba243d4262e' -Arguments @{ steps = "$steps" }) -InformationAction Continue
     } else {
         $retired = [System.Collections.Generic.List[string]]::new()
         foreach ($old in @('lab-auth-token', 'pool-auth-token')) {
@@ -2079,11 +2082,11 @@ function Set-InternalAuthKey {
                 $removedUser = [bool](Remove-UserEntry -LogicalUser $old -Confirm:$false)
                 if ($removedVault -or $removedUser) { [void]$retired.Add($old) }
             } catch {
-                Write-Warning "Could not retire the superseded '$old' entry ($($_.Exception.Message)); it still holds a copy of this host's internal authentication key."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_115a0cebc1971e79' -Arguments @{ old = "$old"; message = "$($_.Exception.Message)" })
             }
         }
         $result.retired = [string[]]@($retired)
-        $retiredNote = if ($retired.Count) { "removed $($retired -join ', ')" } else { 'nothing to remove' }
+        $retiredNote = if ($retired.Count) { (Format-YurunaOperatorMessage -Key 'runner.vault_retired_entries' -Arguments @{ names = ($retired -join ', ') }) } else { (Format-YurunaOperatorMessage -Key 'configsync.operator_9a0416e3d899776d') }
         Write-Information "[4/$steps] vault: $retiredNote." -InformationAction Continue
     }
 
@@ -2091,19 +2094,19 @@ function Set-InternalAuthKey {
         $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'service/Start-StatusService.ps1'
         $pwshExe = [System.Environment]::ProcessPath
         if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {
-            Write-Information "[5/$steps] status service: restarting so the running process re-reads users.yml now (up to ${BounceTimeoutSeconds}s) ..." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4f7e838f26c3bf54' -Arguments @{ steps = "$steps"; bounceTimeoutSeconds = "${BounceTimeoutSeconds}" }) -InformationAction Continue
             $bounce = Invoke-StatusServiceBounce -PwshExe $pwshExe -StartScript $startScript -TimeoutSeconds $BounceTimeoutSeconds
             $result.bounced   = $bounce.ok
             $result.bounceLog = $bounce.logPath
             if ($bounce.ok) {
-                Write-Information "[5/$steps] status service: restarted." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5b98a93cb6af39a9' -Arguments @{ steps = "$steps" }) -InformationAction Continue
             } elseif ($bounce.timedOut) {
-                Write-Warning "Status-server bounce is still running after ${BounceTimeoutSeconds}s; it was left alone (killing it would take the server down with it). Transcript: $($bounce.logPath). The token is stored and takes effect at the next cycle."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d74f75db443e9e2' -Arguments @{ bounceTimeoutSeconds = "${BounceTimeoutSeconds}"; logPath = "$($bounce.logPath)" })
             } else {
-                Write-Warning "Status-server bounce exited $($bounce.exitCode) (transcript: $($bounce.logPath)); the token is stored and takes effect at the next cycle."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f5c0d3fa4f8cdf8' -Arguments @{ exitCode = "$($bounce.exitCode)"; logPath = "$($bounce.logPath)" })
             }
         } else {
-            Write-Warning "Cannot bounce the status service (Start-StatusService.ps1 or the pwsh executable was not found); the token is stored and takes effect at the next cycle."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a63d02d5ebb8e7d')
         }
     }
     $result.ok = [bool]$result.verified

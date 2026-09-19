@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -672,7 +672,7 @@ Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
         Assert-True ($null -ne $payload.text) 'the request carries a text part'
         Assert-True ($null -ne $payload.html) 'the request carries an html part'
         Assert-Equal -Expected "line one`nline two <b>" -Actual $payload.text -Because 'the text part is the message as written, not an encoded copy'
-        Assert-True ($payload.html -match 'lang="en"')          'the html part declares a document language'
+        Assert-True ($payload.html -match 'lang="en-US"')          'the html part declares a document language'
         Assert-True ($payload.html -match 'pre-wrap')            'the html part wraps instead of scrolling horizontally'
         Assert-True ($payload.html -match 'line two &lt;b&gt;')  'the html part is still encoded'
     }

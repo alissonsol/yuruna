@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ param(
     [switch]$Quiet
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = "Stop"
 $ExplicitPrefix = $PSBoundParameters.ContainsKey('Prefix')
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -96,7 +97,7 @@ if (-not $Prefix) { $Prefix = @('test-') }
 # only shows up once it has already deleted something.
 $Prefix = @($Prefix | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
 if ($Prefix.Count -eq 0) {
-    Write-Error "No usable VM-name prefix: -Prefix resolved to nothing. Pass an explicit prefix (an empty prefix would match every VM on the host)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ffda3e4cb15ba9b3')
     exit 1
 }
 
@@ -107,7 +108,7 @@ if ($Prefix.Count -eq 0) {
 # out of the global table for unrelated modules (the legacy-eviction regression
 # class). -Global keeps the contract globally resolvable for every caller.
 $hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
-if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
+if (-not (Test-Path $hostModPath)) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_b715acbcf9355372' -Arguments @{ hostModPath = "$hostModPath" }); exit 1 }
 Import-Module -Name $hostModPath -Force -Global
 
 $HostType = Get-HostType
@@ -159,7 +160,7 @@ $removedCount = 0
 try {
     $targets = @(Get-VMName -Prefix $Prefix)
 } catch {
-    Write-Error "Could not enumerate VMs on '$HostType': $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_74777125b53cf1b3' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
     exit 1
 }
 
@@ -177,7 +178,7 @@ foreach ($vmName in $targets) {
             if (Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false) {
                 Write-Status "    Stopped."
             } else {
-                Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_178c903f4d34b4e7' -Arguments @{ vmName = "$vmName" })
             }
         } else {
             Write-Status "    Already stopped."
@@ -188,14 +189,14 @@ foreach ($vmName in $targets) {
         $removedOk = Remove-VM -VMName $vmName -Confirm:$false
         $finalState = Get-VMState -VMName $vmName
         if (-not $removedOk -or $finalState -ne 'absent') {
-            Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_26faefb48e0a9157' -Arguments @{ vmName = "$vmName"; finalState = "$finalState" })
             $survivors.Add("$vmName [$finalState]")
         } else {
             Write-Status "    Removed."
             $removedCount++
         }
     } catch {
-        Write-Warning "    Failed to remove '$vmName': $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_005c1ce69aef7499' -Arguments @{ vmName = "$vmName"; value = "$_" })
         $finalState = Get-VMState -VMName $vmName
         $survivors.Add("$vmName$(if ($finalState -and $finalState -ne 'absent') { " [$finalState]" })")
     }
@@ -211,11 +212,11 @@ Write-Status ""
 try {
     $remaining = @(Get-VMName -Prefix $Prefix)
     if ($remaining.Count -gt 0) {
-        Write-Warning "  $($remaining.Count) VM(s) still match '$prefixLabel' after cleanup:"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a5b2e6728ed80b48' -Arguments @{ count = "$($remaining.Count)"; prefixLabel = "$prefixLabel" })
         foreach ($n in $remaining) { Write-Warning "    $n [$(Get-VMState -VMName $n)]" }
     }
 } catch {
-    Write-Warning "  Rescan skipped: could not enumerate VMs ($($_.Exception.Message))"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a206c195828cc91a' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 Write-Status ""
@@ -238,7 +239,7 @@ Write-Status ""
 $cleanupScript = Join-Path -Path $RepoRoot -ChildPath (Get-HostFolder $HostType) -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 
 if (-not (Test-Path $cleanupScript)) {
-    Write-Error "Cleanup script not found: $cleanupScript"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_346d59852c305e3b' -Arguments @{ cleanupScript = "$cleanupScript" })
     exit 1
 }
 
@@ -251,7 +252,7 @@ if (-not (Test-Path $cleanupScript)) {
 # automated caller running with -Quiet still sees a single line that
 # proves the orphan sweep was attempted; -Quiet propagates down so
 # Remove-OrphanedVMFiles itself emits no chatter.
-Write-Output "Running orphaned VM file cleanup: $cleanupScript"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0727e0f3d5181249' -Arguments @{ cleanupScript = "$cleanupScript" })
 Write-Status ""
 $orphanArgs = @{ Force = $true }
 if ($Quiet) { $orphanArgs['Quiet'] = $true }

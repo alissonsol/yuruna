@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -478,7 +478,7 @@ function Get-DomainCount {
 
             $text = [IO.File]::ReadAllText($full)
             $result.files++
-            foreach ($m in [regex]::Matches($text, 'YurunaI18n\.t\(|Yuruna\.t\(|Format-CatalogMessage|catalog\.Render|Translate\(')) {
+            foreach ($m in [regex]::Matches($text, 'YurunaI18n\.t\(|Yuruna\.t\(|Format-CatalogMessage|Format-YurunaOperatorMessage|New-SequencePlannerException\s+-Key\b|catalog\.Render|Translate\(')) {
                 $result.catalogCalls++
             }
             $literals = if ($ext -in '.ps1', '.psm1') {

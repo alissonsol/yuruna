@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
 # Junk SMBIOS/serial values that firmware ships as placeholders. Treated as
 # "absent" so two unrelated boards that both report "Default string" never look
 # like a match. Compared lowercased after trimming.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:HostIdJunkValues = @(
     '', '0',
     '00000000-0000-0000-0000-000000000000',
@@ -675,7 +676,7 @@ function Write-HostInfoRecord {
     if ([string]::IsNullOrWhiteSpace($MountRoot)) { return $null }
     $hostsDir = Join-Path $MountRoot 'hosts'
     $path = Join-Path $hostsDir ("info.$HostId.yml")
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool host-identity record')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_3fd8d7edc73a5241'))) { return $null }
     if (-not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
         Write-Verbose "Write-HostInfoRecord: powershell-yaml not available; skipping."
         return $null
@@ -810,9 +811,9 @@ function Set-PoolStorageConfigValue {
         [Parameter(Mandatory)][string]$LocalPath,
         [switch]$MoveLogs
     )
-    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write networkStorage (pool) config')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_e83ae8bb954052eb'))) { return $false }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
-        Write-Warning "networkStorage setup: powershell-yaml not available; cannot write $ConfigPath."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_77ae27be1149eef6' -Arguments @{ configPath = "$ConfigPath" })
         return $false
     }
     try {
@@ -839,7 +840,7 @@ function Set-PoolStorageConfigValue {
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {
-        Write-Warning "networkStorage setup: could not write $ConfigPath ($($_.Exception.Message))."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e4a4399585a6e580' -Arguments @{ configPath = "$ConfigPath"; message = "$($_.Exception.Message)" })
         return $false
     }
 }
@@ -936,7 +937,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     param([Parameter(Mandatory)][string]$RepoRoot)
 
     if (-not (Test-HostIdentityInteractive)) {
-        Write-Warning "poolStorage setup skipped (no interactive console). Run Enable-TestAutomation in a terminal to configure NAS replication + reclaim this host's pool identity."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_eec555746509c9a5')
         return
     }
     Initialize-HostIdentityDependency
@@ -969,13 +970,13 @@ function Invoke-PoolStorageSetupAndReclaim {
     }
 
     Write-HostIdentityLine ''
-    Write-HostIdentityLine 'networkStorage pool (optional NAS archiving + pool host-identity):'
+    Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_d8efffbb20e2b08b')
     if (-not $runtimeResolved) {
-        Write-HostIdentityLine "  NOTE: the runtime directory could not be resolved here, so this host's pool identity cannot be determined. You may still configure NAS replication; reclaim/mint is skipped until the runtime dir is available."
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_85b11374705e6c08')
     } elseif ($uuidExists) {
-        Write-HostIdentityLine "  This host already has a pool identity (runtime/host.uuid). Reclaim is not needed; you may still (re)configure NAS replication."
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_bf24ede077e97955')
     } else {
-        Write-HostIdentityLine "  This host has NO pool identity yet. Configuring poolStorage now lets it scan the NAS for a prior identity and RECLAIM its uuid (e.g. after a reimage)."
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_3e56167cc649e262')
     }
     # --- REGION: Already configured -- ask nothing
     # A config sync from a reference host writes all three pool values and
@@ -998,47 +999,47 @@ function Invoke-PoolStorageSetupAndReclaim {
         -LocalPath $curLocal -HasSecret:$curHasSecret
 
     if ($setup.Action -eq 'configured') {
-        Write-HostIdentityLine "  Already configured -- nothing to ask:"
-        Write-HostIdentityLine "    $curPath as '$curUser' at $curLocal (credential stored under '$curVaultKey')"
-        Write-HostIdentityLine "    To change it, sync from a reference host (pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host>) or edit test/test.config.yml."
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_b93313785a262cc2')
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_36a17e7479bb777d' -Arguments @{ curPath = "$curPath"; curUser = "$curUser"; curLocal = "$curLocal"; curVaultKey = "$curVaultKey" })
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_18c33024888b3413')
     } else {
         if ($setup.Action -eq 'partial') {
-            Write-HostIdentityLine "  Partially configured ($($setup.Gap)); completing it below."
+            Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_ee0c47579369361d' -Arguments @{ gap = "$($setup.Gap)" })
         }
-        if (-not (Read-HostIdentityConfirm -Prompt 'Configure poolStorage now?' -DefaultYes:$false)) {
+        if (-not (Read-HostIdentityConfirm -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_2c9668ebff4efb6d') -DefaultYes:$false)) {
             if ($runtimeResolved -and -not $uuidExists) {
-                Write-Warning "Skipped. A NEW host.uuid will be minted on the first cycle; reconnecting this host's pool history later (after a reimage) is harder once a fresh uuid is in use."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_56d1a149071a7036')
             }
             return
         }
 
-        $networkPath = Read-Host "  networkPath (SMB share, e.g. //server.local/work)$(if ($curPath){" [$curPath]"})"
+        $networkPath = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_5799cbeee23ecb6d' -Arguments @{ curPath = "$(if ($curPath){" [$curPath]"})" })
         if ([string]::IsNullOrWhiteSpace($networkPath)) { $networkPath = $curPath }
-        $networkUser = Read-Host "  networkUser (storage-only NAS account)$(if ($curUser){" [$curUser]"})"
+        $networkUser = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_0a588e19ce2a651f' -Arguments @{ curUser = "$(if ($curUser){" [$curUser]"})" })
         if ([string]::IsNullOrWhiteSpace($networkUser)) { $networkUser = $curUser }
-        $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypool-nas or 'y:')$(if ($curLocal){" [$curLocal]"})"
+        $localPath = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_792237bf0bda3462' -Arguments @{ curLocal = "$(if ($curLocal){" [$curLocal]"})" })
         if ([string]::IsNullOrWhiteSpace($localPath)) { $localPath = $curLocal }
 
         # Archiving is on either way once the paths are set; this only picks the mode.
         # Stated plainly because move mode makes the NAS the ONLY copy of a cycle's
         # results, which is a durability decision, not a preference.
-        Write-HostIdentityLine "  Finished cycle results are archived to the share. Move mode ALSO deletes each cycle's local folder once the copy is verified, so the NAS holds the only copy and this host's disk stops accumulating results."
-        $moveLogs = Read-HostIdentityConfirm -Prompt '  Move logs to pool storage (delete the local folder after archiving)?' -DefaultYes:$curMove
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_165ea1e68d413260')
+        $moveLogs = Read-HostIdentityConfirm -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_d44064f7e7fd1609') -DefaultYes:$curMove
 
         if ([string]::IsNullOrWhiteSpace($networkPath) -or [string]::IsNullOrWhiteSpace($networkUser) -or [string]::IsNullOrWhiteSpace($localPath)) {
-            Write-Warning "poolStorage setup: networkPath, networkUser, and localPath are all required. Nothing written."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f2af1f9ca992cb75')
             return
         }
         if (($networkPath -match "'") -or ($networkUser -match "'")) {
-            Write-Warning "poolStorage setup: networkPath/networkUser must not contain a single quote (it would break the guest seed). Nothing written."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_46e3cbe0614b1d51')
             return
         }
 
-        $secure = Read-Host "  SMB password for '$networkUser'" -AsSecureString
+        $secure = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_0028403b21222750' -Arguments @{ networkUser = "$networkUser" }) -AsSecureString
         $plain = ''
         try { $plain = [System.Net.NetworkCredential]::new('', $secure).Password } catch { $plain = '' }
         if ([string]::IsNullOrEmpty($plain)) {
-            Write-Warning "poolStorage setup: empty password; nothing written (an empty SMB credential is rejected by the NAS)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67df53f42f453d4e')
             return
         }
 
@@ -1048,8 +1049,8 @@ function Invoke-PoolStorageSetupAndReclaim {
         if (-not (Test-Path -LiteralPath $cfgPath)) {
             $tmpl = Join-Path $RepoRoot 'test/test.config.yml.template'
             if (Test-Path -LiteralPath $tmpl) {
-                try { Copy-Item -LiteralPath $tmpl -Destination $cfgPath -Force; Write-HostIdentityLine "  Created test.config.yml from the template." }
-                catch { Write-Warning "poolStorage setup: could not create test.config.yml from the template ($($_.Exception.Message))." }
+                try { Copy-Item -LiteralPath $tmpl -Destination $cfgPath -Force; Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_fedf2a012ff69145') }
+                catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_15ccdb82a11ae302' -Arguments @{ message = "$($_.Exception.Message)" }) }
             }
         }
 
@@ -1057,14 +1058,14 @@ function Invoke-PoolStorageSetupAndReclaim {
             return
         }
         $modeWord = if ($moveLogs) { 'move -- finished cycles are deleted locally once archived' } else { 'copy -- local folders are kept' }
-        Write-HostIdentityLine "  Wrote poolStorage config ($modeWord) to $cfgPath"
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_18abbac4b544c50f' -Arguments @{ modeWord = "$modeWord"; cfgPath = "$cfgPath" })
 
         if (Get-Command Set-Password -ErrorAction SilentlyContinue) {
             $vaultKey = Get-HostIdentityVaultKey -User $networkUser
-            try { Set-Password -Username $vaultKey -NewPassword $plain; Write-HostIdentityLine "  Stored the SMB credential in the vault under '$vaultKey'." }
-            catch { Write-Warning "poolStorage setup: Set-Password failed ($($_.Exception.Message)). Set it manually before the first cycle archives." }
+            try { Set-Password -Username $vaultKey -NewPassword $plain; Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_978de504882c7705' -Arguments @{ vaultKey = "$vaultKey" }) }
+            catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d8ab32eec20a65a2' -Arguments @{ message = "$($_.Exception.Message)" }) }
         } else {
-            Write-Warning "poolStorage setup: authentication extension not loaded; could not store the SMB password. Set it manually."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f6852148be5b528')
         }
     }
 
@@ -1075,7 +1076,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     if (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue) {
         try { $cfg = Get-YurunaPoolStorageConfig -Config (Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered) } catch { Write-Verbose "config reload: $($_.Exception.Message)" }
     }
-    if (-not $cfg) { Write-Warning "poolStorage setup: could not reload the new config; skipping mount + reclaim."; return }
+    if (-not $cfg) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d389397a3c53cd45'); return }
 
     $mounted = $false
     if (Get-Command Connect-YurunaPoolStorage -ErrorAction SilentlyContinue) {
@@ -1083,7 +1084,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     }
     if ($mounted) { Write-HostIdentityLine "  Mounted $($cfg.NetworkPath) at $($cfg.LocalPath)." }
     else {
-        Write-Warning "poolStorage setup: could not mount $($cfg.NetworkPath) at $($cfg.LocalPath). Config + vault are saved; fix the share/credential and re-run. Skipping reclaim."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_359c855ffcbc9aa5' -Arguments @{ networkPath = "$($cfg.NetworkPath)"; localPath = "$($cfg.LocalPath)" })
         return
     }
 
@@ -1104,17 +1105,17 @@ function Invoke-PoolStorageSetupAndReclaim {
     # Always (re)capture the privileged fingerprint while sudo is primed, so the
     # unprivileged per-cycle drain can publish the strong keys from the cache.
     $fp = Get-HostHardwareFingerprint -AllowSudo
-    Write-HostIdentityLine "  Captured hardware fingerprint (smbiosUuid$(if($fp.smbiosUuid){' present'}else{' absent'}), $($fp.macAddresses.Count) MAC(s))."
+    Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_6d29ed9ac7edc10e' -Arguments @{ absent = "$(if($fp.smbiosUuid){' present'}else{' absent'})"; count = "$($fp.macAddresses.Count)" })
 
     if (-not $runtimeResolved) {
-        Write-Warning "poolStorage setup: the runtime directory is unresolved (YURUNA_RUNTIME_DIR not visible in-process and Test.YurunaDir unavailable), so this host's uuid can neither be read nor written. Skipping reclaim/mint to avoid forking pool history under a fresh id. Set YURUNA_RUNTIME_DIR (or make Test.YurunaDir importable) and re-run to reclaim this host's identity."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_50e1698c45b764d8')
         return
     }
 
     if ($uuidExists) {
         $myUuid = ''
         try { $myUuid = ([System.IO.File]::ReadAllText($uuidFile)).Trim() } catch { $null = $_ }
-        Write-HostIdentityLine "  This host keeps its existing pool identity: $(Format-HostIdentityUuid -Uuid $myUuid)"
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_4b8efe5b303a9b93' -Arguments @{ myUuid = "$(Format-HostIdentityUuid -Uuid $myUuid)" })
         return
     }
 
@@ -1127,34 +1128,34 @@ function Invoke-PoolStorageSetupAndReclaim {
 
     switch ($decision.action) {
         'none' {
-            Write-HostIdentityLine "  No prior host identity matched this hardware. A new host.uuid will be minted on the first cycle."
+            Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_725f4e7693c3d26a')
         }
         'ambiguous' {
-            Write-HostIdentityLine "  Multiple prior identities match this hardware -- not reclaiming automatically:"
+            Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_9c4ccff7eb3e57aa')
             foreach ($c in $decision.candidates) {
-                Write-HostIdentityLine ("    - {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f (Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
+                Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_b7f1862d0ada3a6b' -FormatValues ((Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ',')) -FormatBindings @{ uuid = '0'; hostname = '1'; lastSeenUtc = '2'; score = '3'; join = '4' })
             }
-            if (Read-HostIdentityConfirm -Prompt '  Reclaim one of these by typing its uuid? (No = mint a new uuid)' -DefaultYes:$false) {
-                $picked = (Read-Host '  uuid to reclaim').Trim()
+            if (Read-HostIdentityConfirm -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_c652e6f97f5a3fd9') -DefaultYes:$false) {
+                $picked = (Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_0d624d70cea6a6d5')).Trim()
                 # Matched against BOTH spellings, because the list above shows the
                 # dashed one and that is what an operator pastes back. What gets
                 # written is the CANDIDATE's own value, never the typed string: the
                 # id in the record is the one the pool history is keyed on.
                 $match = $decision.candidates | Where-Object { ($_.uuid -ieq $picked) -or ((Format-HostIdentityUuid -Uuid $_.uuid) -ieq $picked) } | Select-Object -First 1
                 if ($match) { Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $match.uuid }
-                else { Write-Warning "  '$picked' is not one of the listed candidates; minting a new uuid instead." }
+                else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f4ccee8da7de8804' -Arguments @{ picked = "$picked" }) }
             } else {
-                Write-HostIdentityLine "  A new host.uuid will be minted on the first cycle."
+                Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_1da81121991fa2bf')
             }
         }
         'suggest' {
             $c = $decision.candidate
-            Write-HostIdentityLine ("  A prior host identity matches this hardware:")
-            Write-HostIdentityLine ("    uuid {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f (Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
-            if (Read-HostIdentityConfirm -Prompt '  Reclaim this identity for this host?' -DefaultYes:$false) {
+            Write-HostIdentityLine ((Format-YurunaOperatorMessage -Key 'runner.operator_cd0c45e03e65ccc2'))
+            Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_2d7d6f40554e10fc' -FormatValues ((Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ',')) -FormatBindings @{ uuid = '0'; hostname = '1'; lastSeenUtc = '2'; score = '3'; join = '4' })
+            if (Read-HostIdentityConfirm -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_4dd9a85836471638') -DefaultYes:$false) {
                 Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $c.uuid
             } else {
-                Write-HostIdentityLine "  Not reclaimed. A new host.uuid will be minted on the first cycle."
+                Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_21045e9951574fe7')
             }
         }
     }
@@ -1180,19 +1181,19 @@ function Set-ReclaimedHostUuid {
     $typed = $Uuid.Trim()
     $u = $typed.Trim('{', '}').Replace('-', '').ToLowerInvariant()
     if ($u -notmatch '^42[0-9a-fA-F]{30}$') {
-        Write-Warning "  '$typed' is not a valid host uuid (expected '42' + 30 hex, with or without the GUID dashes it is shown with). Not reclaiming."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5774ac60cab92fe7' -Arguments @{ typed = "$typed" })
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($UuidFile, "Reclaim host uuid $u")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($UuidFile, (Format-YurunaOperatorMessage -Key 'runner.operator_54bea8b27e7f0676' -Arguments @{ u = "$u" }))) { return $false }
     try {
         $dir = Split-Path -Parent $UuidFile
         if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         [System.IO.File]::WriteAllText($UuidFile, $u, [System.Text.UTF8Encoding]::new($false))
         if ($global:__YurunaHostId) { $global:__YurunaHostId = $u }
-        Write-HostIdentityLine "  Reclaimed pool identity: $(Format-HostIdentityUuid -Uuid $u) (written to runtime/host.uuid)."
+        Write-HostIdentityLine (Format-YurunaOperatorMessage -Key 'runner.operator_f1da25da2e236417' -Arguments @{ u = "$(Format-HostIdentityUuid -Uuid $u)" })
         return $true
     } catch {
-        Write-Warning "  Could not write runtime/host.uuid ($($_.Exception.Message)). Not reclaimed."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c06a226cfa80d8c5' -Arguments @{ message = "$($_.Exception.Message)" })
         return $false
     }
 }

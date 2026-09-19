@@ -482,7 +482,7 @@ Todo o estado de runtime do harness fica sob `test/status/<sub>/`:
 `runtime/`, `perf/`, `log/`,
 `extension/`, `captures/`, `ssh/`. O instalador preserva todos os
 subdiretórios, para que o histórico de ciclos, o JSONL de perf, o estado do
-vault, as capturas de treinamento/sequência e o par de chaves SSH gerado
+cofre, as capturas de treinamento/sequência e o par de chaves SSH gerado
 sobrevivam todos a um clone/atualização.
 
 <a id="429fb30b-0013"></a>
@@ -1207,6 +1207,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.13
+Última revisão: 2026.09.18
 
 Voltar para [Yuruna](../../README.md)

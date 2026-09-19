@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42696ce9-89fb-43d5-ab5b-3d4eda2725cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -325,10 +326,11 @@ Describe 'Get-SystemDiagnostic BIOS section wiring' {
                 '(BIOS information is available through Get-ComputerInfo on Windows only.)'
                 '(BIOS information unavailable: Get-ComputerInfo is not installed.)'
                 '(BIOS information unavailable: Get-ComputerInfo returned no data.)'
-                '(BIOS information unavailable: Get-ComputerInfo failed: {0})'
+                '(BIOS information unavailable: Get-ComputerInfo failed: )'
             )) {
-            Assert-True ($biosText.Contains($literal)) "BIOS section lost stable marker: $literal"
+            Assert-True (($biosText + "`n" + ((Get-CatalogSourceMessage -Source $biosText) -join "`n")).Contains($literal)) "BIOS section lost stable marker: $literal"
         }
+        Assert-Match '-FormatValues \(\$_.Exception.Message\) -FormatBindings' $biosText
         Assert-Match 'if\s*\(\s*-not\s+\$IsWindows\s*\)' $biosText
         Assert-Match '(?s)try\s*\{.*Get-ComputerInfo.*\}\s*catch\s*\{' $biosText
     }

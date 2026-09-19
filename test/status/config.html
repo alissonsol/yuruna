@@ -8,7 +8,7 @@
   <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title>test.config.yml — Yuruna</title>
+  <title data-i18n="status.test_config_yml_yuruna">test.config.yml — Yuruna</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     /* dvh, not vh: on iOS Safari 100vh is the LARGE viewport (toolbars
@@ -388,34 +388,34 @@
   <span class="machine" id="header-machine"></span>
   <div class="menu">
     <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
     </button>
-    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-      <a href="index.html">Status</a>
-      <a href="config.html" aria-current="page">Config</a>
-      <a href="performance.html">Performance</a>
-      <a href="diagnostics.html">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener">Guide</a>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" aria-current="page" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
 </div>
 
 <main id="config-body">
-  <h1 class="sr-only">test.config.yml</h1>
-  <div class="tree-empty">Loading…</div>
+  <h1 class="sr-only" data-i18n="status.test_config_yml">test.config.yml</h1>
+  <div class="tree-empty" data-i18n="status.loading">Loading…</div>
 </main>
 
 <div id="config-status" role="status"></div>
 
 <div id="config-footer">
-  <button type="button" class="config-btn destructive" id="config-save-start">Save and start cycle</button>
-  <button type="button" class="config-btn secondary" id="config-discard">Discard</button>
-  <button type="button" class="config-btn primary"   id="config-save">Save</button>
+  <button type="button" class="config-btn destructive" id="config-save-start" data-i18n="status.save_and_start_cycle">Save and start cycle</button>
+  <button type="button" class="config-btn secondary" id="config-discard" data-i18n="status.discard">Discard</button>
+  <button type="button" class="config-btn primary"   id="config-save" data-i18n="status.save">Save</button>
 </div>
 
 <script src="yuruna.common.js"></script>

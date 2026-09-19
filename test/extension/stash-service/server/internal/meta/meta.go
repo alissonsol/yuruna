@@ -390,15 +390,10 @@ func (s *Store) Search(f *SearchFilter) ([]*Record, error) {
 	if f.UsernameExact != "" {
 		add("username = ?", f.UsernameExact)
 	}
-	if f.UsernameSubstring != "" {
-		add("username LIKE ?", "%"+escapeLike(f.UsernameSubstring)+"%")
-	}
-	if f.OriginalSubstring != "" {
-		add("originalFilename LIKE ?", "%"+escapeLike(f.OriginalSubstring)+"%")
-	}
-	if f.PathMetaSubstring != "" {
-		add("pathMetadata LIKE ?", "%"+escapeLike(f.PathMetaSubstring)+"%")
-	}
+	// SQLite LIKE folds ASCII only. Apply the same Unicode policy as peer
+	// records after selecting the indexed categorical/date subset; LIMIT must
+	// follow that filter or an early non-match would hide a later valid row.
+	filterNames := f.UsernameSubstring != "" || f.OriginalSubstring != "" || f.PathMetaSubstring != ""
 	if f.ContentClass != "" {
 		add("contentClass = ?", f.ContentClass)
 	}
@@ -424,7 +419,7 @@ SELECT ` + uploadColumns + `
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
 	q += " ORDER BY createdAt DESC"
-	if f.Limit > 0 {
+	if f.Limit > 0 && !filterNames {
 		q += fmt.Sprintf(" LIMIT %d", f.Limit)
 	}
 	rows, err := s.db.Query(q, args...)
@@ -438,7 +433,13 @@ SELECT ` + uploadColumns + `
 		if err != nil {
 			return nil, err
 		}
+		if !ContainsName(r.Username, f.UsernameSubstring) || !ContainsName(r.OriginalFilename, f.OriginalSubstring) || !ContainsName(r.PathMetadata, f.PathMetaSubstring) {
+			continue
+		}
 		out = append(out, r)
+		if f.Limit > 0 && len(out) >= f.Limit {
+			break
+		}
 	}
 	return out, rows.Err()
 }

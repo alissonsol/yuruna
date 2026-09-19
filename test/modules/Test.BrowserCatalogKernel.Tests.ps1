@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -352,5 +352,13 @@ window.beforePseudoAsset = {
         }
         Assert-True ($seen -ge 22) "only $seen checks ran, so the page stopped partway"
         Assert-NoFinding $findings 'the kernel behaves differently once the floor is actually emulated'
+    }
+}
+
+Describe 'Portuguese browser plural grammar' {
+    It 'matches the same pinned corpus as PowerShell and Go' {
+        $output = & node (Join-Path $PSScriptRoot 'pt-BR-plurals.test.cjs') 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        ($output -join "`n") | Should -Match '13 cases passed'
     }
 }

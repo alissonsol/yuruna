@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -294,7 +294,10 @@ function ConvertTo-CompiledForm {
         $cursor = $m.Index + $m.Length
     }
     if ($cursor -lt $Text.Length) { $parts.Add($Text.Substring($cursor)) }
-    return @($parts)
+    # A one-argument message is still a segment array. PowerShell's pipeline
+    # enumeration would otherwise turn it into an object that other runtimes
+    # interpret as a plural/select entry.
+    return ,@($parts)
 }
 
 function ConvertTo-CompiledMessage {
@@ -310,7 +313,7 @@ function ConvertTo-CompiledMessage {
         }
         return [ordered]@{ kind = $kind; selector = $branch.selector; variants = $variants }
     }
-    return ConvertTo-CompiledForm -Text ([string]$Message.message) -Placeholders $placeholders
+    return ,(ConvertTo-CompiledForm -Text ([string]$Message.message) -Placeholders $placeholders)
 }
 
 # --- REGION: Pseudo-locales
@@ -465,7 +468,18 @@ function ConvertTo-PowerShellLiteral {
     param([Parameter(Mandatory)][AllowNull()]$Value, [int]$Indent = 0)
 
     $pad = ' ' * $Indent
-    if ($Value -is [string]) { return "'" + $Value.Replace("'", "''") + "'" }
+    if ($Value -is [string]) {
+        if ($Value.Contains("`n") -or $Value.Contains("`r") -or $Value.Contains("`t") -or
+            [regex]::IsMatch($Value, "[\u2018\u2019\u201c\u201d]")) {
+            $escaped = $Value.Replace('`', '``').Replace('$', '`$').Replace('"', '`"').Replace("`r", '`r').Replace("`n", '`n').Replace("`t", '`t')
+            foreach ($quote in @(0x2018, 0x2019, 0x201c, 0x201d)) {
+                $character = [string][char]$quote
+                $escaped = $escaped.Replace($character, ('`' + $character))
+            }
+            return '"' + $escaped + '"'
+        }
+        return "'" + $Value.Replace("'", "''") + "'"
+    }
     if ($Value -is [System.Collections.IDictionary]) {
         $lines = foreach ($k in $Value.Keys) {
             $key = ([string]$k).Replace("'", "''")
@@ -535,7 +549,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.13'
+        '.VERSION 2026.09.18'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -739,6 +753,12 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
             $merged.message = [string]$translation.message
         } else {
             $sourceVariants = @($source.$sourceKind.variants.PSObject.Properties.Name | Sort-Object)
+            if ($sourceKind -eq 'plural') {
+                # Plural forms belong to the target language. Requiring English's
+                # categories rejects a valid Portuguese 'many' form and cannot
+                # express a locale with more grammatical forms than English.
+                $sourceVariants = @($manifest.locales.$($entry.Locale).pluralCategories | Sort-Object)
+            }
             $translatedVariants = @($translation.$sourceKind.variants.PSObject.Properties.Name | Sort-Object)
             foreach ($variant in $sourceVariants) {
                 if ($translatedVariants -notcontains $variant) {
@@ -925,7 +945,7 @@ foreach ($entry in @($base | Sort-Object Domain)) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.13'
+    compilerVersion = '2026.09.18'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

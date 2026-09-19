@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,13 @@ param(
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 $ProgressPreference = 'SilentlyContinue'
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -55,8 +57,8 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force
 
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Write-Output "Be careful."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9fd336c78bc7623')
     exit 1
 }
 
@@ -70,7 +72,7 @@ if (-not (Assert-HyperVEnabled)) {
 
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
 }
 
@@ -83,12 +85,12 @@ if (!(Test-Path -Path $downloadDir)) {
 $exposeVirt = $false
 if ($ExposeVirtualizationExtensions) {
     if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
-        Write-Error "Invalid -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions': expected 'true' or 'false'."
+        Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_6ac6dfe19b3c2194' -Arguments @{ exposeVirtualizationExtensions = "$ExposeVirtualizationExtensions" })
         exit 1
     }
 }
 if ($exposeVirt -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    Write-Error "Nested virtualization (exposeVirtualizationExtensions: true) was requested, but Hyper-V supports it only on AMD64 hosts; this host is $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). Remove the variable or run the sequence on an AMD64 host."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_09429947681e4567' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
     exit 1
 }
 
@@ -112,7 +114,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
-    Write-Output "VM '$VMName' exists. Deleting..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
     Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     try {
         Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
@@ -123,14 +125,14 @@ if ($existingVM) {
         # operator can clean orphan disks before retrying.
         $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
             Format-List Name, State, Status, Generation, Path | Out-String
-        throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
     }
     # Hyper-V can return Remove-VM success while leaving a ghost entry;
     # a second Get-VM is the only reliable post-condition.
     if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
     }
-    Write-Output "VM '$VMName' deleted."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -156,7 +158,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
 $AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
 if (-not (Test-Path $AnswerFileTemplate)) {
-    Write-Error "autounattend.xml template not found at '$AnswerFileTemplate'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
     exit 1
 }
 
@@ -174,10 +176,10 @@ if (-not $switchName) {
             Select-Object -First 1
         if ($substituteSwitch) {
             $switchName = $substituteSwitch.Name
-            Write-Warning "This host has no 'Default Switch'. Attaching to vSwitch '$switchName' instead so VM creation still succeeds."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
         }
     }
-    Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
@@ -249,14 +251,13 @@ if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) fro
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
-# Set boot order: DVD (Windows ISO) first for installation, then hard drive
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

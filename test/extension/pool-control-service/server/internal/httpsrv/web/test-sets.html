@@ -7,70 +7,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Test sets &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.test_sets_yuruna_pool_control">Test sets &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign">Assign</a>
-        <a href="/hosts">Hosts</a>
-        <a href="/pools">Pools</a>
-        <a href="/test-sets" aria-current="page">Test sets</a>
-        <a href="/scan">Scan</a>
-        <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" aria-current="page" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Test sets</h1>
-    <p class="muted">A test set is a framework + project repo pair. GH_TOKEN is <strong>not</strong> stored here &mdash;
-      it stays host-local on each host's test.config.yml / vault.</p>
+    <h1 data-i18n="pool.test_sets">Test sets</h1>
+    <p class="muted" data-i18n="pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store">A test set is a framework + project repo pair. GH_TOKEN is not stored here — it stays host-local on each host&#x27;s test.config.yml / vault.</p>
     <div id="notice" role="alert" class="notice"></div>
     <div class="row">
       <label class="labeled-field">
-        <span class="scan-label">Name</span>
+        <span class="scan-label" data-i18n="pool.name">Name</span>
         <input id="ts-name" size="16">
       </label>
       <label class="labeled-field">
-        <span class="scan-label">Framework URL</span>
+        <span class="scan-label" data-i18n="pool.framework_url">Framework URL</span>
         <input id="ts-framework" size="40">
       </label>
       <label class="labeled-field">
-        <span class="scan-label">Project URL</span>
+        <span class="scan-label" data-i18n="pool.project_url">Project URL</span>
         <input id="ts-project" size="40">
       </label>
-      <button id="save" class="primary">Save test set</button>
+      <button id="save" class="primary" data-i18n="pool.save_test_set">Save test set</button>
     </div>
     <table>
       <thead>
         <tr>
-          <th class="rownum" aria-label="Row number">#</th>
-          <th data-sort="name" aria-sort="ascending"><button type="button" class="sort">Name</button></th>
-          <th data-sort="frameworkUrl"><button type="button" class="sort">Framework URL</button></th>
-          <th data-sort="projectUrl"><button type="button" class="sort">Project URL</button></th>
-          <th>Actions</th>
+          <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
+          <th data-sort="name" aria-sort="ascending"><button type="button" class="sort" data-i18n="pool.name">Name</button></th>
+          <th data-sort="frameworkUrl"><button type="button" class="sort" data-i18n="pool.framework_url">Framework URL</button></th>
+          <th data-sort="projectUrl"><button type="button" class="sort" data-i18n="pool.project_url">Project URL</button></th>
+          <th data-i18n="pool.actions">Actions</th>
         </tr>
       </thead>
       <tbody id="ts-rows"></tbody>
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

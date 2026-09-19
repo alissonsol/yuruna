@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
 # time and Get-Command-guarded, so a probe degrades to "cannot tell" rather than
 # throwing inside a step gate.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:LabHealthRecordFileName = 'lab-health.json'
 $script:LabHoldFlagFileName     = 'control.lab-hold'
 $script:LabHoldSidecarFileName  = 'lab-hold.json'
@@ -248,7 +249,7 @@ function Save-LabHealthRecord {
     )
     if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return $false }
     $path = Join-Path $RuntimeDir $script:LabHealthRecordFileName
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write the lab-health record')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_69313d3714ef798c'))) { return $false }
     $areas = [ordered]@{}
     foreach ($key in ($Record.Keys | Sort-Object)) { $areas[[string]$key] = $Record[$key] }
     $doc = [ordered]@{ schemaVersion = 1; areas = $areas }
@@ -572,7 +573,7 @@ function Clear-LabHealthVerdictCache {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param()
-    if ($PSCmdlet.ShouldProcess('lab-health verdict cache', 'Clear')) { $script:VerdictCache = @{} }
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_7ae10c2dbfdfdadd'), 'Clear')) { $script:VerdictCache = @{} }
 }
 
 function Get-LabHoldPath {
@@ -620,7 +621,7 @@ function Set-LabHold {
     )
     $paths = Get-LabHoldPath -RuntimeDir $RuntimeDir
     if (-not $paths.Flag) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($paths.Flag, 'Raise the lab hold')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($paths.Flag, (Format-YurunaOperatorMessage -Key 'runner.operator_19eebac71a00a10a'))) { return $false }
     try {
         # The flag is the gate that every reader tests for; the sidecar is only
         # ever detail about it. Write the sidecar FIRST so no reader can see a
@@ -661,7 +662,7 @@ function Clear-LabHold {
     param([string]$RuntimeDir = (Get-LabHealthRuntimeDir))
     $paths = Get-LabHoldPath -RuntimeDir $RuntimeDir
     if (-not $paths.Flag) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($paths.Flag, 'Clear the lab hold')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($paths.Flag, (Format-YurunaOperatorMessage -Key 'runner.operator_92f3da73bdbf3747'))) { return $false }
     $ok = $true
     foreach ($path in @($paths.Flag, $paths.Sidecar, $paths.Release)) {
         try { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
@@ -823,7 +824,7 @@ function Wait-LabHealthy {
     $since   = [datetime]::UtcNow
     $attempt = 0
 
-    Write-Warning "    $Label Lab hold -- unreachable: $summary. Holding until it returns (up to $($knobs.MaxHoldAttempts) re-checks)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21b2b234d88a618c' -Arguments @{ label = "$Label"; summary = "$summary"; maxHoldAttempts = "$($knobs.MaxHoldAttempts)" })
     if ($WriteAction) { & $WriteAction "$Label Lab hold: $summary (waiting for it to return)" }
     $null = Set-LabHold -Down $down -SinceUtc $since -Attempt 0 -Confirm:$false
     if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
@@ -852,7 +853,7 @@ function Wait-LabHealthy {
 
     switch ($outcome) {
         'recovered' {
-            Write-Information "    $Label Lab recovered after $attempt re-check(s) ($held s). Resuming." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b44c2949a079f8ca' -Arguments @{ label = "$Label"; attempt = "$attempt"; held = "$held" }) -InformationAction Continue
             if ($WriteAction) { & $WriteAction "$Label Lab recovered after $held s; resuming" }
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord (New-LabHealthEvent -EventName 'lab_health_change' `
@@ -860,14 +861,14 @@ function Wait-LabHealthy {
             }
         }
         'released' {
-            Write-Warning "    $Label Lab hold released by the operator after $attempt re-check(s) ($held s); letting the step run."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d848709e929a7539' -Arguments @{ label = "$Label"; attempt = "$attempt"; held = "$held" })
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord (New-LabHealthEvent -EventName 'lab_health_released' `
                     -Down $down -Attempts $attempt -HeldSeconds $held -Armed $true -ReleasedBy 'operator')
             }
         }
         default {
-            Write-Warning "    $Label Lab hold gave up after $attempt re-check(s) ($held s): $summary."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2dfaa8b21e51d904' -Arguments @{ label = "$Label"; attempt = "$attempt"; held = "$held"; summary = "$summary" })
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord (New-LabHealthEvent -EventName 'lab_health_exhausted' `
                     -Down $down -Attempts $attempt -HeldSeconds $held -Armed $true)
@@ -967,7 +968,7 @@ function Invoke-LabHealthGate {
             $when = if ($_.lastOkUtc) { [string]$_.lastOkUtc } else { 'never' }
             "$($_.area) at $when"
         }) -join '; ')
-        $message = "Lab dependency down: held $($result.Attempts) re-check(s) over $minutes minute(s) waiting for $($result.Summary). Last known good: $lastOk."
+        $message = (Format-YurunaOperatorMessage -Key 'runner.operator_aeb09da91185e650' -Arguments @{ attempts = "$($result.Attempts)"; minutes = "$minutes"; summary = "$($result.Summary)"; lastOk = "$lastOk" })
         # Record BEFORE throwing. Write-CycleInfraFailure writes last_failure.json
         # only when none exists, so this is the record downstream routing reads --
         # and every call site below is written to leave it standing rather than

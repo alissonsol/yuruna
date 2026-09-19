@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.13
+# Version: 2026.09.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -32,6 +32,99 @@ PATH_LINK_DIR="/usr/local/bin"
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- REGION: Refresh dispatch (fail-safe, before any destructive step)
+# --refresh hands off to the already-installed checkout's own host-refresh
+# entry script instead of running the installer. It sits here, ahead of every
+# gate and mutation below (Homebrew, the checkout rewrite, VM cleanup), so a
+# malformed or partial refresh signal terminates on the spot rather than
+# falling through into an ordinary install run under a misread intent.
+#
+# Convenience form (the "_" is the $0 placeholder bash -c gives its script
+# text; --refresh then lands in "$@", not $0):
+#   YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL '<pinned-release-bootstrap-url>')" _ --refresh
+# Verified-download form: YURUNA_REFRESH=1 bash "$t/$(basename "$S")" --refresh
+#
+# Both the --refresh token (checked in $0 too: a copy-pasted one-liner that
+# drops the "_" placeholder puts it there instead of in "$@") and
+# YURUNA_REFRESH=1 are required together. Either alone refuses: a stray
+# leftover env var must not silently switch an ordinary install into refresh,
+# and a token with no env var must not either.
+YURUNA_REFRESH_PROTOCOL_VERSION=1
+
+yuruna_pwsh_candidates() {
+  # In resolution order, without assuming a login shell ran `brew shellenv`:
+  # PATH, the arm64 Homebrew prefix (this installer requires Apple Silicon),
+  # the fixed Intel-era Homebrew location some docs/scripts still assume, and
+  # PATH_LINK_DIR, which is where this installer's own version-floor
+  # promotion (bring_tools_to_required_versions) links the newest pwsh it
+  # finds so a stale copy earlier on PATH stops winning by name.
+  command -v pwsh 2>/dev/null || true
+  printf '%s\n' "/opt/homebrew/bin/pwsh"
+  printf '%s\n' "/usr/local/bin/pwsh"
+  printf '%s\n' "$PATH_LINK_DIR/pwsh"
+}
+
+yuruna_resolve_pwsh() {
+  local candidate
+  while IFS= read -r candidate; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(yuruna_pwsh_candidates)
+  return 1
+}
+
+yuruna_refresh_dispatch() {
+  local arg0="$1"; shift
+  local want_refresh=0 has_extra=0 a
+  [[ "$arg0" == "--refresh" ]] && want_refresh=1
+  for a in "$@"; do
+    if [[ "$a" == "--refresh" ]]; then
+      want_refresh=1
+    else
+      has_extra=1
+    fi
+  done
+
+  if [[ "$want_refresh" -eq 0 && "${YURUNA_REFRESH:-0}" != "1" ]]; then
+    YURUNA_INSTALL_MODE=1
+    return 0
+  fi
+  if [[ "$want_refresh" -eq 0 ]]; then
+    die "YURUNA_REFRESH=1 was set without the --refresh argument. Refusing rather than guessing whether an install or a refresh was intended; pass --refresh explicitly."
+  fi
+  if [[ "${YURUNA_REFRESH:-0}" != "1" ]]; then
+    die "--refresh was given without YURUNA_REFRESH=1. Refusing rather than guessing whether an install or a refresh was intended; set YURUNA_REFRESH=1 explicitly."
+  fi
+  if [[ "$has_extra" -eq 1 ]]; then
+    die "--refresh accepts no other arguments."
+  fi
+
+  [[ "$(uname -s)" == "Darwin" ]] || die "Refresh only supports macOS."
+  [[ $EUID -ne 0 ]] || die "Do not run refresh as root. It calls sudo itself when an operation needs elevation."
+
+  local entry="$YURUNA_DIR/test/lab/Invoke-HostRefresh.ps1"
+  local version_file="$YURUNA_DIR/test/host-refresh.protocol-version"
+  [[ -d "$YURUNA_DIR" ]] || die "Refresh target not found: $YURUNA_DIR is not an existing Yuruna checkout. Run the installer without --refresh first."
+  [[ -f "$version_file" ]] || die "Refresh protocol declaration not found: $version_file. This checkout predates host refresh; run the installer without --refresh to update it first."
+  local installed_version
+  installed_version="$(cat "$version_file" 2>/dev/null || true)"
+  [[ "$installed_version" == "$YURUNA_REFRESH_PROTOCOL_VERSION" ]] || die "Installed host-refresh protocol version '$installed_version' does not match this installer's '$YURUNA_REFRESH_PROTOCOL_VERSION'. Run the installer without --refresh to update the checkout first."
+  [[ -f "$entry" ]] || die "Refresh entry script not found: $entry."
+
+  local pwsh_path
+  pwsh_path="$(yuruna_resolve_pwsh)" || die "pwsh not found (checked PATH, /opt/homebrew/bin, /usr/local/bin and $PATH_LINK_DIR). Run the installer without --refresh first."
+
+  exec "$pwsh_path" -NoLogo -NoProfile -NonInteractive -File "$entry"
+}
+YURUNA_INSTALL_MODE=0
+yuruna_refresh_dispatch "$0" "$@"
+
+yuruna_require_install_mode() {
+  [[ "${YURUNA_INSTALL_MODE:-0}" == "1" ]] || die "Internal error: a destructive installer step ran outside a confirmed install run."
+}
 
 # --- REGION: Deferred issues
 # Every non-fatal problem is recorded here as well as printed where it happens.
@@ -286,6 +379,7 @@ if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
     fi
   done
   if [[ $NEEDS_REPAIR -eq 1 ]]; then
+    yuruna_require_install_mode
     BREW_OWNER="$(stat -f '%Su' "$BREW_PREFIX" 2>/dev/null || echo '?')"
     log "Homebrew prefix $BREW_PREFIX has ownership/state issues for $USER (top-level owner: $BREW_OWNER) -- transferring ownership recursively (sudo cached)."
     # `|| warn` so a stray protected file (rare but seen on some images)
@@ -521,6 +615,7 @@ if is_service_vm_running; then
   PRESERVE_SERVICE_VM=1
 fi
 
+yuruna_require_install_mode
 log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
 stop_yuruna_processes
 if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
@@ -595,6 +690,7 @@ brew_ensure_cask() {
   brew_run "installing the $name cask" install --cask "$name"
 }
 
+yuruna_require_install_mode
 log "Installing / upgrading required formulae"
 brew_ensure_formula git
 brew_ensure_formula powershell || brew_ensure_cask powershell
@@ -708,6 +804,7 @@ pwsh -NoProfile -Command '
 # --- REGION: Preserve test/status runtime state
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
 preserve_test_status() {
+  yuruna_require_install_mode
   local src="$YURUNA_DIR/test/status"
   [[ -d "$src" ]] || return 0
   local has_runtime=""
@@ -773,12 +870,18 @@ resolve_yuruna_ref() {
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
-    log "  yurunadev is a development repo (tagged only at release) -- tracking latest 'main' instead of '$YURUNA_BRANCH'"
+    # The name is interpolated rather than written into the sentence. Shipped
+    # text is copied verbatim into the generated translation catalogs, which
+    # carry no allowlist for the private development source, so a literal name
+    # here reaches a published artifact that may not carry it. The compared
+    # value is the same name, so the line a reader sees does not change.
+    log "  $basename is a development repo (tagged only at release) -- tracking latest 'main' instead of '$YURUNA_BRANCH'"
     YURUNA_BRANCH="main"
   fi
 }
 
 # --- REGION: Clone / update the repo
+yuruna_require_install_mode
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
@@ -899,6 +1002,7 @@ if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template
 fi
 
 # --- REGION: Baseline reset: remove test-* VMs
+yuruna_require_install_mode
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
 if [[ -f "$REMOVE_TEST_VMS" ]]; then
   log "Removing test-* VMs left over from previous cycles (cache VM preserved)"
@@ -1182,13 +1286,44 @@ if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Require
   bring_tools_to_required_versions
 fi
 
-# --- REGION: Enable-TestAutomation.ps1 hint
+# --- REGION: Host configuration
+# Applied here, not printed for the operator to run later. This installer
+# upgrades the UTM cask a few regions up, and a rebuilt UTM starts from its own
+# defaults -- so the run that replaces UTM is also the run that drops the two
+# knobs keeping it awake and alive past its last window. Printing the command
+# leaves the host in that state until somebody reads the whole transcript, and
+# the settings it restores are exactly the ones the pre-cycle gate refuses on.
+#
+# -SkipPoolStorage: the networkStorage questionnaire is a separate interactive
+# decision the operator reaches from the next-steps list, and answering it is
+# not a prerequisite for the settings this region exists to apply.
+#
+# Exit 2 is the script's way of saying it applied what it could and something
+# still needs a person (a TCC grant, an account password) -- an issue to carry
+# into the summary, not a failed install.
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
 log ""
-log "Host configuration (test-host setup) is NOT auto-applied. It is REQUIRED"
-log "before Start-TestRunner: the pre-cycle gate refuses a host whose display"
-log "sleep, screen lock or TCC grants are not in place. Run:"
-log "    pwsh '$HOST_SETUP'"
+log "Configuring host settings for unattended runs (display sleep, screen lock, UTM lifetime)"
+if [[ ! -f "$HOST_SETUP" ]]; then
+  note_issue "Host setup script not found at $HOST_SETUP; this Mac still needs display sleep, screen lock and the UTM lifetime knobs set before Start-TestRunner."
+elif ! command -v pwsh >/dev/null 2>&1; then
+  note_issue "pwsh is not available, so host settings were not applied. Run this once pwsh works: pwsh '$HOST_SETUP'"
+else
+  # `|| RC=$?` rather than toggling errexit off and back on: the compound
+  # command is already exempt from -e, and the exit code is the thing this
+  # needs -- 2 means "applied, and a person still has to answer something".
+  HOST_SETUP_RC=0
+  pwsh -NoLogo -NoProfile -File "$HOST_SETUP" -SkipPoolStorage || HOST_SETUP_RC=$?
+  case "$HOST_SETUP_RC" in
+    0) log "  Host settings applied." ;;
+    2) note_issue "Host settings were applied, but some still need an operator (listed above). Re-run when you can answer them: pwsh '$HOST_SETUP'" ;;
+    *) note_issue "Host setup exited $HOST_SETUP_RC. The host-setting sections of 'pwsh $TEST_DIR/Test-Config.ps1' name what is still missing; re-run: pwsh '$HOST_SETUP'" ;;
+  esac
+  # UTM reads its App Nap and last-window-closed preferences at launch, so a UTM
+  # that was already up when they were written keeps its old behavior until it
+  # is next started.
+  log "  Quit and reopen UTM so it picks up the App Nap and last-window settings."
+fi
 
 # --- REGION: Done summary
 BREW_PREFIX="$(brew --prefix)"
@@ -1220,11 +1355,14 @@ Next steps (in order):
        System Settings > Privacy & Security > Accessibility
        -> add and enable Terminal.app (or iTerm2, Ghostty, ...)
 
-  5. Enable this machine as a test host. REQUIRED before step 6 if this Mac
-     will run Start-TestRunner -- it disables display sleep, auto-logout and
-     screen lock (so VM screen captures stay readable), keeps utmctl on PATH,
-     and requests the TCC grants. The cycle gate refuses to start without it.
-     Skip it only on a Mac that will never run the runner:
+  5. Re-run the host setup if step 4 was the first time this terminal got
+     Accessibility, or if anything above reported that a setting still needs
+     you. This installer already applied it once -- display sleep, auto-logout
+     and screen lock off (so VM screen captures stay readable), utmctl on PATH,
+     UTM kept awake and alive past its last window, and the TCC grants
+     requested -- but a grant you clicked afterwards is only picked up on the
+     next run. Run it again after every macOS major upgrade, which rebuilds
+     app preferences and re-asks the grants:
        pwsh $YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1
 
   6. Confirm the host is ready. This is the same gate Start-TestRunner runs

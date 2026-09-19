@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # One TCP probe's cap. The service ports are on the local hypervisor network, so
 # a live service answers in milliseconds; this bound only decides how fast a dead
 # one is called dead.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ServiceVmProbeTimeoutMs = 1500
 
 # The extension half of the roster comes from the area manifests. Imported here
@@ -184,10 +185,18 @@ function Restore-YurunaServiceVM {
         'running' is exactly the state a broken service is found in. Switching
         the probe on here rather than writing a second one at the call site is
         what keeps one definition of "this service is usable".
+    .PARAMETER ObserveOnly
+        Never starts anything. Implies -ProbeRunning. A host-refresh
+        convergence check calls this after Resume-YurunaServiceVM has already
+        done the one authorized start, to verify VM state and service health
+        without a second start path.
     .OUTPUTS
         pscustomobject[] -- Key, VMName, DisplayName, StateBefore, Outcome,
-        Healthy, Message. Outcome is one of: no-host-driver, absent, running,
-        started, start-failed, start-timeout.
+        Healthy, Message. Outcome is one of: no-host-driver, absent,
+        state-unknown, running, started, start-failed, start-timeout, or (only
+        under -ObserveOnly) the raw confirmed state (currently always
+        'stopped', since absent/unknown/running are reported before reaching
+        that branch).
 
         Healthy on a 'running' record means "answered its health port" only when
         -ProbeRunning was passed; without it the port was not asked.
@@ -198,8 +207,15 @@ function Restore-YurunaServiceVM {
         [string[]]$Key,
         [int]$StartTimeoutSeconds  = 120,
         [int]$HealthTimeoutSeconds = 90,
-        [switch]$ProbeRunning
+        [switch]$ProbeRunning,
+        # ObserveOnly implies health verification (equivalent to -ProbeRunning)
+        # and prohibits Start-VM, configuration edits, or rebuilds; it may wait
+        # boundedly for VM/address/service readiness through the same health
+        # wait a normal call uses, but never mutates. A convergence check after
+        # a resume/relaunch calls this instead of a second start path.
+        [switch]$ObserveOnly
     )
+    if ($ObserveOnly) { $ProbeRunning = $true }
     $results = [System.Collections.Generic.List[pscustomobject]]::new()
     $roster = @(Get-YurunaServiceVmRoster -Key $Key)
     if ($roster.Count -eq 0) { return $results.ToArray() }
@@ -214,7 +230,7 @@ function Restore-YurunaServiceVM {
             $results.Add([pscustomobject]@{
                 Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
                 StateBefore = 'unknown'; Outcome = 'no-host-driver'; Healthy = $false
-                Message = 'the per-host VM contract is not loaded (Initialize-YurunaHost has not run), so service VMs were not checked'
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_6ce1157be9fb6a1c')
             })
         }
         return $results.ToArray()
@@ -230,13 +246,30 @@ function Restore-YurunaServiceVM {
             $results.Add([pscustomobject]@{
                 Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
                 StateBefore = $state; Outcome = 'absent'; Healthy = $false
-                Message = 'not built on this host'
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_55110b53e7e30cf1')
+            })
+            continue
+        }
+        if ($state -eq 'unknown') {
+            # A denied or timed-out probe, not a registered-and-stopped VM: the
+            # prior code fell through this case into the start branch below,
+            # which would call Start-VM against a hypervisor that simply would
+            # not answer -- on every cycle, since nothing here would ever
+            # resolve it. Report it as its own outcome instead, carrying the
+            # structured probe reason once section 3's Test-VirtualizationResponsive
+            # is wired in as this sweep's own precondition; for now the reason
+            # is not yet distinguishable beyond "not positively any other
+            # state".
+            $results.Add([pscustomobject]@{
+                Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
+                StateBefore = $state; Outcome = 'state-unknown'; Healthy = $false
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_5485e11b651f9377')
             })
             continue
         }
         if ($state -eq 'running') {
             $healthy = $true
-            $message = 'already running'
+            $message = (Format-YurunaOperatorMessage -Key 'runner.operator_dea2daf647b24f47')
             if ($ProbeRunning) {
                 # One connect, no retry loop. A VM that is already up has had all
                 # the time it is going to get; waiting again here would only make
@@ -245,12 +278,12 @@ function Restore-YurunaServiceVM {
                 $address = Get-YurunaServiceVmAddress -VMName $svc.VMName
                 if (-not $address) {
                     $healthy = $false
-                    $message = 'running, but no address could be resolved for it, so :' + $svc.HealthPort + ' could not be probed'
+                    $message = (Format-YurunaOperatorMessage -Key 'runner.operator_572d9bbb6abf31cf' -Arguments @{ healthPort = [string]($svc.HealthPort) })
                 } elseif (Test-YurunaServiceVmPort -Address $address -Port $svc.HealthPort) {
-                    $message = "already running; :$($svc.HealthPort) answering at $address"
+                    $message = (Format-YurunaOperatorMessage -Key 'runner.operator_5cf6a67db15856c2' -Arguments @{ healthPort = "$($svc.HealthPort)"; address = "$address" })
                 } else {
                     $healthy = $false
-                    $message = "running, but :$($svc.HealthPort) did not answer at $address"
+                    $message = (Format-YurunaOperatorMessage -Key 'runner.operator_89c43538cc813c4a' -Arguments @{ healthPort = "$($svc.HealthPort)"; address = "$address" })
                 }
             }
             $results.Add([pscustomobject]@{
@@ -261,8 +294,19 @@ function Restore-YurunaServiceVM {
             continue
         }
 
+        if ($ObserveOnly) {
+            # Only 'stopped' can reach here (absent/unknown/running all
+            # continued above): a positive, confirmed non-running state that
+            # ObserveOnly reports without ever calling Start-VM.
+            $results.Add([pscustomobject]@{
+                Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
+                StateBefore = $state; Outcome = $state; Healthy = $false
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_1fa3b2464af15be3' -Arguments @{ state = "$state" })
+            })
+            continue
+        }
         # Registered and not running: ours, and off. This is the reboot case.
-        if (-not $PSCmdlet.ShouldProcess($svc.VMName, "Start the $($svc.DisplayName) VM")) {
+        if (-not $PSCmdlet.ShouldProcess($svc.VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_e68cd14ab99489c3' -Arguments @{ displayName = "$($svc.DisplayName)" }))) {
             $results.Add([pscustomobject]@{
                 Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
                 StateBefore = $state; Outcome = 'start-failed'; Healthy = $false
@@ -270,7 +314,7 @@ function Restore-YurunaServiceVM {
             })
             continue
         }
-        Write-Information "  $($svc.DisplayName): VM '$($svc.VMName)' is $state -- starting it (a reboot leaves service VMs registered and powered off)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_27431929d461d016' -Arguments @{ displayName = "$($svc.DisplayName)"; vMName = "$($svc.VMName)"; state = "$state" }) -InformationAction Continue
 
         $startError = ''
         try {
@@ -306,7 +350,7 @@ function Restore-YurunaServiceVM {
             $results.Add([pscustomobject]@{
                 Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
                 StateBefore = $state; Outcome = 'start-timeout'; Healthy = $false
-                Message = "did not reach 'running' within ${StartTimeoutSeconds}s"
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_ce0d858e56345187' -Arguments @{ startTimeoutSeconds = "${StartTimeoutSeconds}" })
             })
             continue
         }
@@ -321,10 +365,10 @@ function Restore-YurunaServiceVM {
                     if (Test-YurunaServiceVmPort -Address $address -Port $svc.HealthPort) { $healthy = $true; break }
                     Start-Sleep -Seconds 3
                 }
-                $message = if ($healthy) { "started; :$($svc.HealthPort) answering at $address" }
-                           else { "started, but :$($svc.HealthPort) did not answer at $address within ${HealthTimeoutSeconds}s (it may still be coming up)" }
+                $message = if ($healthy) { (Format-YurunaOperatorMessage -Key 'runner.operator_d671065a9abb598e' -Arguments @{ healthPort = "$($svc.HealthPort)"; address = "$address" }) }
+                           else { (Format-YurunaOperatorMessage -Key 'runner.operator_6938c638981b508c' -Arguments @{ healthPort = "$($svc.HealthPort)"; address = "$address"; healthTimeoutSeconds = "${HealthTimeoutSeconds}" }) }
             } else {
-                $message = 'started; no address could be resolved yet, so its service port was not probed'
+                $message = (Format-YurunaOperatorMessage -Key 'runner.operator_482acc3cc0fb29aa')
             }
         }
         $results.Add([pscustomobject]@{
@@ -351,11 +395,11 @@ function Write-YurunaServiceVmRestoreReport {
     foreach ($r in @($Result | Where-Object { $_ })) {
         switch ($r.Outcome) {
             'started' {
-                if ($r.Healthy) { Write-Information "  $($r.DisplayName): recovered after a restart -- $($r.Message)." -InformationAction Continue }
+                if ($r.Healthy) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1d4e7f0d61957110' -Arguments @{ displayName = "$($r.DisplayName)"; message = "$($r.Message)" }) -InformationAction Continue }
                 else { Write-Warning "$($r.DisplayName): $($r.Message)." }
             }
-            'start-failed'  { Write-Warning "$($r.DisplayName): VM '$($r.VMName)' is registered but would not start: $($r.Message). Rebuild it with $((Get-YurunaServiceVmRoster -Key $r.Key).StartScript) if it stays down." }
-            'start-timeout' { Write-Warning "$($r.DisplayName): VM '$($r.VMName)' $($r.Message). Consumers of it will fail until it is up." }
+            'start-failed'  { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d11e9f40765785d8' -Arguments @{ displayName = "$($r.DisplayName)"; vMName = "$($r.VMName)"; message = "$($r.Message)"; startScript = "$((Get-YurunaServiceVmRoster -Key $r.Key).StartScript)" }) }
+            'start-timeout' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47b0ccd4d36eff29' -Arguments @{ displayName = "$($r.DisplayName)"; vMName = "$($r.VMName)"; message = "$($r.Message)" }) }
             default { Write-Verbose "$($r.DisplayName): $($r.Outcome) -- $($r.Message)" }
         }
     }

@@ -104,6 +104,15 @@ reading as a guest that never printed.
   `variables:` block or the planner cascade overwrites it when
   declared.
 
+`Expand-Variable` (`test/modules/Test.SequenceVariable.psm1`) is kept outside
+the sequence engine so both the engine's own by-name calls and the verb
+handlers share one definition -- a handler receives it as the
+`${function:Expand-Variable}` scriptblock reference through the step
+context, rather than each side carrying its own copy of the substitution
+rules above. `Test.Extension` is imported lazily inside
+`Invoke-ExtensionExpression` so the import travels with the function itself
+and no top-level import is needed in this module.
+
 <a id="428e4df6-0006"></a>
 
 ### New-VM-consumed variables
@@ -902,6 +911,17 @@ Two modules carry the contract:
   the Handler bodies for built-in verbs. Adding a new verb is a local
   edit here, not a merge-conflict magnet on the engine.
 
+`Test.SequenceEngine.psm1` imports `Test.SequenceHandler.psm1` `-Global` at
+module load, so that module's `Register-SequenceAction` side effects
+populate the same registry the engine dispatches against, without the
+engine itself carrying a per-verb branch. The built-in catalog registered
+that way includes `retry` and `recoverFromSnapshot`; the cross-module
+failure state those two coordinate through lives in the shared
+`Test.SequenceFailureState` store (see
+[Failure record schema](failure-schema.md#failure-record-schema)), which is
+what lets the engine module itself stay a pure executor with no
+verb-specific state of its own.
+
 <a id="428e4df6-002a"></a>
 
 ### The `$Context` hashtable
@@ -1246,6 +1266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

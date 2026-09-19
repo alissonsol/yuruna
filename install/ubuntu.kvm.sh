@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.13
+# Version: 2026.09.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -785,7 +785,12 @@ resolve_yuruna_ref() {
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
-    log "  yurunadev is a development repo (tagged only at release) -- tracking latest 'main' instead of '$YURUNA_BRANCH'"
+    # The name is interpolated rather than written into the sentence. Shipped
+    # text is copied verbatim into the generated translation catalogs, which
+    # carry no allowlist for the private development source, so a literal name
+    # here reaches a published artifact that may not carry it. The compared
+    # value is the same name, so the line a reader sees does not change.
+    log "  $basename is a development repo (tagged only at release) -- tracking latest 'main' instead of '$YURUNA_BRANCH'"
     YURUNA_BRANCH="main"
   fi
 }

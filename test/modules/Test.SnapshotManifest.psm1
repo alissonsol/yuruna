@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421a4d8a-ef0d-4f12-ab3c-235c0e8c3732
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -80,7 +83,7 @@ function Get-SnapshotManifestDir {
     $base = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
     $dir = Join-Path $base 'snapshots'
     if (-not (Test-Path -LiteralPath $dir)) {
-        if ($PSCmdlet.ShouldProcess($dir, 'Create snapshot-manifest directory')) {
+        if ($PSCmdlet.ShouldProcess($dir, (Format-YurunaOperatorMessage -Key 'runner.operator_243e5b6d3c10c824'))) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
     }
@@ -137,7 +140,7 @@ function Write-SnapshotManifest {
         [hashtable]$Extra
     )
     $path = Get-SnapshotManifestPath -VMName $VMName -SnapshotId $SnapshotId
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write snapshot manifest')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_e296050a160cc903'))) { return $null }
     $manifest = [ordered]@{
         vmName       = [string]$VMName
         snapshotId   = [string]$SnapshotId
@@ -259,7 +262,7 @@ function Remove-SnapshotManifest {
     )
     $path = Get-SnapshotManifestPath -VMName $VMName -SnapshotId $SnapshotId
     if (-not (Test-Path -LiteralPath $path)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($path, 'Remove snapshot manifest')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_ba76b397e425c192'))) { return $false }
     Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     return -not (Test-Path -LiteralPath $path)
 }
@@ -282,16 +285,16 @@ function Get-SnapshotSourceIdentity {
     $files = [Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
     foreach ($pattern in @($Policy.sourceFiles)) {
         if (-not $pattern -or [IO.Path]::IsPathRooted($pattern) -or $pattern -match '(^|[/\\])\.\.([/\\]|$)') {
-            throw 'Snapshot source paths must be nonempty paths relative to the framework checkout.'
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_054c6e454d434969')
         }
         $sourceFiles = @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction Stop)
-        if ($sourceFiles.Count -eq 0) { throw "Snapshot source pattern matched no files: $pattern" }
+        if ($sourceFiles.Count -eq 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_f3da34207d2a8685' -Arguments @{ pattern = "$pattern" }) }
         foreach ($file in $sourceFiles) {
             $relative = [IO.Path]::GetRelativePath($root, $file.FullName).Replace('\', '/')
             $files[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }
     }
-    if ($files.Count -eq 0) { throw 'Snapshot policy requires at least one source file.' }
+    if ($files.Count -eq 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a038a1eea843a737') }
     $revisions = [ordered]@{}
     foreach ($name in @('framework', 'project')) {
         $directory = if ($name -eq 'framework') { $root } else { Join-Path $root 'project' }
@@ -337,27 +340,42 @@ function Test-SnapshotReusePolicy {
     )
     $maximumAge = [double]$Policy.maxAgeHours
     if ([double]::IsNaN($maximumAge) -or [double]::IsInfinity($maximumAge) -or $maximumAge -le 0) {
-        throw 'Snapshot maxAgeHours must be finite and positive.'
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_9b97bf35e35de969')
     }
     $check = Test-SnapshotManifestMatch -VMName $VMName -SnapshotId $SnapshotId -HostType $HostType
     $m = $check.Manifest
     if ($check.Status -ne 'ok' -or -not $m -or $m.managedBaseline -ne $true -or
         $m.vmName -ne $VMName -or $m.snapshotId -ne $SnapshotId -or
         $m.hostType -ne $HostType -or $m.hostName -ne [Net.Dns]::GetHostName()) {
-        return @{ Status = 'refused'; Reason = 'Snapshot ownership or identity could not be verified.' }
+        return @{ Status = 'refused'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b4188041c1c0989b') }
     }
+    # ConvertFrom-Json already turns the stored ISO-8601 text into a [datetime],
+    # and casting that back to [string] renders it in the current culture
+    # WITHOUT its UTC designator. Re-parsing that text reads it as local time,
+    # which moves the baseline by the host's offset: on a machine west of UTC a
+    # fresh baseline looks like it was taken in the future and is refused, while
+    # an expired one looks young enough to reuse. Only a host actually on UTC
+    # hides it, so take the typed value as the UTC instant it already is.
+    $takenAtValue = $m.takenAtUtc
     $takenAt = [datetimeoffset]::MinValue
-    if (-not [datetimeoffset]::TryParse([string]$m.takenAtUtc, [ref]$takenAt) -or
-        $takenAt.UtcDateTime -gt $NowUtc.AddMinutes(5)) {
-        return @{ Status = 'refused'; Reason = 'Snapshot creation time is missing or invalid.' }
+    $parsed = if ($takenAtValue -is [datetime]) {
+        $takenAt = [datetimeoffset]::new([datetime]::SpecifyKind($takenAtValue, [DateTimeKind]::Utc))
+        $true
+    } else {
+        [datetimeoffset]::TryParse([string]$takenAtValue, [cultureinfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
+            [ref]$takenAt)
+    }
+    if (-not $parsed -or $takenAt.UtcDateTime -gt $NowUtc.AddMinutes(5)) {
+        return @{ Status = 'refused'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_00396d785ef635da') }
     }
     if (-not $m.sourceIdentity -or $m.sourceIdentity.identitySha256 -ne $SourceIdentity.identitySha256) {
-        return @{ Status = 'stale'; Reason = 'Baseline source, checkout revision, or guest identity changed.' }
+        return @{ Status = 'stale'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f1b830d931bbb3a1') }
     }
     if (($NowUtc - $takenAt.UtcDateTime).TotalHours -ge $maximumAge) {
-        return @{ Status = 'stale'; Reason = 'Baseline exceeded its maximum age.' }
+        return @{ Status = 'stale'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e0c7de4cb1e0c6c4') }
     }
-    return @{ Status = 'reusable'; Reason = 'Baseline identity and age match.' }
+    return @{ Status = 'reusable'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_7c9da2bef57c6aa4') }
 }
 
 function Remove-StaleManagedSnapshot {
@@ -376,7 +394,7 @@ function Remove-StaleManagedSnapshot {
     $check = Test-SnapshotReusePolicy -VMName $SnapshotId -SnapshotId $SnapshotId `
         -HostType $HostType -Policy $Policy -SourceIdentity $SourceIdentity
     if ($check.Status -ne 'stale' -or $Policy.rebuildOnMismatch -ne $true) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($SnapshotId, 'Replace stale managed baseline through its resource chain')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($SnapshotId, (Format-YurunaOperatorMessage -Key 'runner.operator_9dbd3892b869c8bd'))) { return $false }
     $state = Get-VMState -VMName $SnapshotId
     if ($state -notin @('stopped', 'absent')) {
         if (-not (Stop-VMForce -VMName $SnapshotId -Confirm:$false)) { return $false }

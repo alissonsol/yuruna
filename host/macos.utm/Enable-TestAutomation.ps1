@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,7 @@ param(
     [switch]$SkipPoolStorage
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = "Stop"
 
 # Surface the module's action-taken messages (Set-MacHostConditionSet
@@ -77,7 +78,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
 # -- a second Enable must not capture Enable's own values as the operator's.
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
 $capturePath = Save-HostAutomationState -Platform 'macos.utm' -WhatIf:$WhatIfPreference
-if ($capturePath) { Write-Information "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
+if ($capturePath) { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_18ab1c2a314eaf6a' -Arguments @{ capturePath = "$capturePath" }) }
 
 # --- REGION: Host condition set
 # -SkipPoolStorage is ours, not Set-MacHostConditionSet's; splatting it through
@@ -99,7 +100,7 @@ $unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
 # loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.
 if ($SkipPoolStorage) {
-    Write-Information 'Skipping the networkStorage questionnaire (-SkipPoolStorage).'
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_07d790b607ee2b44')
 } elseif (-not $WhatIfPreference) {
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
@@ -108,7 +109,7 @@ if ($SkipPoolStorage) {
 # --- REGION: Outcome
 # See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
 if ($unmetCount -gt 0) {
-    Write-Warning "Host settings applied, but $unmetCount condition(s) still need an operator (listed above)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6661089d0f925ca8' -Arguments @{ unmetCount = "$unmetCount" })
     exit 2
 }
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
 # runner imports Invoke-Sequence at startup; if any later -Force import here
 # evicts it, every caller that built a function reference to e.g.
 # Invoke-SequenceByName / Read-SequenceFile loses visibility.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"
 if (Test-Path $script:EngineModule) {
     Import-Module $script:EngineModule -Force -Global -Verbose:$false -ErrorAction SilentlyContinue
@@ -74,11 +75,11 @@ function Get-CycleConfig {
     param([Parameter(Mandatory)][string]$RepoRoot)
     $path = Get-CycleConfigPath -RepoRoot $RepoRoot
     if (-not (Test-Path $path)) {
-        throw "Runner config not found: $path (set test.config.yml's repositories.projectUrl, or place the file under <repo>/project/test/)"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_b6abddc95da1d271' -Arguments @{ path = "$path" })
     }
     $cfg = Read-SequenceFile -Path $path
     if (-not $cfg.sequences -or $cfg.sequences.Count -eq 0) {
-        throw "Runner config has no 'sequences' entries: $path"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_037f5a478339db90' -Arguments @{ path = "$path" })
     }
     return $cfg
 }
@@ -251,16 +252,16 @@ function Get-ProjectTestSet {
 
     foreach ($raw in @($cfg['testSets'])) {
         if ($raw -isnot [System.Collections.IDictionary]) {
-            Write-Warning "test.runner.yml: skipping a testSets entry that is not a mapping."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_217d530848e4cda8')
             continue
         }
         $name = "$($raw['name'])".Trim()
         if (-not $name) {
-            Write-Warning "test.runner.yml: skipping a testSets entry with no 'name'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ee49d169ec618ee')
             continue
         }
         if ($name -eq 'all') {
-            Write-Warning "test.runner.yml: 'all' is reserved for the implicit whole-project set; skipping the declared set named 'all'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8a6b8847ccce49ac')
             continue
         }
         # -cnotmatch, not -notmatch: PowerShell's -match is case-INSENSITIVE by
@@ -268,16 +269,16 @@ function Get-ProjectTestSet {
         # by the JSON Schema pattern (which is case-sensitive) when the library
         # entry is written -- a failure surfacing far from its cause.
         if ($name -cnotmatch $namePattern) {
-            Write-Warning "test.runner.yml: skipping testSet '$name' -- names must match $namePattern (lower-case)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5a53c6c93a317e74' -Arguments @{ name = "$name"; namePattern = "$namePattern" })
             continue
         }
         if (-not $seen.Add($name)) {
-            Write-Warning "test.runner.yml: duplicate testSet '$name'; keeping the first."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4727d0d8d58200e7' -Arguments @{ name = "$name" })
             continue
         }
         $seqs = @(@($raw['sequences']) | ForEach-Object { ([string]$_) -replace '\.(ya?ml|json)$','' } | Where-Object { $_ })
         if ($seqs.Count -eq 0) {
-            Write-Warning "test.runner.yml: skipping testSet '$name' -- it lists no sequences."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df1608b653f0dd73' -Arguments @{ name = "$name" })
             continue
         }
         $set = [ordered]@{
@@ -334,7 +335,7 @@ function Add-CyclePrereqChainEntry {
         # the last-attempted file would be misleading.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
         $list = Format-SequenceSearchList -Item $searched
-        throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.runner.yml)`nSearched (no match):`n$list"
+        throw (New-SequencePlannerException -Key 'exceptions.runner_f1bde95b1f050137' -Arguments @{ sequenceName = "$SequenceName"; list = "$list" })
     }
     $seq = Read-SequenceFile -Path $path
     if ($seq.baseline -and $seq.baseline.Contains($OsKey)) {
@@ -396,7 +397,7 @@ function Add-CyclePlanEntriesForTopLevel {
     if (-not $topPath) {
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $TopName -HostType $HostType -RepoRoot $RepoRoot
         $list = Format-SequenceSearchList -Item $searched
-        throw "PlannerFatal: missing sequence '$TopName'$(if ($SourceLabel) { " $SourceLabel" })`nSearched (no match):`n$list"
+        throw (New-SequencePlannerException -Key 'exceptions.runner_d72dd7b3536de5e5' -Arguments @{ topName = "$TopName"; sourceLabel = "$(if ($SourceLabel) { " $SourceLabel" })"; list = "$list" })
     }
     $topSeq = Read-SequenceFile -Path $topPath
     if (-not $topSeq.baseline) {
@@ -406,7 +407,7 @@ function Add-CyclePlanEntriesForTopLevel {
         # per-guest chain planner -- so they contribute no guest plan entries and
         # must not warn. Anything else with no baseline is a genuine misconfig.
         if (-not (Test-PlannerSequenceIsOrchestration -Sequence $topSeq)) {
-            Write-Warning "Top-level sequence has no baseline (no supported guest OS declared): $TopName"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_45a07fd31e96a1d6' -Arguments @{ topName = "$TopName" })
         }
         return
     }
@@ -420,8 +421,8 @@ function Add-CyclePlanEntriesForTopLevel {
             Add-CyclePrereqChainEntry -SequenceName $TopName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $osKey -Chain $chain -Visited $visited
         } catch {
             # PlannerFatal (duplicate project sequence file) MUST propagate.
-            if ($_.Exception.Message -like 'PlannerFatal:*') { throw }
-            Write-Warning "Skipping $TopName / $osKey - $($_.Exception.Message)"
+            if (Test-SequencePlannerFailure -ErrorObject $_) { throw }
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bfce497ec631d602' -Arguments @{ topName = "$TopName"; osKey = "$osKey"; message = "$($_.Exception.Message)" })
             continue
         }
         $startSeqs = New-Object System.Collections.Generic.List[string]
@@ -438,11 +439,11 @@ function Add-CyclePlanEntriesForTopLevel {
                 # This member IS in the chain, so it resolved earlier; not resolving now (e.g. a
                 # mid-cycle rename) is an inconsistency. Surface it -- silently dropping its
                 # variables lets the chain run with missing vars instead of failing visibly.
-                Write-Warning "Cascade: chain member '$sName' no longer resolves to a path; its variables are dropped from the cascade."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d53b6631053aee8' -Arguments @{ sName = "$sName" })
                 continue
             }
             try { $sSeq = Read-SequenceFile -Path $sPath } catch {
-                Write-Warning "Cascade: chain member '$sName' ($sPath) failed to re-read ($($_.Exception.Message)); its variables are dropped from the cascade."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee13b7d44127b862' -Arguments @{ sName = "$sName"; sPath = "$sPath"; message = "$($_.Exception.Message)" })
                 continue
             }
             Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
@@ -800,7 +801,7 @@ function Resolve-NamedSequenceChain {
     if (-not $topPath -or -not (Test-Path -LiteralPath $topPath)) {
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
         $list = Format-SequenceSearchList -Item $searched
-        throw "Sequence file not found: $SequenceName`nSearched (no match):`n$list"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_6c293b52d562e7c0' -Arguments @{ sequenceName = "$SequenceName"; list = "$list" })
     }
     $topSeq = Read-SequenceFile -Path $topPath
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
@@ -181,7 +182,7 @@ Describe 'Remove-TestVMFiles prefix sweep' {
         # An empty prefix matches every VM on the host, including the caching
         # proxy and anything unrelated the operator is running.
         $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
-        Assert-True ($text -match 'would match every VM') 'the guard against an empty prefix must be present'
+        Assert-True (((Get-CatalogSourceMessage -Source $text) -join "`n") -match 'would match every VM') 'the guard against an empty prefix must be present'
     }
 }
 

@@ -259,13 +259,17 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
 
     It 'decides the delete outcome by re-probing, not from $LASTEXITCODE' {
         # `utmctl delete` exits 0 while printing the reason it deleted nothing,
-        # so an exit-code check reads a total failure as a clean delete.
+        # so an exit-code check reads a total failure as a clean delete. The
+        # re-probe goes through the structured Get-UtmVMRegistrationState
+        # rather than the throwing Test-UtmVMRegistered wrapper: 'Unknown'
+        # (a denied or timed-out re-probe) must retry, not be coerced into
+        # either registered or absent.
         $body = Get-FunctionBody -Name 'Remove-UtmVMRegistration'
         Assert-True ($body.Length -gt 0) 'Remove-UtmVMRegistration is defined'
         $deleteAt = $body.IndexOf('utmctl delete')
         Assert-True ($deleteAt -ge 0) 'it is the function that issues the delete'
         $tail    = $body.Substring($deleteAt)
-        $probeAt = $tail.IndexOf('Test-UtmVMRegistered')
+        $probeAt = $tail.IndexOf('Get-UtmVMRegistrationState')
         $exitAt  = $tail.IndexOf('LASTEXITCODE')
         Assert-True ($probeAt -ge 0) 'the registration is re-probed after the delete'
         Assert-True ($exitAt -lt 0 -or $probeAt -lt $exitAt) 'and the outcome is not gated on the exit code'
@@ -275,11 +279,14 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
         # The caller only reached a start because the name answered the reuse
         # check, so pointing at the absent path alone sends the reader looking
         # for a VM that was never created rather than for the registration
-        # standing in the way of creating one.
+        # standing in the way of creating one. Reads the structured
+        # Get-UtmVMRegistrationState directly (Registered/Absent/Unknown) so
+        # an unconfirmed probe gets its own message instead of being folded
+        # into either "create a VM" or "clear a registration" advice.
         $body = Get-FunctionBody -Name 'Start-UtmVM'
         Assert-True ($body.Length -gt 0) 'Start-UtmVM is defined'
-        Assert-True ($body -match 'Test-UtmVMRegistered') 'the two ways the bundle can be missing are distinguished'
-        $probeAt = $body.IndexOf('Test-UtmVMRegistered')
+        Assert-True ($body -match 'Get-UtmVMRegistrationState') 'the two ways the bundle can be missing are distinguished'
+        $probeAt = $body.IndexOf('Get-UtmVMRegistrationState')
         # Anchored on however the start is ISSUED, not on the utmctl verb: the
         # start is delegated to a retrying helper, and pinning the literal verb
         # here would make this guard fail for a refactor that preserves exactly

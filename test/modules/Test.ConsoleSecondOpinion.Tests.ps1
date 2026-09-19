@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c1aae0-6851-429a-a359-f13d409e76c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,7 @@ BeforeAll {
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:DriverPath = Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory (Split-Path -Parent $PSCommandPath)) 'host/macos.utm/modules/Yuruna.Host.psm1'
+Import-Module (Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory (Split-Path -Parent $PSCommandPath)) 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 $script:FnAst = Get-YurunaTestFunctionAst -Path $script:DriverPath -Name 'Get-VMConsoleSecondOpinion'
 
 # Every host dependency is stubbed inside the invoking scope, so the lifted

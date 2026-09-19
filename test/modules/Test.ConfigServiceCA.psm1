@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Per-host Config CA backing the config service (mTLS): one SERVER leaf
 # for the service, one CLIENT leaf per VM (baked into its cloud-init seed) --
@@ -71,7 +74,7 @@ function Get-YurunaConfigCaDir {
         $runtimeDir = Initialize-YurunaRuntimeDir
     }
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) {
-        throw "Get-YurunaConfigCaDir: cannot resolve the runtime directory (set `$env:YURUNA_RUNTIME_DIR or import Test.YurunaDir)."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_1365372513779503' -Arguments @{ setting = 'YURUNA_RUNTIME_DIR' })
     }
     $dir = Join-Path $runtimeDir $script:ConfigCaDirName
     if (-not (Test-Path -LiteralPath $dir)) {
@@ -150,13 +153,13 @@ function Initialize-YurunaConfigCA {
         return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
             [System.IO.File]::ReadAllBytes($caPfx), '', $script:ConfigCaPfxLoadFlags)
     }
-    if (-not $PSCmdlet.ShouldProcess($caPfx, 'Mint per-host Config CA')) {
+    if (-not $PSCmdlet.ShouldProcess($caPfx, (Format-YurunaOperatorMessage -Key 'runner.operator_d6203ffc40b56597'))) {
         # Nothing to return without minting; surface the absence to the caller.
         if (Test-Path -LiteralPath $caPfx) {
             return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
                 [System.IO.File]::ReadAllBytes($caPfx), '', $script:ConfigCaPfxLoadFlags)
         }
-        throw "Initialize-YurunaConfigCA: -WhatIf declined minting and no CA exists yet."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_58320111b08e6feb')
     }
     $ec = [System.Security.Cryptography.ECDsa]::Create([System.Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256'))
     try {
@@ -268,12 +271,12 @@ function New-YurunaConfigServerCertificate {
         return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
             [System.IO.File]::ReadAllBytes($serverPfx), '', $flags)
     }
-    if (-not $PSCmdlet.ShouldProcess($serverPfx, 'Mint config service server leaf')) {
+    if (-not $PSCmdlet.ShouldProcess($serverPfx, (Format-YurunaOperatorMessage -Key 'runner.operator_9bdb15f7589987dd'))) {
         if (Test-Path -LiteralPath $serverPfx) {
             return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
                 [System.IO.File]::ReadAllBytes($serverPfx), '', $flags)
         }
-        throw "New-YurunaConfigServerCertificate: -WhatIf declined minting and no server leaf exists yet."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0ace35c12511a385')
     }
     $ca  = Initialize-YurunaConfigCA
     $san = [System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder]::new()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
 # facade stays pure dispatch and a future libvirt-side check has an
 # obvious home.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-LibvirtGroupState {
     <#
     .SYNOPSIS
@@ -89,19 +90,19 @@ function Sync-LinuxHostClock {
     param()
 
     if (-not $IsLinux) {
-        return @{ Succeeded = $false; Message = 'Sync-LinuxHostClock is only supported on Linux.' }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_2cabc360ec407ae8') }
     }
     if (-not (Get-Command timedatectl -ErrorAction SilentlyContinue)) {
-        return @{ Succeeded = $false; Message = 'timedatectl not found; this host has no systemd time control to drive.' }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_55f10ef5009ca033') }
     }
-    $manual = 'Fix by hand: sudo timedatectl set-ntp true'
-    if (-not $PSCmdlet.ShouldProcess('Host clock', 'Enable NTP and resynchronize')) {
+    $manual = (Format-YurunaOperatorMessage -Key 'runner.operator_fc482441ba59283e')
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_ab78290b0162b326'), (Format-YurunaOperatorMessage -Key 'runner.operator_5b2ab60cf43c713c'))) {
         return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
     }
 
     $ntpOut = & sudo -n timedatectl set-ntp true 2>&1
     if ($LASTEXITCODE -ne 0) {
-        return @{ Succeeded = $false; Message = "timedatectl set-ntp true failed: $(($ntpOut | Out-String).Trim()). $manual" }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_1bf17ab0244b3137' -Arguments @{ trim = "$(($ntpOut | Out-String).Trim())"; manual = "$manual" }) }
     }
     $steps = @('NTP enabled')
 
@@ -125,7 +126,7 @@ function Sync-LinuxHostClock {
         if ($LASTEXITCODE -eq 0) { $steps += 'timesyncd restarted' }
         else { Write-Verbose "systemctl restart systemd-timesyncd: $(($restartOut | Out-String).Trim())" }
     }
-    return @{ Succeeded = $true; Message = "Host clock: $($steps -join ', ')." }
+    return @{ Succeeded = $true; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_e8c769a3703de6a4' -Arguments @{ join = "$($steps -join ', ')" }) }
 }
 
 function Assert-LinuxHostConditionSet {
@@ -159,7 +160,7 @@ function Assert-LinuxHostConditionSet {
     }
     # --- REGION: Diagnose which precondition failed
     if (-not (Test-Path -LiteralPath '/dev/kvm')) {
-        Write-Error "/dev/kvm character device missing -- kvm.ko not loaded. Try: 'sudo modprobe kvm_intel' (Intel) or 'sudo modprobe kvm_amd' (AMD)."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_43e66f1b323df1ce')
         return $false
     }
     # Coerce before .Trim(): a missing systemctl / empty output makes (& ...) return $null, and
@@ -167,7 +168,7 @@ function Assert-LinuxHostConditionSet {
     $raw = & systemctl is-active libvirtd 2>$null
     $active = if ($raw) { "$raw".Trim() } else { '' }
     if ($active -ne 'active') {
-        Write-Error "libvirtd is not active (state=$active). Try: 'sudo systemctl start libvirtd' and check 'systemctl status libvirtd'."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5bd775f79ee13443' -Arguments @{ active = "$active" })
         return $false
     }
     # libvirtd up, /dev/kvm present, but the round-trip failed -- the
@@ -183,29 +184,14 @@ function Assert-LinuxHostConditionSet {
     $me = (& id -un 2>$null); if (-not $me) { $me = $env:USER }
     $me = ([string]$me).Trim()
     if ($libvirtMembers -contains $me -and $activeGroups -notcontains 'libvirt') {
-        Write-Error @"
-Cannot reach libvirtd from this process: '$me' IS in the 'libvirt'
-group per /etc/group, but THIS shell's running group set does NOT include
-libvirt -- so virt-install and virsh hit 'Permission denied' on the
-libvirt socket. A desktop logout/login does NOT always refresh the group
-set on systemd-logind systems with user lingering.
-
-Fix (pick one) and re-run Start-TestRunner.ps1:
-  A. one-off, no logout needed:
-       sg libvirt -c 'pwsh ./Start-TestRunner.ps1'
-  B. this shell only:
-       newgrp libvirt
-       pwsh ./Start-TestRunner.ps1
-  C. fully refresh (most reliable):
-       sudo reboot
-"@
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6086c8f7e49eae24' -Arguments @{ me = "$me" })
         return $false
     }
     if ($libvirtMembers -notcontains $me) {
-        Write-Error "'$me' is not in the 'libvirt' group at all -- re-run install/ubuntu.kvm.sh, or: 'sudo usermod -aG libvirt $me' then log out / back in."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_af9331d7fcad1b25' -Arguments @{ me = "$me" })
         return $false
     }
-    Write-Error "virsh round-trip against libvirtd failed but the usual causes (kvm missing, libvirtd down, stale group set) don't apply. Run 'virsh -c qemu:///system list' manually for the verbatim error."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_71200c53c662e070')
     return $false
 }
 
@@ -231,11 +217,11 @@ function Test-LinuxHostMinimum {
         # Package names match install/ubuntu.kvm.sh. 'qemu-kvm' is only a
         # transitional shim on current Ubuntu -- naming the real qemu-system-*
         # package keeps this hint working as the shim is retired.
-        Write-Warning "virsh not found on PATH -- the libvirt/QEMU packages are not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1a3ffa06ec11b7a6')
         $ok = $false
     }
     if (-not (Test-Path '/dev/kvm')) {
-        Write-Warning "/dev/kvm missing -- kvm.ko not loaded or VT-x/SVM disabled in firmware. Enable hardware virtualization in BIOS/UEFI and load the kvm kernel module."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7fa56a2704d96ae2')
         $ok = $false
     }
     return $ok

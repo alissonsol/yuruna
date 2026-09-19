@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -34,8 +36,11 @@
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = 'yuruna-stash-service'
+    [string]$VMName = 'yuruna-stash-service',
+    [switch]$AllowPseudoLocale
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -47,11 +52,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.stash-service/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_bd4dd844e15d2f9b')
     exit 1
 }
 
@@ -75,7 +80,7 @@ $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImage
 
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
@@ -91,11 +96,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -106,10 +111,10 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
-Write-Output "Copying base image to per-VM disk (sparse copy)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8531557fc4c0c787')
 & /bin/cp --sparse=always -- $baseImageFile $diskImg
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "cp --sparse=always failed copying $baseImageFile -> $diskImg"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a61a7d21cdb5e750' -Arguments @{ baseImageFile = "$baseImageFile"; diskImg = "$diskImg" })
     exit 1
 }
 
@@ -117,7 +122,7 @@ if ($LASTEXITCODE -ne 0) {
 # Apparent size only: qcow2 grows on write, so the host gives up nothing
 # until the stash daemon actually stores that much.
 if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2')) {
-    Write-Error "Could not resize '$diskImg' to 256 GB; refusing to build the VM on base-capacity disk."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6012ed9325995e9f' -Arguments @{ diskImg = "$diskImg" })
     exit 1
 }
 
@@ -125,14 +130,14 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
-if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5f54f73b7b1051eb'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Render user-data / meta-data
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
@@ -140,7 +145,7 @@ $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -152,13 +157,13 @@ Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1')
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 if (-not $networkName) {
-    Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
     exit 1
 }
 if ($networkName -eq 'default') {
-    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The stash-service VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_867ce32ee6d72c7e')
 } else {
-    Write-Output "Using libvirt network: $networkName (stash-service VM will get a LAN-routable IP)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a3f633bc62da766' -Arguments @{ networkName = "$networkName" })
 
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
@@ -172,17 +177,7 @@ if ($networkName -eq 'default') {
                 Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
         } else { @() }
         if ($physPorts.Count -eq 0) {
-            Write-Error @"
-
-libvirt network '$networkName' is active, but its host bridge '$extBridge' has NO
-physical LAN uplink (only guest tap ports are attached). A guest on it can never
-obtain a DHCP lease -- this is the silent 20-minute 'no IP' wait, not a slow boot.
-
-Heal the bridge, then re-run this script:
-    test/service/Start-CachingProxyServiceVM.ps1
-(it owns the 'yuruna-external' bridge lifecycle and self-heals or rebuilds the
-uplink NIC). Nothing was created; the stash-service VM was not started.
-"@
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2331212c13235927' -Arguments @{ networkName = "$networkName"; extBridge = "$extBridge" })
             exit 1
         }
     }
@@ -196,11 +191,20 @@ uplink NIC). Nothing was created; the stash-service VM was not started.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = $guestBinding.HostIp
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
@@ -216,6 +220,8 @@ $userData = New-CloudInitUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
@@ -242,17 +248,17 @@ Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') 
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
     (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
 Write-Output ""
-Write-Output "== stash-service console/SSH login (available NOW) =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_75cf4528e83fec3c')
 Write-Output "  user:     stash-admin"
-Write-Output "  password: (in authentication vault under 'stash-admin')"
-Write-Output "  If the wait below stalls or fails, open"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d16883e5df36f6c1')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
 Write-Output "    virt-viewer --connect $virshUri $VMName"
-Write-Output "  and log in with the credentials above to inspect cloud-init state."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
 Write-Output ""
 
 # --- REGION: Create and configure the libvirt domain (virt-install)
@@ -278,7 +284,7 @@ if ($LASTEXITCODE -eq 0) {
 # See https://yuruna.link/42fa6f45-0016
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -313,7 +319,7 @@ $virtInstallExit = $LASTEXITCODE
 $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
 if ($virtInstallExit -ne 0) {
     $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error "virt-install failed (exit $virtInstallExit)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
     exit 1
 }
 
@@ -323,9 +329,9 @@ Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 # --- REGION: Wait for VM IP
 # See https://yuruna.link/42e220c4-0004
 # Bridged discovery can require the first-boot guest-agent installation, not just DHCP.
-Write-Output "Waiting for VM to obtain an IP address..."
-Write-Output "  (cloud-init brings up networking, then installs packages -- on a"
-Write-Output "   first boot over a slow mirror this can take several minutes)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ad80cba5df7759b7')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_701bdce7b94ddb32')
 
 $dockIp = $null
 $maxIterations = 240  # 240 * 5s = 20 minutes
@@ -346,7 +352,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         $min     = [int][math]::Floor($elapsed / 60)
         $sec     = [int]($elapsed % 60)
         $totalMinutes = [int][math]::Floor($maxIterations * 5 / 60)
-        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for IP -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMinutes, $sizeMB, $deltaMB)
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ab6af692ee9143e8' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, $deltaMB) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' })
     }
 }
 
@@ -356,47 +362,30 @@ if (-not $dockIp) {
     # host cannot observe, or the domain died -- and only the raw per-source
     # output separates them.
     Write-Output ""
-    Write-Output "Address discovery, per source:"
-    Write-Output "  domain state: $((& virsh --connect $virshUri domstate $VMName 2>&1 | Out-String).Trim())"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c89f111266a03848')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_eec85c81e0d0c046' -Arguments @{ trim = "$((& virsh --connect $virshUri domstate $VMName 2>&1 | Out-String).Trim())" })
     foreach ($src in @('lease', 'agent', 'arp')) {
         $probe = (& virsh --connect $virshUri domifaddr $VMName --source $src 2>&1 | Out-String).Trim()
         if (-not $probe) { $probe = '(empty)' }
         Write-Output "  --source ${src}: $($probe -replace "`r?`n", ' | ')"
     }
-    Write-Error @"
-
-stash-service VM '$VMName' did not obtain an IP address within 20 minutes
-(network '$networkName'; sources lease, agent, arp all returned empty).
-
-  * 'agent' says the agent is not connected -> the guest is still in its package
-    phase (or apt failed), so qemu-guest-agent has not started yet. The console
-    log below shows where cloud-init is.
-  * All three empty AND the VM is on a bridged network whose uplink is Wi-Fi:
-    some access points refuse to forward the guest's DHCP request (MAC-based AP
-    isolation). Use a wired uplink, or undefine 'yuruna-external' to fall back
-    to the NAT 'default' network.
-
-Accessing the VM for debugging:
-  * Console:  virt-viewer --connect $virshUri $VMName
-              user: stash-admin  (password in authentication vault)
-              then: cloud-init status --long; ip -4 addr
-"@
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9cc7515199a7b5a2' -Arguments @{ vMName = "$VMName"; networkName = "$networkName"; virshUri = "$virshUri" })
     exit 1
 }
 
 Write-Output ""
-Write-Output "== stash-service VM is READY =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_67084b575b89cc58')
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  Network:  $networkName"
-Write-Output "  SSH:      ssh stash-admin@$dockIp  (harness key authorized)"
-Write-Output "  Console:  virt-viewer --connect $virshUri $VMName"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_dde8dea17f4f28d3' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e974f3b27099a83' -Arguments @{ virshUri = "$virshUri"; vMName = "$VMName" })
 Write-Output ""
-Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
-Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
-Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
-Write-Output "Watch progress:  ssh stash-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
-Write-Output "(the log is root-only; stash-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
-Write-Output "(harness key authorized until the daemon takes over :22). See"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_352ce8880d1aa08c')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4f80523f8f0b08bf')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c0350b2a7b87558' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2da2f3a61688f8c3' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5b964572fb8a9e22')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5482df881e0cb0fe')
 Write-Output "https://yuruna.link/42f5e921."
 exit 0

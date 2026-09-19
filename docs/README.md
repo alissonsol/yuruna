@@ -15,6 +15,7 @@ Portuguese (Brazil): [documentação em português](pt-BR/index.md) covers the
 operator subset. The translation manifest records each document's accepted
 review; English remains the source of truth.
 
+- **[globalization.md](globalization.md)** -- language selection, catalog authoring, and reviewed translation exchange.
 - **[architecture.md](architecture.md)** -- the three capabilities and the
   three-phase Resources -> Components -> Workloads model, plus the CLI entry
   points. Cross-cutting concepts every other README links to rather than
@@ -286,6 +287,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

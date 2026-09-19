@@ -50,6 +50,8 @@ the
 [website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website)
 sequences.
 
+Language selection and translation: [Languages and localization](docs/globalization.md). Portuguese (Brazil): [translated documents](docs/pt-BR/index.md).
+
 **More info.** [Operator guide](docs/operator.md) -- the full
 single-machine runbook, including the dedicated test user;
 [lab operator guide](docs/lab-operator.md) -- several machines as one
@@ -105,4 +107,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18

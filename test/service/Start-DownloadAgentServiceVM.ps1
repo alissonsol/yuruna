@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -57,7 +59,8 @@
 param(
     [Parameter(Position = 0)]
     [string]$VMName = 'yuruna-download-agent-service',
-    [switch]$AllowMirrorSource
+    [switch]$AllowMirrorSource,
+    [switch]$AllowPseudoLocale
 )
 
 # --- REGION: Confirm the service operation
@@ -220,7 +223,9 @@ if (-not $PSCmdlet.ShouldProcess($VMName, "Build and start the download-agent se
     exit $ExitOk
 }
 Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-& pwsh -NoProfile -File $newVm -VMName $VMName
+$newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
+if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+& pwsh @newVmArgs
 $rc = $LASTEXITCODE
 if ($rc -ne 0) {
     Write-Error "$newVm exited $rc -- aborting."

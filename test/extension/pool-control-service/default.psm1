@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ef1927-b8ef-4eaa-b7e6-2dd5a5a5af5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,22 +16,9 @@
 
 #requires -version 7
 
-# Default pool-control-service extension. The Go daemon (operator board, pool
-# and test-set CRUD over the pool-intent git store, embedded web UI) lives under
-# [server/](server/); operator guide: docs/pool-admin.md.
-#
-# This module is the area's host-side presence: it makes the area visible to
-# Get-ExtensionAreaName, gives it a capability-matrix entry, and supplies the
-# pre-flight a caller needs to prove a resolved pool-control address.
-#
-# Get-PoolControlServiceInfo is a status stub returning the uniform hashtable
-# the host-side cmdlet vocabulary uses across the extension areas; host-side
-# status probing (querying a running board VM) is not wired yet, so the flags
-# stay $false until that lands.
-#
-# Test-PoolControlServiceHost is the reachability pre-flight a caller runs
-# BEFORE it commits to a board address, the same contract
-# Test-DownloadAgentServiceHost and the stash pre-flight carry.
+# Default pool-control-service extension. See
+# ../../../docs/pool-admin.md#architecture for the daemon, this module's
+# role, and its cmdlet vocabulary. -- default.psm1
 
 function Get-PoolControlServiceInfo {
     <#

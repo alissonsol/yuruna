@@ -27,11 +27,24 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 `test/` itself holds the seven entry points an operator reaches for daily. The
 rest are grouped by what they act on: `test/lab/` (standing a lab up on this
 host -- the four host-neutral entry points, lab creation, local storage, token
-enrollment), `test/pool/` (the pool-admin CLI and the sample intent files),
+enrollment, host refresh), `test/pool/` (the pool-admin CLI and the sample intent files),
 `test/service/` (service VM and host-service lifecycle, plus the
 caching-proxy-service operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
 internals, not invoked directly). The repo-wide encoding gate lives at
 `tools/Test-AsciiNoBom.ps1`.
+
+**The shared prelude.** `Initialize-YurunaEntryPoint`
+(`test/modules/Test.Prelude.psm1`) returns the canonical path bundle
+(`$TestRoot`, `$RepoRoot`, `$ModulesDir`, `$SequencesDir`, `$StatusDir`,
+`$ConfigPath`) every entry-point script needs, so `Start-TestRunner`,
+`Invoke-TestRunnerInnerLoop`, `Debug-TestSequence`, and `Invoke-TestProject`
+can never drift apart on it, and a future entry point does not have to
+copy-paste the `$PSScriptRoot`/`Split-Path`/`Join-Path` boilerplate to
+compute it. **Exit-code contract:** `0` means success, `1` means anything
+else. Distinct preflight failures surface through the `Stop-WithReason`
+banner text -- an operator or a CI parser reads the "STOP at &lt;Step&gt;"
+line, not the numeric code -- so standardizing every entry point on `0`/`1`
+means CI needs no per-script exit-code lookup table.
 
 <a id="42d38664-0003"></a>
 
@@ -138,6 +151,9 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostAddressBeacon` | Push half of address discovery: re-announces this host when its address changes instead of waiting for the aggregator's pull |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
 | `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot |
+| `Test.SingleFlightLock` | Cross-process exclusive lock backed by an OS file lock held open for a whole operation's lifetime, not just its metadata write |
+| `Test.HostRefresh`     | Host-neutral hypervisor-repair rung ladder (`Get-VirtualizationRepairRung`); declares what each platform's repair driver can attempt today |
+| `Test.HostRefreshIntent` | Durable request/attempt record for one host-refresh invocation: new/retry/policy-mismatch/active-collision state machine |
 | `Test.StatusFirewall`  | Per-OS allow rule that makes the status-service port reachable from the LAN |
 | `Test.RootArtifact`    | Finds and clears the root-owned state a `sudo` run of an entry point leaves behind (Unix only) |
 
@@ -1080,6 +1096,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42670b9e-4ecd-4c4f-b0e0-628a4e11334c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,6 +76,7 @@ param(
     [switch]$RequireReferenceCredential
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 # Sync-HostConfiguration narrates each decision (kept local path, added
 # alias, stored credential) via Write-Information; without Continue the
@@ -84,7 +85,7 @@ $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
-    throw "This is the Windows Hyper-V variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7e0c1c27f76157e5')
 }
 
 # --- REGION: Initialize host setup

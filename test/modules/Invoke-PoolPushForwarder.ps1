@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421654e8-21f9-45e4-9613-5c67d4e4290f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 [CmdletBinding()]
 param([string]$HostId = '', [string]$CycleFolder = '')
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 
@@ -43,7 +44,7 @@ if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
 $runtimeDir = $env:YURUNA_RUNTIME_DIR
 $logDir     = $env:YURUNA_LOG_DIR
 if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($logDir)) {
-    Write-Warning "pool push: YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR not set; nothing to do."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1fe1d584f0290ac2')
     return
 }
 if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null }
@@ -145,11 +146,11 @@ try {
     if (Get-Command Invoke-PoolEventPush -ErrorAction SilentlyContinue) {
         $summary = Invoke-PoolEventPush -CycleFolder $CycleFolder -ProxyIp $proxyIp -Token $token -RuntimeDir $runtimeDir
         if ($summary) {
-            Write-Information ("pool push: sent=$($summary.sent) batches=$($summary.batches) lastStatus=$($summary.lastStatus) reason='$($summary.reason)'") -InformationAction Continue
+            Write-Information ((Format-YurunaOperatorMessage -Key 'runner.operator_7782e9a6cf3f4795' -Arguments @{ sent = "$($summary.sent)"; batches = "$($summary.batches)"; lastStatus = "$($summary.lastStatus)"; reason = "$($summary.reason)" })) -InformationAction Continue
         }
     }
 } catch {
-    Write-Warning "pool push error (non-fatal): $($_.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9597c2fd2b52e11e' -Arguments @{ message = "$($_.Exception.Message)" })
 } finally {
     if ($haveLock -and (Test-Path -LiteralPath $lockPath)) {
         $owner = 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,7 @@ param(
     [switch]$RequireReferenceCredential
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 # Sync-HostConfiguration narrates each decision (kept local path, added
 # alias, stored credential) via Write-Information; without Continue the
@@ -83,21 +84,13 @@ $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsLinux) {
-    throw "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1568d9e12a12e190')
 }
 
 # --- REGION: Elevation notice
 # Announce conditional privileged writes without requesting unused credentials.
 if (-not $NoPool -and -not $NonInteractive -and -not $WhatIfPreference) {
-    Write-Information @'
-
-Note: this sync may need sudo later in the run --
-  * write /etc/hosts via automation/Set-HostAlias.ps1, when a networkStorage
-    server name does not resolve to what the reference host says
-  * install the /etc/sudoers.d drop-in so poolStorage/stashStorage mounts run
-    without a password
-You may be prompted for your password once for each.
-'@
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_0a29da20e90b72f2')
 }
 
 # --- REGION: Initialize host setup
@@ -131,22 +124,22 @@ Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -Re
 # Reporting it here turns that from something diagnosed across many failed
 # cycles into a line of setup output.
 Write-Output ''
-Write-Output 'Guest address discovery on this host:'
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fc3a019bfe08955e')
 $networkName = ''
 try {
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -ErrorAction Stop
     $networkName = [string](Get-ExternalNetwork)
 } catch {
-    Write-Output "  could not load the host driver to check: $($_.Exception.Message)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_99da1a0d2e9fb034' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 if ($networkName) {
     $netXml = (& virsh --connect qemu:///system net-dumpxml $networkName 2>&1) -join "`n"
     $isNat  = ($netXml -match '<dhcp>')
-    Write-Output "  guest network            : $networkName"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4551eef5e24cf289' -Arguments @{ networkName = "$networkName" })
     if ($isNat) {
-        Write-Output '  virsh --source lease     : available (libvirt serves DHCP on this network)'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_448cdaf2e660e77c')
     } else {
-        Write-Output '  virsh --source lease     : SILENT -- this network has no <dhcp>, so libvirt owns no leases'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_56ba8d186d33f488')
     }
     $seed = Join-Path $RepoRoot 'host/vmconfig/ubuntu.server.kvm.overlay.yml'
     # "attempted", not "available". The seed installs the agent from a
@@ -156,9 +149,9 @@ if ($networkName) {
     # Only the guest itself can settle it: virsh domifaddr --source agent.
     $hasAgent = (Test-Path -LiteralPath $seed) -and ((Get-Content -LiteralPath $seed -Raw) -match 'qemu-guest-agent')
     if ($hasAgent) {
-        Write-Output '  virsh --source agent     : attempted (seed installs qemu-guest-agent best-effort; confirm per guest)'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f0fd9838eca3f370')
     } else {
-        Write-Output '  virsh --source agent     : SILENT -- the guest seed does not install qemu-guest-agent'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_68ed859cee56ba19')
     }
     # Get-HostIpv4Prefix is module-private, so it has to be invoked inside the
     # driver's own scope. Called bare from here it raises CommandNotFound, the
@@ -171,13 +164,11 @@ if ($networkName) {
     } catch { $prefix = $null }
     if ($prefix) {
         $sweep = if ($prefix.Length -ge 24) { 'available' } else { "REFUSED -- /$($prefix.Length) is wider than /24" }
-        Write-Output "  neighbor cache + refresh : $sweep (host $($prefix.Address)/$($prefix.Length))"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_41899d644a8d91fb' -Arguments @{ sweep = "$sweep"; address = "$($prefix.Address)"; length = "$($prefix.Length)" })
     } else {
-        Write-Output '  neighbor cache + refresh : unavailable -- no default-route IPv4 on this host'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_91e92935992072a4')
     }
     if (-not $isNat -and -not $hasAgent) {
-        Write-Warning ('Both on-demand discovery rungs are silent on this host, so guest addresses come only from the ' +
-                       'host neighbor cache. That cache decays, so lookups will miss intermittently. Install ' +
-                       'qemu-guest-agent in the guest seed, or put guests on a libvirt-managed network.')
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_d9865efa39e8e674'))
     }
 }

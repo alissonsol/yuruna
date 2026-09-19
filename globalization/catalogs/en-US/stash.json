@@ -1,0 +1,951 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "stash",
+  "locale": "en-US",
+  "messages": {
+    "stash.stashes_yuruna_stash": {
+      "message": "Stashes — Yuruna Stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.yuruna_stash": {
+      "message": "Yuruna Stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.menu": {
+      "message": "Menu",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.pages": {
+      "message": "Pages",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.stashes": {
+      "message": "Stashes",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.new_stash": {
+      "message": "New stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.guide": {
+      "message": "Guide",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.search_id_filename_user_path": {
+      "message": "Search id, filename, user, path...",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.filter_by_content_type": {
+      "message": "Filter by content type",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.all_types": {
+      "message": "All types",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.text": {
+      "message": "Text",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.image": {
+      "message": "Image",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.pdf": {
+      "message": "PDF",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.audio": {
+      "message": "Audio",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.video": {
+      "message": "Video",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.archive": {
+      "message": "Archive",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.other": {
+      "message": "Other",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.filter_by_host": {
+      "message": "Filter by host",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.all_hosts": {
+      "message": "All hosts",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.refresh": {
+      "message": "Refresh",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.rescan_the_stash_share_for_other_hosts_stashes": {
+      "message": "Rescan the stash share for other hosts' stashes",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.six_character_lab_token_from_the_dashboard": {
+      "message": "Six-character lab token from the dashboard",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.lab_token": {
+      "message": "Lab token",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.unlock_actions": {
+      "message": "Unlock actions",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.could_not_be_checked": {
+      "message": "could not be checked",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.delete_selected": {
+      "message": "Delete selected",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.all": {
+      "message": "All",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.type": {
+      "message": "Type",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.name": {
+      "message": "Name",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.host": {
+      "message": "Host",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.user": {
+      "message": "User",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.size": {
+      "message": "Size",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.created": {
+      "message": "Created",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.status": {
+      "message": "Status",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.load_more": {
+      "message": "Load more",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.ips": {
+      "message": "IPs:",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.pause": {
+      "message": "Pause",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.new_stash_yuruna_stash": {
+      "message": "New stash — Yuruna Stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.paste_text": {
+      "message": "Paste text",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.upload_file_s": {
+      "message": "Upload file(s)",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.title_filename_optional": {
+      "message": "Title / filename (optional)",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.notes_txt": {
+      "message": "notes.txt",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.author_optional": {
+      "message": "Author (optional)",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.web": {
+      "message": "web",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.content": {
+      "message": "Content",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.paste_content_here": {
+      "message": "Paste content here...",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.create_stash": {
+      "message": "Create stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.file_s_multiple_files_are_grouped_into_one_zip": {
+      "message": "File(s) -- multiple files are grouped into one ZIP",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.upload_stash": {
+      "message": "Upload stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/new.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.stash_yuruna_stash": {
+      "message": "Stash — Yuruna Stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/stash.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.stash": {
+      "message": "Stash",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/stash.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.loading": {
+      "message": "Loading...",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/stash.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.yuruna_stash_service": {
+      "message": "Yuruna stash service",
+      "description": "Visible text in test/extension/stash-service/server/internal/httpsrv/web/stash.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "stash.delete_is_locked_unlock_actions_with_the_lab_token_above_or_open_": {
+      "message": "Delete is locked. Unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard, which unlocks it for you.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu": {
+      "message": "Delete is unavailable: this service has no pool aggregator configured, so no Lab token or dashboard link can be checked.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.select_stash_value1": {
+      "message": "Select stash {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.delete_stash_value1": {
+      "message": "Delete stash {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.unnamed": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "(unnamed)"
+    },
+    "stash.this_host": {
+      "message": "this host",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_stash_value1_this_cannot_be_undone": {
+      "message": "Delete stash {value1}? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.delete_value1_this_cannot_be_undone": {
+      "message": "Delete {value1}? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.error_value1": {
+      "message": "Error: {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.download": {
+      "message": "Download",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.unlock_actions_to_delete": {
+      "message": "Unlock actions to delete",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.open_on_that_host": {
+      "message": "open on that host",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_stash_value1_value2_value3_this_cannot_be_undone": {
+      "message": "Delete stash {value1} ({value2}, {value3})? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.still_receiving_no_preview_yet": {
+      "message": "Still receiving -- no preview yet.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.incomplete_upload_partial_bytes_available_via_download": {
+      "message": "Incomplete upload -- partial bytes available via Download.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.truncated_at_the_100_mb_cap_download_serves_the_capped_artifact": {
+      "message": "Truncated at the 100 MB cap -- Download serves the capped artifact.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.value1_pdf_preview": {
+      "message": "{value1} (PDF preview)",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.open_pdf": {
+      "message": "Open PDF",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.no_inline_preview_for_this_type_download_to_view": {
+      "message": "No inline preview for this type (download to view).",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.preview_unavailable_use_download_to_open_the_file": {
+      "message": "Preview unavailable. Use Download to open the file.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.could_not_load_text_http_value1": {
+      "message": "Could not load text: HTTP {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.stash_text_preview": {
+      "message": "Stash text preview",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.preview_truncated_download_for_the_full_content": {
+      "message": "Preview truncated -- Download for the full content.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.could_not_load_text_value1": {
+      "message": "Could not load text: {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.archive_value1_contents": {
+      "message": "Archive ({value1}) -- contents:",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.archive_contents": {
+      "message": "Archive contents",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.could_not_list_archive_value1": {
+      "message": "Could not list archive: {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.value1_yuruna_stash": {
+      "message": "{value1} -- Yuruna Stash",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.q": {
+      "message": "q",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.class": {
+      "message": "class",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.host_4740ae63": {
+      "message": "host",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.sort": {
+      "message": "sort",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.dir": {
+      "message": "dir",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.limit": {
+      "message": "limit",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.offset": {
+      "message": "offset",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.deleting": {
+      "message": "Deleting...",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.create_failed_value1": {
+      "message": "Create failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/new.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.nothing_to_store_paste_some_content_first": {
+      "message": "Nothing to store -- paste some content first.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/new.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.choose_at_least_one_file": {
+      "message": "Choose at least one file.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/new.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.source": {
+      "message": "Source",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.scp_path": {
+      "message": "SCP path",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.received": {
+      "message": "Received",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.short_link": {
+      "message": "Short link",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.permalink": {
+      "message": "Permalink",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_failed_value1": {
+      "message": "Delete failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.stash_not_found": {
+      "message": "Stash not found.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.value1_malformed_permalink": {
+      "message": "{value1} (malformed permalink)",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "message": "The 6-character code on the Yuruna hosts dashboard's Lab token tile; upper or lower case both work. Opening this page from that dashboard unlocks it without the code. Needed only to delete.",
+      "description": "Complete paragraph or standalone label in test/extension/stash-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_": {
+      "message": "If unlocking answers that the code could not be checked, the code is not the problem -- the pool aggregator that checks it is unreachable, and you cannot unlock until it is back.",
+      "description": "Complete paragraph or standalone label in test/extension/stash-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "stash.no_pool_aggregator_is_configured_so_no_lab_token_can_be_checked_a": {
+      "message": "No pool aggregator is configured, so no Lab token can be checked and nothing here can be deleted. Set {command1} on the daemon to enable it.",
+      "description": "Complete paragraph or standalone label in test/extension/stash-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "--aggregator-url"
+        }
+      }
+    },
+    "stash.loaded": {
+      "message": "Loaded:",
+      "description": "Complete paragraph or standalone label in test/extension/stash-service/server/internal/httpsrv/web/new.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "stash.state_pending": {
+      "message": "pending",
+      "description": "Display label for the stable pending state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_partial": {
+      "message": "partial",
+      "description": "Display label for the stable partial state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_complete": {
+      "message": "complete",
+      "description": "Display label for the stable complete state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_truncated": {
+      "message": "truncated",
+      "description": "Display label for the stable truncated state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_text": {
+      "message": "text",
+      "description": "Display label for the stable text state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_image": {
+      "message": "image",
+      "description": "Display label for the stable image state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_pdf": {
+      "message": "pdf",
+      "description": "Display label for the stable pdf state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_audio": {
+      "message": "audio",
+      "description": "Display label for the stable audio state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_video": {
+      "message": "video",
+      "description": "Display label for the stable video state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_archive": {
+      "message": "archive",
+      "description": "Display label for the stable archive state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.state_other": {
+      "message": "other",
+      "description": "Display label for the stable other state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "stash.listed_count": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "shown": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} stash (showing {shown})",
+          "other": "{count} stashes (showing {shown})"
+        }
+      }
+    },
+    "stash.selection_count": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} stash",
+          "other": "{count} stashes"
+        }
+      }
+    },
+    "stash.delete": {
+      "message": "Delete",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_failed_for_value1_value2": {
+      "message": "Delete failed for {value1}: {value2}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.value1_of_value2_could_not_be_deleted_value3": {
+      "message": "{value1} of {value2} could not be deleted -- {value3}",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.locked_unlock_actions_with_the_lab_token_above_or_open_this_page_": {
+      "message": " Locked -- unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu_9d79c432": {
+      "message": " Delete is unavailable: this service has no pool aggregator configured, so no Lab token can be checked.",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.received_by_host": {
+      "message": " Received by host ",
+      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "stash.api_search_detail": {
+      "message": "search: {detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "stash.api_invalid_stash_path": {
+      "message": "invalid stash path",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_detail": {
+      "message": "{detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "stash.api_stash_not_found": {
+      "message": "stash not found",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_not_an_archive": {
+      "message": "not an archive",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_open_archive_detail": {
+      "message": "open archive: {detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "stash.api_invalid_json_body": {
+      "message": "invalid JSON body",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_could_not_parse_form": {
+      "message": "could not parse form",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_too_many_files_in_one_upload": {
+      "message": "too many files in one upload",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_open_upload": {
+      "message": "open upload",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_open_uploads": {
+      "message": "open uploads",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_nothing_to_store_provide_text_or_files": {
+      "message": "nothing to store: provide text or files",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_no_stashes_given": {
+      "message": "no stashes given",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_too_many_stashes_in_one_request": {
+      "message": "too many stashes in one request",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_invalid_host": {
+      "message": "invalid host",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_create_detail": {
+      "message": "create: {detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "stash.api_open_artifact": {
+      "message": "open artifact",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_stat_artifact": {
+      "message": "stat artifact",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_not_found": {
+      "message": "not found",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.local_host_name": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "{host}  (this host)",
+      "placeholders": {
+        "host": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "stash.received_host": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Received by host {host}",
+      "placeholders": {
+        "host": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    }
+  }
+}

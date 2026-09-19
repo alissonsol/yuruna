@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c869eb-bcb1-4640-9d26-b9f3f7fbc926
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -62,23 +63,23 @@ Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Validate the arguments
 if ($Name -notmatch '^[a-z0-9][a-z0-9._-]*$') {
-    Write-Error "Test-set name '$Name' is invalid (lowercase alphanumeric start; letters, digits, '.', '_', '-')." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_37e7a76a3661cead' -Arguments @{ name = "$Name" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
-if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-Pool.ps1 -PoolId $PoolId" -ErrorAction Continue; exit $ExitFailure }
+if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
 
 # The auto-enrollment target pool can NEVER carry a test-set. Hosts arrive there
 # automatically, without anyone choosing it for them, so assigning a project
@@ -91,15 +92,7 @@ if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-
 # Test-PoolIntent.ps1 re-checks it as the authoritative validator.
 $targetPoolId = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { [string]$doc['autoEnrollment']['targetPoolId'] } else { '' }
 if ($targetPoolId -and $PoolId -eq $targetPoolId) {
-    Write-Error @"
-'$PoolId' is the auto-enrollment target pool and cannot carry a test-set.
-  Hosts land there automatically and keep running their own projectUrl; assigning one
-  here would silently repoint every auto-enrolled host in the lab.
-  To give these hosts a project, create another pool and assign the hosts to it:
-    ./New-Pool.ps1 -PoolId <name>
-    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>
-    test/pool/Set-PoolTestSet.ps1 -PoolId <name> -Name $Name -FrameworkUrl $FrameworkUrl -ProjectUrl $ProjectUrl
-"@ -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f1dc62bfb0f61720' -Arguments @{ poolId = "$PoolId"; name = "$Name"; frameworkUrl = "$FrameworkUrl"; projectUrl = "$ProjectUrl" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
@@ -110,13 +103,13 @@ $pool['testSet'] = [ordered]@{ name = $Name; frameworkUrl = $FrameworkUrl; proje
 
 # --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: $action test-set $Name on $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
-Write-Information "Test-set '$Name' set on pool '$PoolId' (frameworkUrl=$FrameworkUrl, projectUrl=$ProjectUrl)." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c11b4fa818b922ab' -Arguments @{ name = "$Name"; poolId = "$PoolId"; frameworkUrl = "$FrameworkUrl"; projectUrl = "$ProjectUrl" }) -InformationAction Continue
 exit $ExitOk

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,7 +122,64 @@ Describe 'the renderer reads what the compiler emits' {
     }
 }
 
+Describe 'server-rendered catalog markers' {
+    BeforeAll {
+        $script:HtmlCatalog = Join-Path $TestDrive 'html-catalog'
+        [void][IO.Directory]::CreateDirectory($script:HtmlCatalog)
+        [IO.File]::WriteAllText((Join-Path $script:HtmlCatalog 'en-US.sample.psd1'),
+            '@{ ''sample.text'' = ''<img src=x onerror=alert(1)> & ready''; ''sample.title'' = ''"quoted" <title>''; ''sample.command'' = @(''Run '', @{ arg = ''command''; type = ''token''; trust = ''internal'' }, '' now.'') }')
+    }
+    It 'escapes catalog text and presentation attributes before first paint' {
+        $html = '<button data-i18n="sample.text" data-i18n-title="sample.title" title="old">Original</button>'
+        $result = ConvertTo-CatalogHtml -Html $html -Locale en-US -Root $script:HtmlCatalog
+        $result | Should -Match '&lt;img src=x onerror=alert\(1\)&gt; &amp; ready'
+        $result | Should -Match 'title="&quot;quoted&quot; &lt;title&gt;"'
+        $result | Should -Not -Match '<img|>Original<'
+    }
+    It 'leaves executable content and URL attributes untouched' {
+        $scriptText = '<script>var sample = ''<span data-i18n="sample.text">unchanged</span>'';</script>'
+        $styleText = '<style>/* <span data-i18n="sample.text">unchanged</span> */</style>'
+        $comment = '<!-- <span data-i18n="sample.text">unchanged</span> -->'
+        $link = '<a data-i18n-href="sample.text" href="/stable">link</a>'
+        $source = $scriptText + $styleText + $comment + $link
+        ConvertTo-CatalogHtml -Html $source -Locale en-US -Root $script:HtmlCatalog | Should -BeExactly $source
+    }
+    It 'retains controls and adds escaped placeholders to void elements' {
+        $result = ConvertTo-CatalogHtml -Html '<input data-i18n-placeholder="sample.title" />' -Locale en-US -Root $script:HtmlCatalog
+        $result | Should -Match 'placeholder="&quot;quoted&quot; &lt;title&gt;"/>'
+        $result | Should -Not -Match '/ placeholder'
+    }
+    It 'refuses a missing key instead of serving source-language markup as translated' {
+        { ConvertTo-CatalogHtml -Html '<span data-i18n="sample.absent">Original</span>' -Locale en-US -Root $script:HtmlCatalog } |
+            Should -Throw '*Missing catalog text*'
+    }
+    It 'decodes static argument JSON once and preserves command bytes as escaped text' {
+        $html = '<p data-i18n="sample.command" data-i18n-args="{&quot;command&quot;:&quot;tool --value=\&quot;&lt;x&gt;\&quot; &amp; next&quot;}">Original</p>'
+        $result = ConvertTo-CatalogHtml -Html $html -Locale en-US -Root $script:HtmlCatalog
+        $result | Should -Match '>Run tool --value=&quot;&lt;x&gt;&quot; &amp; next now\.</p>'
+        $result | Should -Not -Match '&amp;lt;|<x>'
+        { ConvertTo-CatalogHtml -Html '<p data-i18n="sample.command" data-i18n-args="{broken}">Original</p>' -Locale en-US -Root $script:HtmlCatalog } |
+            Should -Throw
+    }
+}
+
 Describe 'the renderer is cheap enough to sit in a render loop' {
+
+    It 'loads a complete large domain while still refusing executable data files' {
+        $catalogRoot = Join-Path $TestDrive 'large-catalog'
+        [void][IO.Directory]::CreateDirectory($catalogRoot)
+        $entries = @(1..1800 | ForEach-Object { "'large.message_$_' = 'Message $_'" })
+        [IO.File]::WriteAllText((Join-Path $catalogRoot 'en-US.large.psd1'), "@{`n" + ($entries -join "`n") + "`n}")
+        $table = Get-CatalogDomain -Locale en-US -Domain large -Root $catalogRoot
+        $table.Count | Should -Be 1800
+        Format-CatalogMessage -Key large.message_1800 -Locale en-US -Root $catalogRoot | Should -BeExactly 'Message 1800'
+
+        $marker = Join-Path $TestDrive 'must-not-exist'
+        $escaped = $marker.Replace("'", "''")
+        [IO.File]::WriteAllText((Join-Path $catalogRoot 'en-US.executable.psd1'), "@{ 'executable.message' = `$( [IO.File]::WriteAllText('$escaped', 'executed') ) }")
+        { Get-CatalogDomain -Locale en-US -Domain executable -Root $catalogRoot -ErrorAction Stop } | Should -Throw
+        Test-Path -LiteralPath $marker | Should -BeFalse
+    }
 
     It 'reads a domain once per process, not once per message' {
         $first = Get-CatalogDomain -Locale 'en-US' -Domain 'status'
@@ -151,7 +208,7 @@ Describe 'the renderer refuses to guess' {
         # English and Portuguese disagree about zero. Borrowing one rule for the
         # other language produces grammar that reads fine to anyone who does not
         # speak it, and no test would catch it.
-        Assert-Throw { Get-PluralCategory -Locale 'pt-BR' -Count 0 } 'No pinned plural rule' `
+        Assert-Throw { Get-PluralCategory -Locale 'xx-XX' -Count 0 } 'No pinned plural rule' `
             'an unpinned locale must raise rather than silently use the English rule'
         Assert-StringEqual -Expected 'one' -Actual (Get-PluralCategory -Locale 'en-US' -Count 1) 'en-US singular'
         Assert-StringEqual -Expected 'other' -Actual (Get-PluralCategory -Locale 'en-US' -Count 0) 'en-US zero is plural'
@@ -233,5 +290,15 @@ $out
             "the importer could not call into the locale module afterward:`n$out"
         Assert-Match -Pattern '(?m)^RENDERED=\S' -Actual $out `
             "the renderer's own commands did not survive its own import:`n$out"
+    }
+}
+
+Describe 'Portuguese numeric cardinal rules' {
+    It 'matches the pinned shared zero fraction negative and million corpus' {
+        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $corpus = Get-Content -LiteralPath (Join-Path $root 'globalization/fixtures/pt-BR-plurals.json') -Raw | ConvertFrom-Json
+        foreach ($row in $corpus.cases) {
+            Get-PluralCategory -Count $row.count -Locale $corpus.locale | Should -BeExactly $row.category
+        }
     }
 }

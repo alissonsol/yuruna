@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,7 @@ param(
     [switch]$Force
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -132,7 +133,7 @@ function Set-DirectoryPrivate {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Path)
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Restrict to the current user')) { return }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_258aa0a2968ed154'))) { return }
     try {
         if ($IsWindows) {
             & icacls $Path /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" 2>&1 | Out-Null
@@ -140,7 +141,7 @@ function Set-DirectoryPrivate {
             & chmod 700 $Path 2>&1 | Out-Null
         }
     } catch {
-        Write-Warning "Could not restrict permissions on '$Path': $($_.Exception.Message). The lab vault is plain text -- fix this before copying it anywhere."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c66025ec986aed96' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -160,8 +161,8 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 
 Write-Output ""
 Write-Output "========"
-Write-Output "  Creating lab '$Name'"
-Write-Output "  Root: $Root$(if ($rootReused) { ' (from a lab already on this machine)' })"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76f86f396906afe9' -Arguments @{ name = "$Name" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ec6f1fb93e933915' -Arguments @{ root = "$Root"; machine = "$(if ($rootReused) { ' (from a lab already on this machine)' })" })
 Write-Output "========"
 
 function Test-DirectoryWritable {
@@ -187,7 +188,7 @@ function New-DirectoryWithSudoFallback {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Path)
     if ((Test-Path -LiteralPath $Path) -and (Test-DirectoryWritable -Path $Path)) { return }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Create or reclaim directory')) { return }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_468e93d8ebdb6930'))) { return }
     if (-not (Test-Path -LiteralPath $Path)) {
         try {
             $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop -WhatIf:$false
@@ -229,13 +230,13 @@ $intentPath = Join-Path $poolPath 'pool-intent.git'
 $legacyIntentPath = Join-Path $poolPath "$Name.intent.git"
 if ((Test-Path -LiteralPath $legacyIntentPath) -and -not (Test-Path -LiteralPath $intentPath)) {
     Move-Item -LiteralPath $legacyIntentPath -Destination $intentPath
-    Write-Output "[2/3] adopted the existing pool-intent store: $legacyIntentPath -> $intentPath"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4154b8f8b4c44fe5' -Arguments @{ legacyIntentPath = "$legacyIntentPath"; intentPath = "$intentPath" })
 }
 $store = New-YurunaPoolIntentStore -Path $intentPath -Confirm:$false
 if ($store.Created) {
-    Write-Output "[2/3] pool-intent store seeded at $intentPath"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8fcfdcefeec6d978' -Arguments @{ intentPath = "$intentPath" })
 } else {
-    Write-Output "[2/3] pool-intent store already present at $intentPath ($($store.Reason))"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a57aeed80b0cf28a' -Arguments @{ intentPath = "$intentPath"; reason = "$($store.Reason)" })
 }
 
 # --- REGION: Lab vault
@@ -248,7 +249,7 @@ Set-DirectoryPrivate -Path $vaultDir -Confirm:$false
 $labVault = Join-Path $vaultDir "lab.$Name.vault.yml"
 
 if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
-    Write-Output "[3/3] lab vault already exists at $labVault (use -Force to regenerate)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3ef003e468ca0535' -Arguments @{ labVault = "$labVault" })
 } else {
     $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     $lines = [System.Collections.Generic.List[string]]::new()
@@ -287,15 +288,15 @@ if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
     } else {
         "$($User.Count) credential(s)"
     }
-    Write-Output "[3/3] lab vault written to $labVault ($detail)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b4b4c986060e9c0d' -Arguments @{ labVault = "$labVault"; detail = "$detail" })
 }
 
 Write-Output ""
 Write-Output "Lab '$Name' ready."
-Write-Output "  pool folder : $poolPath"
-Write-Output "  stash folder: $stashPath"
-Write-Output "  intent repo : $intentPath"
-Write-Output "  lab vault   : $labVault"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4ccbfa081fc1ccc8' -Arguments @{ poolPath = "$poolPath" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be3425294035d6f8' -Arguments @{ stashPath = "$stashPath" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8b14250671a04bd9' -Arguments @{ intentPath = "$intentPath" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_671e06827d6b0716' -Arguments @{ labVault = "$labVault" })
 Write-Output ""
 Write-Output "Next:"
 # A reused root or a reused credential both mean this machine already carries
@@ -305,13 +306,13 @@ Write-Output "Next:"
 # second-guess a working configuration).
 $storageAlreadyHere = $rootReused -or ($reused -and $reused.Count -gt 0)
 if ($storageAlreadyHere) {
-    Write-Output "  1. The folders and the share accounts are already in place on this machine;"
-    Write-Output "     this lab reuses them. Confirm with: pwsh test/Test-Config.ps1"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e3487a152e2f3308')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2a442af02dcd51fd')
 } else {
-    Write-Output "  1. Share $poolPath and $stashPath over SMB and grant the lab's NAS accounts."
-    Write-Output "     Storage on THIS machine? pwsh test/lab/New-LocalLabStorage.ps1 does that step for you."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_eb02e6d6c1eff301' -Arguments @{ poolPath = "$poolPath"; stashPath = "$stashPath" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8a392f69b5b09a9')
 }
-Write-Output "  2. Set networkStorage.* in test/test.config.yml on each host."
-Write-Output "  3. Stand up pool-control service; it serves the intent repo and that URL becomes pool.intentGitUrl."
-Write-Output "  See https://yuruna.link/42ad660e and https://yuruna.link/4207d71a."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_103bc82ee070925d')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3f91d27857293eb6')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ae9fe58ef5b4ba36')
 exit 0

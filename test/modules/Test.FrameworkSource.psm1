@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42765a89-9026-4dfc-bda8-481ccd6555ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
 # an observation, so only the second may be trusted to say a deployed service
 # is running current code.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Set-StrictMode -Version Latest
 
 # The seed writes this after it decides where the framework came from. Read as
@@ -262,22 +263,22 @@ function Test-FrameworkArchiveEndpoint {
         $null = Invoke-WebRequest -Uri "$baseUrl/livecheck" -Method Get -NoProxy -UseBasicParsing `
             -TimeoutSec $TimeoutSeconds -ErrorAction Stop -Verbose:$false
     } catch {
-        $result.Detail = "/livecheck did not answer: $($_.Exception.Message)"
+        $result.Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_fc8677fa2528c6a0' -Arguments @{ message = "$($_.Exception.Message)" })
         return $result
     }
     try {
         $resp = Invoke-WebRequest -Uri "$baseUrl/yuruna-archive.tar.gz" -Method Head -NoProxy -UseBasicParsing `
             -TimeoutSec $TimeoutSeconds -ErrorAction Stop -Verbose:$false
         if ([int]$resp.StatusCode -ne 200) {
-            $result.Detail = "/yuruna-archive.tar.gz answered HTTP $([int]$resp.StatusCode)"
+            $result.Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_828a744dd128fc8c' -Arguments @{ statusCode = "$([int]$resp.StatusCode)" })
             return $result
         }
     } catch {
-        $result.Detail = "/yuruna-archive.tar.gz did not answer: $($_.Exception.Message)"
+        $result.Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_7ecfcd6675e5bb94' -Arguments @{ message = "$($_.Exception.Message)" })
         return $result
     }
     $result.Ok     = $true
-    $result.Detail = 'serving /livecheck and /yuruna-archive.tar.gz'
+    $result.Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_3bb05a74210fa85e')
     return $result
 }
 
@@ -378,7 +379,7 @@ function Test-GuestFrameworkSourcePreflight {
         return @{
             Ok           = $false
             Reason       = 'StatusServiceDisabled'
-            Summary      = 'this host runs no status service, so the guest has nothing to fetch this enlistment from'
+            Summary      = (Format-YurunaOperatorMessage -Key 'runner.operator_4c43a7e1778e8b3d')
             Snapshot     = $snapshot
             Port         = $port
             Probes       = @()
@@ -401,7 +402,7 @@ function Test-GuestFrameworkSourcePreflight {
         return @{
             Ok           = $true
             Reason       = 'Ok'
-            Summary      = "the status service is serving this enlistment at $($serving -join ', ')"
+            Summary      = (Format-YurunaOperatorMessage -Key 'runner.operator_4c14858ef689505d' -Arguments @{ join = "$($serving -join ', ')" })
             Snapshot     = $snapshot
             Port         = $port
             Probes       = $probes.ToArray()
@@ -410,9 +411,9 @@ function Test-GuestFrameworkSourcePreflight {
     }
     $reason = if ($loopbackOk) { 'UnreachableFromGuest' } else { 'ArchiveNotServed' }
     $summary = if ($loopbackOk) {
-        "the status service answers on loopback but at none of the addresses a guest is handed, so the guest's fetch would fail"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_3d611df3f14a3a66')
     } else {
-        "the status service is not serving /yuruna-archive.tar.gz on :$port"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_dfa46994723032d8' -Arguments @{ port = "$port" })
     }
     return @{
         Ok           = $false
@@ -471,8 +472,8 @@ function Assert-GuestFrameworkSource {
     $stamp    = if ($snapshot.Revision) { "$($snapshot.Version) ($($snapshot.Revision))" } else { [string]$snapshot.Version }
 
     Write-Information "" -InformationAction Continue
-    Write-Information "== Framework source pre-flight ==" -InformationAction Continue
-    Write-Information "  this enlistment:  $stamp" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_773fe3cd9e3d3c34') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_119791056d611140' -Arguments @{ stamp = "$stamp" }) -InformationAction Continue
     foreach ($probe in $result.Probes) {
         Write-Information "  $($probe.BaseUrl): $($probe.Detail)" -InformationAction Continue
     }
@@ -481,30 +482,18 @@ function Assert-GuestFrameworkSource {
         # Named, not counted: "3 uncommitted files" leaves the operator to
         # guess whether the one they care about is among them.
         $shown = @($snapshot.DirtyPaths | Select-Object -First 10)
-        Write-Warning ("This enlistment has $($snapshot.DirtyPaths.Count) uncommitted change(s). The guest is served " +
-                       "'git archive HEAD', so the $ServiceLabel daemon will be built from committed content ONLY -- " +
-                       "these edits will NOT be in it:`n  " + ($shown -join "`n  ") +
-                       $(if ($snapshot.DirtyPaths.Count -gt $shown.Count) { "`n  ... and $($snapshot.DirtyPaths.Count - $shown.Count) more" } else { '' }))
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_ee290ed0b258ce2a' -Arguments @{ count = "$($snapshot.DirtyPaths.Count)"; serviceLabel = "$ServiceLabel"; n = [string](($shown -join "`n  ")); else = [string]($(if ($snapshot.DirtyPaths.Count -gt $shown.Count) { "`n  ... and $($snapshot.DirtyPaths.Count - $shown.Count) more" } else { '' })) }))
     }
 
     if ($result.Ok) {
-        Write-Information "  Verdict: the guest will be served this enlistment." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_303857a13937ce8d') -InformationAction Continue
         return $true
     }
 
-    $explanation = @"
-The $ServiceLabel guest fetches the framework from this host's status service and,
-when that fetch fails, silently clones the public mirror instead:
-    https://github.com/alissonsol/yuruna
-That mirror is a release snapshot, so the daemon would be COMPILED from older code
-than this enlistment ($stamp) and would keep reporting that older version for the
-life of the VM -- the stamp is baked at build time and never re-read.
-
-Right now: $($result.Summary).
-"@
+    $explanation = (Format-YurunaOperatorMessage -Key 'runner.operator_b188a62cdd3e5530' -Arguments @{ serviceLabel = "$ServiceLabel"; stamp = "$stamp"; summary = "$($result.Summary)" })
 
     if ($AllowMirrorSource) {
-        Write-Warning ($explanation.Trim() + "`n-AllowMirrorSource was given, so the bring-up continues and this service will run PUBLISHED code.")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_89cfb2db259f0f2e' -Arguments @{ trim = [string]($explanation.Trim()) }))
         return $true
     }
 
@@ -524,8 +513,8 @@ Right now: $($result.Summary).
     Write-Information $explanation.Trim() -InformationAction Continue
     Write-Information "" -InformationAction Continue
     Write-Information "Fix: $fix" -InformationAction Continue
-    Write-Information "Or re-run with -AllowMirrorSource to build from the public mirror on purpose (off-LAN bring-up)." -InformationAction Continue
-    Write-Error "$ServiceLabel bring-up refused: the guest would be built from the public mirror, not this enlistment. Nothing was built."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b2cd9d115f3e8faa') -InformationAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_090a0a742ee6d009' -Arguments @{ serviceLabel = "$ServiceLabel" })
     return $false
 }
 
@@ -627,7 +616,7 @@ function Test-ServiceVmFrameworkSource {
     }
 
     if (-not $out.Verified) {
-        $out.Summary = 'neither the guest marker nor the daemon answered, so the deployed version could not be confirmed'
+        $out.Summary = (Format-YurunaOperatorMessage -Key 'runner.operator_b6a05daec9085809')
         return $out
     }
 
@@ -635,11 +624,11 @@ function Test-ServiceVmFrameworkSource {
     $versionMatches = ($out.Version -and $out.Version -eq [string]$Expected.Version)
     $out.Matches    = ($versionMatches -and -not $mirrorSourced)
     $out.Summary = if ($out.Matches) {
-        "built from this enlistment ($($out.Version))"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_10c4f692f254d7ce' -Arguments @{ version = "$($out.Version)" })
     } elseif ($mirrorSourced) {
-        "built from the PUBLIC MIRROR ($($out.Version)), not this enlistment ($([string]$Expected.Version))"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_eeb3a277ba5bbd7e' -Arguments @{ version = "$($out.Version)"; version2 = "$([string]$Expected.Version)" })
     } else {
-        "reports $($out.Version), but this enlistment is $([string]$Expected.Version)"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_90d9c911a863cfe3' -Arguments @{ version = "$($out.Version)"; version2 = "$([string]$Expected.Version)" })
     }
     return $out
 }
@@ -702,40 +691,30 @@ function Assert-ServiceVmFrameworkSource {
     $stamp  = if ($Expected.Revision) { "$($Expected.Version) ($($Expected.Revision))" } else { [string]$Expected.Version }
 
     Write-Information "" -InformationAction Continue
-    Write-Information "== Framework source verification ==" -InformationAction Continue
-    Write-Information "  this enlistment:  $stamp" -InformationAction Continue
-    Write-Information "  service reports:  $(if ($result.Version) { $result.Version } else { '<no answer>' })$(if ($result.Source) { " (source: $($result.Source))" })" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b45d8c5faff5d3c4') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_119791056d611140' -Arguments @{ stamp = "$stamp" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_741bd48072b60960' -Arguments @{ answer = "$(if ($result.Version) { $result.Version } else { '<no answer>' })"; source = "$(if ($result.Source) { " (source: $($result.Source))" })" }) -InformationAction Continue
 
     if (-not $result.Verified) {
-        Write-Warning ("Could not confirm which framework the $ServiceLabel daemon was built from -- $($result.Summary). " +
-                       "The daemon IS serving; only this check could not read its provenance. Compare the version on the " +
-                       "service UI against $($Expected.Version) by hand.")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_ced4f05f3e081915' -Arguments @{ serviceLabel = "$ServiceLabel"; summary = "$($result.Summary)"; version = "$($Expected.Version)" }))
         return $true
     }
     if ($result.Matches) {
-        Write-Information "  Verdict: $($result.Summary), confirmed from $($result.Evidence)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_81ad4e00cee92026' -Arguments @{ summary = "$($result.Summary)"; evidence = "$($result.Evidence)" }) -InformationAction Continue
         return $true
     }
 
-    $explanation = @"
-The $ServiceLabel daemon is serving, but it was compiled from a DIFFERENT framework
-snapshot than this enlistment: $($result.Summary).
-Read from $($result.Evidence).
-
-The guest fetched its source at first boot and built once; the version is stamped
-into the binary at that moment and never re-read, so this VM will keep running and
-reporting that build until it is rebuilt. Nothing in the pool corrects it.
-"@
+    $explanation = (Format-YurunaOperatorMessage -Key 'runner.operator_a597e77782020780' -Arguments @{ serviceLabel = "$ServiceLabel"; summary = "$($result.Summary)"; evidence = "$($result.Evidence)" })
     if ($AllowMirrorSource) {
-        Write-Warning ($explanation.Trim() + "`n-AllowMirrorSource was given, so this is reported rather than failed.")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_253c1b6189071233' -Arguments @{ trim = [string]($explanation.Trim()) }))
         return $true
     }
     Write-Information "" -InformationAction Continue
     Write-Information $explanation.Trim() -InformationAction Continue
     Write-Information "" -InformationAction Continue
-    Write-Information "Fix: confirm this host's status service is serving /yuruna-archive.tar.gz at the address the" -InformationAction Continue
-    Write-Information "     guest is handed, then re-run this script -- it rebuilds the VM from scratch." -InformationAction Continue
-    Write-Information "     Re-run with -AllowMirrorSource to keep a mirror-sourced service on purpose." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c4e3ca9f69e0f402') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9c9332ea45a6d4d3') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_97543922121223f3') -InformationAction Continue
     return $false
 }
 

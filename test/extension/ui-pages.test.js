@@ -40,6 +40,8 @@ const path = require('path');
 
 const EXT = __dirname;
 const CORE = path.join(EXT, 'extension-sdk', 'webui', 'assets', 'yuruna.core.js');
+const localeManifest=JSON.parse(fs.readFileSync(path.join(path.join(EXT,'../..'), 'globalization/locale-manifest.json'),'utf8'));
+const deliveredLocales=Object.keys(localeManifest.locales).filter(tag=>['supported','pseudo'].includes(localeManifest.locales[tag].status));
 
 function webDir(service) {
   return path.join(EXT, service, 'server', 'internal', 'httpsrv', 'web');
@@ -132,10 +134,30 @@ const STASH_DETAIL = {
   }
 };
 
-function bodyFor(url) {
+function bodyFor(url, state) {
   const p = String(url).split('?')[0];
   for (const [route, body] of ROUTES) {
-    if (p === route) { return body; }
+    if (p === route) {
+      const copy = JSON.parse(JSON.stringify(body));
+      if (state === 'empty') {
+        for (const name of ['pools', 'hosts', 'testSets', 'cards', 'offers', 'images', 'stashes', 'checks']) if (Array.isArray(copy[name])) copy[name] = [];
+        if (copy.diagnostics) copy.diagnostics.recentErrors = [];
+        if (copy.total) copy.total = 0;
+      }
+      if (state === 'hostile') {
+        const attack = 'cafe\u0301-茶-😀-عربي-\u2069\u202e<img onerror=alert(1)>.txt';
+        for (const rows of ['hosts', 'images', 'stashes', 'pools', 'cards', 'testSets']) {
+          if (Array.isArray(copy[rows])) copy[rows].forEach(row => { if (!row || typeof row !== 'object') return; row.hostname=attack; row.originalFilename=attack; row.displayName=attack; });
+        }
+        if (Array.isArray(copy.images)) copy.images.forEach(row => {
+          row.state = 'failed';
+          row.lastError = 'origin https://fixture.test/<img onerror=alert(1)>/茶: HEAD reported 4096 byte(s), the download produced 7';
+          row.lastErrorCode = 'download.refresh_size_mismatch';
+          row.lastErrorArguments = {url: 'https://fixture.test/<img onerror=alert(1)>/茶', expected: 4096, actual: 7};
+        });
+      }
+      return copy;
+    }
   }
   if (p.indexOf('/api/stashes/') === 0) { return STASH_DETAIL; }
   return { ok: true };
@@ -212,7 +234,9 @@ function scriptsIn(html) {
 }
 
 // --- REGION: Page checks
-function runPage(page) {
+function runPage(page, locale, capabilityOff, state) {
+  state = state || 'data';
+  locale = locale || 'en-US';
   const dir = webDir(page.service);
   const html = fs.readFileSync(path.join(dir, page.file), 'utf8');
   const scripts = scriptsIn(html);
@@ -223,6 +247,8 @@ function runPage(page) {
   const byId = {};
   for (const id of idsIn(html)) { byId[id] = makeEl('div'); }
   const body = makeEl('body');
+  const documentElement = makeEl('html');
+  documentElement.setAttribute('lang', locale);
   const failures = [];
   // Document-level listeners are captured rather than dropped: these scripts sit
   // at the end of <body>, so the document is still parsing when they run and
@@ -230,7 +256,8 @@ function runPage(page) {
   // swallowed that listener would report an empty table as the page's fault.
   const docListeners = {};
   const box = {
-    console: { log() {}, warn() {}, error() {} },
+    performance: require('perf_hooks').performance,
+    console: { log() {}, warn(message) { if (/Yuruna i18n:/.test(message)) failures.push(String(message)); }, error() {} },
     JSON, Math, Date, Number, String, Object, Array, RegExp, Promise, isNaN, parseInt, parseFloat,
     encodeURIComponent, decodeURIComponent,
     setTimeout: (fn) => setTimeout(fn, 0),
@@ -240,12 +267,16 @@ function runPage(page) {
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     location: { origin: 'https://svc.test', href: '', hash: '', pathname: '/s/' + HOST + '/2026/08/22/aaa', search: '', reload() {} },
     history: { replaceState() {} },
+    addEventListener() {}, removeEventListener() {},
+    navigator: { userAgent: 'baseline fixture' },
+    YurunaMeasureRenders: true,
     confirm: () => true,
     alert() {},
     FormData: function () {},
     XMLHttpRequest: function () {},
     fetch(url) {
-      const payload = bodyFor(url);
+      if (state === 'error') return Promise.reject(new Error('Fixture transport refused'));
+      const payload = bodyFor(url, state);
       return Promise.resolve({
         ok: true, status: 200, statusText: 'OK',
         json: () => Promise.resolve(payload),
@@ -256,7 +287,7 @@ function runPage(page) {
       // 'loading', because that is what it is while a script at the end of
       // <body> runs -- and it is the branch the runtime takes to defer its
       // chrome wiring.
-      readyState: 'loading', hidden: false, title: 't', body,
+      readyState: 'loading', hidden: false, title: 't', body, documentElement,
       activeElement: null,
       createElement: makeEl,
       createTextNode: makeText,
@@ -273,12 +304,35 @@ function runPage(page) {
   };
   box.window = box;
   box.globalThis = box;
+  if (capabilityOff) {
+    box.fetch = undefined;
+    box.Intl = undefined;
+    delete box.String;
+    box.XMLHttpRequest = function () {
+      this.open = function (_, url) { this.url = url; };
+      this.setRequestHeader = function () {};
+      this.abort = function () { if (this.onabort) this.onabort(); };
+      this.send = function () {
+        if (state === 'error') { this.onerror(); return; }
+        this.status = 200;
+        this.statusText = 'OK';
+        this.responseText = JSON.stringify(bodyFor(this.url, state));
+        this.onload();
+      };
+    };
+  }
   vm.createContext(box);
+  if (capabilityOff) vm.runInContext('String.prototype.normalize = undefined;', box);
 
   for (const name of scripts) {
     const file = name === 'yuruna.core.js' ? CORE : path.join(dir, 'assets', name);
     try {
       vm.runInContext(fs.readFileSync(file, 'utf8'), box, { filename: name });
+      if (name === 'common.js' && locale !== 'en-US') {
+        const domain = { 'pool-control-service': 'pool', 'stash-service': 'stash', 'download-agent-service': 'download' }[page.service];
+        const combined = ['status', domain].map(d => fs.readFileSync(path.join(EXT, '..', '..', 'globalization', 'generated', 'browser', locale + '.' + d + '.js'), 'utf8')).join('\n');
+        vm.runInContext(combined, box, { filename: 'selected-locale.js' });
+      }
     } catch (e) {
       failures.push(`${page.service}/${page.file}: ${name} threw at load -- ${e && e.message}`);
     }
@@ -305,18 +359,25 @@ function fire(el, type) {
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 // --- REGION: Test run
-(async function () {
+async function runMatrix() {
   const problems = [];
   let menusOpened = 0;
   let regionsFilled = 0;
 
-  for (const page of PAGES) {
-    const where = `${page.service}/${page.file}`;
-    const { box, byId, failures } = runPage(page);
+  const states = ['data', 'empty', 'error', 'hostile'];
+  const selectedPages = PAGES.filter(page => !process.env.YURUNA_UI_DOMAIN || page.service.indexOf(process.env.YURUNA_UI_DOMAIN) === 0);
+  assert.ok(selectedPages.length, 'matrix discovered no page');
+  for (const state of states) {
+  for (const locale of deliveredLocales) {
+  for (const page of selectedPages) {
+    const where = `${page.service}/${page.file}/${locale}/${state}`;
+    const { box, byId, failures } = runPage(page, locale, true, state);
     problems.push(...failures);
     if (failures.length) { continue; }
 
     assert.ok(box.Y && typeof box.Y.el === 'function', `${where}: the runtime did not attach Y`);
+    assert.strictEqual(box.YurunaI18n.locale(), locale, `${where}: selected locale did not reach the runtime`);
+    assert.strictEqual(box.document.documentElement.getAttribute('dir'), localeManifest.locales[locale].direction);
 
     // (1) The menu. It ships hidden in the markup and is revealed only by
     // script, so a page whose scripts did not run shows a header bar with a
@@ -336,26 +397,48 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 
     // Let every load-time read and its render settle.
     for (let i = 0; i < 25; i++) { await settle(); }
+    problems.push(...failures);
+
+    if (page.service === 'download-agent-service' && page.file === 'index.html' && state === 'hostile') {
+      const failure = bodyFor('/api/v1/images', state).images[0];
+      const expected = box.YurunaI18n.t(failure.lastErrorCode, failure.lastErrorArguments);
+      const errorNodes = [];
+      function visit(node) {
+        if (String(node.className || '').split(' ').includes('err-line')) errorNodes.push(node);
+        (node.children || []).forEach(visit);
+      }
+      visit(byId['image-rows']);
+      assert.strictEqual(errorNodes.length, 1, `${where}: failed download has no explanatory row`);
+      assert.strictEqual(errorNodes[0].textContent, expected, `${where}: typed failure did not reach localized text sink`);
+      assert.ok(errorNodes[0].textContent.includes('<img onerror=alert(1)>'), `${where}: diagnostic URL was lost`);
+      assert.strictEqual(errorNodes[0].children.length, 0, `${where}: untrusted diagnostic URL became markup`);
+      if (locale.indexOf('qps-') === 0) assert.ok(!expected.includes('HEAD reported'), `${where}: failure prose remained English`);
+    }
 
     // (2) The main region. Rows are built in script from what the endpoints
     // returned, so an empty one is the second half of the same failure.
-    if (page.fills) {
+    if (page.fills && (state === 'data' || state === 'hostile')) {
       const host = byId[page.fills];
       if (!host) { problems.push(`${where}: has no #${page.fills}`); }
       else if (host.children.length === 0) { problems.push(`${where}: #${page.fills} is still empty after its data arrived`); }
       else { regionsFilled++; }
     }
-    if (page.reveals) {
+    if (page.reveals && (state === 'data' || state === 'hostile')) {
       const main = byId[page.reveals];
       if (!main) { problems.push(`${where}: has no #${page.reveals}`); }
       else if (main.hidden !== false) { problems.push(`${where}: #${page.reveals} is still hidden, so the page renders as a shell`); }
     }
   }
+  }
+
+  }
 
   assert.deepStrictEqual(problems, [], 'every page must run, open its menu and fill its region');
   // Guards against a harness that quietly stops exercising anything.
-  assert.ok(menusOpened >= 10, `only ${menusOpened} menus were opened; the harness is not reaching the pages`);
-  assert.ok(regionsFilled >= 9, `only ${regionsFilled} regions were filled; the harness is not reaching the pages`);
+  assert.strictEqual(menusOpened, selectedPages.length * deliveredLocales.length * states.length, 'every locale must exercise every menu');
+  assert.strictEqual(regionsFilled, selectedPages.filter(page => page.fills).length * deliveredLocales.length * 2, 'every locale must exercise every populated region');
 
-  console.log(`PASS: ${PAGES.length} pages, ${menusOpened} menus opened, ${regionsFilled} regions filled`);
-})().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });
+  console.log(`PASS: ${PAGES.length} pages in English, expanded and mirrored locales with fetch/Intl/normalization unavailable, data/empty/error/hostile states; ${menusOpened} menus, ${regionsFilled} populated regions`);
+}
+module.exports = {makeEl, idsIn, runPage, fire};
+if (require.main === module) runMatrix().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

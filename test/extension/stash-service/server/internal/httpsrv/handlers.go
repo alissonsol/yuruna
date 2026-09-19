@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 
 	"stash-service/internal/config"
 	"stash-service/internal/detect"
@@ -122,10 +124,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{"ok": false, "error": msg})
 }
 
 // pathKey pulls the {hostId}/{year}/{month}/{day}/{id} wildcards and
@@ -302,7 +300,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if f.Host == "" || f.Host == s.localHostID {
 		recs, err := s.meta().Search(f.toMetaFilter(0))
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "search: "+err.Error())
+			s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_search_detail", "", map[string]any{"detail": err.Error()})
 			return
 		}
 		for _, rc := range recs {
@@ -363,16 +361,16 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) parseAndResolve(w http.ResponseWriter, r *http.Request) (*resolved, bool) {
 	k, ok := s.parsePathKey(r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid stash path")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_stash_path", "", nil)
 		return nil, false
 	}
 	res, found, err := s.resolve(k)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_detail", "", map[string]any{"detail": err.Error()})
 		return nil, false
 	}
 	if !found {
-		writeErr(w, http.StatusNotFound, "stash not found")
+		s.writeLocalizedError(w, r, http.StatusNotFound, "stash.api_stash_not_found", "", nil)
 		return nil, false
 	}
 	return res, true
@@ -405,16 +403,16 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.artifact == "" {
-		writeErr(w, http.StatusNotFound, "stash not found")
+		s.writeLocalizedError(w, r, http.StatusNotFound, "stash.api_stash_not_found", "", nil)
 		return
 	}
 	if !res.rec.IsArchive {
-		writeErr(w, http.StatusBadRequest, "not an archive")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_not_an_archive", "", nil)
 		return
 	}
 	zr, err := zip.OpenReader(res.artifact)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "open archive: "+err.Error())
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_open_archive_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	defer zr.Close()
@@ -442,7 +440,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) { s.serv
 func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment bool) {
 	k, ok := s.parsePathKey(r)
 	if !ok {
-		http.Error(w, "invalid stash path", http.StatusBadRequest)
+		s.writeLocalizedHTTPError(w, r, "stash.api_invalid_stash_path", http.StatusBadRequest)
 		return
 	}
 	res, found, err := s.resolve(k)
@@ -451,18 +449,18 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 		return
 	}
 	if !found || res.artifact == "" {
-		http.Error(w, "stash not found", http.StatusNotFound)
+		s.writeLocalizedHTTPError(w, r, "stash.api_stash_not_found", http.StatusNotFound)
 		return
 	}
 	f, err := os.Open(res.artifact)
 	if err != nil {
-		http.Error(w, "open artifact", http.StatusInternalServerError)
+		s.writeLocalizedHTTPError(w, r, "stash.api_open_artifact", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		http.Error(w, "stat artifact", http.StatusInternalServerError)
+		s.writeLocalizedHTTPError(w, r, "stash.api_stat_artifact", http.StatusInternalServerError)
 		return
 	}
 
@@ -472,7 +470,7 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 
 	if attachment {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+sanitizeDownloadName(res.rec.OriginalFilename, res.rec.ID, res.rec.IsArchive)+"\"")
+		w.Header().Set("Content-Disposition", downloadDisposition(res.rec.OriginalFilename, res.rec.ID, res.rec.IsArchive))
 	} else {
 		w.Header().Set("Content-Type", inlineContentType(s.effectiveResult(res)))
 		w.Header().Set("Content-Disposition", "inline")
@@ -496,11 +494,11 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			Author string `json:"author"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, config.PerFileSizeLimit+1024)).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid JSON body")
+			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_json_body", "", nil)
 			return
 		}
 		res, err := s.ssh.IngestText(body.Text, body.Title, authorOrWeb(body.Author), clientIP)
-		s.respondCreate(w, res, err)
+		s.respondCreate(w, r, res, err)
 		return
 	}
 
@@ -509,11 +507,11 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	// body; fall back to ParseForm so a curl `-d text=...` works too.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		if !errors.Is(err, http.ErrNotMultipart) {
-			writeErr(w, http.StatusBadRequest, "could not parse form")
+			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_could_not_parse_form", "", nil)
 			return
 		}
 		if perr := r.ParseForm(); perr != nil {
-			writeErr(w, http.StatusBadRequest, "could not parse form")
+			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_could_not_parse_form", "", nil)
 			return
 		}
 	}
@@ -534,19 +532,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		headers = r.MultipartForm.File["files"]
 	}
 	if len(headers) > config.MaxUploadFiles {
-		writeErr(w, http.StatusBadRequest, "too many files in one upload")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_too_many_files_in_one_upload", "", nil)
 		return
 	}
 	switch {
 	case len(headers) == 1:
 		body, err := headers[0].Open()
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "open upload")
+			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_open_upload", "", nil)
 			return
 		}
 		defer body.Close()
 		res, ierr := s.ssh.IngestSingle(headers[0].Filename, author, clientIP, "", config.SourceUI, body)
-		s.respondCreate(w, res, ierr)
+		s.respondCreate(w, r, res, ierr)
 	case len(headers) > 1:
 		var named []sshsrv.NamedReader
 		var closers []io.Closer
@@ -556,7 +554,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 				for _, c := range closers {
 					_ = c.Close()
 				}
-				writeErr(w, http.StatusBadRequest, "open uploads")
+				s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_open_uploads", "", nil)
 				return
 			}
 			closers = append(closers, f)
@@ -566,27 +564,27 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		for _, c := range closers {
 			_ = c.Close()
 		}
-		s.respondCreate(w, res, ierr)
+		s.respondCreate(w, r, res, ierr)
 	default:
 		text := r.FormValue("text")
 		if text == "" {
-			writeErr(w, http.StatusBadRequest, "nothing to store: provide text or files")
+			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_nothing_to_store_provide_text_or_files", "", nil)
 			return
 		}
 		res, ierr := s.ssh.IngestText(text, title, author, clientIP)
-		s.respondCreate(w, res, ierr)
+		s.respondCreate(w, r, res, ierr)
 	}
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	k, ok := s.parsePathKey(r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid stash path")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_stash_path", "", nil)
 		return
 	}
 	if err := s.deleteStash(k); err != nil {
 		status, msg := deleteStatus(err)
-		writeErr(w, status, msg)
+		s.writeLocalizedError(w, r, status, "stash.api_detail", "", map[string]any{"detail": msg})
 		return
 	}
 	log.Printf("delete: host=%s id=%s from %s", k.hostID, k.id, clientIP(r))
@@ -612,15 +610,15 @@ func (s *Server) handleDeleteBatch(w http.ResponseWriter, r *http.Request) {
 		} `json:"stashes"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, config.MaxRequestBytes)).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_json_body", "", nil)
 		return
 	}
 	if len(body.Stashes) == 0 {
-		writeErr(w, http.StatusBadRequest, "no stashes given")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_no_stashes_given", "", nil)
 		return
 	}
 	if len(body.Stashes) > maxBatchDelete {
-		writeErr(w, http.StatusBadRequest, "too many stashes in one request")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_too_many_stashes_in_one_request", "", nil)
 		return
 	}
 
@@ -629,13 +627,16 @@ func (s *Server) handleDeleteBatch(w http.ResponseWriter, r *http.Request) {
 		HostID string `json:"hostId"`
 		OK     bool   `json:"ok"`
 		Error  string `json:"error,omitempty"`
+		Code   string `json:"code,omitempty"`
 	}
+	locale := s.pages.Negotiator.Resolve(r)
+	i18n.Apply(w.Header(), locale)
 	results := make([]result, 0, len(body.Stashes))
 	deleted := 0
 	for _, want := range body.Stashes {
 		k, ok := s.newPathKey(want.HostID, want.Year, want.Month, want.Day, want.ID)
 		if !ok {
-			results = append(results, result{ID: want.ID, HostID: want.HostID, Error: "invalid stash path"})
+			results = append(results, result{ID: want.ID, HostID: want.HostID, Code: "stash.api_invalid_stash_path", Error: s.pages.Catalog.Render("stash.api_invalid_stash_path", nil, locale.ResolvedTag)})
 			continue
 		}
 		if err := s.deleteStash(k); err != nil {
@@ -665,7 +666,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleHostResolve(w http.ResponseWriter, r *http.Request) {
 	hostID := r.URL.Query().Get("host")
 	if !looksLikeHostID(hostID) {
-		writeErr(w, http.StatusBadRequest, "invalid host")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_host", "", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -676,9 +677,9 @@ func (s *Server) handleHostResolve(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) respondCreate(w http.ResponseWriter, res *sshsrv.IngestResult, err error) {
+func (s *Server) respondCreate(w http.ResponseWriter, r *http.Request, res *sshsrv.IngestResult, err error) {
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "create: "+err.Error())
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_create_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	y, mo, d := time.Now().UTC().Date()
@@ -693,13 +694,7 @@ func (s *Server) respondCreate(w http.ResponseWriter, res *sshsrv.IngestResult, 
 
 // --- REGION: Static assets
 func (s *Server) servePage(name string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		data, err := webFS.ReadFile("web/" + name)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Restrict the UI pages to same-origin scripts/styles/connections so
 		// a stray injected link or attribute can't execute or exfiltrate
 		// (the artifact bytes have their own stricter CSP in serveBytes).
@@ -711,14 +706,19 @@ func (s *Server) servePage(name string) http.HandlerFunc {
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; object-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = w.Write(data)
+		if !s.pages.Serve(w, r, name) {
+			http.NotFound(w, r)
+		}
 	}
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+	if s.pages.ServeAsset(w, r, strings.TrimPrefix(r.URL.Path, "/assets/")) {
+		return
+	}
 	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(r.URL.Path, "/")))
 	if !strings.HasPrefix(clean, "assets/") {
-		http.Error(w, "not found", http.StatusNotFound)
+		s.writeLocalizedHTTPError(w, r, "stash.api_not_found", http.StatusNotFound)
 		return
 	}
 	data, err := webFS.ReadFile("web/" + clean)
@@ -729,7 +729,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		// of that name itself, which is why its own directory is searched first.
 		shared, ct, ok := webui.Asset(strings.TrimPrefix(clean, "assets/"))
 		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
+			s.writeLocalizedHTTPError(w, r, "stash.api_not_found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", ct)
@@ -907,7 +907,7 @@ func firstNonEmpty(a, b string) string {
 // id (+ .zip for an archive) when empty.
 func sanitizeDownloadName(orig, id string, isArchive bool) string {
 	orig = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == '"' || r == '\\' || r == '/' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '"' || r == '\\' || r == '/' {
 			return -1
 		}
 		return r
@@ -920,4 +920,32 @@ func sanitizeDownloadName(orig, id string, isArchive bool) string {
 		return id
 	}
 	return orig
+}
+
+// The legacy parameter stays ASCII so older clients cannot guess the encoding.
+// filename* carries the sanitized original UTF-8 bytes for standards-aware
+// clients. Neither path changes the filename stored with the artifact.
+func downloadDisposition(orig, id string, isArchive bool) string {
+	name := sanitizeDownloadName(orig, id, isArchive)
+	fallback := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return '_'
+		}
+		return r
+	}, name)
+	if strings.Trim(fallback, "_. ") == "" {
+		fallback = sanitizeDownloadName("", id, isArchive)
+	}
+	const hex = "0123456789ABCDEF"
+	var encoded strings.Builder
+	for _, b := range []byte(name) {
+		if b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || strings.ContainsRune("!#$&+-.^_`|~", rune(b)) {
+			encoded.WriteByte(b)
+		} else {
+			encoded.WriteByte('%')
+			encoded.WriteByte(hex[b>>4])
+			encoded.WriteByte(hex[b&15])
+		}
+	}
+	return "attachment; filename=\"" + fallback + "\"; filename*=UTF-8''" + encoded.String()
 }

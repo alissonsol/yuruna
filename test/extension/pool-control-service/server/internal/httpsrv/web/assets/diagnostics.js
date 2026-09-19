@@ -18,10 +18,7 @@
   function summary(d) {
     var box = Y.el('div', { class: 'notice ' + (d.ok ? 'ok' : 'error') });
     var failing = (d.checks || []).filter(function (c) { return !c.ok; }).length;
-    box.textContent = d.ok
-      ? 'All checks passed. pool-control-service ' + d.version + ' (' + d.go + '), collected ' + d.collectedAt
-      : (failing + ' of ' + d.checks.length + ' checks failing. pool-control-service '
-         + d.version + ' (' + d.go + '), collected ' + d.collectedAt);
+    box.textContent = d.ok ? window.YurunaI18n.t("pool.all_checks_passed_pool_control_service_value1_value2_collected_va", {value1: (d.version), value2: (d.go), value3: (d.collectedAt)}) : window.YurunaI18n.t("pool.value1_of_value2_checks_failing_pool_control_service_value3_value", {value1: (failing), value2: (d.checks.length), value3: (d.version), value4: (d.go), value5: (d.collectedAt)});
     box.style.display = 'block';
     return box;
   }
@@ -29,7 +26,7 @@
   function checkRow(c) {
     return Y.el('tr', null, [
       Y.el('td', null, Y.el('code', { text: c.name })),
-      Y.el('td', { class: c.ok ? 'ok' : 'error', text: c.ok ? 'PASS' : 'FAIL' }),
+      Y.el('td', { class: c.ok ? 'ok' : 'error', text: c.ok ? window.YurunaI18n.t("pool.pass") : window.YurunaI18n.t("pool.fail") }),
       Y.el('td', null, Y.el('pre', { class: 'detail', text: c.detail || '' })),
       Y.el('td', { class: 'muted', text: c.hint || '' })
     ]);
@@ -38,7 +35,7 @@
   function envRow(label, value) {
     return Y.el('tr', null, [
       Y.el('th', { text: label }),
-      Y.el('td', null, Y.el('code', { text: (value === '' || value === undefined || value === null) ? '(empty)' : String(value) }))
+      Y.el('td', null, Y.el('code', { text: value === '' || value === undefined || value === null ? window.YurunaI18n.t("pool.empty") : String(value) }))
     ]);
   }
 
@@ -47,11 +44,18 @@
   function streamRow(label, value) {
     return Y.el('tr', null, [
       Y.el('th', { text: label }),
-      Y.el('td', null, Y.el('pre', { class: 'detail', text: (value === '' || value === undefined || value === null) ? '(empty)' : String(value) }))
+      Y.el('td', null, Y.el('pre', { class: 'detail', text: value === '' || value === undefined || value === null ? window.YurunaI18n.t("pool.empty") : String(value) }))
     ]);
   }
 
   function render(d) {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html", "data", function () {
+      return renderMeasured(d);
+    });
+  }
+
+
+  function renderMeasured(d) {
     var sum = document.getElementById('summary');
     sum.textContent = '';
     sum.appendChild(summary(d));
@@ -66,40 +70,40 @@
     var probe = document.getElementById('probe-rows');
     probe.textContent = '';
     probe.appendChild(streamRow('argv', (p.argv || []).join('  ')));
-    probe.appendChild(envRow('exit code', p.exitCode));
-    probe.appendChild(envRow('duration', p.duration));
+    probe.appendChild(envRow(window.YurunaI18n.t("pool.exit_code"), p.exitCode));
+    probe.appendChild(envRow(window.YurunaI18n.t("pool.duration"), p.duration));
     probe.appendChild(streamRow('stdout', p.stdout));
     probe.appendChild(streamRow('stderr', p.stderr));
 
     var e = d.environment || {};
     var env = document.getElementById('env-rows');
     env.textContent = '';
-    env.appendChild(envRow('pwsh (--pwsh flag)', e.pwshFlag));
-    env.appendChild(envRow('pwsh (resolved)', e.pwshResolved));
-    env.appendChild(envRow('repo dir', e.repoDir));
-    env.appendChild(envRow('framework version', e.frameworkVersion));
-    env.appendChild(envRow('framework revision', e.frameworkRevision));
-    env.appendChild(envRow('state dir', e.stateDir));
-    env.appendChild(envRow('intent git URL', e.intentGitUrl));
-    env.appendChild(envRow('aggregator URL', e.aggregatorUrl));
-    env.appendChild(envRow('host id', e.hostId));
-    env.appendChild(envRow('service user', e.user));
-    env.appendChild(envRow('PATH', e.path));
-    env.appendChild(envRow('HOME', e.home));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.pwsh_pwsh_flag"), e.pwshFlag));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.pwsh_resolved"), e.pwshResolved));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.repo_dir"), e.repoDir));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.framework_version"), e.frameworkVersion));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.framework_revision"), e.frameworkRevision));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.state_dir"), e.stateDir));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.intent_git_url"), e.intentGitUrl));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.aggregator_url"), e.aggregatorUrl));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.host_id_7b624c8f"), e.hostId));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.service_user"), e.user));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.path"), e.path));
+    env.appendChild(envRow(window.YurunaI18n.t("pool.home"), e.home));
 
     var rt = d.runtime || {};
     var rtRows = document.getElementById('runtime-rows');
     rtRows.textContent = '';
-    rtRows.appendChild(envRow('version', d.version));
-    rtRows.appendChild(envRow('go', d.go));
-    rtRows.appendChild(envRow('platform', (rt.os || '') + '/' + (rt.arch || '')));
-    rtRows.appendChild(envRow('pid', rt.pid));
-    rtRows.appendChild(envRow('listen addr', rt.listenAddr));
-    rtRows.appendChild(envRow('started at', rt.startedAt));
-    rtRows.appendChild(envRow('uptime', rt.uptime));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.version"), d.version));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.go"), d.go));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.platform"), ("" + (rt.os || '') + "/" + (rt.arch || '') + "")));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.pid"), rt.pid));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.listen_addr"), rt.listenAddr));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.started_at"), rt.startedAt));
+    rtRows.appendChild(envRow(window.YurunaI18n.t("pool.uptime"), rt.uptime));
 
     var health = document.getElementById('health');
-    health.textContent = d.health ? JSON.stringify(d.health, null, 2) : '(persistence disabled)';
+    health.textContent = d.health ? JSON.stringify(d.health, null, 2) : window.YurunaI18n.t("pool.persistence_disabled");
     window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html', checks.length ? 'data' : 'empty');
   }
 
@@ -109,7 +113,7 @@
   function refresh(opts) {
     window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks...');
+    var done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), window.YurunaI18n.t("pool.running_checks"));
     chrome.busy(true);
     // Run on the failure path too: an indicator left turning over a probe that
     // already failed claims progress that is not happening -- on the one page
@@ -119,7 +123,7 @@
       render(d);
       chrome.markLoaded();
     }, function (err) {
-      Y.notice('error', 'Could not collect diagnostics: ' + err.message);
+      Y.notice('error', window.YurunaI18n.t("pool.could_not_collect_diagnostics_value1", {value1: (err.message)}));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html', 'error');
     }).then(finish, finish);
   }

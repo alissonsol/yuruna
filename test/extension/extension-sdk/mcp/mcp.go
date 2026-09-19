@@ -1,35 +1,10 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package mcp serves the Model Context Protocol over HTTP, so a Yuruna
-// extension service can be driven by an agent the same way an operator drives
-// it with curl.
-//
-// The design rule this package exists to enforce is that MCP adds a PROTOCOL,
-// never a second truth. A tool is a thin wrapper over a route's own internal
-// function -- never a re-implementation of it -- and a tool that changes
-// anything passes the same gate that route passes, so "what may an agent do
-// here" has exactly one answer per service and it is the answer already
-// written down.
-//
-// # Why stdlib rather than the official SDK
-//
-// Four of the five daemons that mount this are stdlib-only by deliberate
-// posture: they are compiled inside their own VM at bring-up, from sources
-// fetched file by file, with no module cache and often no route to a registry.
-// Adding the official MCP SDK would make this the first third-party dependency
-// in every one of them, and it would arrive through the very caching proxy one
-// of them manages. The protocol subset a read-mostly service needs -- tools
-// over HTTP, no resources, no prompts, no sampling -- is small enough that
-// carrying it is cheaper than carrying the dependency.
-//
-// # What is deliberately not here
-//
-// No resources, no prompts, no sampling, no server-initiated requests, and no
-// SSE stream: every method is a single request and a single response. A
-// notification gets 202 and no body. Those are deliberate omissions, not
-// oversights; adding them means adding a session model this package does not
-// have.
+// Package mcp serves the Model Context Protocol over HTTP. See
+// ../../../../docs/extensions-api.md#mcp-endpoints for the protocol-not-a-
+// second-truth rule, why this is stdlib rather than the official SDK, and
+// what is deliberately not implemented. -- mcp.go
 package mcp
 
 import (

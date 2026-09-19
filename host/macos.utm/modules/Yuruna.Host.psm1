@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 #>
 
 # --- REGION: Module setup
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:HostTag        = 'host.macos.utm'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test/modules'
@@ -118,7 +119,7 @@ function Remove-UtmBundleWithRetry {
         [int]$MaxAttempts = 5
     )
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($Path, "Remove UTM bundle (with up to $MaxAttempts retries)")) {
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'host.operator_458ed1226109f7ab' -Arguments @{ maxAttempts = "$MaxAttempts" }))) {
         return $false
     }
 
@@ -126,20 +127,20 @@ function Remove-UtmBundleWithRetry {
         try {
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
             if ($attempt -gt 1) {
-                Write-Information "Removed UTM bundle after $attempt attempt(s): $Path" -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_433ccfae8929f757' -Arguments @{ attempt = "$attempt"; path = "$Path" }) -InformationAction Continue
             }
             return $true
         } catch {
             if ($attempt -ge $MaxAttempts) {
-                Write-Warning "Failed to remove '$Path' after $MaxAttempts attempts: $($_.Exception.Message)"
-                Write-Warning "  This usually means UTM.app or QEMUHelper.xpc still holds file handles"
-                Write-Warning "  on the bundle (most commonly the mmap'd disk.img). Check with:"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_09ab019cee710514' -Arguments @{ path = "$Path"; maxAttempts = "$MaxAttempts"; message = "$($_.Exception.Message)" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5320270963cb858b')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_521642cda75605a9')
                 Write-Warning "    lsof +D '$Path'"
-                Write-Warning "  Quitting UTM.app (pkill -f QEMUHelper ; killall UTM) usually clears it."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3d7dd16f8eeb04cc')
                 return $false
             }
             $sleepSeconds = 2 * $attempt
-            Write-Warning "Remove-Item attempt $attempt/$MaxAttempts on '$Path' failed: $($_.Exception.Message). Retrying in ${sleepSeconds}s..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bd1b3169db53710a' -Arguments @{ attempt = "$attempt"; maxAttempts = "$MaxAttempts"; path = "$Path"; message = "$($_.Exception.Message)"; sleepSeconds = "${sleepSeconds}" })
             Start-Sleep -Seconds $sleepSeconds
         }
     }
@@ -300,10 +301,10 @@ function Start-CachingProxyServiceForwarder {
     # the lookup is independent of how the function is dispatched.
     $forwarderScript = Join-Path $script:HostFolder "Start-CachingProxyServiceForwarder.ps1"
     if (-not (Test-Path $forwarderScript)) {
-        Write-Warning "Start-CachingProxyServiceForwarder.ps1 not found at: $forwarderScript"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e22e1a85f32b3a0b' -Arguments @{ forwarderScript = "$forwarderScript" })
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", 'Launch detached host-side TCP forwarder')) {
+    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", (Format-YurunaOperatorMessage -Key 'host.operator_67195d8019562611'))) {
         return $false
     }
     $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
@@ -321,7 +322,7 @@ function Start-CachingProxyServiceForwarder {
     [void](Stop-CachingProxyServiceForwarder -Port $Port -Quiet)
 
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
-    Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c22cbc5129006aa6' -Arguments @{ port = "${Port}"; cacheIp = "${CacheIp}"; vMPort = "${VMPort}"; proxyTag = "${proxyTag}" }) -InformationAction Continue
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxyServiceVM.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
@@ -348,7 +349,7 @@ function Start-CachingProxyServiceForwarder {
     # (e.g. Start-TestRunner) may not have cached -- and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
     if ($needsSudo -and (Get-CachingProxyServiceForwarder -Port $Port)) {
-        Write-Information "  Port ${Port} forwarder already running (root-owned); skipping restart." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fac89af7ceb85a93' -Arguments @{ port = "${Port}" }) -InformationAction Continue
         return $true
     }
 
@@ -366,7 +367,7 @@ function Start-CachingProxyServiceForwarder {
             -RedirectStandardError  "$stateDir/forwarder.$Port.stderr.log" `
             -PassThru
     } catch {
-        Write-Warning "Failed to spawn forwarder: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_368bbdea275958b3' -Arguments @{ message = "$($_.Exception.Message)" })
         return $false
     }
     # Wait briefly for the listener to bind and the pidfile to be written.
@@ -394,8 +395,8 @@ function Start-CachingProxyServiceForwarder {
         } finally { $tcp.Close() }
         Start-Sleep -Milliseconds 100
     }
-    Write-Warning "Forwarder launched (pid $($proc.Id)) but :${Port} did not answer within 3s."
-    Write-Warning "  Check $stateDir/forwarder.stderr.log and forwarder.log"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9b8f576034f602fb' -Arguments @{ id = "$($proc.Id)"; port = "${Port}" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0b768b57cdd33d5e' -Arguments @{ stateDir = "$stateDir" })
     # A non-answering child may still be half-bound (listener up, connect
     # racing) or wedged. Tear it down so it is not orphaned holding the
     # port past our return. Prefer the pidfile-driven, identity-verified
@@ -442,12 +443,12 @@ function Stop-CachingProxyServiceForwarder {
     )
     $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) {
-        if (-not $Quiet) { Write-Output "  No forwarder pidfile -- nothing to stop." }
+        if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_51cfbd5426e42f8d') }
         return $true
     }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
     if (-not ($forwarderPid -as [int])) {
-        if (-not $Quiet) { Write-Warning "Pidfile '$pidFile' contents invalid: '$forwarderPid' -- removing." }
+        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2b5a075a69fb02ea' -Arguments @{ pidFile = "$pidFile"; forwarderPid = "$forwarderPid" }) }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
@@ -458,19 +459,19 @@ function Stop-CachingProxyServiceForwarder {
     # avoid killing an unrelated pid that matches a stale pidfile.
     $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
-        if (-not $Quiet) { Write-Output "  Forwarder pid $forwarderPid not running -- cleaning pidfile." }
+        if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7934de6bf4f9bbe6' -Arguments @{ forwarderPid = "$forwarderPid" }) }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
     if ($cmd -notmatch 'Start-CachingProxyServiceForwarder\.ps1') {
-        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyServiceForwarder.ps1 (is: $cmd) -- leaving alone, removing stale pidfile." }
+        if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5c93ad943c43270c' -Arguments @{ forwarderPid = "$forwarderPid"; cmd = "$cmd" }) }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
+    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", (Format-YurunaOperatorMessage -Key 'host.operator_378bec0a86550e8e'))) {
         return $false
     }
-    if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
+    if (-not $Quiet) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0dbaee5477554260' -Arguments @{ forwarderPid = "$forwarderPid" }) }
     # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
     # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
     # graceful shutdown -- hence the external binary for TERM-then-KILL.
@@ -487,7 +488,7 @@ function Stop-CachingProxyServiceForwarder {
         # prompt nobody sees, rather than reporting that root was unavailable.
         & sudo -n '/bin/kill' $forwarderPid 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0 -and -not $Quiet) {
-            Write-Warning "Could not signal root-owned forwarder $forwarderPid without a password. Run: sudo kill $forwarderPid"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7bbd97967255a376' -Arguments @{ forwarderPid = "$forwarderPid" })
         }
     } else {
         & '/bin/kill' $forwarderPid 2>$null | Out-Null
@@ -500,11 +501,11 @@ function Stop-CachingProxyServiceForwarder {
             return $true
         }
     }
-    if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM -- sending SIGKILL." }
+    if (-not $Quiet) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fd3a364b69ecd8d4' -Arguments @{ forwarderPid = "$forwarderPid" }) }
     if ($useSudo) {
         & sudo -n '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0 -and -not $Quiet) {
-            Write-Warning "Could not SIGKILL root-owned forwarder $forwarderPid without a password. Run: sudo kill -9 $forwarderPid"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_157f9a28bfef1ebf' -Arguments @{ forwarderPid = "$forwarderPid" })
         }
     } else {
         & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
@@ -571,7 +572,7 @@ function Stop-AllCachingProxyServiceForwarder {
         ForEach-Object {
             if ($_.BaseName -match '^forwarder\.(\d+)$') {
                 $portInt = [int]$matches[1]
-                if ($PSCmdlet.ShouldProcess("port $portInt", 'Stop squid forwarder')) {
+                if ($PSCmdlet.ShouldProcess("port $portInt", (Format-YurunaOperatorMessage -Key 'host.operator_36b84d687b0706c6'))) {
                     [void](Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet)
                     $stopped += $portInt
                 }
@@ -658,7 +659,7 @@ function Stop-UtmDialogWatchdog {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param()
     if (-not (Test-Path $script:WatchdogPidFile)) { return }
-    if (-not $PSCmdlet.ShouldProcess($script:WatchdogPidFile, 'Stop UTM dialog watchdog')) { return }
+    if (-not $PSCmdlet.ShouldProcess($script:WatchdogPidFile, (Format-YurunaOperatorMessage -Key 'host.operator_9037cbd3068bafc8'))) { return }
     $pidText = (Get-Content $script:WatchdogPidFile -Raw -ErrorAction SilentlyContinue)
     if ($pidText) {
         $pidText = $pidText.Trim()
@@ -676,7 +677,7 @@ function Stop-UtmDialogWatchdog {
 function Start-UtmDialogWatchdog {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param()
-    if (-not $PSCmdlet.ShouldProcess('UTM dialog watchdog', 'Start')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_1e72e0f10e85d00c'), 'Start')) { return }
     Stop-UtmDialogWatchdog
     $stateDir = Split-Path -Parent $script:WatchdogPidFile
     if (-not (Test-Path $stateDir)) {
@@ -746,7 +747,7 @@ function Confirm-UtmVMCreated {
     }
     # Write-Warning (not Write-Error) for this expected-negative outcome so the [bool] contract
     # holds under a caller's ErrorActionPreference=Stop instead of throwing a terminating error.
-    Write-Warning "VM verification failed: $configPlist not found."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ac705056e60985ac' -Arguments @{ configPlist = "$configPlist" })
     return $false
 }
 
@@ -764,13 +765,52 @@ function Confirm-UtmVMCreated {
 .OUTPUTS
     [bool] $true when UTM still lists the name.
 #>
+<#
+.SYNOPSIS
+    Structured registration evidence: 'Registered', 'Absent', or 'Unknown'.
+.DESCRIPTION
+    A call that never returned, or a denied/unrecognized nonzero exit, says
+    nothing about registration: reporting it as 'Absent' sends a caller off
+    to create a VM that exists, or to delete a registration the probe simply
+    could not read. Only a completed response that names the VM as not found
+    is 'Absent'.
+#>
+function Get-UtmVMRegistrationState {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return 'Unknown' }
+    $outcome = Invoke-UtmctlProbe -Arguments @('status', "$VMName")
+    if (-not $outcome.Started -or $outcome.TimedOut) { return 'Unknown' }
+    if ($outcome.ExitCode -eq 0) { return 'Registered' }
+    $text = "$($outcome.StdOut)`n$($outcome.StdErr)"
+    if ($text -match 'not found') { return 'Absent' }
+    return 'Unknown'
+}
+
+<#
+.SYNOPSIS
+    Boolean compatibility wrapper over Get-UtmVMRegistrationState.
+.DESCRIPTION
+    $true for 'Registered', $false for 'Absent'. 'Unknown' is a terminating
+    classified error, never a silent $false: a denied or timed-out probe
+    collapsed to boolean absence is exactly the bug that let a wedged host
+    read as one with nothing registered. A caller that must not treat
+    Unknown as failure calls Get-UtmVMRegistrationState directly instead of
+    this wrapper.
+#>
 function Test-UtmVMRegistered {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return $false }
-    $null = & utmctl status "$VMName" 2>&1
-    return ($LASTEXITCODE -eq 0)
+    switch (Get-UtmVMRegistrationState -VMName $VMName) {
+        'Registered' { return $true }
+        'Absent'     { return $false }
+        default {
+            throw [System.InvalidOperationException]::new(
+                (Format-YurunaOperatorMessage -Key 'exceptions.host_ede3d2a333ea0452' -Arguments @{ vMName = "$VMName" }))
+        }
+    }
 }
 
 <#
@@ -809,28 +849,44 @@ function Remove-UtmVMRegistration {
         [Parameter(Mandatory)][string]$VMName,
         [int]$MaxAttempts = 3
     )
-    if (-not (Test-UtmVMRegistered -VMName $VMName)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Deregister VM from UTM')) { return $false }
+    # Reads registration through the structured probe throughout, never the
+    # throwing boolean wrapper: only a positive 'Absent' may report success,
+    # and 'Unknown' must refuse rather than fall into either the delete loop
+    # or a placeholder-bundle restore meant for a registration proven still
+    # there.
+    $initial = Get-UtmVMRegistrationState -VMName $VMName
+    if ($initial -eq 'Absent') { return $true }
+    if ($initial -eq 'Unknown') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_42b86b87ff2eaef3' -Arguments @{ vMName = "$VMName" })
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_b0f525825afab689'))) { return $false }
 
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     $placeholderPath = $null
     try {
         for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
             $deleteOutput = & utmctl delete "$VMName" 2>&1
-            if (-not (Test-UtmVMRegistered -VMName $VMName)) { return $true }
+            $state = Get-UtmVMRegistrationState -VMName $VMName
+            if ($state -eq 'Absent') { return $true }
             foreach ($line in @($deleteOutput)) {
                 $text = "$line".Trim()
                 if ($text) { Write-Verbose "utmctl delete '$VMName' (attempt $attempt): $text" }
             }
-            if (-not (Test-Path -LiteralPath $utmBundle)) {
-                Write-Information -MessageData "  UTM still lists '$VMName' but its bundle is gone; restoring an empty bundle at $utmBundle so the deregistration can complete." -InformationAction Continue
+            if ($state -eq 'Unknown') {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c86b25c8af7f4942' -Arguments @{ vMName = "$VMName"; attempt = "$attempt" })
+            } elseif (-not (Test-Path -LiteralPath $utmBundle)) {
+                # Two ways the bundle can be missing, and only this one -- the
+                # name is STILL positively registered -- means the delete
+                # genuinely failed on a bundle UTM cannot find to trash.
+                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_f412d26264dfbdd1' -Arguments @{ vMName = "$VMName"; utmBundle = "$utmBundle" }) -InformationAction Continue
                 $null = New-Item -Path $utmBundle -ItemType Directory -Force -ErrorAction SilentlyContinue
                 if (Test-Path -LiteralPath $utmBundle) { $placeholderPath = $utmBundle }
                 continue
             }
             if ($attempt -lt $MaxAttempts) { Start-Sleep -Seconds 3 }
         }
-        return (-not (Test-UtmVMRegistered -VMName $VMName))
+        return ((Get-UtmVMRegistrationState -VMName $VMName) -eq 'Absent')
     } finally {
         # A placeholder that outlived a still-failing delete would be read as a
         # real bundle by anything sizing or inventorying the VM store, so it is
@@ -852,16 +908,16 @@ function Remove-UtmTestVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
     & utmctl stop "$VMName" 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { Write-Output "Stopped UTM VM: $VMName" }
+    if ($LASTEXITCODE -eq 0) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" }) }
     # Confirm the VM is actually powered off (escalating to `utmctl stop --kill`
     # if the soft stop stalls) and its qcow2/bundle handles are released BEFORE
     # the deregistration -- otherwise the delete runs against a still-locked
     # bundle. Wait-UtmVMPoweredOff drives the same kill-escalation + lock check
     # the snapshot paths use.
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
-        Write-Warning "Remove-UtmTestVM: '$VMName' did not confirm powered-off within the timeout; proceeding with delete, but the bundle may still be locked."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_69569daab01168ea' -Arguments @{ vMName = "$VMName" })
     }
     if (-not (Remove-UtmVMRegistration -VMName $VMName -Confirm:$false)) {
         # Leaving the bundle on disk is the point. UTM deletes a VM by moving
@@ -870,16 +926,16 @@ function Remove-UtmTestVM {
         # and a stranded name is worse than a stranded bundle, because it still
         # answers `utmctl status` and so reads as a reusable VM to the sequence
         # engine, which then starts a VM that has no disk.
-        Write-Warning "Remove-UtmTestVM: UTM still lists '$VMName' after the delete; leaving its bundle in place so the registration stays removable."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4b393323b168a09a' -Arguments @{ vMName = "$VMName" })
         return $false
     }
     Write-Verbose "Deleted UTM VM from registry: $VMName"
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (Test-Path $utmBundle) {
         if (Remove-UtmBundleWithRetry -Path $utmBundle) {
-            Write-Output "Removed UTM bundle: $utmBundle"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdce3f3a724deacc' -Arguments @{ utmBundle = "$utmBundle" })
         } else {
-            Write-Warning "Remove-UtmTestVM: bundle still present after retries: $utmBundle"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_16a11cbfeabe41ff' -Arguments @{ utmBundle = "$utmBundle" })
             return $false
         }
     }
@@ -960,30 +1016,52 @@ function Invoke-UtmVMStartWithRetry {
         [Parameter(Mandatory)][string]$VMName,
         [int]$MaxAttempts    = 3,
         [int]$SettleSeconds  = 20,
-        [int]$BackoffSeconds = 5
+        [int]$BackoffSeconds = 5,
+        # A Yuruna.Deadline (New-YurunaDeadline) shared with the caller.
+        # Omitted, every prior caller's fixed-budget behavior is unchanged.
+        # Supplied, it bounds every backoff and settle wait to whatever
+        # remains, on top of -- never instead of -- MaxAttempts.
+        $Deadline
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Start UTM VM (with retry)')) {
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5e0073f7baaa6926'))) {
         return @{ success = $false; errorMessage = 'WhatIf'; attempts = 0; kind = 'none' }
     }
     $attemptCap = [Math]::Max(1, $MaxAttempts)
     $lastError  = ''
     $lastKind   = 'none'
     for ($attempt = 1; $attempt -le $attemptCap; $attempt++) {
+        if ($Deadline -and (Test-YurunaDeadlineExpired -Deadline $Deadline)) {
+            return @{ success = $false; attempts = ($attempt - 1); kind = 'unresolved'
+                      errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_dc12e47845da9820' -Arguments @{ vMName = "$VMName" }) }
+        }
         $state = 'unknown'
         try { $state = [string](Get-VMState -VMName $VMName) } catch { $state = 'unknown' }
         if ($state -eq 'running') {
             return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
         }
+        if ($state -eq 'unknown') {
+            # An earlier positive reading cannot authorize THIS attempt: the
+            # current state is unconfirmed, and issuing `utmctl start` into
+            # that uncertainty risks acting twice on a VM already coming up,
+            # or reporting failure on one that was never down. Observe
+            # within whatever budget remains instead of guessing.
+            return @{ success = $false; attempts = $attempt; kind = 'unresolved'
+                      errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_5cde67d59ac2073f' -Arguments @{ vMName = "$VMName"; attempt = "$attempt" }) }
+        }
         if ($attempt -gt 1) {
             $pause = $BackoffSeconds * ($attempt - 1)
-            Write-Information -MessageData "  '$VMName' is still $state -- start attempt $attempt of $attemptCap in ${pause}s..." -InformationAction Continue
-            Start-Sleep -Seconds $pause
+            if ($Deadline) {
+                $remainingMs = Get-YurunaDeadlineRemainingMs -Deadline $Deadline
+                $pause = [Math]::Min($pause, [int]($remainingMs / 1000))
+            }
+            Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_a1a6059aaacffcb8' -Arguments @{ vMName = "$VMName"; state = "$state"; attempt = "$attempt"; attemptCap = "$attemptCap"; pause = "${pause}" }) -InformationAction Continue
+            if ($pause -gt 0) { Start-Sleep -Seconds $pause }
         }
 
         $output = & utmctl start "$VMName" 2>&1
         $exit   = $LASTEXITCODE
         $text   = (@($output) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) -join '; '
-        if ($text) { Write-Information -MessageData "  utmctl start: $text" -InformationAction Continue }
+        if ($text) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_4d8f5df44a5acae0' -Arguments @{ text = "$text" }) -InformationAction Continue }
         $lastKind = Get-UtmStartFailureKind -Text $text
         $lastError = if ($exit -ne 0) { "utmctl start exited $exit$(if ($text) { ": $text" })" }
                      elseif ($lastKind -ne 'none') { $text }
@@ -992,18 +1070,28 @@ function Invoke-UtmVMStartWithRetry {
         # Polled even when the verb reported an error: a start that printed an
         # Apple Event timeout can still have been carried out, and the state is
         # what settles it.
-        $deadline = (Get-Date).AddSeconds([Math]::Max(1, $SettleSeconds))
-        while ((Get-Date) -lt $deadline) {
+        $effectiveSettle = [Math]::Max(1, $SettleSeconds)
+        if ($Deadline) {
+            $boundedSettle = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 3600
+            if ($null -eq $boundedSettle) {
+                return @{ success = $false; attempts = $attempt; kind = 'unresolved'
+                          errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_b0d08bfb4f337561' -Arguments @{ vMName = "$VMName" }) }
+            }
+            $effectiveSettle = [Math]::Min($effectiveSettle, $boundedSettle)
+        }
+        $settleDeadlineTick = [Environment]::TickCount64 + ([long]$effectiveSettle * 1000)
+        while ([Environment]::TickCount64 -lt $settleDeadlineTick) {
             Start-Sleep -Seconds 1
             $now = 'unknown'
             try { $now = [string](Get-VMState -VMName $VMName) } catch { $now = 'unknown' }
             if ($now -eq 'running') {
                 return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
             }
+            if ($Deadline -and (Test-YurunaDeadlineExpired -Deadline $Deadline)) { break }
         }
         if ($lastKind -eq 'qemu') {
             return @{ success = $false; attempts = $attempt; kind = 'qemu'
-                      errorMessage = "QEMU did not survive for '$VMName': $lastError" }
+                      errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_d2824e1687d3fb3f' -Arguments @{ vMName = "$VMName"; lastError = "$lastError" }) }
         }
     }
     $detail = if ($lastKind -eq 'apple-event') {
@@ -1026,18 +1114,29 @@ function Start-UtmVM {
     param([Parameter(Mandatory)][string]$VMName)
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $utmBundle)) {
-        # Distinguish the two ways the bundle can be missing. Still registered
-        # means UTM holds a name whose files are gone -- the caller reached here
-        # because that name answered the reuse check, so pointing at the path
-        # alone would send the reader looking for a VM that was never created,
-        # not for the registration that has to be cleared before one can be.
-        if (Test-UtmVMRegistered -VMName $VMName) {
-            return @{ success = $false; errorMessage = "UTM lists '$VMName' but its bundle is gone ($utmBundle). Clear the registration (Remove-VM -VMName '$VMName') so the VM can be created again." }
+        # Distinguish the two ways the bundle can be missing, from the
+        # structured probe rather than the throwing boolean wrapper: still
+        # registered means UTM holds a name whose files are gone -- the
+        # caller reached here because that name answered the reuse check, so
+        # pointing at the path alone would send the reader looking for a VM
+        # that was never created, not for the registration that has to be
+        # cleared before one can be. Unknown gets its own message: neither
+        # "create a VM" nor "clear a registration" advice is warranted when
+        # the probe could not establish which situation this is.
+        switch (Get-UtmVMRegistrationState -VMName $VMName) {
+            'Registered' {
+                return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_d389bec5f4a68d26' -Arguments @{ vMName = "$VMName"; utmBundle = "$utmBundle" }) }
+            }
+            'Unknown' {
+                return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_0d8dc260f5da53ac' -Arguments @{ utmBundle = "$utmBundle"; vMName = "$VMName" }) }
+            }
+            default {
+                return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_4b2811cd5d4abd27' -Arguments @{ utmBundle = "$utmBundle" }) }
+            }
         }
-        return @{ success = $false; errorMessage = "UTM bundle not found: $utmBundle" }
     }
     try {
-        if ($PSCmdlet.ShouldProcess($VMName, 'Start UTM VM')) {
+        if ($PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_13ef318fcba6de6e'))) {
             $vmstatePath = Join-Path $utmBundle "Data/vmstate"
             if (Test-Path $vmstatePath) {
                 Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
@@ -1046,7 +1145,7 @@ function Start-UtmVM {
                 # output becomes part of that return. A caller checking
                 # `$result -is [hashtable]` then sees an Object[] and skips its
                 # own failure check, so a VM that never started reports success.
-                Write-Information -MessageData "  Removed stale vmstate for '$VMName' -- forcing cold boot." -InformationAction Continue
+                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_76b79a689aa25a38' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
             }
             # Resolve the VNC display before starting. The display is baked into
             # the bundle when the VM is BUILT, and every guest of a kind is built
@@ -1067,16 +1166,16 @@ function Start-UtmVM {
                 -Preferred (Get-VncDisplayForVm -VMName $VMName) `
                 -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $VMName)
             if ($wantDisplay -lt 0) {
-                return @{ success = $false; errorMessage = "No free VNC display in 10..89 for '$VMName'; every port 5910-5989 is in use." }
+                return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_239ba3e5aec356be' -Arguments @{ vMName = "$VMName" }) }
             }
             if ((Get-VncDisplayFromBundle -VMName $VMName) -ne $wantDisplay) {
                 if (Set-VncDisplayInBundle -VMName $VMName -Display $wantDisplay -Confirm:$false) {
-                    Write-Information -MessageData "  VNC display for '$VMName' set to $wantDisplay (port $(5900 + $wantDisplay))." -InformationAction Continue
+                    Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_645bdc6defb51655' -Arguments @{ vMName = "$VMName"; wantDisplay = "$wantDisplay"; wantDisplay2 = "$(5900 + $wantDisplay)" }) -InformationAction Continue
                 } else {
                     # Not fatal on its own: the bundle may still hold a usable
                     # display. Say so, because a screenshot aimed at the stale
                     # port would otherwise capture another VM's framebuffer.
-                    Write-Warning "Start-UtmVM: could not set the VNC display for '$VMName'; the bundle keeps its previous port."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3e7833e5fc51e09' -Arguments @{ vMName = "$VMName" })
                 }
             }
             Start-UtmDialogWatchdog
@@ -1097,7 +1196,7 @@ function Start-UtmVM {
         }
         return @{ success = $true; errorMessage = $null }
     } catch {
-        return @{ success = $false; errorMessage = "Failed to start UTM VM '$VMName': $_" }
+        return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_3f0823f611b21152' -Arguments @{ vMName = "$VMName"; value = "$_" }) }
     }
 }
 
@@ -1109,15 +1208,15 @@ function Stop-UtmVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop UTM VM')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_ec02730efdb72c13'))) { return $true }
     Stop-UtmDialogWatchdog
     & utmctl stop "$VMName" 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Output "Stopped UTM VM: $VMName"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ad3787aa98e176ba' -Arguments @{ vMName = "$VMName" })
         Start-Sleep -Seconds 2
         return $true
     }
-    Write-Warning "utmctl stop failed for '$VMName' (exit $LASTEXITCODE)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_56dca8fbb7ddb723' -Arguments @{ vMName = "$VMName"; lASTEXITCODE = "$LASTEXITCODE" })
     return $false
 }
 
@@ -1135,16 +1234,20 @@ function Confirm-UtmVMStarted {
     # silently expand the budget; deadline keeps the contract honest.
     $deadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadlineUtc) {
-        $output = & utmctl status "$VMName" 2>&1
+        # Each probe is bounded so the deadline above is the real budget: one
+        # unbounded status call inside the loop would outlast every iteration
+        # it was meant to pace.
+        $probe  = Invoke-UtmctlProbe -Arguments @('status', "$VMName")
+        $output = "$($probe.StdOut)`n$($probe.StdErr)"
         if ($output -match "started|running") {
-            Write-Output "Verified: UTM VM '$VMName' is running"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ebad947b6ac44dfe' -Arguments @{ vMName = "$VMName" })
             return $true
         }
         Start-Sleep -Seconds 1
     }
     # Write-Warning (not Write-Error) for this expected-negative timeout so the [bool] contract
     # holds under a caller's ErrorActionPreference=Stop instead of throwing a terminating error.
-    Write-Warning "UTM VM '$VMName' did not reach running state within ${TimeoutSeconds}s"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6d178454089aa5b0' -Arguments @{ vMName = "$VMName"; timeoutSeconds = "${TimeoutSeconds}" })
     return $false
 }
 
@@ -1181,7 +1284,8 @@ function Wait-UtmVMPoweredOff {
     $escalateUtc  = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds / 2)
     $killIssued   = $false
     while ([DateTime]::UtcNow -lt $deadlineUtc) {
-        $status  = & utmctl status $VMName 2>&1
+        $statusProbe = Invoke-UtmctlProbe -Arguments @('status', $VMName)
+        $status  = "$($statusProbe.StdOut)`n$($statusProbe.StdErr)"
         $running = ($status -match 'started|paused|suspended')
         # Drive the kill escalation off status: the default power-off event
         # is near-instant, but a stalled (or suspended) guest never frees
@@ -1234,8 +1338,10 @@ function Get-RunningVmName {
     # a 1-element array whose single element is the empty array itself,
     # surfacing as a phantom "running VM" with empty name).
     if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return }
-    $output = & utmctl list 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $output) { return }
+    $listing = Invoke-UtmctlProbe -Arguments @('list')
+    if ($listing.TimedOut -or $listing.ExitCode -ne 0) { return }
+    $output = [string]$listing.StdOut
+    if (-not $output) { return }
     $running = New-Object System.Collections.Generic.List[string]
     foreach ($line in ($output -split "`r?`n")) {
         if ($line -match '^([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\s+(\S+)\s+(.+)$') {
@@ -1250,6 +1356,42 @@ function Get-RunningVmName {
 
 <#
 .SYNOPSIS
+    Run a read-only utmctl subcommand under a wall-clock cap.
+.DESCRIPTION
+    utmctl is an Apple Events client: every call is a round trip to UTM.app,
+    and it carries no timeout of its own. When UTM.app stops answering -- host
+    memory pressure, a consent dialog nobody is present to click, an app that
+    has simply wedged -- the call does not fail, it waits. The enumeration
+    probes here run in the cycle preamble, which is watched for progress, so an
+    unbounded wait costs the whole cycle rather than one unanswered question.
+
+    Read-only subcommands ONLY (`list`, `status`, `ip-address`). The lifecycle
+    calls legitimately take minutes to return and must not inherit a probe's
+    patience; they keep their own unbounded form.
+.PARAMETER Arguments
+    The utmctl argument vector, passed verbatim.
+.PARAMETER TimeoutSeconds
+    Wall-clock cap. Twenty seconds is far past what a healthy UTM needs for an
+    enumeration and far short of what the watchdog allows a preamble.
+.OUTPUTS
+    [hashtable] as returned by Invoke-BoundedNativeCommand.
+#>
+function Invoke-UtmctlProbe {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
+    )
+    $outcome = Invoke-BoundedNativeCommand -FilePath 'utmctl' -ArgumentList $Arguments -TimeoutSeconds $TimeoutSeconds
+    if ($outcome.TimedOut) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c58ea69de806b447' -Arguments @{ join = "$($Arguments -join ' ')"; timeoutSeconds = "${TimeoutSeconds}" })
+    }
+    return $outcome
+}
+
+<#
+.SYNOPSIS
     Return $true only when utmctl can actually talk to UTM.app right now.
 .DESCRIPTION
     Under host memory pressure UTM.app stops answering Apple Events, and
@@ -1260,18 +1402,24 @@ function Get-RunningVmName {
     empty running-set as a verified-clean host would false-pass. Match the
     timeout signature explicitly so "couldn't verify" stays distinguishable
     from "confirmed clear".
+
+    The wedge has a third shape beyond a slow answer and an error string: no
+    answer at all. Bounding the call is what turns that one into a verdict --
+    without it this function is the thing that hangs, and "couldn't verify"
+    never gets returned to anybody.
 .OUTPUTS
     [bool] $true when utmctl responded; $false when utmctl is missing,
-    exited non-zero, or UTM.app timed out.
+    exited non-zero, timed out, or UTM.app reported an Apple Event timeout.
 #>
 function Test-UtmctlResponsive {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
     if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return $false }
-    $output = & utmctl list 2>&1
-    if ($LASTEXITCODE -ne 0) { return $false }
-    if ($output -match 'OSStatus error|couldn.t be completed') { return $false }
+    $outcome = Invoke-UtmctlProbe -Arguments @('list')
+    if ($outcome.TimedOut -or $outcome.ExitCode -ne 0) { return $false }
+    $combined = "$($outcome.StdOut)`n$($outcome.StdErr)"
+    if ($combined -match 'OSStatus error|couldn.t be completed') { return $false }
     return $true
 }
 
@@ -1323,7 +1471,7 @@ function Assert-NoConcurrentUtmVm {
     # on a host whose utmctl is intermittently unresponsive); the warning is
     # the signal, and the per-guest teardown probe is the other backstop.
     if (-not (Test-UtmctlResponsive)) {
-        Write-Warning "Assert-NoConcurrentUtmVm: utmctl is not responding (UTM.app likely unresponsive under host memory pressure); cannot verify no other VM is running -- proceeding WITHOUT the single-VM guarantee for this cycle."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c2034aca8b66df6c')
         return $true
     }
     # The service VMs are infrastructure designed to coexist with test cycles;
@@ -1338,20 +1486,20 @@ function Assert-NoConcurrentUtmVm {
     }
     if ($running.Count -eq 0) { return $true }
     Write-Warning "========"
-    Write-Warning " One or more UTM VMs are currently running:"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_500559b43c00e9b5')
     foreach ($vm in $running) { Write-Warning "   - $vm" }
     Write-Warning ""
-    Write-Warning " On some macOS versions vmnet-shared puts each new vmnet session on"
-    Write-Warning " its own bridge (192.168.64.x, 192.168.65.x, ...) that don't route"
-    Write-Warning " between each other. A concurrent VM can then split test guests onto"
-    Write-Warning " a separate bridge from the host's vmnet gateway, breaking the"
-    Write-Warning " cloud-init proxy URL baked into seed.iso. Stop the other VM(s)"
-    Write-Warning " before re-running this cycle:"
-    foreach ($vm in $running) { Write-Warning "   utmctl stop '$vm'" }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_304b5f00f0993a84')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_126b9e222d96af9b')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3fe3cd93d9d34a34')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9e142fdec39e7972')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_90bd2a836a6aaeff')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1e843c81eb019b8e')
+    foreach ($vm in $running) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dd2f6150f71e2f9e' -Arguments @{ vm = "$vm" }) }
     Write-Warning ""
-    Write-Warning " (The service VMs -- $($alwaysAllow -join ', ') -- are always allowed to coexist.)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_afea0597f2c66720' -Arguments @{ join = "$($alwaysAllow -join ', ')" })
     if ($ExceptVmName) {
-        Write-Warning " (Also excluding the cycle's target VM '$ExceptVmName'.)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_aee40e2e224cb007' -Arguments @{ exceptVmName = "$ExceptVmName" })
     }
     Write-Warning "========"
     return $false
@@ -1365,7 +1513,7 @@ function Restart-UtmConsole {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Activate UTM display window')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5ca701631669fb6d'))) { return $false }
     & osascript -e 'tell application "UTM" to activate' 2>&1 | Out-Null
     Start-Sleep -Seconds 1
     Write-Verbose "    Activated UTM window for '$VMName' (display repaint)"
@@ -1496,13 +1644,12 @@ function Invoke-MacElevationIfNeeded {
     # so a bare `sudo -v` there raises a prompt nothing displays and nothing
     # answers, and the step waits forever. Fail with the remedy instead.
     if (-not (Test-YurunaCanPrompt)) {
-        throw ("networksetup needs root and this run cannot ask for a password. Run 'sudo -v' in the terminal that owns this run " +
-               "before starting it, or grant this account a passwordless rule for /usr/sbin/networksetup in /etc/sudoers.d.")
+        throw ((Format-YurunaOperatorMessage -Key 'exceptions.host_ce186b06237fbe4d'))
     }
-    Write-Output "  macOS networksetup requires root -- caching sudo credentials (you may be prompted for your password)..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b5a36047ba736ed1')
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
-        throw "sudo -v failed -- cannot obtain root for networksetup. Check your sudo configuration."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_674dd7c6c0448e92')
     }
 }
 
@@ -1514,7 +1661,7 @@ function Invoke-MacNetworksetup {
     param([string[]]$Arguments)
     if ((& '/usr/bin/id' -u).Trim() -eq '0') {
         & networksetup @Arguments | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "networksetup $($Arguments -join ' ') exited $LASTEXITCODE." }
+        if ($LASTEXITCODE -ne 0) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_653d228ea35c1f2c' -Arguments @{ join = "$($Arguments -join ' ')"; lASTEXITCODE = "$LASTEXITCODE" }) }
         return
     }
     # -n, because Invoke-MacElevationIfNeeded has already established that root
@@ -1523,7 +1670,7 @@ function Invoke-MacNetworksetup {
     # password prompt here lands on a console the caller may not own, and the
     # operator was told they would be asked once.
     & sudo -n networksetup @Arguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Warning "sudo networksetup $($Arguments -join ' ') exited $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d13b1c09a5291094' -Arguments @{ join = "$($Arguments -join ' ')"; lASTEXITCODE = "$LASTEXITCODE" }) }
 }
 
 <#
@@ -1537,7 +1684,7 @@ function Set-MacHostProxy {
         [Parameter(Mandatory)][string]$NetworkService
     )
     $h = $ProxyParts.Host; $p = $ProxyParts.Port
-    if (-not $PSCmdlet.ShouldProcess("macOS networksetup service '$NetworkService'", "Set web/securewebproxy to ${h}:${p} and enable")) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_79c77d5e8acb27cf' -Arguments @{ networkService = "$NetworkService" }), (Format-YurunaOperatorMessage -Key 'host.operator_ed3c547320b2c6d6' -Arguments @{ h = "${h}"; p = "${p}" }))) {
         return
     }
     Invoke-MacNetworksetup @('-setwebproxy',            $NetworkService, $h, [string]$p)
@@ -1743,7 +1890,7 @@ function Set-VncDisplayInBundle {
     )
     $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
     if (-not (Test-Path -LiteralPath $configPath)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Set VNC display to $Display")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_54d6a4d70cca189d' -Arguments @{ display = "$Display" }))) { return $false }
     try {
         $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
         $qemuArgs = @($json.QEMU.AdditionalArguments)
@@ -1759,7 +1906,7 @@ function Set-VncDisplayInBundle {
             return ((Get-VncDisplayFromBundle -VMName $VMName) -eq $Display)
         }
     } catch {
-        Write-Warning "Set-VncDisplayInBundle: could not update $configPath`: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6877083d4624d081' -Arguments @{ configPath = "$configPath"; message = "$($_.Exception.Message)" })
     }
     return $false
 }
@@ -1795,17 +1942,17 @@ function Set-GuestMacInBundle {
     $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
     if (-not (Test-Path -LiteralPath $configPath)) { return $false }
     $mac = Get-YurunaGuestMacAddress -VMName $VMName
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Set NIC MAC to $mac")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_05af7f58bfd72dce' -Arguments @{ mac = "$mac" }))) { return $false }
     try {
         & /usr/libexec/PlistBuddy -c "Set :Network:0:MacAddress $mac" $configPath 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Set-GuestMacInBundle: PlistBuddy could not set :Network:0:MacAddress in '$configPath'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_19d6ab966bbc187c' -Arguments @{ configPath = "$configPath" })
             return $false
         }
         $written = (Get-UtmBundleNetwork -VMName $VMName).MacAddress
         return ($written -and $written -ieq $mac)
     } catch {
-        Write-Warning "Set-GuestMacInBundle: could not update $configPath`: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0311eef6cb69b548' -Arguments @{ configPath = "$configPath"; message = "$($_.Exception.Message)" })
     }
     return $false
 }
@@ -2075,15 +2222,15 @@ function Get-UtmScreenshot {
             $fileSize = (Get-Item $testFile).Length
             Remove-Item $testFile -Force -ErrorAction SilentlyContinue
             if ($fileSize -lt 100) {
-                Write-Warning "screencapture produces empty files. Grant Screen Recording permission to your terminal:"
-                Write-Warning "  System Settings > Privacy & Security > Screen Recording > enable your terminal app, then restart."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_63d92a5157f8b436')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_baea4919b222d9c9')
                 $script:ScreencaptureWorks = $false
             } else {
                 $script:ScreencaptureWorks = $true
             }
         } else {
-            Write-Warning "screencapture failed: $testErr"
-            Write-Warning "Grant Screen Recording permission to your terminal."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0b1218dff32f3243' -Arguments @{ testErr = "$testErr" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2401d57af4c6cd28')
             $script:ScreencaptureWorks = $false
         }
     }
@@ -2156,17 +2303,17 @@ end tell
                 $captured = $true
                 Write-Debug "      Captured via -R (window may include overlapping content)"
             } else {
-                Write-Warning "screencapture -R '$boundsResult' failed: $captureErr"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_52bc6c4a54214905' -Arguments @{ boundsResult = "$boundsResult"; captureErr = "$captureErr" })
             }
         } else {
-            Write-Warning "UTM window for '$VMName' not found. CG: $windowIdResult, bounds: $boundsResult"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_663cbbf805c2b958' -Arguments @{ vMName = "$VMName"; windowIdResult = "$windowIdResult"; boundsResult = "$boundsResult" })
         }
     }
     if ($captured) {
         Write-Debug "Screenshot saved: $OutputPath"
         return $OutputPath
     }
-    Write-Error "Screenshot capture failed for '$VMName'"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_46fe17589543a111' -Arguments @{ vMName = "$VMName" })
     return $null
 }
 
@@ -2246,7 +2393,7 @@ end tell
             $pointW  = [double]$parts[2]
             $pointH  = [double]$parts[3]
         } else {
-            Write-Warning "UTM window for '$VMName' not found (CG: $windowResult, bounds: $boundsResult)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ec0afe642270f86' -Arguments @{ vMName = "$VMName"; windowResult = "$windowResult"; boundsResult = "$boundsResult" })
             return $null
         }
     }
@@ -2257,12 +2404,12 @@ end tell
         $captureErr = & screencapture -x -R "$region" "$OutputPath" 2>&1
     }
     if (-not (Test-Path $OutputPath)) {
-        Write-Warning "screencapture failed for '$VMName': $captureErr"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d8b4fab086012607' -Arguments @{ vMName = "$VMName"; captureErr = "$captureErr" })
         return $null
     }
     $fileSize = (Get-Item $OutputPath).Length
     if ($fileSize -lt 100) {
-        Write-Warning "screencapture produced a ${fileSize}-byte PNG -- likely Screen Recording permission missing."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_88b70a1a42a7df41' -Arguments @{ fileSize = "${fileSize}" })
         Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
         return $null
     }
@@ -2275,7 +2422,7 @@ end tell
         $pixelW = ([int]$buf[16] -shl 24) -bor ([int]$buf[17] -shl 16) -bor ([int]$buf[18] -shl 8) -bor [int]$buf[19]
         $pixelH = ([int]$buf[20] -shl 24) -bor ([int]$buf[21] -shl 16) -bor ([int]$buf[22] -shl 8) -bor [int]$buf[23]
     } catch {
-        Write-Warning "Failed to read PNG dimensions from '$OutputPath': $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6f6bbc018b383fb2' -Arguments @{ outputPath = "$OutputPath"; value = "$_" })
         return $null
     }
     $scale = if ($pointW -gt 0) { $pixelW / $pointW } else { 1.0 }
@@ -2342,7 +2489,7 @@ function Start-VM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Start VM')) { return @{ success = $false; errorMessage = 'WhatIf' } }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef'))) { return @{ success = $false; errorMessage = 'WhatIf' } }
     return Start-UtmVM -VMName $VMName -Confirm:$false
 }
 
@@ -2357,7 +2504,7 @@ function Stop-VM {
         [Parameter(Mandatory)][string]$VMName,
         [switch]$Force
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? 'Force-stop VM' : 'Stop VM'))) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? (Format-YurunaOperatorMessage -Key 'host.operator_872a5355019f83c5') : (Format-YurunaOperatorMessage -Key 'host.operator_156e139837bd477d')))) { return $false }
     if ($Force) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
     return [bool](Stop-UtmVM -VMName $VMName -Confirm:$false)
 }
@@ -2373,7 +2520,7 @@ function Stop-VMForce {
         [Parameter(Mandatory)][string]$VMName,
         [int]$StopTimeoutSeconds = 20
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Force-stop UTM VM')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_8ba70db3f3e461cb'))) { return $false }
     Stop-UtmDialogWatchdog
     # StopTimeoutSeconds is reserved for parity with Hyper-V Stop-VMForce;
     # utmctl stop is synchronous so the value is informational only.
@@ -2393,7 +2540,7 @@ function Remove-VM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
     return [bool](Remove-UtmTestVM -VMName $VMName -Confirm:$false)
 }
 
@@ -2431,12 +2578,15 @@ function Get-VMName {
     [OutputType([string[]])]
     param([string[]]$Prefix)
     if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
-        throw "Get-VMName: utmctl not found on PATH; cannot enumerate UTM VMs."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_81fb05f8b6924bce')
     }
-    $output = & utmctl list 2>&1
-    $text = ($output | ForEach-Object { "$_" }) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or $text -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
-        throw "Get-VMName: utmctl could not reach UTM. Run from a Terminal session with Automation access for pwsh, after UTM.app is launched and a user is logged in graphically. Output:`n$text"
+    $listing = Invoke-UtmctlProbe -Arguments @('list')
+    $text = "$($listing.StdOut)`n$($listing.StdErr)".Trim()
+    if ($listing.TimedOut) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_76bccb579d55bc73')
+    }
+    if ($listing.ExitCode -ne 0 -or $text -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_7c4b552da601ab61' -Arguments @{ text = "$text" })
     }
     $names = [System.Collections.Generic.List[string]]::new()
     foreach ($line in ($text -split "`r?`n")) {
@@ -2459,14 +2609,31 @@ function Get-VMName {
 <#
 .SYNOPSIS
     Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
+.DESCRIPTION
+    'unknown' covers everything that is not a positively recognized answer:
+    utmctl missing from PATH, a launch failure, a timeout, a denied Apple
+    Event, "does not work from SSH", or any other unrecognized nonzero exit.
+    Only a completed response that names the VM as not found is 'absent'.
+    Callers treat 'absent' as license to build or reuse a name (Start-
+    CachingProxyServiceVM.ps1, Debug-TestSequence.ps1, Test.Orchestrator,
+    Test.SnapshotManifest, Rename-VM's preconditions, Remove-
+    UtmVMRegistration) and Restore-YurunaServiceVM treats it as "not built on
+    this host" -- a probe UTM merely refused to answer must never produce
+    that, on a host that is exactly as wedged as the one this rewrite
+    targets.
 #>
 function Get-VMState {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return 'absent' }
-    $status = & utmctl status $VMName 2>&1
-    if ($LASTEXITCODE -ne 0) { return 'absent' }
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return 'unknown' }
+    $probe = Invoke-UtmctlProbe -Arguments @('status', $VMName)
+    if (-not $probe.Started -or $probe.TimedOut) { return 'unknown' }
+    $status = "$($probe.StdOut)`n$($probe.StdErr)"
+    if ($probe.ExitCode -ne 0) {
+        if ($status -match 'not found') { return 'absent' }
+        return 'unknown'
+    }
     switch -Regex ($status) {
         'started'   { return 'running' }
         'paused'    { return 'stopped' }
@@ -2521,23 +2688,34 @@ function Resume-YurunaServiceVM {
     if ($names.Count -eq 0) { return }
     $failed = New-Object System.Collections.Generic.List[string]
     foreach ($name in $names) {
-        if (-not $PSCmdlet.ShouldProcess($name, 'Resume service VM after UTM relaunch')) { continue }
+        if (-not $PSCmdlet.ShouldProcess($name, (Format-YurunaOperatorMessage -Key 'host.operator_87abce329e878b18'))) { continue }
         # UTM ingests its library asynchronously after launch, and utmctl
         # cannot address a VM until that finishes -- an immediate start
-        # would be answered with "not found" and silently dropped.
-        $registerDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
-        $state = 'absent'
-        while ((Get-Date) -lt $registerDeadline) {
+        # would be answered with "not found" and silently dropped. This
+        # waits through BOTH 'absent' (not yet re-registered) and 'unknown'
+        # (a probe that could not yet be read -- which a genuinely wedged
+        # connection also produces): only a positive 'running' or 'stopped'
+        # reading ends the wait, and a start is only ever attempted from a
+        # positive 'stopped' reading, never from 'unknown'.
+        $deadline = New-YurunaDeadline -TotalMilliseconds ([long]$TimeoutSeconds * 1000)
+        $state = 'unknown'
+        while (-not (Test-YurunaDeadlineExpired -Deadline $deadline)) {
             $state = Get-VMState -VMName $name
-            if ($state -ne 'absent') { break }
+            if ($state -eq 'running' -or $state -eq 'stopped') { break }
             Start-Sleep -Milliseconds 500
         }
+        if ($state -eq 'running') { continue }
         if ($state -eq 'absent') {
-            Write-Warning "Resume-YurunaServiceVM: '$name' did not re-register with UTM within $TimeoutSeconds s; resume it by hand (utmctl start '$name')."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a986b71028c74af3' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
             [void]$failed.Add($name)
             continue
         }
-        if ($state -eq 'running') { continue }
+        if ($state -eq 'unknown') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dbd4e4ba20849958' -Arguments @{ name = "$name"; timeoutSeconds = "$TimeoutSeconds" })
+            [void]$failed.Add($name)
+            continue
+        }
+        # Only a positive 'stopped' reading reaches here.
         # The watchdog is started HERE rather than left to the caller. The path
         # that leads to a resume quits UTM, and the Stop-VM on the way in reaps
         # any watchdog with it -- so this is the one place a service VM is
@@ -2546,19 +2724,21 @@ function Resume-YurunaServiceVM {
         # modal nobody answers looks exactly like a start that was refused.
         Start-UtmDialogWatchdog
         try {
-            # The retry budget is spread ACROSS TimeoutSeconds rather than added
-            # on top of it, so a caller's timeout still means what it says while
-            # a momentary refusal now gets the second and third try that a
-            # single-shot start never had.
+            # The retry budget is spread ACROSS the shared deadline rather than
+            # added on top of it, so a caller's timeout still means what it
+            # says while a momentary refusal now gets the second and third try
+            # that a single-shot start never had.
+            $remainingMs   = Get-YurunaDeadlineRemainingMs -Deadline $deadline
+            $settleSeconds = [Math]::Max(1, [Math]::Min([int]($TimeoutSeconds / 3), [int]($remainingMs / 1000)))
             $start = Invoke-UtmVMStartWithRetry -VMName $name -Confirm:$false `
-                -SettleSeconds ([Math]::Max(15, [int]($TimeoutSeconds / 3)))
+                -SettleSeconds $settleSeconds -Deadline $deadline
         } finally {
             Stop-UtmDialogWatchdog
         }
         if ($start.success) {
             Write-Verbose "Resume-YurunaServiceVM: '$name' is running again (attempt $($start.attempts))."
         } else {
-            Write-Warning "Resume-YurunaServiceVM: '$name' did not return to 'started'. $($start.errorMessage) Every guest that consumes it will fail until it is running."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_126a49ca0c55779b' -Arguments @{ name = "$name"; errorMessage = "$($start.errorMessage)" })
             [void]$failed.Add($name)
         }
     }
@@ -2611,22 +2791,33 @@ function Rename-VM {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$NewName
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Rename to '$NewName' (bundle + Registry surgery)")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_6d832084f2cb44cf' -Arguments @{ newName = "$NewName" }))) { return $false }
     if ($VMName -eq $NewName) { return $true }
     if ($VMName -match '[/"\\]' -or $NewName -match '[/"\\]') {
-        Write-Warning "Rename-VM: refusing to rename '$VMName' -> '$NewName' (names must not contain '/', '\\', or '`"')."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b3adfc0d608ac6e8' -Arguments @{ vMName = "$VMName"; newName = "$NewName" })
         return $false
     }
-    if ((Get-VMState -VMName $VMName) -eq 'absent') {
-        Write-Warning "Rename-VM: source VM '$VMName' not registered with UTM."
+    # A positive 'stopped' source and a positive 'absent' destination, never
+    # merely "not the value we are refusing on": a denied or timed-out probe
+    # now reads as 'unknown' rather than 'absent', so requiring the positive
+    # state on both sides -- and refusing outright on 'unknown' -- is what
+    # keeps an unanswered probe from reaching the mutation further down.
+    $srcState = Get-VMState -VMName $VMName
+    if ($srcState -ne 'stopped') {
+        switch ($srcState) {
+            'absent'  { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_524e2803f12e1efa' -Arguments @{ vMName = "$VMName" }) }
+            'running' { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_697963516e07c1d1' -Arguments @{ vMName = "$VMName" }) }
+            default   { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_476ac9f4728142ba' -Arguments @{ vMName = "$VMName" }) }
+        }
         return $false
     }
-    if ((Get-VMState -VMName $NewName) -ne 'absent') {
-        Write-Warning "Rename-VM: destination name '$NewName' already exists."
-        return $false
-    }
-    if ((Get-VMState -VMName $VMName) -eq 'running') {
-        Write-Warning "Rename-VM: '$VMName' is still running; UTM holds an exclusive lock on the bundle. Stop the VM first."
+    $dstState = Get-VMState -VMName $NewName
+    if ($dstState -ne 'absent') {
+        if ($dstState -eq 'unknown') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8325345b98bdf237' -Arguments @{ newName = "$NewName" })
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f69adb6b2f614a13' -Arguments @{ newName = "$NewName" })
+        }
         return $false
     }
 
@@ -2635,11 +2826,11 @@ function Rename-VM {
     $dstBundle = Join-Path $guestDir "$NewName.utm"
     $srcConfig = Join-Path $srcBundle 'config.plist'
     if (-not (Test-Path -LiteralPath $srcConfig)) {
-        Write-Warning "Rename-VM: source config.plist not found at '$srcConfig'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15b9626a689d8633' -Arguments @{ srcConfig = "$srcConfig" })
         return $false
     }
     if (Test-Path -LiteralPath $dstBundle) {
-        Write-Warning "Rename-VM: destination bundle already exists: '$dstBundle'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b89811c24b571c30' -Arguments @{ dstBundle = "$dstBundle" })
         return $false
     }
 
@@ -2647,13 +2838,13 @@ function Rename-VM {
     # bundle's own config.plist rather than parsing `defaults` output.
     $uuid = (& /usr/libexec/PlistBuddy -c 'Print :Information:UUID' $srcConfig 2>&1).ToString().Trim()
     if ($LASTEXITCODE -ne 0 -or $uuid -notmatch '^[0-9A-Fa-f-]{36}$') {
-        Write-Warning "Rename-VM: could not read :Information:UUID from '$srcConfig' (got '$uuid')."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5e409de2ac1c55b7' -Arguments @{ srcConfig = "$srcConfig"; uuid = "$uuid" })
         return $false
     }
 
     $utmPrefs = "$HOME/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist"
     if (-not (Test-Path -LiteralPath $utmPrefs)) {
-        Write-Warning "Rename-VM: UTM preferences plist not found at '$utmPrefs'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_76727d9ff6fe99e5' -Arguments @{ utmPrefs = "$utmPrefs" })
         return $false
     }
 
@@ -2685,7 +2876,7 @@ function Rename-VM {
     try {
         Rename-Item -LiteralPath $srcBundle -NewName "$NewName.utm" -ErrorAction Stop
     } catch {
-        Write-Warning "Rename-VM: bundle rename '$srcBundle' -> '$dstBundle' failed: $($_.Exception.Message)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5c039b0b7884d16b' -Arguments @{ srcBundle = "$srcBundle"; dstBundle = "$dstBundle"; message = "$($_.Exception.Message)" })
         & open -a UTM 2>$null | Out-Null
         [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
         return $false
@@ -2694,7 +2885,7 @@ function Rename-VM {
     $dstConfig = Join-Path $dstBundle 'config.plist'
     & /usr/libexec/PlistBuddy -c "Set :Information:Name $NewName" $dstConfig 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Rename-VM: PlistBuddy could not update :Information:Name in '$dstConfig'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b6e0da77ab1ba6b5' -Arguments @{ dstConfig = "$dstConfig" })
         try { Rename-Item -LiteralPath $dstBundle -NewName "$VMName.utm" -ErrorAction Stop }
         catch { Write-Debug "Rename-VM revert: bundle rename back failed: $_" }
         & open -a UTM 2>$null | Out-Null
@@ -2707,7 +2898,7 @@ function Rename-VM {
     & /usr/libexec/PlistBuddy -c "Set :Registry:${uuid}:Package:Path $dstBundle" $utmPrefs 2>&1 | Out-Null
     $regExitPath = $LASTEXITCODE
     if ($regExitName -ne 0 -or $regExitPath -ne 0) {
-        Write-Warning "Rename-VM: PlistBuddy could not update UTM Registry for UUID $uuid (Name exit=$regExitName, Path exit=$regExitPath)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_50978cbbff00be18' -Arguments @{ uuid = "$uuid"; regExitName = "$regExitName"; regExitPath = "$regExitPath" })
         # Best-effort revert: undo plist Name + bundle rename so the
         # next cycle sees a coherent state.
         & /usr/libexec/PlistBuddy -c "Set :Information:Name $VMName" $dstConfig 2>$null | Out-Null
@@ -2729,7 +2920,7 @@ function Rename-VM {
     $bundleMac = [string]((Get-UtmBundleNetwork -VMName $NewName).MacAddress)
     if (Test-YurunaGuestMacMatchesName -MacAddress $bundleMac -VMName $VMName) {
         if (-not (Set-GuestMacInBundle -VMName $NewName -Confirm:$false)) {
-            Write-Warning "Rename-VM: could not move the '$VMName' address off '$NewName'; it keeps that name's address and will collide with the next guest built under it. See https://yuruna.link/4220a755-000a"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fc7e4d718a95d1a2' -Arguments @{ vMName = "$VMName"; newName = "$NewName" })
         }
     }
 
@@ -2746,12 +2937,12 @@ function Rename-VM {
         -Preferred (Get-VncDisplayForVm -VMName $NewName) `
         -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $NewName)
     if ($wantDisplay -lt 0) {
-        Write-Warning "Rename-VM: no free VNC display in 10..89 for '$NewName'; it keeps display $(Get-VncDisplayFromBundle -VMName $NewName) and may collide with another VM."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_844a212ddde38874' -Arguments @{ newName = "$NewName"; newName2 = "$(Get-VncDisplayFromBundle -VMName $NewName)" })
     } elseif ((Get-VncDisplayFromBundle -VMName $NewName) -ne $wantDisplay) {
         if (Set-VncDisplayInBundle -VMName $NewName -Display $wantDisplay -Confirm:$false) {
             Write-Verbose "Rename-VM: VNC display for '$NewName' set to $wantDisplay (port $(5900 + $wantDisplay))."
         } else {
-            Write-Warning "Rename-VM: could not set the VNC display for '$NewName'; it keeps display $(Get-VncDisplayFromBundle -VMName $NewName) and may collide with another VM."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8e1418fef79d70dd' -Arguments @{ newName = "$NewName"; newName2 = "$(Get-VncDisplayFromBundle -VMName $NewName)" })
         }
     }
 
@@ -2763,7 +2954,12 @@ function Rename-VM {
     $deadline = (Get-Date).AddSeconds(30)
     $surfaced = $false
     while ((Get-Date) -lt $deadline) {
-        if ((Get-VMState -VMName $NewName) -ne 'absent') { $surfaced = $true; break }
+        # Only a positive valid state counts as surfaced: an 'unknown' read
+        # here (UTM still ingesting, or a denied probe) must keep polling,
+        # not be read as "not there yet" and then time out looking identical
+        # to a rename that never took.
+        $polled = Get-VMState -VMName $NewName
+        if ($polled -eq 'running' -or $polled -eq 'stopped') { $surfaced = $true; break }
         Start-Sleep -Milliseconds 500
     }
     # Resume regardless of whether the rename surfaced: the services were
@@ -2779,10 +2975,10 @@ function Rename-VM {
     # unrelated-looking failure somewhere downstream.
     $resumeFailed = @(Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
     if ($resumeFailed.Count -gt 0) {
-        Write-Warning "Rename-VM: '$NewName' was renamed, but $($resumeFailed.Count) service VM(s) that this rename stopped did not come back: $($resumeFailed -join ', '). Every later step that consumes them will fail. Start them before continuing: $(($resumeFailed | ForEach-Object { "utmctl start '$_'" }) -join '; ')."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_84987470d9b561d8' -Arguments @{ newName = "$NewName"; count = "$($resumeFailed.Count)"; join = "$($resumeFailed -join ', ')"; join2 = "$(($resumeFailed | ForEach-Object { "utmctl start '$_'" }) -join '; ')" })
     }
     if ($surfaced) { return $true }
-    Write-Warning "Rename-VM: UTM relaunch did not surface '$NewName' within timeout."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_20dac0c25f3fe7a9' -Arguments @{ newName = "$NewName" })
     return $false
 }
 
@@ -2812,20 +3008,20 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_dd94ac62ae57701c' -Arguments @{ id = "$Id" }))) { return $false }
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     $dataDir   = Join-Path $utmBundle 'Data'
     if (-not (Test-Path -LiteralPath $dataDir)) {
-        Write-Warning "Save-VMDiskSnapshot: UTM bundle data dir not found: $dataDir"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5e237b9eea6b9490' -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
     $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
     if ($disks.Count -eq 0) {
-        Write-Warning "Save-VMDiskSnapshot: no *.qcow2 disks under $dataDir."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_13cb024dfb19c946' -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
     if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
-        Write-Warning "Save-VMDiskSnapshot: qemu-img not on PATH (brew install qemu)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_06786a3211f6200f')
         return $false
     }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
@@ -2838,7 +3034,7 @@ function Save-VMDiskSnapshot {
     # ("Failed to lock byte 100") or captures an inconsistent disk. Block
     # until the process is gone and the write lock is free before -c.
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
-        Write-Warning "Save-VMDiskSnapshot: '$VMName' did not fully power off (qcow2 still locked); aborting to avoid an inconsistent snapshot."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ceeff55becfc6e28' -Arguments @{ vMName = "$VMName" })
         return $false
     }
     foreach ($disk in $disks) {
@@ -2847,13 +3043,13 @@ function Save-VMDiskSnapshot {
         & qemu-img snapshot -d $Id $disk.FullName 2>&1 | Out-Null
         & qemu-img snapshot -c $Id $disk.FullName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Save-VMDiskSnapshot: qemu-img snapshot -c failed for $($disk.Name) (exit $LASTEXITCODE)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4e18f285f91cd947' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$LASTEXITCODE" })
             return $false
         }
     }
     if ($VMName -ne $Id) {
         if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
-            Write-Warning "Save-VMDiskSnapshot: snapshot '$Id' saved into '$utmBundle' but rename '$VMName' -> '$Id' failed; VM will be wiped on next cycle cleanup. The qcow2 snapshot is on disk and can be restored manually."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3d4bd722f2cfda09' -Arguments @{ id = "$Id"; utmBundle = "$utmBundle"; vMName = "$VMName" })
             return $false
         }
     }
@@ -2918,20 +3114,20 @@ function Restore-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Restore disk snapshot '$Id'")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_122c73a3a2052796' -Arguments @{ id = "$Id" }))) { return $false }
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     $dataDir   = Join-Path $utmBundle 'Data'
     if (-not (Test-Path -LiteralPath $dataDir)) {
-        Write-Warning "Restore-VMDiskSnapshot: UTM bundle data dir not found: $dataDir"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dec3b9d961011af3' -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
     $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
     if ($disks.Count -eq 0) {
-        Write-Warning "Restore-VMDiskSnapshot: no *.qcow2 disks under $dataDir."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2443a2232e97400d' -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
     if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
-        Write-Warning "Restore-VMDiskSnapshot: qemu-img not on PATH (brew install qemu)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_67f1fe22f87fb1a8')
         return $false
     }
     # Verify the id exists on every disk before stopping the VM, so a
@@ -2950,7 +3146,7 @@ function Restore-VMDiskSnapshot {
         # explicitly instead.
         $hits = @($info | Where-Object { $_ -match ("^\s*\d+\s+" + [regex]::Escape($Id) + "\s") })
         if ($hits.Count -eq 0) {
-            Write-Warning "Restore-VMDiskSnapshot: snapshot '$Id' not present on $($disk.Name)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b8f92bfb6eae66ac' -Arguments @{ id = "$Id"; name = "$($disk.Name)" })
             return $false
         }
     }
@@ -2968,7 +3164,7 @@ function Restore-VMDiskSnapshot {
     # Hyper-V checkpoint restore. Runs unconditionally because Get-VMState
     # maps 'suspended'/'paused' to 'stopped' yet those still hold the lock.
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
-        Write-Warning "Restore-VMDiskSnapshot: '$VMName' did not fully power off (qcow2 still locked); aborting to avoid a clobbered revert."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c66ee6ced9fa2d77' -Arguments @{ vMName = "$VMName" })
         return $false
     }
     # Removing vmstate at this point mirrors Start-UtmVM's cold-boot
@@ -2981,7 +3177,7 @@ function Restore-VMDiskSnapshot {
     foreach ($disk in $disks) {
         & qemu-img snapshot -a $Id $disk.FullName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Restore-VMDiskSnapshot: qemu-img snapshot -a failed for $($disk.Name) (exit $LASTEXITCODE)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3566f32ac9581467' -Arguments @{ name = "$($disk.Name)"; lASTEXITCODE = "$LASTEXITCODE" })
             return $false
         }
     }
@@ -3011,7 +3207,7 @@ function Restart-VMConsole {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Restart console window (UTM activate)')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_6e0202c4ffd01c8a'))) { return $false }
     return [bool](Restart-UtmConsole -VMName $VMName -Confirm:$false)
 }
 
@@ -3079,7 +3275,7 @@ function Send-Text {
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on UTM." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
-            Write-Warning "Send-Text -Mechanism ssh requires -GuestKey to determine the SSH login user."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f4a1977247ebda51')
             return $false
         }
         # Test.Ssh\Invoke-GuestSsh resolves both the user (from GuestKey)
@@ -3107,7 +3303,7 @@ function Send-Text {
         # Module-qualified call avoids re-entering OUR Send-Text.
         return [bool](Test.SequenceEngine\Send-Text -HostType (Resolve-HostTag) -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
-    Write-Warning "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1e2f99261b1a1683' -Arguments @{ sequenceEngine = "$sequenceEngine" })
     return $false
 }
 
@@ -3124,7 +3320,7 @@ function Send-Key {
         [ValidateSet('gui','ssh')][string]$Mechanism = 'gui'
     )
     if ($Mechanism -eq 'ssh') {
-        Write-Warning "Send-Key -Mechanism ssh: not meaningful for SSH (use Send-Text with the typed command)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ffbf7056dde8493')
         return $false
     }
     # Defer to Invoke-Sequence's host-aware dispatcher, which resolves the key
@@ -3145,7 +3341,7 @@ function Send-Key {
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Key -HostType (Resolve-HostTag) -VMName $VMName -KeyName $Key)
     }
-    Write-Warning "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c53432cf9b294e69' -Arguments @{ sequenceEngine = "$sequenceEngine" })
     return $false
 }
 
@@ -3161,7 +3357,7 @@ function Send-Click {
         [Parameter(Mandatory)][int]$X,
         [Parameter(Mandatory)][int]$Y
     )
-    Write-Warning "Send-Click on host.macos.utm: not implemented (Hyper-V-only today). (vm='$VMName' ignored x=$X y=$Y)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bf613f7460bae519' -Arguments @{ vMName = "$VMName"; x = "$X"; y = "$Y" })
     return $false
 }
 
@@ -3280,12 +3476,12 @@ function Get-VMConsoleSecondOpinion {
     try {
         $state = Get-VMState -VMName $VMName
         if ($state -eq 'absent' -or $state -eq 'unknown') {
-            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = "utmctl reports '$state' for '$VMName'" }
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_b7d0860a322acd62' -Arguments @{ state = "$state"; vMName = "$VMName" }) }
         }
         if ($state -ne 'running') {
             return [pscustomobject]@{
                 Verdict = 'guest-static'
-                Detail  = "utmctl reports the VM '$state': nothing was executing to draw with, so the capture pipeline is not the fault"
+                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_9ea0a8c951ae7be7' -Arguments @{ state = "$state" })
             }
         }
 
@@ -3333,7 +3529,7 @@ function Get-VMConsoleSecondOpinion {
         if ($firstFrame -and $secondFrame -and $firstFrame -ne $secondFrame) {
             return [pscustomobject]@{
                 Verdict = 'guest-live'
-                Detail  = "direct VNC reads on port $port ${IntervalSeconds}s apart differ and $cpuText -- the guest is still drawing, so suspect the capture path"
+                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_689d94eae42f4fe8' -Arguments @{ port = "$port"; intervalSeconds = "${IntervalSeconds}"; cpuText = "$cpuText" })
             }
         }
         $frameText = if ($firstFrame -and $secondFrame) {
@@ -3344,12 +3540,12 @@ function Get-VMConsoleSecondOpinion {
         if ($null -ne $cpuPercent -and $cpuPercent -ge $executingPercent) {
             return [pscustomobject]@{
                 Verdict = 'guest-wedged'
-                Detail  = "$frameText and $cpuText -- the guest is executing but no longer drawing, so the capture pipeline is not the fault; capture the guest's state before anything restarts it"
+                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_912d123572f4b9c5' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" })
             }
         }
         return [pscustomobject]@{
             Verdict = 'guest-static'
-            Detail  = "$frameText and $cpuText -- the guest side is static too, so the capture pipeline is not the fault"
+            Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_7b4448d951dc6b7c' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" })
         }
     } catch {
         return [pscustomobject]@{ Verdict = 'unavailable'; Detail = $_.Exception.Message }
@@ -3453,12 +3649,17 @@ function Get-UtmAgentReportedIp {
             return $null
         }
         try {
-            $output = & utmctl ip-address $VMName 2>&1
+            $probe  = Invoke-UtmctlProbe -Arguments @('ip-address', $VMName)
+            $output = @(Get-BoundedNativeOutputLine -Result $probe -IncludeError)
+            if ($probe.TimedOut) {
+                Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl ip-address did not answer within its time limit."
+                return $null
+            }
             # utmctl exits 0 even when the guest has no agent to ask, writing
             # its complaint to stderr, so the exit code cannot be the test for
             # "an address came back" -- only the parse below can be.
-            if ($LASTEXITCODE -ne 0) {
-                Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl ip-address exited $LASTEXITCODE."
+            if ($probe.ExitCode -ne 0) {
+                Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl ip-address exited $($probe.ExitCode)."
                 return $null
             }
         } catch {
@@ -3734,7 +3935,7 @@ function Update-GuestNeighborCache {
         [int]$CooldownSeconds = 60
     )
     $null = $CooldownSeconds
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Refresh the neighbor cache')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_80e0ecef6307a2d3'))) { return $false }
     Write-Verbose "Update-GuestNeighborCache on host.macos.utm: no external sweep -- Get-VMIp's bridged rung runs its own bounded, memoized sweep for '$VMName'."
     return $false
 }
@@ -3861,18 +4062,18 @@ function Resolve-UtmGuestIpByMac {
         [int]$MaxAttempt = 0
     )
     if (-not (Test-Path -LiteralPath $PlistPath)) {
-        Write-Warning "Resolve-UtmGuestIpByMac: bundle plist not found at $PlistPath -- cannot identify the VM by MAC."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1db4026c87e87900' -Arguments @{ plistPath = "$PlistPath" })
         return $null
     }
     $plistText = Get-Content -Raw -LiteralPath $PlistPath
     if ($plistText -notmatch '<key>MacAddress</key>\s*<string>([0-9A-Fa-f:]+)</string>') {
-        Write-Warning "Resolve-UtmGuestIpByMac: no MacAddress in $PlistPath -- cannot identify the VM by MAC."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_acad3d911acdf65d' -Arguments @{ plistPath = "$PlistPath" })
         return $null
     }
     $ourMacRaw = $matches[1]
     $macNeedle = ConvertTo-ArpMacNeedle -MacAddress $ourMacRaw
     if (-not $macNeedle) {
-        Write-Warning "Resolve-UtmGuestIpByMac: MacAddress '$ourMacRaw' in $PlistPath is not six hex octets -- cannot identify the VM by MAC."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_355f6d92ffafef75' -Arguments @{ ourMacRaw = "$ourMacRaw"; plistPath = "$PlistPath" })
         return $null
     }
     Write-Verbose "Resolve-UtmGuestIpByMac: matching MAC $ourMacRaw (needle '$macNeedle') on ${SubnetPrefix}0/24."
@@ -3997,7 +4198,7 @@ function New-ExternalNetwork {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param()
-    if (-not $PSCmdlet.ShouldProcess('vmnet-shared', 'No-op on macOS UTM (managed by VMnet)')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess('vmnet-shared', (Format-YurunaOperatorMessage -Key 'host.operator_0da6776e773e7f47'))) { return $null }
     return 'vmnet-shared'
 }
 
@@ -4036,13 +4237,13 @@ function Add-PortMap {
         [hashtable]$PortRemap = @{},
         [int[]]$ProxyProtocolPort = @()
     )
-    if (-not $PSCmdlet.ShouldProcess($VMIp, "Install pwsh forwarders for ports $($Port -join ',')")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMIp, (Format-YurunaOperatorMessage -Key 'host.operator_0c74b58906c540e7' -Arguments @{ join = "$($Port -join ',')" }))) { return $false }
     if (-not (Test-Ipv4Address $VMIp)) {
         # macOS Add-PortMap drives the host-side pwsh forwarders that bind
         # IPv4 sockets to the cache VM. v6 inputs (which Test-IpAddress
         # accepts as operator-facing values elsewhere) are rejected here
         # because the forwarder mechanism currently targets v4.
-        Write-Warning "Add-PortMap: VMIp '$VMIp' is not a valid IPv4 address (pwsh forwarders are v4-only today) -- skipping."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_88bea28586a2663a' -Arguments @{ vMIp = "$VMIp" })
         return $false
     }
     $proxyProtoSet = @{}
@@ -4067,7 +4268,7 @@ function Add-PortMap {
     foreach ($m in $mappings) {
         $useProxy = $proxyProtoSet.ContainsKey([int]$m.HostPort)
         $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
-        if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)${proxyTag}", 'Launch macOS squid forwarder')) { continue }
+        if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)${proxyTag}", (Format-YurunaOperatorMessage -Key 'host.operator_832575bbe1b2f32f'))) { continue }
         $attempted++
         $started = if ($useProxy) {
             Start-CachingProxyServiceForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort -PrependProxyV1
@@ -4077,7 +4278,7 @@ function Add-PortMap {
         if ($started) { $launched += $m.HostPort } else { $failed += $m.HostPort }
     }
     if ($failed.Count -gt 0) {
-        Write-Warning "Add-PortMap: forwarder(s) failed to launch for port(s): $($failed -join ', '). The cache pipeline for those ports is unavailable."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_68cc3422228bb646' -Arguments @{ join = "$($failed -join ', ')" })
     }
     # Report success only when EVERY attempted forwarder launched. A partial launch reported as
     # success hides a missing forwarder (e.g. :3128 / :3129 / SSH) so downstream guest fetches
@@ -4093,7 +4294,7 @@ function Remove-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
-    if (-not $PSCmdlet.ShouldProcess('pwsh forwarders', 'Stop all yuruna port forwarders')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess('pwsh forwarders', (Format-YurunaOperatorMessage -Key 'host.operator_f3f37ca41e1f0e2f'))) { return $false }
     $stopped = @(Stop-AllCachingProxyServiceForwarder)
     return ($stopped.Count -gt 0)
 }
@@ -4158,18 +4359,18 @@ function Restore-SudoUserOwnership {
     $sudoUserHome = "$(& '/usr/bin/dscl' . -read "/Users/$sudoUser" NFSHomeDirectory 2>$null)" -replace '^NFSHomeDirectory:\s*', ''
     $sudoUserHome = $sudoUserHome.Trim()
     if ($sudoUserHome -and $HOME -and -not $HOME.StartsWith($sudoUserHome)) {
-        Write-Warning "This build ran as root with HOME=$HOME, so its artifacts are in root's home, not $sudoUserHome. UTM (running as $sudoUser) cannot reach them. Re-run WITHOUT sudo -- these scripts elevate the individual operations that need it."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_82599fffc9de7081' -Arguments @{ hOME = "$HOME"; sudoUserHome = "$sudoUserHome"; sudoUser = "$sudoUser" })
     }
 
     $restored = $false
     foreach ($p in $Path) {
         if (-not $p -or -not (Test-Path -LiteralPath $p)) { continue }
-        if (-not $PSCmdlet.ShouldProcess($p, "Restore ownership to '$sudoUser'")) { continue }
+        if (-not $PSCmdlet.ShouldProcess($p, (Format-YurunaOperatorMessage -Key 'host.operator_06c9287f29190c68' -Arguments @{ sudoUser = "$sudoUser" }))) { continue }
         & /usr/sbin/chown -R "$sudoUser" $p 2>$null
         if ($LASTEXITCODE -eq 0) { $restored = $true }
-        else { Write-Warning "Could not restore ownership of '$p' to '$sudoUser'; run: sudo chown -R $sudoUser '$p'" }
+        else { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_372aa49990c2bacc' -Arguments @{ p = "$p"; sudoUser = "$sudoUser" }) }
     }
-    if ($restored) { Write-Information -MessageData "  Restored ownership of the build artifacts to '$sudoUser' (they were created as root)." -InformationAction Continue }
+    if ($restored) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_89f0c1507d2b052b' -Arguments @{ sudoUser = "$sudoUser" }) -InformationAction Continue }
     return $restored
 }
 
@@ -4243,7 +4444,7 @@ function Get-GuestReachableHostIp {
     if ($NetworkMode -eq 'Bridged') {
         $lanIp = Get-BestHostIp
         if ($lanIp) { return $lanIp }
-        Write-Warning "Get-GuestReachableHostIp: -NetworkMode Bridged but this host has no default-route IPv4; a bridged guest has no address to reach it at."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_133c681126464a2b')
         return $null
     }
     return '192.168.64.1'
@@ -4353,13 +4554,13 @@ function Set-HostProxy {
         [Parameter(Mandatory)][string]$ProxyUrl,
         [string]$NetworkService
     )
-    if (-not $PSCmdlet.ShouldProcess('macOS networksetup', "Set proxy = $ProxyUrl")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_b8a5ce8d9003b608'), (Format-YurunaOperatorMessage -Key 'host.operator_1d67149dffd75755' -Arguments @{ proxyUrl = "$ProxyUrl" }))) { return $false }
     $parts = ConvertTo-ProxyHostPort -Url $ProxyUrl
     $backupPath = Get-HostProxyBackupPath
     Invoke-MacElevationIfNeeded
     $svc = if ($NetworkService) { $NetworkService } else { Get-MacActiveNetworkService }
     if (-not $svc) {
-        throw "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service)."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9a18fc9562c73b34')
     }
     # Idempotent backup: only snapshot BEFORE the first apply, so a
     # repeat Set-HostProxy doesn't overwrite the backup with the
@@ -4369,12 +4570,12 @@ function Set-HostProxy {
         $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
         $state['promotedTo'] = $parts.Url
         $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backupPath -Encoding UTF8
-        Write-Information "  Host proxy: backup written to $backupPath"
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e7819cb03343b1e1' -Arguments @{ backupPath = "$backupPath" })
     } else {
-        Write-Information "  Host proxy: existing backup at $backupPath preserved (still apply)"
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d8f19d509742ffe8' -Arguments @{ backupPath = "$backupPath" })
     }
     Set-MacHostProxy -ProxyParts $parts -NetworkService $svc -Confirm:$false
-    Write-Information "  Host proxy: macOS networksetup on service '$svc' set to $($parts.Url)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_ba4025ead45708af' -Arguments @{ svc = "$svc"; url = "$($parts.Url)" })
     return $true
 }
 
@@ -4386,28 +4587,28 @@ function Clear-HostProxy {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
-    if (-not $PSCmdlet.ShouldProcess('macOS networksetup', 'Disable proxy / restore backup')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_b8a5ce8d9003b608'), (Format-YurunaOperatorMessage -Key 'host.operator_ca5c5716704ce8c4'))) { return $false }
     $backupPath = Get-HostProxyBackupPath
     $state = $null
     if (Test-Path -LiteralPath $backupPath) {
         try {
             $state = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json -AsHashtable
         } catch {
-            Write-Warning "Host proxy: could not parse backup '$backupPath' ($($_.Exception.Message)). Falling back to disable-only."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bea0e70f89d3d54c' -Arguments @{ backupPath = "$backupPath"; message = "$($_.Exception.Message)" })
             $state = $null
         }
     }
     if ($state) {
         Invoke-MacElevationIfNeeded
         Restore-MacHostProxy -State $state
-        Write-Information "  Host proxy: macOS proxy state restored on service '$($state.networkService)'"
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_1b177181d83a9078' -Arguments @{ networkService = "$($state.networkService)" })
     } else {
         try { Invoke-MacElevationIfNeeded } catch {
-            Write-Warning "  Host proxy: no backup found and could not get sudo ($($_.Exception.Message)); skipping macOS disable."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_62b64e15fd55e2e0' -Arguments @{ message = "$($_.Exception.Message)" })
             return $false
         }
         Disable-MacHostProxy
-        Write-Information "  Host proxy: macOS proxy disabled (no backup to restore)"
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2ddcdf5273a49efa')
     }
     if (Test-Path -LiteralPath $backupPath) {
         Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
@@ -4423,11 +4624,11 @@ function Remove-HostProxy {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([string]$NetworkService)
-    if (-not $PSCmdlet.ShouldProcess('macOS proxy state', 'Wipe host proxy state')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_49b535bc8f7577f0'), (Format-YurunaOperatorMessage -Key 'host.operator_0b42b69cacf83715'))) { return $false }
     Invoke-MacElevationIfNeeded
     $svc = if ($NetworkService) { $NetworkService } else { Get-MacActiveNetworkService }
     if (-not $svc) {
-        Write-Warning "Remove-HostProxy: could not auto-detect active network service; nothing to wipe."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fac07fa116ddd338')
         return $false
     }
     Remove-MacHostProxy -NetworkService $svc
@@ -4441,16 +4642,15 @@ function Remove-HostProxy {
         $webProbe = (& networksetup -getwebproxy        $svc) 2>&1 | Out-String
         $sslProbe = (& networksetup -getsecurewebproxy  $svc) 2>&1 | Out-String
     } catch {
-        Write-Warning "  Host proxy: post-wipe probe failed ($($_.Exception.Message)); state on '$svc' is unverified."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f32f219fa4e39d9e' -Arguments @{ message = "$($_.Exception.Message)"; svc = "$svc" })
     }
     $webEnabled = ($webProbe -match '(?m)^Enabled:\s*Yes')
     $sslEnabled = ($sslProbe -match '(?m)^Enabled:\s*Yes')
     if ($webEnabled -or $sslEnabled) {
-        Write-Warning ("  Host proxy: wipe on '{0}' FAILED -- web Enabled={1}, securewebproxy Enabled={2}. Live state:`n{3}{4}" -f `
-            $svc, $webEnabled, $sslEnabled, $webProbe.TrimEnd(), $sslProbe.TrimEnd())
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_172e01672f44afab' -FormatValues ($svc, $webEnabled, $sslEnabled, $webProbe.TrimEnd(), $sslProbe.TrimEnd()) -FormatBindings @{ svc = '0'; webEnabled = '1'; sslEnabled = '2'; trimEnd = '3'; trimEnd2 = '4' })
         return $false
     }
-    Write-Information "  Host proxy: macOS networksetup state on '$svc' wiped (web/securewebproxy off, server cleared, bypass empty)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d4f53d6a06fdcc8f' -Arguments @{ svc = "$svc" })
     $backupPath = Get-HostProxyBackupPath
     if (Test-Path -LiteralPath $backupPath) {
         Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
@@ -4502,8 +4702,8 @@ Export-ModuleMember -Function `
     Test-DownloadAlreadyCurrent, Test-CachingProxyServicePort, Resolve-CacheHostIp, `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
-    Confirm-UtmVMCreated, Remove-UtmTestVM, Test-UtmVMRegistered, Remove-UtmVMRegistration, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
-    Get-RunningVmName, Test-UtmctlResponsive, Assert-NoConcurrentUtmVm, Resume-YurunaServiceVM, `
+    Confirm-UtmVMCreated, Remove-UtmTestVM, Test-UtmVMRegistered, Get-UtmVMRegistrationState, Remove-UtmVMRegistration, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
+    Get-RunningVmName, Test-UtmctlResponsive, Invoke-UtmctlProbe, Assert-NoConcurrentUtmVm, Resume-YurunaServiceVM, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
@@ -4525,7 +4725,8 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
     'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp','Get-HostLanPrefix',
-    'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
+    'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization',
+    'Test-VirtualizationResponsive'
 )
 
 # Load-time guard for the cache-download wrapper precedence. The image helpers
@@ -4537,7 +4738,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
 # the squid cache (direct, no error) -- surface that regression loudly here.
 $__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
 if (-not $__yurunaCacheDownloadCmd) {
-    Write-Warning "Yuruna.Host (macos.utm): Save-CachedHttpUri is not on the command table after load; image downloads cannot route through the squid cache."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9cd70c93af7ab7e6')
 } elseif ($__yurunaCacheDownloadCmd.Parameters.ContainsKey('ResolveCacheHostIp')) {
-    Write-Warning "Yuruna.Host (macos.utm): Save-CachedHttpUri resolves to the shared Yuruna.HostDownload implementation (mandatory -ResolveCacheHostIp), not this driver's cache-injecting wrapper; image downloads will silently bypass the squid cache. Check module import order."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1f268a9fcff06a4e')
 }

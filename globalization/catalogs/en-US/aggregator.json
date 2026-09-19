@@ -1,0 +1,820 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "aggregator",
+  "locale": "en-US",
+  "messages": {
+    "aggregator.no_live_host_for_that_extension_area": {
+      "message": "no live host for that extension area",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.failed_to_encode_extension_hosts": {
+      "message": "failed to encode extension hosts",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.forget_host_disabled_no_auth_token_configured": {
+      "message": "forget-host disabled (no auth token configured)",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.method_not_allowed": {
+      "message": "method not allowed",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.unauthorized": {
+      "message": "unauthorized",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": {
+      "message": "hostId must be a 42-prefixed 32-hex id",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.failed_to_encode_result": {
+      "message": "failed to encode result",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte": {
+      "message": "control-proof verification disabled: this aggregator holds no internal authentication key",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.payload_too_large_or_unreadable": {
+      "message": "payload too large or unreadable",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.malformed_request": {
+      "message": "malformed request",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.lab_token_exchange_disabled": {
+      "message": "lab-token exchange disabled",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.no_source_address": {
+      "message": "no source address",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.labtoken_must_be_6_lowercase_letters_digits": {
+      "message": "labToken must be 6 lowercase letters/digits",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.too_many_failed_attempts_retry_later": {
+      "message": "too many failed attempts; retry later",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.unknown_or_expired_lab_token": {
+      "message": "unknown or expired lab token",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.failed_to_seal_the_token": {
+      "message": "failed to seal the token",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.missing_host": {
+      "message": "missing host",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.host_not_known_to_the_pool": {
+      "message": "host not known to the pool",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.stash_target_not_known_to_the_pool": {
+      "message": "stash target not known to the pool",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.the_pool_share_is_not_mounted_on_this_machine": {
+      "message": "the pool share is not mounted on this machine",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.no_cycle_results_folder_for_that_host_at_that_time": {
+      "message": "no cycle results folder for that host at that time",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time": {
+      "message": "unusable cycle results folder for that host at that time",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.metrics_are_served_to_this_host_only": {
+      "message": "metrics are served to this host only",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.ingest_disabled": {
+      "message": "ingest disabled",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.too_many_lines": {
+      "message": "too many lines",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.batch_mixes_multiple_hostids": {
+      "message": "batch mixes multiple hostIds",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own": {
+      "message": "sender identity could not be bound (undiscovered IP, hostId not owned by this IP, or ambiguous)",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.announce_disabled": {
+      "message": "announce disabled",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.malformed_announce": {
+      "message": "malformed announce",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.invalid_hostid": {
+      "message": "invalid hostId",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.invalid_statusport": {
+      "message": "invalid statusPort",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.announced_address_did_not_serve_status_json": {
+      "message": "announced address did not serve status.json",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.announced_address_serves_a_different_hostid": {
+      "message": "announced address serves a different hostId",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.announce_accepted_but_not_recorded": {
+      "message": "announce accepted but not recorded",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.invalid_hostid_or_area": {
+      "message": "invalid hostId or area",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.invalid_target_url": {
+      "message": "invalid target URL",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.target_host_must_be_the_announcing_address": {
+      "message": "target host must be the announcing address",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.too_many_announced_extensions": {
+      "message": "too many announced extensions",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.announce_accepted_but_not_durably_recorded_retry": {
+      "message": "announce accepted but not durably recorded; retry",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.unsupported_range_use_1h_24h_7d_or_30d": {
+      "message": "unsupported range; use 1h, 24h, 7d or 30d",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.loki_query_failed": {
+      "message": "loki query failed",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.encode_failed": {
+      "message": "encode failed",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.failed_to_encode_pool_status": {
+      "message": "failed to encode pool status",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.failed_to_encode_scrape_targets": {
+      "message": "failed to encode scrape targets",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.invalid_target_address_detail": {
+      "message": "invalid target address: {detail}",
+      "description": "Aggregator HTTP error. The stable code and status identify the failure; translated error wording is display only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "invalid address"
+        }
+      }
+    },
+    "aggregator.log_squid_log_value1_value2_792a142a": {
+      "message": "squid log {value1}: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_value1_build_value2_cf7663df": {
+      "message": "{value1} build: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_value1_value2_efae3eb9": {
+      "message": "{value1}: {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_value1_http_value2_eb0cd24f": {
+      "message": "{value1} HTTP {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_build_request_value1_11b6bf8a": {
+      "message": "rehydrate: build request: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_loki_query_value1_starting_with_empty_counts_13e1deb7": {
+      "message": "rehydrate: Loki query: {value1} (starting with empty counts)",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_loki_http_value1_value2_starting_with_empty__4f5aa860": {
+      "message": "rehydrate: Loki HTTP {value1}: {value2} (starting with empty counts)",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_parse_loki_response_value1_5d983c04": {
+      "message": "rehydrate: parse Loki response: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_restored_value1_terminal_cycle_counts_from_l_de930fa3": {
+      "message": "rehydrate: restored {value1} terminal cycle counts from Loki (window={value2})",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_re_seeded_value1_host_s_from_transition_base_4a5fd67e": {
+      "message": "rehydrate: re-seeded {value1} host(s) from transition baseUrls (window={value2})",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_warning_hit_the_5000_line_query_cap_counts_o_08375cc0": {
+      "message": "rehydrate: WARNING hit the 5000-line query cap; counts older than the most recent 5000 transitions may be undercounted",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_rehydrate_incidents_loki_query_value1_62f316f1": {
+      "message": "rehydrate incidents: Loki query: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_incidents_parse_value1_6c2aee5f": {
+      "message": "rehydrate incidents: parse: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_restored_value1_open_incident_s_from_loki_9bcd828c": {
+      "message": "rehydrate: restored {value1} open incident(s) from Loki",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_presence_loki_query_value1_5ba034a0": {
+      "message": "rehydrate presence: Loki query: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_re_seeded_value1_host_s_from_the_presence_fe_b6c9e59f": {
+      "message": "rehydrate: re-seeded {value1} host(s) from the presence feed",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_announces_loki_query_value1_99a0159c": {
+      "message": "rehydrate announces: Loki query: {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_rehydrate_restored_value1_self_announced_extension_s_f_e79d2b5f": {
+      "message": "rehydrate: restored {value1} self-announced extension(s) from Loki",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_extension_value1_refusing_value2_for_resolution_unansw_14b41da9": {
+      "message": "extension {value1}: refusing {value2} for resolution -- unanswered for {value3} ({value4}); the entry stays suppressed until the service re-announces or the announce TTL reaps it",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_lab_token_rotation_failed_value1_keeping_previous_code_e2670350": {
+      "message": "lab-token rotation failed ({value1}); keeping previous codes",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_lab_token_exchange_value1_from_value2_3d2e9e4a": {
+      "message": "lab-token exchange {value1} from {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_lab_token_exchange_sealing_failed_value1_8aceabc2": {
+      "message": "lab-token exchange: sealing failed ({value1})",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d": {
+      "message": "internal auth key read from {value1}; rebuild this proxy to move it to {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_auth_token_file_value1_unreadable_value2_ingest_contro_d458a79c": {
+      "message": "auth-token-file {value1} unreadable ({value2}); /ingest, control proofs and the lab-token exchange are disabled",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.help_address_to_listen_on_59add3f5": {
+      "message": "address to listen on",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba": {
+      "message": "squid access log to discover pool client IPs from",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_loki_push_api_url_c89d9321": {
+      "message": "Loki push API URL",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_pool_name_label_31358a97": {
+      "message": "pool name label",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_status_service_port_to_probe_on_each_discovered_ip_e5073cc7": {
+      "message": "status-service port to probe on each discovered IP",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_port_the_machine_metrics_exporter_listens_on_for_each__0ae78ba6": {
+      "message": "port the machine-metrics exporter listens on for each Windows host, as published in the /api/v1/prometheus-targets scrape document",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_poll_discover_interval_a9ec46cd": {
+      "message": "poll/discover interval",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f": {
+      "message": "on startup, restore cycle counts from Loki over this trailing window (0 to disable)",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc": {
+      "message": "open an incident after this many failed cycles within -incident-window",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_trailing_window_for_the_n_failures_in_m_minutes_incide_60aa9aa2": {
+      "message": "trailing window for the N-failures-in-M-minutes incident rule",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083": {
+      "message": "distinct hosts that must fail within -cross-host-window to open a pool-wide incident",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_window_for_cross_host_pool_wide_incident_correlation_b4663557": {
+      "message": "window for cross-host (pool-wide) incident correlation",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce": {
+      "message": "reap a self-announced extension (POST /announce) not refreshed within this window; 0 disables the announce route",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1": {
+      "message": "drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e": {
+      "message": "the pool share's hosts/ directory on this machine (e.g. /mnt/ypool-nas/hosts); serves archived cycle results at /archive/<hostId>/test-cycles/... and lets /go/cycle resolve them. Empty disables both -- the route is not registered at all",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e": {
+      "message": "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018": {
+      "message": "TLS private-key file (PEM); see -tls-cert",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
+      "message": "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_rotate_the_dashboard_lab_connection_token_this_often_0_f9f6d959": {
+      "message": "rotate the dashboard lab connection token this often; 0 disables the Lab token tile and the POST /api/v1/lab-token exchange",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724": {
+      "message": "host-metrics-port {value1} is not a valid port; keeping the default {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_host_ttl_value1_is_not_positive_keeping_the_default_va_7ade3d03": {
+      "message": "host-ttl {value1} is not positive; keeping the default {value2}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_archive_route_enabled_at_archive_from_value1_7b032a09": {
+      "message": "archive route enabled at /archive/ from {value1}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_lab_token_exchange_disabled_no_auth_token_configured_a47d49b1": {
+      "message": "lab-token exchange disabled: no auth token configured",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_tls_cert_tls_key_set_but_not_both_readable_non_empty_s_f5dfa9e3": {
+      "message": "tls-cert/tls-key set but not both readable+non-empty; serving plain HTTP",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764": {
+      "message": "pool-aggregator-service listening on {value1} ({value2}), pool={value3}, discover-from={value4}, status-port={value5}, loki={value6}, interval={value7}, {value8}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value5": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value6": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value7": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value8": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_ingest_disabled_no_token_3a819fb4": {
+      "message": "ingest disabled (no token)",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_ingest_enabled_bearer_89578b00": {
+      "message": "ingest enabled (bearer)",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_lab_token_exchange_off_4bdcc105": {
+      "message": ", lab-token exchange off",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_lab_token_exchange_on_rotate_duration_5ce442f0": {
+      "message": ", lab-token exchange on (rotate {duration})",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "duration": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.help_display_language": {
+      "message": "Display language: auto or a supported locale",
+      "description": "Aggregator language option help.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_allow_pseudo": {
+      "message": "Enable diagnostic pseudo locales",
+      "description": "Aggregator language option help.",
+      "lifecycle": "active"
+    }
+  }
+}

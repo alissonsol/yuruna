@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42509e7a-733b-48f3-a663-0952f4326255
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ param(
     [switch]$IfMissing
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -80,14 +81,14 @@ Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Validate the arguments
 if ($PoolId -notmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
-    Write-Error "PoolId '$PoolId' is invalid (DNS-label-safe: lowercase letters, digits, hyphen; must start alphanumeric)." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_627006c4c8c7c0a8' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 # Creating a pool is the one command that may also create the store it writes
@@ -98,19 +99,19 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # Read-only pool commands deliberately do NOT do this; see the function's notes.
 $seed = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $t.IntentGitUrl -Confirm:$false
 if (-not $seed.Ok) {
-    Write-Error "The pool-intent store ($($t.IntentGitUrl)) does not exist and could not be created: $($seed.Reason)" -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5e931217fd513630' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; reason = "$($seed.Reason)" }) -ErrorAction Continue
     exit $ExitFailure
 }
-if ($seed.Created) { Write-Information "Seeded a new pool-intent store at $($t.IntentGitUrl)." -InformationAction Continue }
+if ($seed.Created) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b8e126357db609a2' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)" }) -InformationAction Continue }
 
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if ($pool -and $IfMissing) {
-    Write-Information "Pool '$PoolId' already exists (desiredState=$($pool['desiredState'])); left unchanged (-IfMissing)." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7d432e9c0cf6e77' -Arguments @{ poolId = "$PoolId"; desiredState = "$($pool['desiredState'])" }) -InformationAction Continue
     exit $ExitOk
 }
 if ($pool) {
@@ -135,11 +136,11 @@ if ($pool) {
 
 # --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: $action $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
     exit $ExitFailure
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -49,14 +50,14 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.windows.11/Get-Image.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a96b67d0b8d27088')
     exit 1
 }
 
 # --- REGION: Host architecture
 $arch = (& uname -m).Trim()
 if ($arch -ne 'x86_64') {
-    Write-Error "Windows 11 on KVM is only supported on x86_64 hosts (this host is $arch). Use the macOS UTM guest for ARM64."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_314ad0568cf5e5b2' -Arguments @{ arch = "$arch" })
     exit 1
 }
 
@@ -84,8 +85,8 @@ if (-not (Test-Path -LiteralPath $winIso)) {
         # adopted-from URI), matching the Hyper-V/UTM variants.
         $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
         Set-Content -Path $baseImageOrigin -Value @($candidate.Name, [System.Uri]::new($candidateOriginalPath).AbsoluteUri)
-        Write-Output "Adopted $($candidate.Name) -> $winIso"
-        Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d6023b5bf2910216' -Arguments @{ name = "$($candidate.Name)"; winIso = "$winIso" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_69295e2d532ea585' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
     }
 }
 if (-not (Test-Path -LiteralPath $winIso)) {
@@ -115,26 +116,26 @@ if (-not (Test-Path -LiteralPath $winIso)) {
                     -ImageKey 'guest.windows.11' -Arch 'amd64' -Variant 'stable' `
                     -StagingPath $agentStagingFile -DeadlineSeconds 7200
             } catch {
-                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); the Windows 11 ISO stays a manual download."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebf285f00d214782' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
             }
             if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
-                Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $agentStagingFile"
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_22010fb874c3c316' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; agentStagingFile = "$agentStagingFile" })
                 $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
                 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
                 if (Test-Path -LiteralPath $winIso) {
                     Move-Item -Path $winIso -Destination $previousFile
-                    Write-Output "Previous image preserved as: $previousFile"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
                 }
                 Move-Item -Path $agentStagingFile -Destination $winIso -Force
                 # The 2-line sidecar (filename + URL) Write-BaseImageProvenance
                 # reads, the same shape the adoption path above writes.
                 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
                 Set-Content -Path $baseImageOrigin -Value @([string]$agentResult.filename, [string]$agentResult.sourceUrl)
-                Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_69295e2d532ea585' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
             } elseif ($agentResult -and $agentResult.outcome -eq 'failed') {
                 $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning "Download agent at $agentBaseUrl answered 'failed'$detail; the Windows 11 ISO stays a manual download."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8756846a3985e94a' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; detail = "$detail" })
             } elseif ($agentResult) {
                 # 'unavailable' is what a working agent answers for a family it
                 # does not hold, the documented steady state for Windows 11.
@@ -145,22 +146,22 @@ if (-not (Test-Path -LiteralPath $winIso)) {
 }
 if (-not (Test-Path -LiteralPath $winIso)) {
     Write-Output ""
-    Write-Output "--- Manual download required ---"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9a9f6a0905ffda91')
     Write-Output ""
-    Write-Output "  1. Open: $downloadPage"
-    Write-Output "  2. Select 'Windows 11 (multi-edition ISO for x64 devices)'"
-    Write-Output "  3. Click Confirm"
-    Write-Output "  4. Select 'English' as the language"
-    Write-Output "  5. Click Confirm"
-    Write-Output "  6. Click the '64-bit Download' button"
-    Write-Output "  7. Save the ISO as: $winIso"
-    Write-Output "     (or save any Win11*.iso file to $downloadDir)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3344aaf03bd51440' -Arguments @{ downloadPage = "$downloadPage" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1deaa24f39b6e1b2')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b70ffa30075acd01')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_efd4fb1b7ef75a83')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9955eb48a65fa8d4')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_641d4bde8dc788c6')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cfc1589048d71445' -Arguments @{ winIso = "$winIso" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a9e197e13deba921' -Arguments @{ downloadDir = "$downloadDir" })
     Write-Output ""
-    Write-Output "  Then re-run this script."
-    Write-Error "Windows 11 ISO not found at $winIso"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_957da187da3adef7')
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2148bcc575bad4ac' -Arguments @{ winIso = "$winIso" })
     exit 1
 }
-Write-Output "Windows 11 ISO present: $winIso"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1af721e69b7a4d55' -Arguments @{ winIso = "$winIso" })
 
 # --- REGION: https://yuruna.link/42e220c4-0003
 # Abort on a failed download or staging operation before reporting success.
@@ -220,7 +221,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             Remove-Item $tmp -Force -ErrorAction SilentlyContinue
             $agentResult = Request-DownloadAgentImage @agentArgs
         } catch {
-            Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
             $agentResult = $null
         }
         if ($agentResult -and $agentResult.outcome -eq 'skipped') {
@@ -234,18 +235,18 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             $virtioAgentUrl = [string]$agentResult.sourceUrl
             if (-not $virtioAgentUrl) { $virtioAgentUrl = $virtioUrl }
             $virtioAgentLastModified = [string]$agentResult.lastModified
-            Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $tmp"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c9280c32bb45be5e' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; tmp = "$tmp" })
         } elseif ($agentResult) {
             $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-            Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
         }
     }
 }
 
 if ($virtioAgentSkipped) {
-    Write-Output "Skipping virtio-win download: the download agent at $agentBaseUrl confirms $virtioIso is the current virtio-win artifact"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_442b393595a79113' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; virtioIso = "$virtioIso" })
 } elseif (-not $virtioAgentServed -and (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso -OriginFile $virtioOrigin)) {
-    Write-Output "Skipping virtio-win download: URL and size match prior run for $virtioIso"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e5e109ba266fe483' -Arguments @{ virtioIso = "$virtioIso" })
 } else {
     if (-not $virtioAgentServed) {
         Remove-Item $tmp -Force -ErrorAction SilentlyContinue
@@ -259,8 +260,8 @@ if ($virtioAgentSkipped) {
         Remove-Item $dlLog -Force -ErrorAction SilentlyContinue
         $download = Invoke-WithYurunaRetry -Label 'virtio-win.iso' -LogPath $dlLog -ScriptBlock ({
             & $saveCmd -Uri $virtioUrl -OutFile $tmp
-            if (-not (Test-Path -LiteralPath $tmp)) { throw "download wrote no file to $tmp" }
-            if ((Get-Item -LiteralPath $tmp).Length -le 0) { throw "download produced an empty file at $tmp" }
+            if (-not (Test-Path -LiteralPath $tmp)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_29df6c21ee80406c' -Arguments @{ tmp = "$tmp" }) }
+            if ((Get-Item -LiteralPath $tmp).Length -le 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_a937232a82280ebc' -Arguments @{ tmp = "$tmp" }) }
             $global:LASTEXITCODE = 0
         }).GetNewClosure()
         if (-not $download.Success) {
@@ -276,8 +277,7 @@ if ($virtioAgentSkipped) {
                 $detail = 'no exception recorded (a stale non-zero $LASTEXITCODE from cache discovery, or a non-terminating failure)'
             }
             $tail = (@($download.LastOutput) | ForEach-Object { [string]$_ }) -join "`n    "
-            throw ("virtio-win.iso download failed after $($download.Attempts)/$($download.MaxAttempts) attempt(s) " +
-                   "[lastExit=$($download.LastExit)]: $detail`n  last-attempt output:`n    $tail`n  full per-attempt log: $dlLog")
+            throw ((Format-YurunaOperatorMessage -Key 'exceptions.host_88d0b2dc03ee17c2' -Arguments @{ attempts = "$($download.Attempts)"; maxAttempts = "$($download.MaxAttempts)"; lastExit = "$($download.LastExit)"; detail = "$detail"; tail = "$tail"; dlLog = "$dlLog" }))
         }
     }
     $size = (Get-Item -LiteralPath $tmp).Length
@@ -292,11 +292,11 @@ if ($virtioAgentSkipped) {
     } else {
         Write-ImageSentinel -SourceUrl $virtioUrl -OriginFile $virtioOrigin -SizeBytes $size -Confirm:$false
     }
-    Write-Output "Download complete: $virtioIso"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0474f0a01f20b99a' -Arguments @{ virtioIso = "$virtioIso" })
 }
 
 Write-Output ""
-Write-Output "Both required artifacts staged:"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6c1e9a279c4465de')
 Write-Output "  $winIso"
 Write-Output "  $virtioIso"
 

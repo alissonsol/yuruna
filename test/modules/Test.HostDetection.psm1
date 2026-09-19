@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a15892-c9f1-4438-9c35-d19e6ba7c2cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
 # callers that import Test.HostDetection directly. -ErrorAction
 # SilentlyContinue: a missing sibling is non-fatal here;
 # Initialize-YurunaHost still fails loudly later if truly broken.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $vmCommonPath = Join-Path $PSScriptRoot 'Test.VMUtility.psm1'
 if (Test-Path $vmCommonPath) {
     Import-Module $vmCommonPath -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
@@ -58,7 +59,7 @@ function Get-HostType {
     if ($script:CachedHostType) { return $script:CachedHostType }
     if ($IsMacOS) {
         if (-not (Test-Path "/Applications/UTM.app")) {
-            Write-Warning "Running on macOS but UTM not found at /Applications/UTM.app."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2fce8fc42e5b8f1f')
         }
         $script:CachedHostType = "host.macos.utm"
         return $script:CachedHostType
@@ -66,7 +67,7 @@ function Get-HostType {
     if ($IsWindows) {
         $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
         if (-not $svc) {
-            Write-Warning "Running on Windows but Hyper-V service (vmms) not found."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8790664687f108a2')
         }
         $script:CachedHostType = "host.windows.hyper-v"
         return $script:CachedHostType
@@ -78,12 +79,12 @@ function Get-HostType {
         # bits and a fresh install legitimately runs Get-HostType before
         # libvirtd is up.
         if (-not (Test-Path '/dev/kvm')) {
-            Write-Warning "Running on Linux but /dev/kvm missing (kvm.ko not loaded or VT-x/SVM disabled)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b6ebfede650f03bc')
         }
         $script:CachedHostType = "host.ubuntu.kvm"
         return $script:CachedHostType
     }
-    Write-Error "Unsupported platform. Only macOS (UTM), Windows (Hyper-V), and Linux (KVM/libvirt) are supported."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ddf3d89de65f28bb')
     return $null
 }
 
@@ -166,15 +167,22 @@ function Invoke-LibvirtGroupReExecIfNeeded {
 
     if ($HostType -ne 'host.ubuntu.kvm')                       { return }
     if ($env:YURUNA_SG_RELAUNCH)                               { return }
-    $activeGroups = (& id -nG 2>$null) -split '\s+'
+    # Bounded: `id`/`getent` normally answer from local files in
+    # microseconds, but either can be backed by NSS modules (LDAP, NIS,
+    # sssd) that hang on a wedged directory service, and this helper runs
+    # before any caller has had a chance to place a deadline around it.
+    $idResult = Invoke-BoundedNativeCommand -FilePath 'id' -ArgumentList @('-nG') -TimeoutSeconds 5
+    if (-not $idResult.Started -or $idResult.TimedOut -or $idResult.ExitCode -ne 0) { return }
+    $activeGroups = $idResult.StdOut -split '\s+'
     if ($activeGroups -contains 'libvirt')                     { return }
-    $libvirtLine    = & getent group libvirt 2>$null
+    $getentResult = Invoke-BoundedNativeCommand -FilePath 'getent' -ArgumentList @('group', 'libvirt') -TimeoutSeconds 5
+    $libvirtLine  = if ($getentResult.Started -and -not $getentResult.TimedOut -and $getentResult.ExitCode -eq 0) { $getentResult.StdOut } else { $null }
     $libvirtMembers = if ($libvirtLine) { (($libvirtLine -split ':',4)[3]) -split ',' } else { @() }
     if ($libvirtMembers -notcontains $env:USER)                { return }
     if (-not (Get-Command sg -ErrorAction SilentlyContinue))   { return }
 
     $scriptName = Split-Path -Leaf $ScriptPath
-    Write-Output "This shell's group set predates 'libvirt' membership -- re-launching '$scriptName' under 'sg libvirt'."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_7abda1d6d5b469e1' -Arguments @{ scriptName = "$scriptName" })
 
     # Build the relaunch as a PowerShell command line, not a `pwsh -File`
     # argument list: -File binds every token as a plain string, so a
@@ -227,7 +235,7 @@ function Get-GuestList {
         return @($Config.guestSequence)
     }
 
-    Write-Warning "test.config.yml has no 'guestSequence' entries -- nothing to run."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9ca518212e68fc8a')
     return @()
 }
 
@@ -294,7 +302,7 @@ function Get-TestVMName {
     # here so a metacharacter name can never reach a command string, whichever
     # host type ends up running it.
     if ($vmName -notmatch '^[A-Za-z0-9._-]+$') {
-        throw "Composed VM name '$vmName' has characters outside [A-Za-z0-9._-]; fix vmStart.testVmNamePrefix ('$Prefix') -- VM names must be shell-safe."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_e80a19e94ca9be85' -Arguments @{ vmName = "$vmName"; prefix = "$Prefix" })
     }
     return $vmName
 }
@@ -328,7 +336,7 @@ function Assert-Elevation {
     if (-not (Test-ElevationRequired -HostType $HostType)) { return $true }
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
-        Write-Error "host.windows.hyper-v requires elevation. Re-run Start-TestRunner.ps1 as Administrator."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_29205489a1013ab0')
         return $false
     }
     return $true
@@ -386,11 +394,11 @@ function Test-HostRequirement {
     # Adding a new host is one Register-HostConditionProvider call;
     # nothing here changes.
     if (-not (Get-Command Get-HostConditionProvider -ErrorAction SilentlyContinue)) {
-        Write-Warning "Test.HostCondition not loaded -- skipping requirements check for '$HostType'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8d1cb83d65d4046' -Arguments @{ hostType = "$HostType" })
     } else {
         $provider = Get-HostConditionProvider -HostType $HostType
         if (-not $provider) {
-            Write-Warning "Unknown host type '$HostType' -- skipping requirements check."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc293f36919f189f' -Arguments @{ hostType = "$HostType" })
         } elseif ($provider.AssertMinimum) {
             $ok = [bool](& $provider.AssertMinimum)
         }
@@ -404,7 +412,7 @@ function Test-HostRequirement {
     # Remove-TestVMFiles.ps1 -Quiet) doesn't repeat this advice every
     # cycle.
     if (-not $Quiet) {
-        Write-Information "There may be more host-health recommendations available. For a deeper report (config files, transports, framework/project staleness, RAM/CPU, host-specific feature state) run: pwsh test/Test-Config.ps1" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0761d2ab1dce11c3') -InformationAction Continue
     }
 
     return $ok

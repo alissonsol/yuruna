@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -606,7 +606,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
             'the status catalog 304 dropped immutable caching'
 
         Assert-True ($script:ServerText.Contains(
-                "-cmatch '^(qps-Ploc|qps-Plocm)\.([0-9a-f]{64})\.status\.js$'")) `
+                "-cmatch '^([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)\.([0-9a-f]{64})\.status\.js$'")) `
             'the shipped route does not require an exact hash-qualified catalog name'
         Assert-True ($script:ServerText.Contains('$rel -ceq $candidateCatalog.RequestName')) `
             'the shipped route can serve catalog bytes under a made-up hash'
@@ -1179,5 +1179,47 @@ Describe 'a request that throws leaves something to read' {
             'the archive stream aborts before the line that explains it'
         Assert-Match -Pattern '\$_\.Exception\.Message' -Actual $logged[0].Extent.Text `
             'the archive stream abort carries no exception message'
+    }
+}
+
+Describe 'cataloged status API error responses' {
+    It 'keeps machine identity and UTF-8 metadata while every enabled locale renders its own refusal' {
+        $definitions = @(
+            Get-FunctionFromServer -Name 'Resolve-PageLocale'
+            Get-FunctionFromServer -Name 'Set-ResponseLocaleHeaders'
+            Get-FunctionFromServer -Name 'Send-JsonError'
+            Get-FunctionFromServer -Name 'Get-StatusMessageBytes'
+        )
+        Assert-False (@($definitions) -contains '') 'the actual generated error helpers are incomplete'
+        $harness = [scriptblock]::Create(($definitions -join "`n") + @'
+function Read-TestConfig { param($Path) $null = $Path; return @{ language = 'auto' } }
+function Get-TestConfigValue { param($Config, $Path) return $Config[$Path] }
+$headers = [Net.WebHeaderCollection]::new()
+$headers.Set('Accept-Language', [string]$args[0])
+$request = [pscustomobject]@{ Headers = $headers }
+$stream = [IO.MemoryStream]::new()
+$response = [pscustomobject]@{ Headers = [Net.WebHeaderCollection]::new(); OutputStream = $stream; StatusCode = 0; ContentType = ''; ContentLength64 = [long]0 }
+Send-JsonError -Request $request -Response $response -StatusCode 405 -Key 'status.api_method_not_allowed_be4fb6a2' -Reason 'method-rejected'
+[pscustomobject]@{ Response = $response; Bytes = $stream.ToArray() }
+'@)
+        $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
+            (Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
+        $previousPseudo = $env:YURUNA_ALLOW_PSEUDO_LOCALE
+        try {
+            $env:YURUNA_ALLOW_PSEUDO_LOCALE = 'true'
+            foreach ($tag in @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -in @('supported', 'pseudo') })) {
+                $got = & $harness $tag
+                $text = [Text.UTF8Encoding]::new($false, $true).GetString($got.Bytes)
+                $payload = ConvertFrom-Json -InputObject $text
+                Assert-Equal 405 $got.Response.StatusCode 'language changed the HTTP refusal status'
+                Assert-StringEqual 'status.api_method_not_allowed_be4fb6a2' $payload.code 'translated wording changed machine identity'
+                Assert-StringEqual 'method-rejected' $payload.reason 'the legacy reason changed'
+                Assert-StringEqual (Format-CatalogMessage -Key $payload.code -Locale $tag) $payload.error 'the API ignored the selected production catalog'
+                Assert-StringEqual $tag $got.Response.Headers['Content-Language'] 'the API omitted its language'
+                Assert-StringEqual 'application/json; charset=utf-8' $got.Response.ContentType 'the API omitted UTF-8'
+                Assert-StringEqual 'no-store' $got.Response.Headers['Cache-Control'] 'the live refusal became cacheable'
+                Assert-Equal $got.Bytes.Length $got.Response.ContentLength64 'translated byte length was not used'
+            }
+        } finally { $env:YURUNA_ALLOW_PSEUDO_LOCALE = $previousPseudo }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4294865c-194b-42cf-97c1-6dee3c2b9aa4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,7 @@ param(
     [switch]$RequireReferenceCredential
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 # Sync-HostConfiguration narrates each decision (kept local path, added
 # alias, stored credential) via Write-Information; without Continue the
@@ -83,19 +84,13 @@ $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    throw "This is the macOS UTM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_75249e3feb95694e')
 }
 
 # --- REGION: Elevation notice
 # Announce conditional privileged writes without requesting unused credentials.
 if (-not $NoPool -and -not $NonInteractive -and -not $WhatIfPreference) {
-    Write-Information @'
-
-Note: this sync may need sudo later in the run --
-  * write /etc/hosts via automation/Set-HostAlias.ps1, when a networkStorage
-    server name does not resolve to what the reference host says
-You may be prompted for your password once.
-'@
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2866f93b528080e2')
 }
 
 # --- REGION: Initialize host setup

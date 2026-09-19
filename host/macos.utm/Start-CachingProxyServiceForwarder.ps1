@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a69299-ddc0-4dba-a6ac-a1103140522a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,6 +120,7 @@ param(
 # 0 sentinel (instead of `[int]$VMPort = $Port`, which doesn't work because
 # parameter defaults can't reference other parameters): when unset, mirror
 # host port. Most callers don't pass it; only split-port mappings do.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if ($VMPort -eq 0) { $VMPort = $Port }
 
 $ErrorActionPreference = "Stop"
@@ -144,7 +145,7 @@ function Write-ForwarderLog {
 
 if ($PidFile) {
     try { $PID | Out-File -FilePath $PidFile -Encoding ascii -Force } catch {
-        Write-Warning "Could not write PID file '$PidFile': $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57638d83b230f03e' -Arguments @{ pidFile = "$PidFile"; message = "$($_.Exception.Message)" })
     }
 }
 

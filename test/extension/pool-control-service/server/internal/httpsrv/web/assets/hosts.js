@@ -26,20 +26,18 @@
   // the wire value instead, because mismatch (wrong token) and skew (clock) need
   // completely different fixes.
   var CONTROL_HINT = {
-    ready: 'Holds this lab\'s token; clock agrees.',
-    none: 'Never enrolled a lab token -- run Set-LabToken.ps1 on the host.',
-    mismatch: 'Holds a DIFFERENT token -- re-enroll against this proxy.',
-    skew: 'Token is right but the clock is off -- fix the host clock.',
-    unknown: 'Not answered yet, or the proxy holds no token of its own.'
+    ready: window.YurunaI18n.t("pool.holds_this_lab_s_token_clock_agrees"),
+    none: window.YurunaI18n.t("pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host"),
+    mismatch: window.YurunaI18n.t("pool.holds_a_different_token_re_enroll_against_this_proxy"),
+    skew: window.YurunaI18n.t("pool.token_is_right_but_the_clock_is_off_fix_the_host_clock"),
+    unknown: window.YurunaI18n.t("pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own")
   };
 
   // A host mints its id into its runtime directory, so a reimage or a re-clone
   // leaves the same machine under a new one, and the aggregator holds both until
   // its TTL expires. The hint is what an operator reading two near-identical
   // rows needs: which is live, and what it costs to leave them alone.
-  var REKEY_HINT = 'This id no longer answers at this address; the id beside it does. ' +
-    'One machine, two ids -- it was reimaged or re-cloned. Any pool membership is ' +
-    'still recorded against THIS id, so the live host is doing the work outside the pool.';
+  var REKEY_HINT = window.YurunaI18n.t("pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o", {});
 
   // The two repository columns are the host's own account of what it runs on,
   // read from the clone it holds (or, when it holds none, from a probe of the
@@ -176,9 +174,7 @@
     if (name) { return Y.el('span', { text: name }); }
     return Y.el('span', {
       class: 'muted', text: '--',
-      title: hostnamesVisible
-        ? 'This host has not reported a name.'
-        : 'Unlock with the Lab token to see hostnames.'
+      title: hostnamesVisible ? window.YurunaI18n.t("pool.this_host_has_not_reported_a_name") : window.YurunaI18n.t("pool.unlock_with_the_lab_token_to_see_hostnames")
     });
   }
 
@@ -215,7 +211,7 @@
     if (value !== null && value !== undefined && value !== '') { return Y.el('span', { text: String(value) }); }
     return Y.el('span', {
       class: 'muted', text: '--',
-      title: error ? Y.bidiIsolate(error) : 'This host has not reported hardware facts.'
+      title: error ? Y.bidiIsolate(error) : window.YurunaI18n.t("pool.this_host_has_not_reported_hardware_facts")
     });
   }
 
@@ -291,27 +287,21 @@
   function adoptEl(h) {
     var btn = Y.el('button', {
       type: 'button', class: 'linkish',
-      title: 'Move this host\'s pool membership to ' + Y.guid(h.supersededBy) +
-        ', the id that answers at this address, and stop showing this one.'
-    }, 'Hand over');
+      title: window.YurunaI18n.t("pool.move_this_host_s_pool_membership_to_value1_the_id_that_answers_at", {value1: (Y.guid(h.supersededBy))})
+    }, window.YurunaI18n.t("pool.hand_over"));
     btn.addEventListener('click', function () {
-      if (!window.confirm('Host ' + Y.bidiIsolate(Y.guid(h.hostId)) +
-          ' no longer answers at ' + Y.bidiIsolate(h.address || 'its address') +
-          '; ' + Y.bidiIsolate(Y.guid(h.supersededBy)) + ' does.\n\n' +
-          'Move the pool membership to that id and forget this one?')) { return; }
+      if (!window.confirm(window.YurunaI18n.t("pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool", {value1: (Y.bidiIsolate(Y.guid(h.hostId))), value2: (Y.bidiIsolate(h.address || 'its address')), value3: (Y.bidiIsolate(Y.guid(h.supersededBy)))}))) { return; }
       Y.clearNotice();
       var tr = btn.closest('tr');
       Y.mutate('/api/pool/adopt-rekey', {
         method: 'POST', body: { oldHostId: h.hostId, newHostId: h.supersededBy }
       }).then(function (d) {
-        var where = d && d.movedToPool
-          ? 'Pool membership moved to ' + Y.bidiIsolate(d.movedToPool) + '.'
-          : 'Nothing to move: the live id already has the pool it should.';
+        var where = d && d.movedToPool ? window.YurunaI18n.t("pool.pool_membership_moved_to_value1", {value1: (Y.bidiIsolate(d.movedToPool))}) : window.YurunaI18n.t("pool.nothing_to_move_the_live_id_already_has_the_pool_it_should");
         Y.rowFeedback(tr, 'ok', where);
         return load();
       }, function (e) {
         Y.notice('error', e.message);
-        Y.rowFeedback(tr, 'error', 'Hand over failed: ' + Y.bidiIsolate(e.message));
+        Y.rowFeedback(tr, 'error', window.YurunaI18n.t("pool.hand_over_failed_value1", {value1: (Y.bidiIsolate(e.message))}));
       });
     });
     return btn;
@@ -323,50 +313,48 @@
       if (!h.supersededBy) { return link; }
       return Y.el('span', { class: 'host-flags' }, [
         link,
-        Y.el('span', { class: 'mono', title: 'The id that answers at this address now.' },
+        Y.el('span', { class: 'mono', title: window.YurunaI18n.t("pool.the_id_that_answers_at_this_address_now") },
           Y.shortHost(h.supersededBy)),
-        Y.el('span', { class: 'badge rekeyed', text: 're-keyed', title: REKEY_HINT }),
+        Y.el('span', { class: 'badge rekeyed', text: window.YurunaI18n.t("pool.re_keyed"), title: REKEY_HINT }),
         adoptEl(h)
       ]);
     }
     var box = Y.el('span', { class: 'discovered-host' });
     if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: Y.guid(h.hostId) }));
-    var seen = h.lastSeen ? ', last seen ' + window.YurunaI18n.fmtLocal(new Date(h.lastSeen)) : '';
+    var seen = h.lastSeen ? window.YurunaI18n.t("pool.last_seen_value1", {value1: (window.YurunaI18n.fmtLocal(new Date(h.lastSeen)))}) : '';
     if (h.baseUrl) {
       box.appendChild(Y.el('a', {
         class: 'mono', href: h.baseUrl, target: '_blank', rel: 'noopener',
-        title: 'Open this host\'s own status page at ' + Y.bidiIsolate(h.baseUrl) +
-          ' (found by a network scan' + seen + ')'
+        title: window.YurunaI18n.t("pool.open_this_host_s_own_status_page_at_value1_found_by_a_network_sca", {value1: (Y.bidiIsolate(h.baseUrl)), value2: (seen)})
       }, Y.bidiIsolate(h.address)));
     } else {
-      box.appendChild(Y.el('span', { class: 'mono', text: h.address, title: 'Found by a network scan' + seen }));
+      box.appendChild(Y.el('span', { class: 'mono', text: h.address, title: window.YurunaI18n.t("pool.found_by_a_network_scan_value1", {value1: (seen)}) }));
     }
-    box.appendChild(Y.el('span', { class: 'badge discovered', text: 'discovered', title: 'Found by scanning the network; it belongs to no pool and has not registered with the aggregator.' }));
+    box.appendChild(Y.el('span', { class: 'badge discovered', text: window.YurunaI18n.t("pool.discovered"), title: window.YurunaI18n.t("pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r") }));
     return box;
   }
 
   function rowEl(h, n) {
     var sel = Y.el('select', {
-      'aria-label': 'Pool for host ' + Y.bidiIsolate(h.hostId || h.address)
+      'aria-label': window.YurunaI18n.t("pool.pool_for_host_value1", {value1: (Y.bidiIsolate(h.hostId || h.address))})
     });
-    sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
+    sel.appendChild(Y.el('option', { value: '', text: window.YurunaI18n.t("pool.none") }));
     for (var i = 0; i < pools.length; i++) {
       var p = pools[i];
       var o = Y.el('option', {
         value: p,
-        text: Y.bidiIsolate(p) + (p === targetPoolId ? ' -- auto-enrollment target' : '')
+        text: p === targetPoolId ? t('pool.enrollment_target', {pool: p}) : Y.bidiIsolate(p)
       });
       if (p === h.pool) { o.selected = true; }
       sel.appendChild(o);
     }
     Y.onSelectCommit(sel, function () {
       var to = sel.value;
-      var label = to || '(none)';
+      var label = to || window.YurunaI18n.t("pool.none");
       // (none) also records an exclusion, or the sweep would undo this within a
       // minute and the UI would look broken. Say so, rather than surprise them.
-      var extra = to ? '' : '\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.';
-      if (!window.confirm('Move host ' + Y.bidiIsolate(Y.guid(h.hostId)) + ' to ' +
-          Y.bidiIsolate(label) + '?' + extra)) {
+      var extra = to ? '' : window.YurunaI18n.t("pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n");
+      if (!window.confirm(window.YurunaI18n.t("pool.move_host_value1_to_value2_value3", {value1: (Y.bidiIsolate(Y.guid(h.hostId))), value2: (Y.bidiIsolate(label)), value3: (extra)}))) {
         sel.value = h.pool || '';
         return;
       }
@@ -375,12 +363,12 @@
         // Beside the picker as well as in the banner: on a twelve-column table
         // at high zoom the banner at the top of <main> is not on screen with
         // the row that produced it.
-        Y.rowFeedback(sel.closest('tr'), 'ok', 'Moved to ' + Y.bidiIsolate(label) + '.');
+        Y.rowFeedback(sel.closest('tr'), 'ok', window.YurunaI18n.t("pool.moved_to_value1", {value1: (Y.bidiIsolate(label))}));
         return load();
       }, function (e) {
         sel.value = h.pool || '';
         Y.notice('error', e.message);
-        Y.rowFeedback(sel.closest('tr'), 'error', 'Move failed: ' + Y.bidiIsolate(e.message));
+        Y.rowFeedback(sel.closest('tr'), 'error', window.YurunaI18n.t("pool.move_failed_value1", {value1: (Y.bidiIsolate(e.message))}));
       });
     });
 
@@ -389,10 +377,10 @@
     // rather than failing on the far side of a confirm dialog.
     if (!h.hostId) {
       sel.disabled = true;
-      sel.title = 'This host has not reported an id, so it cannot be assigned to a pool yet.';
+      sel.title = window.YurunaI18n.t("pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po");
     }
 
-    var control = Y.el('span', { text: h.control, title: CONTROL_HINT[h.control] || '' });
+    var control = Y.el('span', { text: Y.displayState(h.control), title: CONTROL_HINT[h.control] || '' });
     var f = facts[factKey(h)];
     var factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', {}, [
@@ -413,6 +401,13 @@
 
   var primaryLoaded = false;
   function render() {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html", "data", function () {
+      return renderMeasured();
+    });
+  }
+
+
+  function renderMeasured() {
     var body = document.getElementById('host-rows');
     if (Y.holdRepaint(body, render)) { return; }
     body.textContent = '';
@@ -468,7 +463,7 @@
   function load(opts) {
     window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts...');
+    var done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), window.YurunaI18n.t("pool.loading_hosts"));
     chrome.busy(true);
     var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     // The hostname column turns on a session, and arriving from the dashboard
@@ -491,7 +486,7 @@
       primaryLoaded = true;
       render();
       if (d.statusError) {
-        Y.notice('warn', 'Aggregator unavailable (' + Y.bidiIsolate(d.statusError) + '); control state is unknown. Moving hosts still works.');
+        Y.notice('warn', window.YurunaI18n.t("pool.aggregator_unavailable_value1_control_state_is_unknown_moving_hos", {value1: (Y.bidiIsolate(d.statusError))}));
       } else {
         Y.clearNotice();
       }

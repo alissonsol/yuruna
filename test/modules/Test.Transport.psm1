@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,7 @@
 
 # Per-host I/O backends consumed by Test.HostIO's registry.
 # Backend inventory and registry contract: https://yuruna.link/4222e5f2
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DefaultCharDelayMs = 10
 # Settle window applied after Send-TextHyperV's batched scancode emit
 # (and after the JXA UTM CGEvent path). The guest's PS/2 buffer drains
@@ -142,9 +143,9 @@ function Get-HyperVKeyboard {
     if ($script:CachedKbVM -eq $VMName -and $script:CachedKb) { return $script:CachedKb }
     $vmObj = Get-CimInstance -Namespace root\virtualization\v2 `
         -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
-    if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $null }
+    if (-not $vmObj) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dd744e72c77d8987' -Arguments @{ vMName = "$VMName" }); return $null }
     $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
-    if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $null }
+    if (-not $kb) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_379da0dde8e4bbe3' -Arguments @{ vMName = "$VMName" }); return $null }
     $script:CachedKb = $kb
     $script:CachedKbVM = $VMName
     return $kb
@@ -294,7 +295,7 @@ function Connect-VNC {
             $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
             $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen -Deadline $handshakeDeadline
             $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
-            Write-Warning "VNC connection refused: $reason"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_349253076fe1fc58' -Arguments @{ reason = "$reason" })
             $tcp.Dispose()
             return $null
         }
@@ -302,7 +303,7 @@ function Connect-VNC {
 
         # Select security type 1 (None) -- safe for localhost-only VNC
         if ($typesBuf -notcontains 1) {
-            Write-Warning "VNC server does not offer 'None' auth. Available: $($typesBuf -join ', ')"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f86abecc06705e79' -Arguments @{ join = "$($typesBuf -join ', ')" })
             $tcp.Dispose()
             return $null
         }
@@ -313,7 +314,7 @@ function Connect-VNC {
         [Array]::Reverse($resultBuf)
         $secResult = [BitConverter]::ToInt32($resultBuf, 0)
         if ($secResult -ne 0) {
-            Write-Warning "VNC security handshake failed (result=$secResult)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_98e81bbf07a81ccd' -Arguments @{ secResult = "$secResult" })
             $tcp.Dispose()
             return $null
         }
@@ -397,7 +398,7 @@ function Send-KeyVNC {
     # the guest's tty sees a bare 'u' instead of the VKILL control code.
     $chord = $script:X11Chords[$KeyName]
     $keySym = if ($chord) { $null } else { $script:X11KeySyms[$KeyName] }
-    if (-not $chord -and -not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
+    if (-not $chord -and -not $keySym) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_920700a319d8346c' -Arguments @{ keyName = "$KeyName" }); return $false }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
     # Same held-key bookkeeping as Send-TextVNC: an unmatched press leaves
@@ -433,12 +434,12 @@ function Send-KeyVNC {
         Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
         return $true
     } catch {
-        Write-Warning "VNC key send failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22ec2c9b5f0c9a52' -Arguments @{ value = "$_" })
         $sendFailed = $true
         return $false
     } finally {
         if ($heldSym -or $heldModSym) {
-            Write-Warning "VNC key send: releasing key(s) still held after an interrupted send (guards against a stuck auto-repeat in the guest)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f998852aad41e2cf')
             try {
                 if ($heldSym)    { Send-VncKeyEvent -Client $tcp -KeySym $heldSym    -Down $false }
                 if ($heldModSym) { Send-VncKeyEvent -Client $tcp -KeySym $heldModSym -Down $false }
@@ -494,7 +495,7 @@ function Send-TextVNC {
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:X11CharKeySyms["$ch"]
             if (-not $entry) {
-                Write-Warning "No VNC keysym for character '$ch'. Skipping."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_400de73dc7d7af50' -Arguments @{ ch = "$ch" })
                 continue
             }
             $keySym  = $entry[0]
@@ -518,7 +519,7 @@ function Send-TextVNC {
         Write-Debug "      VNC text send complete"
         return $true
     } catch {
-        Write-Warning "VNC text send failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d0a11d52e180ee9' -Arguments @{ value = "$_" })
         $sendFailed = $true
         return $false
     } finally {
@@ -531,7 +532,7 @@ function Send-TextVNC {
         # throw as well, and swallowing that keeps the original failure --
         # already reported above -- as the one the caller sees.
         if ($heldSym -or $shiftHeld) {
-            Write-Warning "VNC text send: releasing key(s) still held after an interrupted send (guards against a stuck auto-repeat in the guest)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2eff76aeff36d8bc')
             try {
                 if ($heldSym)   { Send-VncKeyEvent -Client $tcp -KeySym $heldSym  -Down $false }
                 if ($shiftHeld) { Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false }
@@ -567,7 +568,7 @@ function Send-KeyAXUI {
     # AXUI targets the UTM app process, not an individual VM.
     if ($VMName) { Write-Debug "      AXUI: -VMName '$VMName' is informational; AXUI targets the UTM app process." }
     $code = $script:UTMKeyMap[$KeyName]
-    if (-not $code) { Write-Warning "Unknown key '$KeyName' for AXUI"; return $false }
+    if (-not $code) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_acbc813c9795181e' -Arguments @{ keyName = "$KeyName" }); return $false }
 
     $jxaScript = @"
 ObjC.import('ApplicationServices');
@@ -612,7 +613,7 @@ function Send-TextAXUI {
     foreach ($ch in $Text.ToCharArray()) {
         $entry = $script:MacCharKeyCodes["$ch"]
         if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99c028f32f58e097' -Arguments @{ ch = "$ch"; charIndex = "$charIndex" })
             $charIndex++
             continue
         }
@@ -703,11 +704,11 @@ function Send-ScanCode {
     }
     if ($r.ReturnValue -ne 0) {
         $hint = switch ([int]$r.ReturnValue) {
-            32769   { 'access denied -- run the harness elevated' }
-            32775   { 'invalid state -- the handle addresses no live keyboard: either it belongs to a previous boot (the re-resolve below fixes that) or no guest driver has attached to the synthetic keyboard channel yet (a guest OS without Hyper-V VMBus drivers never will)' }
-            default { 'see the Msvm_Keyboard return codes' }
+            32769   { (Format-YurunaOperatorMessage -Key 'runner.operator_09864de73849237f') }
+            32775   { (Format-YurunaOperatorMessage -Key 'runner.operator_f120f95a3c42b9cd') }
+            default { (Format-YurunaOperatorMessage -Key 'runner.operator_8d1586470c60f1fb') }
         }
-        Write-Warning "Hyper-V TypeScancodes returned $($r.ReturnValue): $hint"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a429fea2cd6d1dab' -Arguments @{ returnValue = "$($r.ReturnValue)"; hint = "$hint" })
         Clear-HyperVKeyboard
         return $false
     }
@@ -729,7 +730,7 @@ function Send-KeyHyperV {
     # would otherwise be rejected as unknown.
     $chord = $script:Ps2Chords[$KeyName]
     $scanCode = if ($chord) { $null } else { $script:PS2ScanCodes[$KeyName] }
-    if (-not $chord -and -not $scanCode) { Write-Warning "Unknown key '$KeyName' for Hyper-V"; return $false }
+    if (-not $chord -and -not $scanCode) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b45972989e70af37' -Arguments @{ keyName = "$KeyName" }); return $false }
     $kb = Get-HyperVKeyboard -VMName $VMName
     if (-not $kb) { return $false }
     try {
@@ -757,7 +758,7 @@ function Send-KeyHyperV {
         Write-Debug "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
         return $ok
     } catch {
-        Write-Warning "Hyper-V TypeScancodes failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7dbb92d8228f60e2' -Arguments @{ value = "$_" })
         return $false
     }
 }
@@ -789,7 +790,7 @@ function Send-ChordUTM {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$KeyName)
     $chord = $script:UtmChords[$KeyName]
-    if (-not $chord) { Write-Warning "Unknown UTM chord '$KeyName'"; return $false }
+    if (-not $chord) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_052af545ee232755' -Arguments @{ keyName = "$KeyName" }); return $false }
     $modCode  = [int]$chord[0]
     $baseCode = [int]$chord[1]
     $modFlag  = [int]$chord[2]
@@ -889,7 +890,7 @@ function Send-KeyUTM {
         return (Send-ChordUTM -VMName $VMName -KeyName $KeyName)
     }
     $code = $script:UTMKeyMap[$KeyName]
-    if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
+    if (-not $code) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21ed4ccad135bc84' -Arguments @{ keyName = "$KeyName" }); return $false }
     # Use `key code` for everything (including Enter, code 36). The
     # `keystroke return` form for Enter sometimes fired twice when chained
     # after a Send-Text run that left System Events' keystroke buffer warm --
@@ -972,7 +973,7 @@ function Send-KeyKvm {
     if (-not $codes -or -not $codes[0]) { $codes = @($KeyName) }
     $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Send-KeyKvm: virsh send-key '$($codes -join ' ')' failed for '$VMName': $((@($out) | Out-String).Trim())"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f5e4d13c7518db1' -Arguments @{ join = "$($codes -join ' ')"; vMName = "$VMName"; trim = "$((@($out) | Out-String).Trim())" })
         return $false
     }
     return $true
@@ -993,7 +994,7 @@ function Send-TextKvm {
     foreach ($ch in $Text.ToCharArray()) {
         $codes = $script:KvmCharKeyMap["$ch"]
         if (-not $codes) {
-            Write-Warning "Send-TextKvm: no keycode for character '$ch' (0x$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })). Skipping."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })" })
             continue
         }
         # Splat the chord onto the virsh command line: with `&` the array
@@ -1001,7 +1002,7 @@ function Send-TextKvm {
         # send-key wants (one chord per call).
         $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Send-TextKvm: virsh send-key failed at char '$ch' (codes=$($codes -join ',')): $((@($out) | Out-String).Trim())"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = "$ch"; join = "$($codes -join ',')"; trim = "$((@($out) | Out-String).Trim())" })
             return $false
         }
         $sentChars++
@@ -1057,7 +1058,7 @@ function Send-TextHyperV {
                 # Single-shot reset failed -- continue anyway; per-char
                 # writes may still succeed, and warning surfaces the
                 # divergence in the cycle log.
-                Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9f57b55a58b15b7c')
             }
         }
         # --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
@@ -1074,7 +1075,7 @@ function Send-TextHyperV {
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:CharScanCodes["$ch"]
             if (-not $entry) {
-                Write-Warning "No scan code for character '$ch' (0x$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })). Skipping."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f9af4fdfbb52214' -Arguments @{ ch = "$ch"; x2 = "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })" })
                 continue
             }
             $scan = [byte]$entry[0]
@@ -1092,7 +1093,7 @@ function Send-TextHyperV {
                 # pacing sleep, and the guest's next character would arrive
                 # upshifted.
                 if (-not (Send-ScanCode -Keyboard $kb -Codes $charCodes)) {
-                    Write-Warning "Hyper-V TypeScancodes per-char send failed after $charCount char(s)"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_66740d874d3769c0' -Arguments @{ charCount = "$charCount" })
                     return $false
                 }
                 if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
@@ -1102,7 +1103,7 @@ function Send-TextHyperV {
         if ($batched -and $codeList.Count -gt 0) {
             $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
             if (-not $ok) {
-                Write-Warning "Hyper-V TypeScancodes batch send failed ($charCount chars)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f72e9572bce0b62' -Arguments @{ charCount = "$charCount" })
                 return $false
             }
         }
@@ -1123,7 +1124,7 @@ function Send-TextHyperV {
         Write-Debug "      TypeScancodes: $charCount chars sent in $shape (post-batch settle capped at ${script:DefaultSettleMs}ms)"
         return $true
     } catch {
-        Write-Warning "Hyper-V TypeScancodes (text) failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28903f180d50abb4' -Arguments @{ value = "$_" })
         return $false
     }
 }
@@ -1216,7 +1217,7 @@ function Send-TextUTM {
     foreach ($ch in $Text.ToCharArray()) {
         $entry = $script:MacCharKeyCodes["$ch"]
         if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99c028f32f58e097' -Arguments @{ ch = "$ch"; charIndex = "$charIndex" })
             $charIndex++
             continue
         }
@@ -1439,13 +1440,13 @@ function Send-ClickHyperV {
     #>
     param([string]$VMName, [int]$X, [int]$Y)
     if (-not $IsWindows) {
-        Write-Warning "Send-ClickHyperV called on non-Windows host."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0d3475ea37a81bab')
         return $false
     }
     Initialize-HyperVMouseType
     $hWnd = [HyperVMouse]::FindWindow($VMName)
     if ($hWnd -eq [IntPtr]::Zero) {
-        Write-Warning "vmconnect window not found for '$VMName'. Click requires an open vmconnect session."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f5ac5947b2cba3a4' -Arguments @{ vMName = "$VMName" })
         return $false
     }
     # Pre-compute screen-space target so logLevel=Debug can report where the
@@ -1486,7 +1487,7 @@ function Send-ClickUtm {
         [hashtable]$Capture = $null
     )
     if (-not $IsMacOS) {
-        Write-Warning "Send-ClickUtm called on non-macOS host."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8fe7627def332857')
         return $false
     }
     if (-not $Capture -or
@@ -1494,7 +1495,7 @@ function Send-ClickUtm {
         -not $Capture.ContainsKey('OriginY') -or
         -not $Capture.ContainsKey('Scale')   -or
         [double]$Capture.Scale -le 0) {
-        Write-Warning "Send-ClickUtm requires a -Capture hashtable with OriginX / OriginY / Scale (from Get-UtmWindowScreenshot)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cb171080d2ed4f47')
         return $false
     }
 
@@ -1521,9 +1522,9 @@ ObjC.import('ApplicationServices');
 $.AXIsProcessTrusted() ? 'yes' : 'no';
 '@ 2>&1
         if ("$axResult".Trim() -ne 'yes') {
-            Write-Warning "Accessibility permission not granted for this terminal -- CGEventPost clicks will be silently dropped."
-            Write-Warning "  System Settings > Privacy & Security > Accessibility > enable your terminal"
-            Write-Warning "  Then restart the terminal and re-run the test."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3e602c92cee0b04')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_737c89122c4324a5')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8b6dfab5319382eb')
             $script:YurunaAxWorks = $false
         } else {
             $script:YurunaAxWorks = $true
@@ -1554,7 +1555,7 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
     # against silently-dropped clicks. On any failure, re-arm that probe so the
     # next click re-checks Accessibility, which can be revoked mid-run.
     if ($LASTEXITCODE -ne 0 -or "$clickResult".Trim() -ne 'ok') {
-        Write-Warning "osascript CGEventPost failed: $clickResult"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_87f3e8e705586371' -Arguments @{ clickResult = "$clickResult" })
         $script:YurunaAxChecked = $false
         return $false
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -347,13 +347,17 @@ Describe 'the share page and the host agree on one grammar' {
     }
 
     It 'builds the subject and body the operator was promised' {
-        Assert-True ($ShareJs -match "'Yuruna Host '\s*\+\s*info\.shortHost\s*\+\s*' at '\s*\+\s*info\.stamp") `
+        $catalogPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'globalization/catalogs/en-US/status.json'
+        $catalog = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($catalogPath)) -AsHashtable
+        Assert-Equal 'Yuruna Host {host} at {time}' $catalog.messages['status.share_subject'].message 'the English subject contract changed'
+        Assert-Equal 'Yuruna cycle results are attached' $catalog.messages['status.share_body'].message 'the English attachment promise changed'
+        Assert-True ($ShareJs -match "t\('status.share_subject', \{host: info\.shortHost, time: info\.stamp\}\)") `
             'the mail subject is not "Yuruna Host <id> at <UTC time>"'
         # The body says the archive is attached because the fallback leaves the
         # attaching to the operator: a mail client that reads its own draft for
         # that word is the last warning before a message that promises a file
         # and carries none.
-        Assert-True ($ShareJs -match "var body = 'Yuruna cycle results are attached'") `
+        Assert-True ($ShareJs -match "var body = t\('status.share_body'\)") `
             'the mail body is not "Yuruna cycle results are attached"'
         Assert-True ($ShareJs -match "mailto:\?subject=") 'the draft is no longer opened with mailto:'
     }
@@ -383,7 +387,7 @@ Describe 'the share page and the host agree on one grammar' {
         # thing it was for. The tempered dot keeps the match inside ONE <strong>,
         # so emphasis somewhere else on the page plus the words somewhere else
         # again cannot satisfy it between them.
-        Assert-True ($script:SharePage -match '(?s)<strong>(?:(?!</?strong>).)*attach\s+the\s+downloaded\s+file(?:(?!</?strong>).)*</strong>') `
+        Assert-True ($script:SharePage -match '(?s)<strong\b[^>]*>(?:(?!</?strong>).)*attach\s+the\s+downloaded\s+file(?:(?!</?strong>).)*</strong>') `
             'the attach instruction is no longer emphasized on the share page'
     }
 

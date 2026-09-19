@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -36,7 +38,8 @@
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-stash-service",
-    [switch]$AllowMirrorSource
+    [switch]$AllowMirrorSource,
+    [switch]$AllowPseudoLocale
 )
 
 # --- REGION: Confirm the service operation
@@ -189,7 +192,9 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statu
 # UTM only builds the bundle -- register + start lives below.
 Write-Verbose ""
 Write-Output "== Bringing up '$VMName' on $HostType =="
-& pwsh -NoProfile -File $newVm -VMName $VMName
+$newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
+if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+& pwsh @newVmArgs
 $rc = $LASTEXITCODE
 if ($rc -ne 0) {
     Write-Error "$newVm exited $rc -- aborting."

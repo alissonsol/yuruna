@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
 # 2026.11, no later than 2026-11-30. Naming both boundaries here makes the
 # fallback mechanically discoverable instead of leaving an immortal "legacy"
 # branch with no owner or deadline.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:LegacyFailureBlockRemovalRelease = '2026.11'
 $script:LegacyFailureBlockRemovalDate = '2026-11-30'
 
@@ -100,11 +101,11 @@ function Invoke-ConfigGate {
     $capturedLines = [System.Collections.Generic.List[string]]::new()
     $gateScript = Join-Path $TestRoot 'Test-Config.ps1'
     if (-not (Test-Path -LiteralPath $gateScript)) {
-        Write-Warning "[$CallerName] Pre-cycle config gate skipped: $gateScript not found."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bfd82336e946d877' -Arguments @{ callerName = "$CallerName"; gateScript = "$gateScript" })
         return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
     }
     if ($Skip) {
-        Write-Information "[$CallerName] Pre-cycle config gate SKIPPED ($SkipReason)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c78ee15c3d85e9a' -Arguments @{ callerName = "$CallerName"; skipReason = "$SkipReason" }) -InformationAction Continue
         return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
     }
     # Hidden-mode invocation: Test-Config's ~80-line transcript is captured
@@ -184,7 +185,7 @@ function Invoke-ConfigGate {
         }
         Write-Warning ""
         Write-Warning "========"
-        Write-Warning "  [$CallerName] Pre-cycle config gate FAILED (Test-Config.ps1 exit $gateExit)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ded33b7598df336a' -Arguments @{ callerName = "$CallerName"; gateExit = "$gateExit" })
         Write-Warning "========"
         if ($sidecar -and $sidecar.failures) {
             # Rendered from the child's own data. What the operator reads is
@@ -216,8 +217,7 @@ function Invoke-ConfigGate {
             # If the closing footer was missed (truncated output, child
             # crash mid-print), surface from the header to the end of
             # capture rather than swallowing the partial block.
-            Write-Warning ("Test-Config used the N-1 stdout compatibility reader; remove it in release {0} by {1}." -f
-                $script:LegacyFailureBlockRemovalRelease, $script:LegacyFailureBlockRemovalDate)
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e24a590278d5fe10' -FormatValues ($script:LegacyFailureBlockRemovalRelease, $script:LegacyFailureBlockRemovalDate) -FormatBindings @{ legacyFailureBlockRemovalRelease = '0'; legacyFailureBlockRemovalDate = '1' })
             $blockEnd = if ($endIdx -gt $startIdx) { $endIdx } else { $capturedLines.Count - 1 }
             Write-Information "" -InformationAction Continue
             for ($i = $startIdx; $i -le $blockEnd; $i++) {
@@ -243,8 +243,8 @@ function Invoke-ConfigGate {
         }
         Write-Warning ""
         Write-Warning "========"
-        Write-Warning "  Bypass for ad-hoc / in-progress edits: -NoConfigGate on the entry point."
-        Write-Warning "  Re-validate directly:                  pwsh test/Test-Config.ps1"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4ebb5d5bd4b1c67b')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e34abeb2a0f88379')
         Write-Warning "========"
         return @{ passed = $false; exitCode = $gateExit; skipped = $false; lines = $capturedLines.ToArray(); failureLines = $failureLines.ToArray() }
     }

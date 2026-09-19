@@ -16,7 +16,7 @@ flowchart LR
     ubuntu-kvm["ubuntu.kvm.sh"]
     setup["setup.ps1"]
     enable-test-automation["Enable-TestAutomation.ps1"]
-    test-lab["Storage setup"]
+    test-lab["Lab setup"]
     test-service["Service VM launchers"]
     windows-hyper-v --> setup
     macos-utm --> setup
@@ -26,6 +26,8 @@ flowchart LR
     setup --> test-service
     %% optional: only storage-dependent services consume configured shares
     test-lab -.->|storage-dependent services| test-service
+    %% optional: --refresh bypasses setup.ps1 entirely
+    macos-utm -.->|--refresh dispatch| test-lab
 ```
 
 The installer-to-setup edges denote setup progression, not a promise that every
@@ -45,6 +47,13 @@ services depend on storage; the caching proxy can run without a configured
 share. Health checks can adopt existing service VMs, while `-Rebuild` requests
 recreation. The arrows from setup are responsibilities, not parallel execution:
 host configuration precedes storage and then service bring-up.
+
+[macos.utm.sh](../../install/macos.utm.sh) also recognizes a `--refresh`
+invocation that bypasses `setup.ps1` and hands off directly to
+[Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1), gated by
+[test/host-refresh.protocol-version](../../test/host-refresh.protocol-version)
+matching the installer's own declared protocol version. The Windows and
+Ubuntu/KVM installers do not implement this dispatch.
 
 ## Deploy engine
 
@@ -141,9 +150,9 @@ The [contract](../../host/Yuruna.Host.Contract.psm1) is implemented by
 [Hyper-V](../../host/windows.hyper-v/modules/Yuruna.Host.psm1),
 [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1), and
 [KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1). Its operations cover image
-acquisition, VM lifecycle, snapshots, console I/O, address discovery and
-network setup. The contract lists and validates exports; it does not dispatch
-calls. [Test.HostBootstrap.psm1](../../test/modules/Test.HostBootstrap.psm1)
+acquisition, VM lifecycle, snapshots, console I/O, address discovery, network
+setup, and hypervisor-responsiveness probing (`Test-VirtualizationResponsive`).
+The contract lists and validates exports; it does not dispatch calls. [Test.HostBootstrap.psm1](../../test/modules/Test.HostBootstrap.psm1)
 imports the selected driver into the runner's session.
 `host/<provider>/guest.<family>/Get-Image.ps1` and `New-VM.ps1`
 are installation adapters, for example the
@@ -219,7 +228,9 @@ dependency-free leaf. Harness helpers are grouped with the test harness above.
 
 The globalization aggregate includes
 [Test.Locale.psm1](../../test/modules/Test.Locale.psm1),
-[Test.Message.psm1](../../test/modules/Test.Message.psm1), browser helpers and Go
+[Test.Message.psm1](../../test/modules/Test.Message.psm1),
+[Yuruna.Globalization.psm1](../../automation/Yuruna.Globalization.psm1) for
+operator/CLI message rendering, browser helpers and Go
 catalog consumers, with [globalization](../../globalization) as their data
 source. [Globalization](07-globalization.md) expands actual consumer coverage.
 [tools](../../tools) groups catalog compilation/embedding, localization exchange,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
@@ -142,7 +145,7 @@ function Publish-PerfCycleContext {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (-not $script:Cycle) { return }
-    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Publish perf cycle handle')) { return }
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, (Format-YurunaOperatorMessage -Key 'runner.operator_5f115efb4ddb7466'))) { return }
     $ctx = [ordered]@{}
     foreach ($k in $script:Cycle.Keys) { $ctx[$k] = $script:Cycle[$k] }
     $ctx['ownerPid'] = $PID
@@ -161,7 +164,7 @@ function Clear-PerfCycleContext {
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Clear perf cycle handle')) { return }
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, (Format-YurunaOperatorMessage -Key 'runner.operator_e1d6d0ba8bbb217e'))) { return }
     Remove-Item -LiteralPath "Env:\$($script:PerfContextEnvVar)" -ErrorAction SilentlyContinue
 }
 
@@ -182,7 +185,7 @@ function Resume-PerfCycle {
     if ($script:Cycle) { return $true }
     $raw = [Environment]::GetEnvironmentVariable($script:PerfContextEnvVar)
     if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Resume perf cycle from published handle')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, (Format-YurunaOperatorMessage -Key 'runner.operator_9c5c126bfb40e6f7'))) { return $false }
     try {
         $ctx = $raw | ConvertFrom-Json -ErrorAction Stop
     } catch {
@@ -448,7 +451,7 @@ function Start-PerfCycle {
         Write-Verbose 'Start-PerfCycle: perf root unresolvable; perf log disabled this cycle.'
         return
     }
-    if (-not $PSCmdlet.ShouldProcess($root, "Initialize perf cycle $CycleStartUtc")) { return }
+    if (-not $PSCmdlet.ShouldProcess($root, (Format-YurunaOperatorMessage -Key 'runner.operator_d9c25172b9533b74' -Arguments @{ cycleStartUtc = "$CycleStartUtc" }))) { return }
 
     # Opting the host out must also retract any handle a previous cycle
     # published, or children would keep adopting a cycle nobody is writing.
@@ -513,7 +516,7 @@ function Set-PerfGuestContext {
         [hashtable]$GuestFingerprint
     )
     if (-not $script:Cycle) { return }
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, 'Set perf guest context')) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_b4a724285b579951'))) { return }
 
     $guestInfoHash = $null
     if ($GuestFingerprint -and $GuestFingerprint.Count -gt 0) {
@@ -538,7 +541,7 @@ function Clear-PerfGuestContext {
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess('perf-guest', 'Clear perf guest context')) { return }
+    if (-not $PSCmdlet.ShouldProcess('perf-guest', (Format-YurunaOperatorMessage -Key 'runner.operator_7a73aae4c295df7d'))) { return }
     $script:Guest = $null
 }
 
@@ -568,7 +571,7 @@ function Set-PerfSequenceContext {
     # its rows to land.
     if (-not $script:Cycle) { $null = Resume-PerfCycle -Confirm:$false }
     if (-not $script:Cycle) { return }
-    if (-not $PSCmdlet.ShouldProcess($SequenceName, 'Set perf sequence context')) { return }
+    if (-not $PSCmdlet.ShouldProcess($SequenceName, (Format-YurunaOperatorMessage -Key 'runner.operator_10c191b87c817287'))) { return }
 
     $contentHash = $null
     if ($SequenceContent) {
@@ -595,7 +598,7 @@ function Clear-PerfSequenceContext {
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess('perf-sequence', 'Clear perf sequence context')) { return }
+    if (-not $PSCmdlet.ShouldProcess('perf-sequence', (Format-YurunaOperatorMessage -Key 'runner.operator_ecac3a199ab9afa5'))) { return }
     $script:Sequence = $null
 }
 

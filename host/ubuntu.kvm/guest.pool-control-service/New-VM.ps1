@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,8 @@ param(
     [switch]$AllowPseudoLocale
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -51,11 +53,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.pool-control-service/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_e830a3679f57bed6')
     exit 1
 }
 
@@ -79,7 +81,7 @@ $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImage
 
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
@@ -95,11 +97,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -110,10 +112,10 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
-Write-Output "Copying base image to per-VM disk (sparse copy)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8531557fc4c0c787')
 & /bin/cp --sparse=always -- $baseImageFile $diskImg
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "cp --sparse=always failed copying $baseImageFile -> $diskImg"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a61a7d21cdb5e750' -Arguments @{ baseImageFile = "$baseImageFile"; diskImg = "$diskImg" })
     exit 1
 }
 
@@ -121,7 +123,7 @@ if ($LASTEXITCODE -ne 0) {
 # Apparent size only: qcow2 grows on write, so the host gives up nothing
 # until the pool-control daemon actually stores that much.
 if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2')) {
-    Write-Error "Could not resize '$diskImg' to 256 GB; refusing to build the VM on base-capacity disk."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6012ed9325995e9f' -Arguments @{ diskImg = "$diskImg" })
     exit 1
 }
 
@@ -129,14 +131,14 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'pool-control-service-admin'
-if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'pool-control-service-admin'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_4b6e32db84a17902'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Render user-data / meta-data
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/pool-control-service.base.user-data'
@@ -144,7 +146,7 @@ $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/pool-control-service.kvm.
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/pool-control-service.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -155,13 +157,13 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $networkName = Get-ExternalNetwork
 if (-not $networkName) {
-    Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
     exit 1
 }
 if ($networkName -eq 'default') {
-    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The pool-control-service VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_123fb1ab620bc2d4')
 } else {
-    Write-Output "Using libvirt network: $networkName (pool-control-service VM will get a LAN-routable IP)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c08a2cd955043a9e' -Arguments @{ networkName = "$networkName" })
 
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
@@ -175,17 +177,7 @@ if ($networkName -eq 'default') {
                 Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
         } else { @() }
         if ($physPorts.Count -eq 0) {
-            Write-Error @"
-
-libvirt network '$networkName' is active, but its host bridge '$extBridge' has NO
-physical LAN uplink (only guest tap ports are attached). A guest on it can never
-obtain a DHCP lease -- this is the silent 20-minute 'no IP' wait, not a slow boot.
-
-Heal the bridge, then re-run this script:
-    test/service/Start-CachingProxyServiceVM.ps1
-(it owns the 'yuruna-external' bridge lifecycle and self-heals or rebuilds the
-uplink NIC). Nothing was created; the pool-control-service VM was not started.
-"@
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_c6ed9927d5052f27' -Arguments @{ networkName = "$networkName"; extBridge = "$extBridge" })
             exit 1
         }
     }
@@ -217,7 +209,7 @@ $poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $langu
 } else {
     ConvertTo-CanonicalLocaleTag -Tag $languageRaw
 }
-if (-not $poolControlLanguage) { throw "Invalid configured language '$languageRaw'." }
+if (-not $poolControlLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
@@ -269,17 +261,17 @@ Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') 
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
     (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
 Write-Output ""
-Write-Output "== pool-control-service console/SSH login (available NOW) =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa53e475b2cdd39b')
 Write-Output "  user:     pool-control-service-admin"
-Write-Output "  password: (in authentication vault under 'pool-control-service-admin')"
-Write-Output "  If the wait below stalls or fails, open"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d8dbc60970be040a')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
 Write-Output "    virt-viewer --connect $virshUri $VMName"
-Write-Output "  and log in with the credentials above to inspect cloud-init state."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
 Write-Output ""
 
 # --- REGION: Create and configure the libvirt domain (virt-install)
@@ -305,7 +297,7 @@ if ($LASTEXITCODE -eq 0) {
 # See https://yuruna.link/42fa6f45-0016
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -340,7 +332,7 @@ $virtInstallExit = $LASTEXITCODE
 $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
 if ($virtInstallExit -ne 0) {
     $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error "virt-install failed (exit $virtInstallExit)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
     exit 1
 }
 
@@ -348,8 +340,8 @@ if ($virtInstallExit -ne 0) {
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP
-Write-Output "Waiting for VM to obtain an IP address..."
-Write-Output "  (cloud-init brings up networking; first boot can take 1-3 minutes)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 
 $dockIp = $null
 $maxIterations = 120  # 120 * 5s = 10 minutes
@@ -370,34 +362,28 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         $min     = [int][math]::Floor($elapsed / 60)
         $sec     = [int]($elapsed % 60)
         $totalMinutes = [int][math]::Floor($maxIterations * 5 / 60)
-        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for IP -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMinutes, $sizeMB, $deltaMB)
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ab6af692ee9143e8' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, $deltaMB) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' })
     }
 }
 
 if (-not $dockIp) {
-    Write-Error @"
-
-pool-control-service VM '$VMName' did not obtain an IP address within 10 minutes.
-Accessing the VM for debugging:
-  * Console:  virt-viewer --connect $virshUri $VMName
-              user: pool-control-service-admin  (password in authentication vault)
-"@
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_95e05e441841ef8e' -Arguments @{ vMName = "$VMName"; virshUri = "$virshUri" })
     exit 1
 }
 
 Write-Output ""
-Write-Output "== pool-control-service VM booted (network up; daemon still building in-guest) =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4b8f66555bd13ab8')
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  Network:  $networkName"
-Write-Output "  UI:       http://$dockIp/  (Assign / Pools / Test sets)"
-Write-Output "  SSH:      ssh pool-control-service-admin@$dockIp  (harness key authorized)"
-Write-Output "  Console:  virt-viewer --connect $virshUri $VMName"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_bb96ec06f5e4f923' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_005bab80fe0f8f32' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e974f3b27099a83' -Arguments @{ virshUri = "$virshUri"; vMName = "$VMName" })
 Write-Output ""
-Write-Output "Cloud-init fetches the framework and runs the bring-up script, which builds"
-Write-Output "the daemon, installs pwsh + the pool-admin CLIs, CIFS-mounts the pool NAS for"
-Write-Output "its state dir, and launches it under systemd on :80."
-Write-Output "Watch progress:  ssh pool-control-service-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
-Write-Output "  (the log is root-only; pool-control-service-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
-Write-Output "See https://yuruna.link/4207d71a-000c."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_57389bd87d496290')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1bba161bfe1aef2a')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_be62924d72343522')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6830e43fa44f64ae' -Arguments @{ dockIp = "$dockIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e7f311f3856f8c90')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3d9418096712c514')
 exit 0

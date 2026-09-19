@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,6 +73,7 @@ param(
     [int]$IntervalSeconds = 15
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Continue'
 # This process exists to leave a record; its stdout is captured to
 # hostaddress.beacon.out. The default SilentlyContinue would discard every
@@ -155,7 +156,7 @@ function Test-StatusServiceLive {
 }
 
 try {
-    Write-Information "host address beacon: started (interval ${IntervalSeconds}s, directory '$CacheAddress')" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_187e3a1cf693b7a5' -Arguments @{ intervalSeconds = "${IntervalSeconds}"; cacheAddress = "$CacheAddress" }) -InformationAction Continue
     # A short grace at the top: this process is spawned alongside the status
     # service, so server.pid may not exist yet on the first tick or two, and
     # exiting on that race would leave the pool with no push path at all.
@@ -163,7 +164,7 @@ try {
     while ($true) {
         if (-not (Test-StatusServiceLive)) {
             if ($grace -le 0) {
-                Write-Information 'host address beacon: status service is gone; exiting.' -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ff5d44dc6a9f0d66') -InformationAction Continue
                 break
             }
             $grace--

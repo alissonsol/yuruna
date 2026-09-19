@@ -630,12 +630,33 @@ running. Uninstall it with `winget uninstall --id Prometheus.WindowsExporter`.
 The monitoring filter and its live-update command are documented in
 [vmconfig](vmconfig.md#429f3d06-0046).
 
+<a id="42dc5bb9-0011"></a>
+
+## A Hyper-V virtual switch that looks fine but is not bridging
+
+A Hyper-V vSwitch object outlives its uplink binding across a host reboot,
+so the switch still being defined is no evidence that it bridges anything.
+Address and route dumps cannot show the difference either: a host whose
+management address has moved off the switch onto the bare physical NIC
+reads as entirely healthy in both. What does separate a working bridge from
+a dead one is the bound physical NIC's link state, whether the
+management-OS vNIC exists when the switch says it should, and whether that
+vNIC holds a usable address -- so the diagnostic reports those three facts
+next to the addresses they explain, and a degraded switch counts toward the
+problem tally.
+
+Every step in that check fails open: an unevaluable probe reports
+`unknown` and raises nothing. The diagnostic also runs inside guests, which
+have no Hyper-V cmdlets at all, and an unelevated host run has the cmdlets
+but no access to them -- so a missing answer there is the normal case, not
+a finding.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

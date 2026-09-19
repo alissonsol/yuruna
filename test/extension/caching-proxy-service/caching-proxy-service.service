@@ -10,10 +10,12 @@ Wants=squid.service
 
 [Service]
 Type=simple
+Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
+EnvironmentFile=-/etc/yuruna/globalization.env
 User=root
 Group=root
 EnvironmentFile=-/etc/yuruna/caching-proxy-service.env
-ExecStart=/usr/local/bin/caching-proxy-service \
+ExecStart=/usr/local/bin/caching-proxy-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE} \
   --http-addr=${CACHING_PROXY_HTTP_ADDR} \
   --mode=${CACHING_PROXY_MODE} \
   --squid-addr=${CACHING_PROXY_SQUID_ADDR} \

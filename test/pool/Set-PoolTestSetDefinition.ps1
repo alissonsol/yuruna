@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423f5481-df7c-4b50-bc42-b39e3fe0b5d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -62,12 +63,12 @@ Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Validate the arguments
 if ($Name -notmatch '^[a-z0-9][a-z0-9._-]*$') {
-    Write-Error "Test-set name '$Name' is invalid (lowercase alphanumeric start; letters, digits, '.', '_', '-')." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_37e7a76a3661cead' -Arguments @{ name = "$Name" }) -ErrorAction Continue
     exit $ExitFailure
 }
 if (-not $Delete) {
     if ([string]::IsNullOrWhiteSpace($FrameworkUrl) -or [string]::IsNullOrWhiteSpace($ProjectUrl)) {
-        Write-Error "Upsert requires -FrameworkUrl and -ProjectUrl (or pass -Delete to remove)." -ErrorAction Continue
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_b0bf86c31da327e2') -ErrorAction Continue
         exit $ExitFailure
     }
 }
@@ -75,11 +76,11 @@ if (-not $Delete) {
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 # Read the test-set library (default-empty when absent).
@@ -103,13 +104,13 @@ if ($Delete) {
 
 # --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'test-sets.yml' -Doc $doc -SchemaName 'pool-test-sets.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "test-sets.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_2b6254c83f085a18' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "test-set: $action $Name" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
-Write-Information "Test-set '$Name' ${action} in the library." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4708bb65c7b75b63' -Arguments @{ name = "$Name"; action = "${action}" }) -InformationAction Continue
 exit $ExitOk

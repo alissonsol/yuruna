@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421a3ad9-47a5-43ef-9657-b42cdf21c528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
     lands in one place rather than three.
 #>
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 function Set-ExpandedVariableHashtable {
     <#
     .SYNOPSIS
@@ -161,7 +162,7 @@ function Set-ExpandedResourcesOutput {
                     # the globalVariables branch, and surface the shape so an empty
                     # result is detected rather than passed through as success.
                     $raw = $leaf
-                    Write-Warning "Set-ExpandedResourcesOutput: '$resourceKey' is not a { value: ... } leaf; using its raw value. Check resources.output.yml shape if unexpected."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_7828c795bc84626b' -Arguments @{ resourceKey = "$resourceKey" })
                 }
             }
             $value = if ($NoExpand) { $raw } else { $ExecutionContext.InvokeCommand.ExpandString($raw) }

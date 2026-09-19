@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
     Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep sequence-action registrations across -Force re-imports.')]
 param()
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 # Leaf taxonomy module: the FailureClass/Severity ValidateSet below is a literal
 # copy of its canonical arrays (a ValidateSet attribute arg must be a constant
@@ -128,7 +129,7 @@ function Register-SequenceAction {
         $recoveryVocab = Get-RecoveryRecommendationName
         foreach ($recoveryToken in $SuggestedRecoveries) {
             if ($recoveryVocab -notcontains $recoveryToken) {
-                Write-Warning "Register-SequenceAction '$Name': SuggestedRecoveries token '$recoveryToken' is not in the recovery vocabulary; the remediation dispatcher cannot route on it."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cd4f83e57e569958' -Arguments @{ name = "$Name"; recoveryToken = "$recoveryToken" })
             }
         }
     }
@@ -198,8 +199,8 @@ function Invoke-SequenceActionHandler {
         [Parameter(Mandatory)][hashtable]$Context
     )
     $entry = & $script:SequenceActionRegistry.Get $Name
-    if (-not $entry)         { throw "Sequence action '$Name' is not registered." }
-    if (-not $entry.Handler) { throw "Sequence action '$Name' has no Handler scriptblock registered." }
+    if (-not $entry)         { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d4288d81f5c5acb3' -Arguments @{ name = "$Name" }) }
+    if (-not $entry.Handler) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_44419ed3590574a4' -Arguments @{ name = "$Name" }) }
     return [bool](& $entry.Handler $Context)
 }
 
@@ -310,7 +311,7 @@ function Clear-SequenceAction {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.SequenceAction registry', 'Clear all actions')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2aca254cb7990289'), (Format-YurunaOperatorMessage -Key 'runner.operator_e570e17e3efedc2a'))) {
         & $script:SequenceActionRegistry.Clear
     }
 }

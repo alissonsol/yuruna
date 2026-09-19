@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,9 +188,10 @@ function Get-MessageRow {
     #>
     [CmdletBinding()]
     [OutputType([object[]])]
-    param([Parameter(Mandatory)][string]$Root, [string]$SourceLocale = 'en-US')
+    param([Parameter(Mandatory)][string]$Root, [string]$SourceLocale = 'en-US', [string]$Locale)
 
     $rows = [Collections.Generic.List[object]]::new()
+    $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $Root 'globalization/locale-manifest.json')))
     $directory = Join-Path $Root ('globalization/catalogs/{0}' -f $SourceLocale)
     if (-not [IO.Directory]::Exists($directory)) { return $rows.ToArray() }
     foreach ($file in @(Get-ChildItem -LiteralPath $directory -Filter '*.json' | Sort-Object -Property Name)) {
@@ -199,17 +200,23 @@ function Get-MessageRow {
         foreach ($code in (Get-OrdinalSortedName -Name @($catalog.messages.PSObject.Properties.Name | Where-Object { $_ }))) {
             $entry = $catalog.messages.$code
             $names = @($entry.PSObject.Properties.Name)
-            $text = if ($names -contains 'message') {
-                [string]$entry.message
-            } elseif ($names -contains 'plural') {
-                $variants = $entry.plural.variants
-                (@(Get-OrdinalSortedName -Name @($variants.PSObject.Properties.Name | Where-Object { $_ })) |
-                    ForEach-Object { '{0}={1}' -f $_, [string]$variants.$_ }) -join "`n"
-            } else { '' }
+            if ($names -contains 'lifecycle' -and $entry.lifecycle -ceq 'tombstone') { continue }
+            $kind = if ($names -contains 'plural') { 'plural' } elseif ($names -contains 'select') { 'select' } else { 'message' }
+            $text = if ($kind -ceq 'message') { [string]$entry.message } else {
+                $variants = [ordered]@{}
+                foreach ($property in $entry.$kind.variants.PSObject.Properties) { $variants[$property.Name] = $property.Value }
+                if ($kind -ceq 'plural' -and $Locale -and $manifest.locales.$Locale.PSObject.Properties['pluralCategories']) {
+                    foreach ($category in @($manifest.locales.$Locale.pluralCategories)) {
+                        if (-not $variants.Contains([string]$category)) { $variants[[string]$category] = [string]$entry.plural.variants.other }
+                    }
+                }
+                ConvertTo-Json -InputObject $variants -Depth 20 -Compress
+            }
             $description = if ($names -contains 'description') { [string]$entry.description } else { '' }
-            $rows.Add((New-LocalizationRow -Id ('message:{0}:{1}' -f $domain, $code) -Kind 'message' `
-                        -File ('messages/{0}.json' -f $domain) -Pointer $code `
-                        -English ("{0}`n{1}" -f $text, $description) -Context $description))
+            $row = New-LocalizationRow -Id ('message:{0}:{1}' -f $domain, $code) -Kind 'message' `
+                -File ('messages/{0}.json' -f $domain) -Pointer $code -English $text -Context $description
+            $row.sourceSha256 = Get-LocalizationMessageHash -Key $code -Message $entry
+            $rows.Add($row)
         }
     }
     return $rows.ToArray()
@@ -259,11 +266,9 @@ function Get-ProjectScalarRow {
     .SYNOPSIS
         One row per official project display scalar.
     .DESCRIPTION
-        The recorded source hash is the authority for whether a scalar moved,
-        because it is what the project map gate already compares. The English
-        text is read from the YAML for the translator's benefit; where the YAML
-        reader is unavailable the row still travels with its identity and hash,
-        which keeps a scalar from silently dropping out of the request.
+        The sidecar names every enrolled field. Its current English and source
+        hash are read from real YAML, so stale sidecar hashes cannot disguise a
+        changed scalar and an unavailable codec stops the handoff.
     .OUTPUTS
         [object[]]
     #>
@@ -272,33 +277,89 @@ function Get-ProjectScalarRow {
     param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$Locale)
 
     $rows = [Collections.Generic.List[object]]::new()
-    $recordPath = Join-Path $ProjectRoot 'globalization/project-locale-source-hashes.json'
-    if (-not [IO.File]::Exists($recordPath)) { return $rows.ToArray() }
-    $record = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($recordPath))
-    $canRead = [bool](Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)
+    $record = Get-LocalizationProjectSource -ProjectRoot $ProjectRoot -Locale $Locale
+    Assert-LocalizationYamlCodec
     $cache = @{}
     foreach ($entry in @($record.entries)) {
         if ([string]$entry.locale -cne $Locale) { continue }
         $path = [string]$entry.path
         $pointer = [string]$entry.fieldPath
-        $english = ''
-        if ($canRead) {
-            if (-not $cache.ContainsKey($path)) {
-                $full = Join-Path $ProjectRoot $path
-                $cache[$path] = if ([IO.File]::Exists($full)) {
-                    ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($full)) -Ordered
-                } else { $null }
-            }
-            $english = Get-YamlPointerValue -Document $cache[$path] -Pointer $pointer
+        if (-not $cache.ContainsKey($path)) {
+            $full = Resolve-LocalizationPath -Root $ProjectRoot -Relative $path
+            if (-not [IO.File]::Exists($full)) { throw "Missing project scalar source: $path" }
+            $cache[$path] = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($full)) -Ordered
         }
-        # The recorded hash is what the project gate compares, so it stays the
-        # row's source digest even when the scalar text could not be read.
+        $english = Get-YamlPointerValue -Document $cache[$path] -Pointer $pointer
+        if (-not $english) { throw "Missing project display scalar: $path#$pointer" }
         $row = New-LocalizationRow -Id ('project-scalar:{0}:{1}' -f $path, $pointer) -Kind 'project-scalar' `
             -Repo 'yuruna-project' -File 'project/display-map.json' -Pointer $pointer -English $english -Context $path
-        $row.sourceSha256 = [string]$entry.sourceHash
+        $row.sourceSha256 = Get-TextSha256 -Text $english.Normalize([Text.NormalizationForm]::FormC)
         $rows.Add($row)
     }
     return $rows.ToArray()
+}
+
+function Get-LocalizationProjectSource {
+    <#
+    .SYNOPSIS
+        Enroll official test-set, sequence, and visible-step display metadata.
+    .DESCRIPTION
+        English displayName/description scalars are discovered from runner and
+        sequence YAML. Command, pattern, application, book, and nested-host
+        fixture trees are excluded. Existing sidecar rows retain enrollment for
+        explicitly registered external layouts.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$ProjectRoot, [string]$Locale)
+    Assert-LocalizationYamlCodec
+    $entries = @{}
+    $sidecar = Join-Path $ProjectRoot 'globalization/project-locale-source-hashes.json'
+    if ([IO.File]::Exists($sidecar)) {
+        $record = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecar)) -AsHashtable
+        foreach ($entry in $record.entries) { if ($entry.locale -ceq $Locale) { $entries[$entry.path + '|' + $entry.fieldPath] = $entry } }
+    }
+    function Add-ProjectDisplayScalar {
+        param($Node, [string]$Pointer, [string]$Relative)
+        if ($Node -is [Collections.IDictionary]) {
+            foreach ($field in @('displayName', 'description')) {
+                if ($Node.Contains($field) -and $Node[$field] -is [string] -and $Node[$field].Trim()) {
+                    $fieldPath = $Pointer + '/' + $field
+                    $identity = $Relative + '|' + $fieldPath
+                    if (-not $entries.ContainsKey($identity)) {
+                        $entries[$identity] = @{ path = $Relative; fieldPath = $fieldPath; locale = $Locale; sourceHash = Get-TextSha256 -Text $Node[$field].Normalize([Text.NormalizationForm]::FormC); reviewStatus = 'unreviewed' }
+                    }
+                }
+            }
+            foreach ($key in $Node.Keys) {
+                if ([string]$key -match 'Localized$' -or [string]$key -in @('variables', 'globalVariables')) { continue }
+                $segment = ([string]$key).Replace('~', '~0').Replace('/', '~1')
+                Add-ProjectDisplayScalar -Node $Node[$key] -Pointer ($Pointer + '/' + $segment) -Relative $Relative
+            }
+        } elseif ($Node -is [Collections.IList]) {
+            for ($index = 0; $index -lt $Node.Count; $index++) {
+                $item = $Node[$index]
+                $segment = [string]$index
+                if ($item -is [Collections.IDictionary] -and $item.Contains('name') -and $item['name']) { $segment = 'name=' + ([string]$item['name']).Replace('~', '~0').Replace('/', '~1') }
+                Add-ProjectDisplayScalar -Node $item -Pointer ($Pointer + '/' + $segment) -Relative $Relative
+            }
+        }
+    }
+    foreach ($directory in @('test', 'template', 'example')) {
+        $base = Join-Path $ProjectRoot $directory
+        if (-not [IO.Directory]::Exists($base)) { continue }
+        foreach ($file in @(Get-ChildItem -LiteralPath $base -Recurse -File | Where-Object Extension -In @('.yml', '.yaml') | Sort-Object FullName)) {
+            $relative = [IO.Path]::GetRelativePath($ProjectRoot, $file.FullName).Replace('\', '/')
+            if ($relative -notmatch '^(test/|template/(?:.*/)?test/|example/(?!nested\.host/).*/test/)' -or $relative -match '/(?:components|workloads)/') { continue }
+            $null = Resolve-LocalizationPath -Root $ProjectRoot -Relative $relative
+            $document = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($file.FullName)) -Ordered
+            if ($document -isnot [Collections.IDictionary]) { continue }
+            $orchestration = $document.Contains('name') -and $document.Contains('steps') -and ([IO.File]::ReadAllText($file.FullName) -match '(?m)^#\s*yaml-language-server:\s*\$schema=.*[/\\]orchestration-sequence\.schema\.yml\s*$')
+            if (-not $document.Contains('sequenceGuid') -and -not $document.Contains('testSets') -and -not $orchestration) { continue }
+            Add-ProjectDisplayScalar -Node $document -Pointer '' -Relative $relative
+        }
+    }
+    return @{ schema = 'yuruna.project-locale-source-hashes/v1'; hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'; entries = @($entries.Values | Sort-Object path, fieldPath) }
 }
 
 function Get-YamlPointerValue {
@@ -318,7 +379,8 @@ function Get-YamlPointerValue {
 
     if ($null -eq $Document) { return '' }
     $node = $Document
-    foreach ($segment in @($Pointer.Split('/') | Where-Object { $_ })) {
+    foreach ($encoded in @($Pointer.Split('/') | Where-Object { $_ })) {
+        $segment = $encoded.Replace('~1', '/').Replace('~0', '~')
         if ($null -eq $node) { return '' }
         if ($segment -match '^(?<key>[^=]+)=(?<value>.+)$') {
             $key = $Matches['key']
@@ -334,7 +396,12 @@ function Get-YamlPointerValue {
             $node = $found
             continue
         }
-        $node = if ($node -is [Collections.IDictionary] -and $node.Contains($segment)) { $node[$segment] } else { $null }
+        if ($node -is [Collections.IList] -and $segment -match '^\d+$') { $node = $node[[int]$segment]; continue }
+        # Assign inside the branch. Returning a one-element YAML sequence from
+        # an if-expression enumerates it into its sole mapping, which loses
+        # the numeric pointer segment before the next traversal step.
+        if ($node -is [Collections.IDictionary] -and $node.Contains($segment)) { $node = $node[$segment] }
+        else { $node = $null }
     }
     if ($null -eq $node -or $node -is [Collections.IDictionary] -or $node -is [array]) { return '' }
     return [string]$node
@@ -358,12 +425,15 @@ function Get-LocalizationRow {
 
     $rows = [Collections.Generic.List[object]]::new()
     $rows.AddRange([object[]](Get-TerminologyRow -Root $Root -Locale $Locale))
-    $rows.AddRange([object[]](Get-MessageRow -Root $Root -SourceLocale $SourceLocale))
+    $rows.AddRange([object[]](Get-MessageRow -Root $Root -SourceLocale $SourceLocale -Locale $Locale))
     $rows.AddRange([object[]](Get-DocumentRow -Root $Root -ProjectRoot $ProjectRoot -Locale $Locale))
     $rows.AddRange([object[]](Get-ProjectScalarRow -ProjectRoot $ProjectRoot -Locale $Locale))
 
     $byId = @{}
-    foreach ($row in $rows) { $byId[[string]$row.id] = $row }
+    foreach ($row in $rows) {
+        if ($byId.ContainsKey([string]$row.id)) { throw "Duplicate localization row: $($row.id)" }
+        $byId[[string]$row.id] = $row
+    }
     $ordered = foreach ($id in (Get-OrdinalSortedName -Name @($byId.Keys | Where-Object { $_ }))) { $byId[$id] }
     # Emitted rather than wrapped: every caller re-collects this with @(), and a
     # wrapper would arrive there as one nested array instead of the rows.
@@ -385,14 +455,14 @@ function Get-LocalizationRequestDigest {
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row, [ValidateSet('Json', 'Csv', 'Xliff')][string]$Format = 'Json')
 
     # Not `$row`: PowerShell variable names are case-insensitive, so a loop
     # variable spelled like its parameter destroys the collection it walks.
     $projection = foreach ($item in $Row) {
-        [ordered]@{ id = [string]$item.id; kind = [string]$item.kind; sourceSha256 = [string]$item.sourceSha256 }
+        [ordered]@{ id = [string]$item.id; kind = [string]$item.kind; sourceSha256 = [string]$item.sourceSha256; english = [string]$item.english }
     }
-    $canonical = ConvertTo-CanonicalApprovalJson -Value @($projection)
+    $canonical = ConvertTo-CanonicalApprovalJson -Value ([ordered]@{ format = $Format; rows = @($projection) })
     return [ordered]@{ algorithm = $script:RequestDigestAlgorithm; sha256 = Get-TextSha256 -Text $canonical }
 }
 
@@ -482,39 +552,32 @@ function Read-LocalizationAnswer {
 
     $answer = @{}
     if (-not [IO.Directory]::Exists($BundleRoot)) { return $answer }
-    foreach ($relative in @('glossary/terms.json', 'glossary/rulings.json', 'glossary/style-guide.json',
-            'project/display-map.json')) {
-        $path = Join-Path $BundleRoot $relative
+    $requestPath = Resolve-LocalizationPath -Root $BundleRoot -Relative 'request.json'
+    if (-not [IO.File]::Exists($requestPath)) { return $answer }
+    $request = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($requestPath))
+    if ($request.format -cnotin @('Json', 'Csv', 'Xliff')) { throw "Unavailable localization codec: $($request.format)" }
+    $expected = @{}
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($row in $request.rows) {
+        if ($expected.ContainsKey([string]$row.id)) { throw "Duplicate request row: $($row.id)" }
+        $expected[[string]$row.id] = $row
+    }
+    foreach ($group in @($request.rows | Group-Object file)) {
+        $path = Resolve-LocalizationPath -Root $BundleRoot -Relative $group.Name
         if (-not [IO.File]::Exists($path)) { continue }
-        foreach ($entry in @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))).entries)) {
-            $names = @($entry.PSObject.Properties.Name)
-            if ($names -notcontains 'id' -or $names -notcontains 'translation') { continue }
-            $text = [string]$entry.translation
-            if ($text) { $answer[[string]$entry.id] = $text }
+        if ($group.Group[0].kind -ceq 'document') {
+            if ($group.Count -ne 1) { throw 'A document file must have exactly one row.' }
+            $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
+            if ($text.Trim()) { $answer[[string]$group.Group[0].id] = $text }
+            continue
         }
-    }
-    $messages = Join-Path $BundleRoot 'messages'
-    if ([IO.Directory]::Exists($messages)) {
-        foreach ($file in @(Get-ChildItem -LiteralPath $messages -Filter '*.json')) {
-            foreach ($entry in @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($file.FullName))).entries)) {
-                $names = @($entry.PSObject.Properties.Name)
-                if ($names -notcontains 'id' -or $names -notcontains 'translation') { continue }
-                $text = [string]$entry.translation
-                if ($text) { $answer[[string]$entry.id] = $text }
-            }
-        }
-    }
-    $documents = Join-Path $BundleRoot 'documents'
-    if ([IO.Directory]::Exists($documents)) {
-        $prefix = [IO.Path]::GetFullPath($documents)
-        foreach ($file in @(Get-ChildItem -LiteralPath $documents -Recurse -File)) {
-            $relative = $file.FullName.Substring($prefix.Length).TrimStart([IO.Path]::DirectorySeparatorChar,
-                [char]'/').Replace('\\', '/')
-            $split = $relative.IndexOf('/')
-            if ($split -le 0) { continue }
-            $id = 'document:{0}:{1}' -f $relative.Substring(0, $split), $relative.Substring($split + 1)
-            $text = [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")
-            if ($text.Trim()) { $answer[$id] = $text }
+        foreach ($entry in @(Read-LocalizationEntry -Path $path -Format $request.format)) {
+            $id = [string]$entry.id
+            if (-not $expected.ContainsKey($id) -or $expected[$id].file -cne $group.Name) { throw "Unrequested answer row: $id" }
+            if (-not $seen.Add($id)) { throw "Duplicate answer row: $id" }
+            if ($entry.translation -isnot [string]) { throw "Answer must be a string: $id" }
+            if ([string]$entry.english -cne [string]$expected[$id].english) { throw "Answer changed the source text: $id" }
+            if (-not [string]::IsNullOrWhiteSpace([string]$entry.translation)) { $answer[$id] = [string]$entry.translation }
         }
     }
     return $answer
@@ -570,7 +633,157 @@ function Get-LocalizationRowState {
     return $state
 }
 
+
+function Resolve-LocalizationPath {
+    <#
+    .SYNOPSIS
+        Resolve a confined exchange path without following links.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Root, [string]$Relative)
+    if (-not $Relative -or $Relative -match '(^[\\/]|\\|:|(^|/)\.\.(/|$))') { throw "Invalid localization path: $Relative" }
+    $path = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
+    $cursor = $path
+    while ($cursor) {
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked localization path: $path" }
+        $cursor = Split-Path -Parent $cursor
+    }
+    return $path
+}
+
+function Assert-LocalizationYamlCodec {
+    <#
+    .SYNOPSIS
+        Require the real YAML reader and writer before processing project fields.
+    #>
+    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or
+        -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
+        Import-Module powershell-yaml -Global -ErrorAction Stop
+    }
+}
+
+function Get-LocalizationMessageHash {
+    <#
+    .SYNOPSIS
+        Hash the complete source-owned message contract used by the compiler.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Key, $Message)
+    # Match the compiler's semantic source projection, including branch selectors
+    # and placeholder contracts. Compiler round-trip tests guard the wire format.
+    function ConvertTo-MessageOrderedValue {
+        param([AllowNull()]$Value)
+        if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
+        if ($Value -is [Collections.IDictionary]) {
+            $result = [ordered]@{}
+            foreach ($name in @($Value.Keys | Sort-Object)) { $result[$name] = ConvertTo-MessageOrderedValue $Value[$name] }
+            return $result
+        }
+        if ($Value -is [Collections.IEnumerable]) { return ,@($Value | ForEach-Object { ConvertTo-MessageOrderedValue $_ }) }
+        $result = [ordered]@{}
+        foreach ($property in @($Value.PSObject.Properties | Sort-Object Name)) { $result[$property.Name] = ConvertTo-MessageOrderedValue $property.Value }
+        return $result
+    }
+    $record = [ordered]@{ key = $Key; contract = ConvertTo-MessageOrderedValue $Message }
+    return Get-TextSha256 -Text (((ConvertTo-Json -InputObject $record -Depth 20).Replace("`r`n", "`n")).TrimEnd() + "`n")
+}
+
+function Read-LocalizationEntry {
+    <#
+    .SYNOPSIS
+        Read a JSON, CSV, or XLIFF 2.0 answer table.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([string]$Path, [ValidateSet('Json', 'Csv', 'Xliff')][string]$Format)
+    switch -CaseSensitive ($Format) {
+        'Json' { return @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Path))).entries) }
+        'Csv' { return @(ConvertFrom-Csv -InputObject ([IO.File]::ReadAllText($Path))) }
+        'Xliff' {
+            $settings = [Xml.XmlReaderSettings]::new(); $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+            $settings.XmlResolver = $null
+            $reader = [Xml.XmlReader]::Create($Path, $settings)
+            try { $document = [Xml.XmlDocument]::new(); $document.XmlResolver = $null; $document.Load($reader) }
+            finally { $reader.Dispose() }
+            if ($document.DocumentElement.LocalName -cne 'xliff' -or $document.DocumentElement.GetAttribute('version') -cne '2.0') { throw 'Expected XLIFF 2.0.' }
+            return @($document.SelectNodes('//*[local-name()="unit"]') | ForEach-Object {
+                $segment = $_.SelectSingleNode('./*[local-name()="segment"]')
+                if (-not $segment) { throw 'XLIFF unit has no segment.' }
+                $source = $segment.SelectSingleNode('./*[local-name()="source"]')
+                $target = $segment.SelectSingleNode('./*[local-name()="target"]')
+                if (-not $source -or -not $target) { throw 'XLIFF segment requires source and target.' }
+                [pscustomobject]@{ id = $_.GetAttribute('id'); english = $source.InnerText; translation = $target.InnerText }
+            })
+        }
+    }
+}
+
+function Write-LocalizationEntry {
+    <#
+    .SYNOPSIS
+        Write a real table in the selected interchange format.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'The exporter confirms the complete destination before writing its codec files.')]
+    param([string]$Path, [ValidateSet('Json', 'Csv', 'Xliff')][string]$Format, [string]$Locale, [object[]]$Entries)
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $Path))
+    $text = switch -CaseSensitive ($Format) {
+        'Json' { ConvertTo-Json -InputObject ([ordered]@{ locale = $Locale; entries = $Entries }) -Depth 30 }
+        'Csv' { (@($Entries | ForEach-Object { [pscustomobject]$_ } | ConvertTo-Csv -NoTypeInformation) -join "`n") }
+        'Xliff' {
+            $builder = [Text.StringBuilder]::new()
+            $settings = [Xml.XmlWriterSettings]::new(); $settings.OmitXmlDeclaration = $true; $settings.Indent = $true
+            $writer = [Xml.XmlWriter]::Create($builder, $settings)
+            try {
+                $writer.WriteStartElement('xliff', 'urn:oasis:names:tc:xliff:document:2.0')
+                $writer.WriteAttributeString('version', '2.0'); $writer.WriteAttributeString('srcLang', 'en-US'); $writer.WriteAttributeString('trgLang', $Locale)
+                $writer.WriteStartElement('file'); $writer.WriteAttributeString('id', 'localization')
+                foreach ($entry in $Entries) {
+                    $writer.WriteStartElement('unit'); $writer.WriteAttributeString('id', [string]$entry.id)
+                    $writer.WriteStartElement('segment')
+                    $writer.WriteElementString('source', [string]$entry.english); $writer.WriteElementString('target', [string]$entry.translation)
+                    $writer.WriteEndElement(); $writer.WriteEndElement()
+                }
+                $writer.WriteEndElement(); $writer.WriteEndElement(); $writer.Flush()
+            } finally { $writer.Dispose() }
+            $builder.ToString()
+        }
+    }
+    [IO.File]::WriteAllText($Path, $text.Replace("`r`n", "`n").TrimEnd() + "`n", [Text.UTF8Encoding]::new($false))
+}
+
+function Set-LocalizationYamlValue {
+    <#
+    .SYNOPSIS
+        Set a translated project scalar in its locale map.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Changes only the in-memory staged YAML document.')]
+    param($Document, [string]$Pointer, [string]$Locale, [string]$Text)
+    $segments = @($Pointer.TrimStart('/').Split('/') | ForEach-Object { $_.Replace('~1', '/').Replace('~0', '~') })
+    $node = $Document
+    for ($i = 0; $i -lt $segments.Count - 1; $i++) {
+        $segment = $segments[$i]
+        if ($segment -match '^([^=]+)=(.+)$') {
+            $key = $Matches[1]; $value = $Matches[2]
+            $matching = @($node | Where-Object { $_ -is [Collections.IDictionary] -and [string]$_[$key] -ceq $value })
+            if ($matching.Count -ne 1) { throw "Ambiguous project pointer: $Pointer" }
+            $node = $matching[0]
+        } elseif ($node -is [Collections.IList] -and $segment -match '^\d+$') { $node = $node[[int]$segment] }
+        elseif ($node -is [Collections.IDictionary] -and $node.Contains($segment)) { $node = $node[$segment] }
+        else { throw "Unknown project pointer: $Pointer" }
+    }
+    $field = $segments[-1]
+    if ($field -cnotin @('displayName', 'description') -or $node -isnot [Collections.IDictionary] -or -not $node.Contains($field)) { throw "Not a project display scalar: $Pointer" }
+    $map = $field + 'Localized'
+    if (-not $node.Contains($map)) { $node[$map] = [ordered]@{} }
+    if ($node[$map] -isnot [Collections.IDictionary]) { throw "Invalid project locale map: $Pointer" }
+    $node[$map][$Locale] = $Text.Normalize([Text.NormalizationForm]::FormC)
+}
+
 Export-ModuleMember -Function Get-LocalizationExchangeSchema, Get-TextSha256, New-LocalizationRow,
     Get-TerminologyRow, Get-MessageRow, Get-DocumentRow, Get-ProjectScalarRow, Get-YamlPointerValue,
-    Get-LocalizationRow, Get-LocalizationRequestDigest, Test-LocalizationAttestation,
-    Read-LocalizationAnswer, Get-LocalizationRowState
+    Get-LocalizationProjectSource, Get-LocalizationRow, Get-LocalizationRequestDigest, Test-LocalizationAttestation,
+    Read-LocalizationAnswer, Get-LocalizationRowState, Get-LocalizationMessageHash, Assert-LocalizationYamlCodec,
+    Resolve-LocalizationPath, Read-LocalizationEntry, Write-LocalizationEntry, Set-LocalizationYamlValue

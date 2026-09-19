@@ -53,6 +53,8 @@ clona novamente o projeto de exemplo (`repositories.projectUrl` na
 configuração) e executa as sequências do
 [exemplo de website](https://github.com/alissonsol/yuruna-project/tree/main/example/website).
 
+Seleção de idioma e tradução: [Idiomas e localização](../globalization.md). Português (Brasil): [documentos traduzidos](index.md).
+
 **Mais informações.** [Guia do operador](../operator.md) -- o runbook
 completo para uma única máquina, incluindo o usuário de teste dedicado;
 [guia do operador de laboratório](../lab-operator.md) -- várias
@@ -111,4 +113,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.13
+Última revisão: 2026.09.18

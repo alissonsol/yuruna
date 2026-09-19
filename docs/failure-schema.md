@@ -12,6 +12,21 @@ drift on classification or fields. The
 class/severity/recovery vocabulary comes from each verb's registration
 (see [handler contract](test-sequences.md#handler-contract)).
 
+The slots that record lands in are a **shared, cross-module store**, not a
+per-module `$script:` variable. The engine's verb handlers and the SSH/OCR
+handlers in `Test.SequenceHandler` must read and write the same failure
+slots, but a PowerShell `$script:` variable resolves to the module that
+*defined* it -- a handler in `Test.SequenceHandler` writing
+`$script:WaitForTextMatchedFailurePattern` would land in a scope the engine
+(`Invoke-Sequence`) never reads, and the signal would silently vanish, with
+an installer crash then mis-classified as a plain timeout. Anchoring the
+slots in one `New-YurunaRegistry`-backed store instead (an eviction-safe
+`$global:` ordered hashtable, surviving `-Force` re-imports) lets every
+module share one object: each does `$script:Fail = Get-SequenceFailureState`
+once and then reads and writes `$script:Fail.<slot>`. This is also the
+prerequisite that lets verbs like `retry` and `recoverFromSnapshot` migrate
+out of the engine without losing their failure-state coupling.
+
 The record is written to the shared log root, and every sequence start clears
 it there so one sequence's step location can never be reported as the next
 one's. Each writer therefore also mirrors it under the running cycle's folder
@@ -723,6 +738,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

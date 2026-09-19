@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -606,5 +606,156 @@ testSets:
         Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) `
             -Actual ([Convert]::ToBase64String($after)) `
             -Because 'a failed whole-sidecar acceptance mutated the authority bytes'
+    }
+}
+Describe 'production project and operator localization contracts' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.LocalizationExchange.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.Catalog.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+    }
+    It 'globalization acceptance: all reachable project display scalars' {
+        $enrolled = Get-LocalizationProjectSource -ProjectRoot $script:ProjectRoot -Locale 'pt-BR'
+        $rows = @(Get-LocalizationRow -Root $script:RepoRoot -ProjectRoot $script:ProjectRoot -Locale 'pt-BR' | Where-Object kind -EQ 'project-scalar')
+        $rows.Count | Should -Be $enrolled.entries.Count
+        $rows.Count | Should -BeGreaterThan 100
+        foreach ($entry in $enrolled.entries) {
+            $row = @($rows | Where-Object { $_.context -ceq $entry.path -and $_.pointer -ceq $entry.fieldPath })
+            $row.Count | Should -Be 1 -Because ($entry.path + '#' + $entry.fieldPath)
+            $row[0].english | Should -Not -BeNullOrEmpty
+            $row[0].sourceSha256 | Should -Match '^[a-f0-9]{64}$'
+            $field = ($entry.fieldPath -split '/')[-1]
+            $object = @{ $field = $row[0].english; ($field + 'Localized') = @{ 'qps-Ploc' = ('FIXTURE ' + $row[0].english) } }
+            (Resolve-ProjectLabel -Entry $object -ScalarKey $field -Locale 'en-US') | Should -BeExactly $row[0].english
+            (Resolve-ProjectLabel -Entry $object -ScalarKey $field -Locale 'qps-Ploc') | Should -BeExactly ('FIXTURE ' + $row[0].english)
+        }
+        @($rows | Where-Object context -Like 'example/*').Count | Should -BeGreaterThan 0
+        @($rows | Where-Object pointer -Match '/0/description$').Count | Should -BeGreaterThan 0
+    }
+    It 'globalization acceptance: CLI host guest and automation catalog coverage' {
+        $plannerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.SequenceResolve.psm1'), [ref]$null, [ref]$null)
+        $plannerFactory = $plannerAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-SequencePlannerException' }, $true)
+        $plannerFactory | Should -Not -BeNullOrEmpty
+        $plannerCalls = @($plannerFactory.Body.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Format-YurunaOperatorMessage' }, $true))
+        $plannerCalls.Count | Should -Be 1
+        $plannerCalls[0].Extent.Text | Should -Match '\-Key \$Key\b'
+        $plannerCalls[0].Extent.Text | Should -Match '\-Arguments \$Arguments\b'
+        $manifest = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/manifests/operator-catalog-sources.json') -Raw | ConvertFrom-Json
+        $manifest.sources.Count | Should -BeGreaterThan 4000
+        $sources = @{}
+        $catalogs = @{}
+        foreach ($record in $manifest.sources) {
+            if (-not $sources.ContainsKey($record.path)) {
+                $errors = $null
+                $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $record.path), [ref]$null, [ref]$errors)
+                @($errors).Count | Should -Be 0 -Because $record.path
+                $sources[$record.path] = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Format-YurunaOperatorMessage', 'New-SequencePlannerException') }, $true) | ForEach-Object { $_.Extent.Text }) -join "`n"
+            }
+            $sources[$record.path] | Should -Match ([regex]::Escape("-Key '$($record.key)'")) -Because $record.path
+            $domain = ($record.key -split '\.')[0]
+            if (-not $catalogs.ContainsKey($domain)) { $catalogs[$domain] = Get-Content -LiteralPath (Join-Path $script:RepoRoot "globalization/catalogs/en-US/$domain.json") -Raw | ConvertFrom-Json -AsHashtable }
+            $message = $catalogs[$domain].messages[$record.key]
+            $message | Should -Not -BeNullOrEmpty
+            $variants = if ($message.ContainsKey('plural')) { @('one', 'other') }
+                        elseif ($message.ContainsKey('select')) { @($message.select.variants.Keys) }
+                        else { @('message') }
+            foreach ($variant in $variants) {
+                $arguments = @{}
+                foreach ($name in $record.arguments) {
+                    $message.placeholders.ContainsKey($name) | Should -BeTrue
+                    $arguments[$name] = switch ($message.placeholders[$name].type) {
+                        'integer' { 2 }
+                        'token' { 'future_token' }
+                        default { "`u{5916}`u{90e8} <detail> & caf`u{e9}" }
+                    }
+                }
+                $expected = if ($message.ContainsKey('plural')) {
+                    $arguments[$message.plural.selector] = if ($variant -eq 'one') { 1 } else { 2 }
+                    $message.plural.variants[$variant]
+                } elseif ($message.ContainsKey('select')) {
+                    $arguments[$message.select.selector] = if ($variant -eq 'other') { 'future_token' } else { $variant }
+                    $message.select.variants[$variant]
+                } else { $message.message }
+                foreach ($name in $arguments.Keys) { $expected = $expected.Replace('{' + $name + '}', [string]$arguments[$name]) }
+                (Format-CatalogMessage -Key $record.key -Arguments $arguments -Locale 'en-US') | Should -BeExactly $expected
+            }
+        }
+        foreach ($scope in @('automation/', 'host/', 'test/')) { @($manifest.sources | Where-Object path -Like "$scope*").Count | Should -BeGreaterThan 0 }
+        @($manifest.sources | Where-Object path -Match 'guest\.').Count | Should -BeGreaterThan 0
+    }
+    It 'globalization acceptance: sequence messages carry stable codes and labels' {
+        $file = Join-Path $here 'Test.SequenceEngine.psm1'
+        $ast = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$writeCurrentAction' }, $true)
+        $writer = [scriptblock]::Create($assignment.Right.Extent.Text.Trim().TrimStart('{').TrimEnd('}'))
+        $currentActionFile = Join-Path $TestDrive 'current-action.json'
+        $GuestKey = 'guest.fixture'; $VMName = "vm.`u{5916}`u{90e8}"
+        Import-Module (Join-Path $here 'Test.StateFile.psm1') -DisableNameChecking
+        $states = @(
+            @{ code = 'sequence_paused_waiting_resume'; key = 'runner.sequence_paused'; arguments = @{ label = '[1/2]' }; label = '[1/2]' }
+            @{ code = 'sequence_restart_requested'; key = 'runner.sequence_restart'; arguments = @{ label = '[1/2]' }; label = '[1/2]' }
+            @{ code = 'sequence_step_active'; key = 'runner.sequence_step'; arguments = @{ index = 1; total = 2; action = 'waitForText'; description = "`u{5916}`u{90e8} <detail>" }; label = "`u{5916}`u{90e8} <detail>" }
+            @{ code = 'sequence_completed'; key = 'runner.sequence_completed'; arguments = @{ total = 2; duration = '1 min and 2 s' }; label = '' }
+        )
+        foreach ($state in $states) {
+            $line = Format-CatalogMessage -Key $state.key -Arguments $state.arguments -Locale 'en-US'
+            & $writer $line $state.code $state.label $state.arguments
+            $value = Get-Content -LiteralPath $currentActionFile -Raw | ConvertFrom-Json -AsHashtable
+            $value.code | Should -BeExactly $state.code
+            $value.label | Should -BeExactly $state.label
+            $value.line | Should -BeExactly $line
+            $value.arguments.Count | Should -Be $state.arguments.Count
+            $value.guestKey | Should -BeExactly $GuestKey
+            $value.vmName | Should -BeExactly $VMName
+            foreach ($name in $state.arguments.Keys) { $value.arguments[$name] | Should -Be $state.arguments[$name] }
+        }
+    }
+}
+
+Describe 'operator display formats follow the selected locale' {
+    It 'preserves alert punctuation while selecting complete state variants' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'Write-Output' -and
+                    $node.Extent.Text.Contains("-Key 'runner.failure_alert_state'")
+                }, $true))
+        $calls.Count | Should -Be 1
+        $emit = [scriptblock]::Create('param($GatingState)' + "`n" + $calls[0].Extent.Text)
+        try {
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'en-US' } }
+            foreach ($armed in @($true, $false)) {
+                foreach ($count in @(0, 2, 1234)) {
+                    $stateBag = @{ ConsecutiveFailures = $count; FailuresBeforeAlert = 3; AlertArmed = $armed }
+                    $number = $count.ToString('N0', [Globalization.CultureInfo]::GetCultureInfo('en-US'))
+                    $state = if ($armed) { 'armed' } else { 'suppressed' }
+                    (& $emit $stateBag) | Should -BeExactly "  Alert:   $number/3 failures ($state)"
+                }
+            }
+        } finally { & $adapter { param($context) $script:OperatorContext = $context } $priorContext }
+    }
+    It 'keeps pinned English number formatting on a Portuguese host culture' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $adapter = Get-Module Yuruna.Globalization
+        $priorCulture = [Globalization.CultureInfo]::CurrentCulture
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('pt-BR')
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'en-US' } }
+            $text = Format-YurunaOperatorMessage -Key 'automation.operator_890c2539295306b9' -FormatValues @(1.26) -FormatBindings @{ totalHours = '0:F1' }
+            $text | Should -BeExactly 'Uptime       : 1.3 hours'
+            $text | Should -Not -Match '1,3'
+            Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
+            $memory = Get-ServiceVmMemoryVerdict -Service @([pscustomobject]@{ Name = 'caching-proxy'; MemoryMb = 4096 }) -HostMemoryMb 32768
+            $memory.Message | Should -Match '32\.0 GB; the 1 service VM this run starts commits 4\.0 GB'
+            $memory.Message | Should -Not -Match '32,0|4,0'
+
+        } finally {
+            [Globalization.CultureInfo]::CurrentCulture = $priorCulture
+            & $adapter { param($context) $script:OperatorContext = $context } $priorContext
+        }
     }
 }

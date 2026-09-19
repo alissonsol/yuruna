@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1197,7 +1197,12 @@ function Resolve-YurunaDevBranch {
     [OutputType([string])]
     param([string]$Basename, [string]$Ref)
     if ($Basename -eq 'yurunadev' -and -not $script:YurunaBranchExplicit -and $Ref -ne 'main') {
-        Write-Warn "yurunadev is a development repo (tagged only at release) -- tracking latest 'main' instead of '$Ref'"
+        # The name is interpolated rather than written into the sentence. Shipped
+        # text is copied verbatim into the generated translation catalogs, which
+        # carry no allowlist for the private development source, so a literal name
+        # here reaches a published artifact that may not carry it. The compared
+        # value is the same name, so the line a reader sees does not change.
+        Write-Warn "$Basename is a development repo (tagged only at release) -- tracking latest 'main' instead of '$Ref'"
         return 'main'
     }
     return $Ref

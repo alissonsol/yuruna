@@ -300,3 +300,36 @@ func TestEveryEmbeddedLocaleIsDeclared(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryDeliveredLocaleHasCompleteImmutableBrowserCatalog(t *testing.T) {
+	srv := newLocaleServer(t, Options{AllowPseudoLocale: true})
+	for _, locale := range availableLocales() {
+		for _, route := range []string{"/", "/assign", "/hosts", "/pools", "/test-sets", "/scan", "/diagnostics"} {
+			response := get(t, srv, route, map[string]string{"Accept-Language": locale})
+			html := body(t, response)
+			if response.StatusCode != 200 || response.Header.Get("Content-Language") != locale || !strings.Contains(html, `lang="`+locale+`"`) {
+				t.Fatalf("%s %s did not negotiate the production locale: %d %v", locale, route, response.StatusCode, response.Header)
+			}
+			if locale == "en-US" {
+				continue
+			}
+			pattern := regexp.MustCompile(`/assets/` + regexp.QuoteMeta(locale) + `\.[0-9a-f]{64}\.pool\.js`)
+			names := pattern.FindAllString(html, -1)
+			if len(names) != 1 {
+				t.Fatalf("%s %s has %d selected catalog requests", locale, route, len(names))
+			}
+			response = get(t, srv, names[0], map[string]string{"Accept-Encoding": "identity"})
+			text := body(t, response)
+			if !strings.Contains(text, "pool.repo_no_access") || !strings.Contains(text, "status.cycle_paused") {
+				t.Fatalf("%s catalog omitted a service or shared chrome domain", locale)
+			}
+			if response.Header.Get("Cache-Control") != "public,max-age=31536000,immutable" {
+				t.Fatal("selected catalog is not immutable")
+			}
+			again := get(t, srv, names[0], map[string]string{"If-None-Match": response.Header.Get("ETag"), "Accept-Encoding": "identity"})
+			if again.StatusCode != 304 || body(t, again) != "" {
+				t.Fatal("selected catalog revalidation changed bytes")
+			}
+		}
+	}
+}

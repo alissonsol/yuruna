@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -62,8 +64,11 @@ param(
     [Parameter()]
     [int]$MemoryMb = 12288,
     [Parameter()]
-    [string]$SquidCacheMem = '7 GB'
+    [string]$SquidCacheMem = '7 GB',
+    [switch]$AllowPseudoLocale
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -75,7 +80,7 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
@@ -88,7 +93,7 @@ if ($MacAddress) {
     Import-Module (Join-Path $ScriptDir '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
     if (-not $MacAddress) {
-        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5a147a3482612cdd')
         exit 1
     }
 }
@@ -102,7 +107,7 @@ $downloadDir = "$HOME/yuruna/image/caching-proxy-service"
 # UTM presence check (no nested-virt / M3 check -- squid needs neither).
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
-    Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
     exit 1
 }
 
@@ -115,7 +120,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
 # Provenance side-channel for operators reading the transcript. Emits
 # "Provenance: <url>" when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
@@ -124,7 +129,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # --- REGION: Remove existing VM
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 
@@ -143,13 +148,13 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # disk hits under UTM's discard=unmap,detect-zeroes=unmap -- see
 # feedback_macos-qemu-punchhole-alignment.md.
 $DiskImage = "$DataDir/disk.qcow2"
-Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
 # to Copy-Item if the destination isn't APFS (rare). Full path bypasses
 # the PowerShell `cp` alias for Copy-Item.
 & /bin/cp -c $baseImageFile $DiskImage
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6a80b3350f680db8')
     Copy-Item -Path $baseImageFile -Destination $DiskImage
 }
 
@@ -157,7 +162,7 @@ if ($LASTEXITCODE -ne 0) {
 # See https://yuruna.link/42e220c4-0004
 # Keep enough virtual capacity for the Squid cache and OS/log headroom.
 if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow2')) {
-    Write-Error "Could not resize '$DiskImage' to 512 GB; refusing to build the cache VM on base-capacity disk."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_016292885d6c36cc' -Arguments @{ diskImage = "$DiskImage" })
     exit 1
 }
 
@@ -179,7 +184,7 @@ Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destin
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Vault admin password
 # See https://yuruna.link/42f6b05f-0041
@@ -192,9 +197,9 @@ $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $persisted = (Read-CachingProxyServiceState).password
 if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
 $AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching-proxy-service-admin'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyServiceStatePath
 
@@ -210,9 +215,18 @@ if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
 # See https://yuruna.link/42f6b05f-0042
@@ -230,7 +244,7 @@ $ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg
 # Refuse to bake a value containing a single quote: it would unbalance the guest's
 # single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
 if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
-    Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4f836dfb9d84f4e5')
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
 # REPLICATE turns on only when pool storage is configured; the NAS password
@@ -259,14 +273,16 @@ try {
     }
 } catch {
     $keyReadFailed = $true
-    Write-Warning ("internal authentication key: reading this host's vault failed ($($_.Exception.Message)). Building with an EMPTY key and leaving the vault untouched: " +
-        "the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token. Resolve the vault error and rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_7691e5e3206997ff' -Arguments @{ message = "$($_.Exception.Message)" }))
 }
-# Refuse a token carrying a newline or quote: it would corrupt the baked token file or
-# the runner's bearer header.
-if ($internalAuthKey -match '[\r\n''"]') {
-    Write-Warning ("The internal authentication key in this host's vault contains a newline or quote character, which would corrupt the baked key file; building with an EMPTY key. " +
-        "Re-enroll this host (pwsh test/lab/Set-LabToken.ps1) or store a clean value, then rebuild.")
+# Trim first, then refuse whatever survives. Every reader of the baked file strips
+# surrounding whitespace, so a stored value that merely picked up a trailing newline
+# is healed here rather than costing the proxy its key. Interior whitespace or a
+# quote has no safe reading: it would corrupt the baked key file or the runner's
+# bearer header.
+$internalAuthKey = $internalAuthKey.Trim()
+if ($internalAuthKey -match '[\s''"]') {
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_714943b9011e0bbd'))
     $internalAuthKey = ''
     $keyReadFailed = $true
 }
@@ -281,12 +297,14 @@ if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
     $keyProvision = Set-InternalAuthKey -Token $internalAuthKey
     if ($keyProvision.ok) {
-        Write-Output "internal authentication key: none was stored on this host; minted one and stored it (vaultKey '$($keyProvision.vaultKey)')."
+        # A warning, not a status line: this mint sets the key for the WHOLE lab, and
+        # it is silent from every other host's point of view. A pool that was already
+        # enrolled against an earlier proxy keeps the old key and reads as
+        # "onsite (token mismatch)" on the dashboard from the moment this proxy comes
+        # up, with no clue pointing back here.
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_2098089a9d722ad9' -Arguments @{ vaultKey = "$($keyProvision.vaultKey)" }))
     } else {
-        Write-Warning ("Could not store a freshly minted internal authentication key in this host's vault " +
-            "(keyChanged=$($keyProvision.keyChanged), verified=$($keyProvision.verified)); building with an EMPTY " +
-            "token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows " +
-            "no Lab token until one is provisioned and the proxy rebuilt.")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_641824f231dc3781' -Arguments @{ keyChanged = "$($keyProvision.keyChanged)"; verified = "$($keyProvision.verified)" }))
         $internalAuthKey = ''
     }
 }
@@ -309,8 +327,7 @@ try {
         }
     }
 } catch {
-    Write-Warning ("dockerhub-token: reading this host's vault failed ($($_.Exception.Message)). Building with NO Docker Hub credential: the cache syncs " +
-        "anonymously against a pull budget shared by every guest behind this egress IP. Resolve the vault error and rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_c8f003fc6b37a1de' -Arguments @{ message = "$($_.Exception.Message)" }))
     $dockerHubWarned = $true
 }
 # Refuse a value carrying a control character, quote, or backslash: the guest
@@ -319,8 +336,7 @@ try {
 # backslash-n reads back as a newline -- a DIFFERENT secret, presented to Hub on
 # every sync in place of the anonymous path that would have been served.
 if (($dockerHubUsername -match '[\x00-\x1f\x7f''"\\]') -or ($dockerHubToken -match '[\x00-\x1f\x7f''"\\]')) {
-    Write-Warning ("dockerhub-token: the stored account name or secret contains a control character, quote, or backslash, which the guest's JSON " +
-        "credential file cannot carry unchanged; building with NO Docker Hub credential. Store a clean value, then rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_62a464c885f1b62c'))
     $dockerHubUsername = ''
     $dockerHubToken    = ''
     $dockerHubWarned   = $true
@@ -355,7 +371,7 @@ try {
     $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
     $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
 } catch {
-    Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: Dashboard brand identity
@@ -376,6 +392,8 @@ $UserData = New-CloudInitUserData `
     -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.utm.overlay.yml') `
     -RepoRoot    $_repoRootForExt `
     -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
@@ -401,17 +419,17 @@ Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
-Write-Output "Generating seed.iso with cloud-init configuration..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5f1478be62ab5e8d')
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create seed.iso with hdiutil."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
     exit 1
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -446,7 +464,7 @@ try {
     Write-Verbose "route -n get default failed: $($_.Exception.Message)"
 }
 if (-not $BridgeInterface) {
-    Write-Warning "Could not resolve default-route interface; falling back to 'en0' for VZ bridge."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15685f8ad1d8fea6')
     $BridgeInterface = 'en0'
 }
 
@@ -454,9 +472,9 @@ if (-not $BridgeInterface) {
 # See https://yuruna.link/42e220c4-0004
 # Wi-Fi uses Shared NAT and host forwarding; Ethernet retains direct bridging.
 if ($NetworkMode -eq 'Shared') {
-    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxyServiceVM.ps1 will forward host ports to it for LAN access."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_719fe58daf1eaf0e' -Arguments @{ bridgeInterface = "$BridgeInterface" })
 } else {
-    Write-Output "Bridge interface: $BridgeInterface (cache VM will request DHCP on this LAN)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8e8627820f248e51' -Arguments @{ bridgeInterface = "$BridgeInterface" })
 }
 
 # --- REGION: https://yuruna.link/42f6b05f-0040
@@ -464,7 +482,7 @@ if ($NetworkMode -eq 'Shared') {
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -495,8 +513,8 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
@@ -508,14 +526,14 @@ Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 # See https://yuruna.link/42e220c4-0004
 # Keep the here-string literal: expandable strings would execute the shell examples.
 Write-Output ""
-Write-Output "== VM bundle created =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0aa25de09813cc1c')
 Write-Output "  Path:      $UtmDir"
-Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0a95ec9679adce8d' -Arguments @{ vncDisplay = "$VncDisplay"; vncDisplay2 = "$(5900 + $VncDisplay)" })
 Write-Output ""
-Write-Output "  Console/SSH login:"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a19074ac4867746e')
 Write-Output "    user:     caching-proxy-service-admin"
 Write-Output "    password: $PasswordFile"
-Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a9dbdd1577bb8c0e')
 $guidance = @'
 
 Next steps (any guest consumer will ERROR -- not silently fall back

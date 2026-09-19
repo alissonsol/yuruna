@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,7 @@
 #>
 
 # --- REGION: Path
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-CachingProxyServiceStatePath {
     <#
     .SYNOPSIS
@@ -85,7 +86,7 @@ function Read-CachingProxyServiceState {
         try {
             Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
         } catch {
-            Write-Warning "Read-CachingProxyServiceState: powershell-yaml not importable ($($_.Exception.Message)); returning empty."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39e2bd9c183f2610' -Arguments @{ message = "$($_.Exception.Message)" })
             return $empty
         }
     }
@@ -101,7 +102,7 @@ function Read-CachingProxyServiceState {
     if (Test-Path -LiteralPath $backupPath) {
         $fallback = Read-CachingProxyServiceStateFile -Path $backupPath
         if ($null -ne $fallback) {
-            Write-Warning "Read-CachingProxyServiceState: main file at $path was unparseable; recovered prior state from $backupPath."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a6d14fb704d40904' -Arguments @{ path = "$path"; backupPath = "$backupPath" })
             return $fallback
         }
     }
@@ -112,9 +113,9 @@ function Read-CachingProxyServiceState {
         $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
         $corruptPath = "$path.corrupt.$stamp"
         Move-Item -LiteralPath $path -Destination $corruptPath -Force -ErrorAction Stop
-        Write-Warning "Read-CachingProxyServiceState: $path was unparseable and no usable backup; preserved corrupt copy at $corruptPath. State reset to empty."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1b930c492312c50' -Arguments @{ path = "$path"; corruptPath = "$corruptPath" })
     } catch {
-        Write-Warning "Read-CachingProxyServiceState: $path was unparseable AND the corrupt-rotation move failed ($($_.Exception.Message)). State reset to empty; next save will overwrite the broken file in place."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7b7fd33f97bf5cca' -Arguments @{ path = "$path"; message = "$($_.Exception.Message)" })
     }
     return $empty
 }
@@ -191,7 +192,7 @@ function Save-CachingProxyServiceState {
     if ($PSBoundParameters.ContainsKey('IpAddress')) { $state.ipAddress = [string]$IpAddress }
     if ($PSBoundParameters.ContainsKey('CaCert'))    { $state.caCert    = [string]$CaCert }
     if ($PSBoundParameters.ContainsKey('CaCertSourceHost')) { $state.caCertSourceHost = [string]$CaCertSourceHost }
-    if (-not $PSCmdlet.ShouldProcess($path, "Save caching-proxy-service state")) { return $path }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_4fca99e95d9dedef'))) { return $path }
     if (-not (Get-Module powershell-yaml)) {
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
@@ -832,7 +833,7 @@ function Get-PoolAggregatorServiceSeedUrl {
         $remainingMs = [int][Math]::Floor(($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
         if ($remainingMs -le 0) { break }
         if (-not $announced) {
-            Write-Information "No caching-proxy service answered on :$aggregatorPort ($($claimKey -replace '\|', ', ')); retrying for up to $MaxWaitSeconds s in case the outage is momentary ..." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4a1078b8b01b3640' -Arguments @{ aggregatorPort = "$aggregatorPort"; replace = "$($claimKey -replace '\|', ', ')"; maxWaitSeconds = "$MaxWaitSeconds" }) -InformationAction Continue
             $announced = $true
         }
         Start-Sleep -Milliseconds ([Math]::Min($backoffMs, $remainingMs))
@@ -866,7 +867,7 @@ function Get-PoolAggregatorServiceSeedUrl {
     # that boundary either. A caller that must not write has to pass -WhatIf by
     # hand, and this gate is what gives that pass an effect.
     if ($stateIp -and $stateIp -ne $winner.Address -and
-        $PSCmdlet.ShouldProcess("caching-proxy-service state ipAddress ($stateIp)", "replace with the address that answered ($($winner.Address))")) {
+        $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_78b4ffefb2c4b66c' -Arguments @{ stateIp = "$stateIp" }), (Format-YurunaOperatorMessage -Key 'runner.operator_f89c2e068682b179' -Arguments @{ address = "$($winner.Address)" }))) {
         try {
             [void](Save-CachingProxyServiceState -IpAddress $winner.Address -Confirm:$false)
             Write-Verbose "Get-PoolAggregatorServiceSeedUrl: caching-proxy-service state ipAddress $stateIp -> $($winner.Address) (the stored address did not answer)."
@@ -950,7 +951,7 @@ function Wait-YurunaAggregatorReady {
     if (-not $PSBoundParameters.ContainsKey('TimeoutSeconds') -and $env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS) {
         $parsed = 0
         if ([int]::TryParse($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS, [ref]$parsed) -and $parsed -ge 0) { $TimeoutSeconds = $parsed }
-        else { Write-Warning "YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS ('$($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS)') is not a non-negative integer; using $TimeoutSeconds s." }
+        else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6e36ede919616409' -Arguments @{ sECONDS = "$($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS)"; timeoutSeconds = "$TimeoutSeconds" }) }
     }
     if ($TimeoutSeconds -lt 0) { $TimeoutSeconds = 0 }
     if ($PollSeconds -lt 1) { $PollSeconds = 1 }
@@ -1008,13 +1009,11 @@ function Wait-YurunaAggregatorReady {
             $seedUrl = Get-PoolAggregatorServiceSeedUrl
             if ($seedUrl) {
                 $elapsed = [int]([datetime]::UtcNow - $startedUtc).TotalSeconds
-                Write-Information "pool-aggregator service is ready at $seedUrl (waited ${elapsed}s)." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4a0a1391ff35b7ce' -Arguments @{ seedUrl = "$seedUrl"; elapsed = "${elapsed}" }) -InformationAction Continue
                 return $true
             }
             if ($ProxyAddress) {
-                Write-Warning ("Wait-YurunaAggregatorReady: the aggregator at $baseUrl answered /healthz, but no configured claim " +
-                    "resolves to it, so the seed URL is still empty. Set vmStart.cachingProxyIp (or " +
-                    "`$env:YURUNA_CACHING_PROXY_SERVICE_IP) to $ProxyAddress and retry.")
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_e2c15f417bac228f' -Arguments @{ baseUrl = "$baseUrl"; proxyAddress = "$ProxyAddress" }))
                 return $false
             }
         }
@@ -1024,22 +1023,19 @@ function Wait-YurunaAggregatorReady {
 
         if (-not $announced) {
             $where = if ($ProxyAddress) { "$ProxyAddress" } else { 'the configured caching-proxy service' }
-            Write-Information "Waiting for the pool-aggregator service on ${where}:$aggregatorPort (up to $TimeoutSeconds s; it is compiled inside the proxy guest, so a first build is slow) ..." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_decd1af5026954d6' -Arguments @{ where = "${where}"; aggregatorPort = "$aggregatorPort"; timeoutSeconds = "$TimeoutSeconds" }) -InformationAction Continue
             $announced = $true
         }
         # Every 30 s, so a long wait reads as work rather than as a hang.
         if (([datetime]::UtcNow - $lastReport).TotalSeconds -ge 30) {
             $mins = [Math]::Round(([datetime]::UtcNow - $startedUtc).TotalMinutes, 1)
-            Write-Information "  ... still waiting for the pool-aggregator service ($mins min elapsed)." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fa266442ac782dfe' -Arguments @{ mins = "$mins" }) -InformationAction Continue
             $lastReport = [datetime]::UtcNow
         }
         Start-Sleep -Milliseconds ([Math]::Min($PollSeconds * 1000, $remainingMs))
     }
 
-    Write-Warning ("Wait-YurunaAggregatorReady: the pool-aggregator service did not become ready within $TimeoutSeconds s. " +
-        "Creating a dependent VM now bakes an EMPTY aggregator URL into its seed, which never re-resolves -- the service " +
-        "would run but never appear on the dashboard. Check it inside the caching-proxy VM with " +
-        "'journalctl -u pool-aggregator-service -n 50', then retry.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_300e4e9499987ed4' -Arguments @{ timeoutSeconds = "$TimeoutSeconds" }))
     return $false
 }
 
@@ -1185,18 +1181,18 @@ function Sync-PoolIntentAliasOnProxy {
         }
     }
     if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
-        return @{ Ok = $false; Changed = $false; Message = 'no caching-proxy-service address known; skipped' }
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_874c18fbb1148415') }
     }
     if (-not (Get-Command 'Test.Ssh\Invoke-GuestSsh' -ErrorAction SilentlyContinue)) {
-        return @{ Ok = $false; Changed = $false; Message = 'Test.Ssh (Invoke-GuestSsh) not loaded; skipped' }
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_91ee4b39a7ef4280') }
     }
     # A path carrying a quote would break out of the single-quoted shell
     # assignment below and run as code on the proxy.
     if ($StorePath -match "['`"\s]") {
-        return @{ Ok = $false; Changed = $false; Message = "refusing a store path containing quotes or whitespace: '$StorePath'" }
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_4833cf9ae009beb5' -Arguments @{ storePath = "$StorePath" }) }
     }
-    if (-not $PSCmdlet.ShouldProcess($ProxyAddress, "Point /pool-intent.git at $StorePath")) {
-        return @{ Ok = $true; Changed = $false; Message = 'WhatIf: no change made' }
+    if (-not $PSCmdlet.ShouldProcess($ProxyAddress, (Format-YurunaOperatorMessage -Key 'runner.operator_68683a605e32c8b4' -Arguments @{ storePath = "$StorePath" }))) {
+        return @{ Ok = $true; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_a02e9e2eb3f772d8') }
     }
 
     # Single-quoted here-string: PowerShell must not touch $STORE/$CONF, which
@@ -1299,13 +1295,13 @@ function Get-CachingProxyServiceCaCertBase64 {
     }
     # Capture into a local so the retry scriptblock closes over it explicitly.
     $caUrl = $CacheCaUrl
-    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy-service CA cert' -MaxAttempts $MaxAttempts -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
+    $caFetch = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'runner.operator_27791792c952ec05') -MaxAttempts $MaxAttempts -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
         $caResp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 10 -ErrorAction Stop
         if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
-            throw "caching-proxy-service returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2b1a4abe77bcd371' -Arguments @{ statusCode = "$($caResp.StatusCode)"; rawContentLength = "$($caResp.RawContentLength)" })
         }
         $caPem = if ($caResp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($caResp.Content) } else { [string]$caResp.Content }
-        if (-not (Test-CachingProxyServiceCaPem -Pem $caPem)) { throw "caching-proxy-service CA is not a valid X509 PEM" }
+        if (-not (Test-CachingProxyServiceCaPem -Pem $caPem)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_6305b986d1a90039') }
         [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($caPem))
     }
     if ($caFetch.Success) {
@@ -1316,13 +1312,13 @@ function Get-CachingProxyServiceCaCertBase64 {
     }
     # Live fetch exhausted -- try the last-good persisted CA, but only for the
     # same cache host and only if it still parses.
-    Write-Warning "  Could not fetch CA cert from caching-proxy-service after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3172f88b4ea9f8eb' -Arguments @{ attempts = "$($caFetch.Attempts)"; message = "$($caFetch.LastError.Exception.Message)" })
     $state = Read-CachingProxyServiceState
     if ($state.caCert -and $state.caCertSourceHost -eq $CacheHost) {
         try {
             $pem = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$state.caCert))
             if (Test-CachingProxyServiceCaPem -Pem $pem) {
-                Write-Warning "  Using last-good persisted CA for $CacheHost (live fetch failed; the cache may have flapped during provisioning)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fcf2add51fb533eb' -Arguments @{ cacheHost = "$CacheHost" })
                 return @{ CaCertBase64 = [string]$state.caCert; Source = 'persisted'; Exhausted = $false }
             }
         } catch { Write-Verbose "Get-CachingProxyServiceCaCertBase64: persisted CA decode failed: $($_.Exception.Message)" }

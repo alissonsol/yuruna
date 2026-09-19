@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424ac6f6-cc32-4fff-beb1-ec808f35ab29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@ param()
 # -Global -Force so the registry is populated and Register/Get are re-exposed
 # to test callers and to the surviving test-only helpers below, which read the
 # same $script:Providers alias of the global anchor.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.CredentialProvider.psm1') -Global -Force
 
 $script:Providers = $global:YurunaCredentialProviders
@@ -76,12 +77,12 @@ function Repair-Credential {
     )
     $provider = Get-CredentialProvider -Target $Target
     if (-not $provider) {
-        Write-Warning "Repair-Credential: no provider matches '$Target'. Registered patterns: $(($script:Providers.Values | ForEach-Object { $_.Pattern }) -join ', ')"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8b69701262e375fd' -Arguments @{ target = "$Target"; join = "$(($script:Providers.Values | ForEach-Object { $_.Pattern }) -join ', ')" })
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($Target, "Re-authenticate via $($provider.Type) provider")) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Target, (Format-YurunaOperatorMessage -Key 'runner.operator_eb97d7107fd767ed' -Arguments @{ type = "$($provider.Type)" }))) { return $true }
     try { return [bool](& $provider.Authenticator $Target $ProviderArguments) }
-    catch { Write-Warning "Repair-Credential ($($provider.Type)): $($_.Exception.Message)"; return $false }
+    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_82e2d413b8bcacb5' -Arguments @{ type = "$($provider.Type)"; message = "$($_.Exception.Message)" }); return $false }
 }
 
 function Clear-CredentialProvider {
@@ -95,7 +96,7 @@ function Clear-CredentialProvider {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.CredentialProvider registry', 'Clear all providers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e8f6d3426c95163d'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
         # Mutate the shared dictionary; do NOT rebind the names to a fresh one.
         # Yuruna.CredentialProvider aliases this same object into its own
         # $script:Providers at import, and that alias is what Get-CredentialProvider

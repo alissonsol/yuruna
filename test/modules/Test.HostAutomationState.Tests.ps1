@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,6 +164,52 @@ Describe 'the pre-automation capture covers every setter write' {
     }
 }
 
+Describe 'restore descriptions are separate from operating-system selectors' {
+    BeforeAll {
+        $script:RestoreRepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        Import-Module (Join-Path $PSScriptRoot 'Test.Catalog.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:RestoreRepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+    }
+    It 'renders <Selector> without changing its captured-state key' -TestCases @(
+        @{ Path = 'host/windows.hyper-v/Disable-TestAutomation.ps1'; Selector = 'service/W32Time'; English = 'Windows Time service (W32Time)' }
+        @{ Path = 'host/macos.utm/Disable-TestAutomation.ps1'; Selector = 'sysadminctl/screenLock'; English = 'sysadminctl unified screen lock' }
+    ) {
+        param($Path, $Selector, $English)
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RestoreRepoRoot $Path), [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'Restore-Knob' -and
+                    $node.Extent.Text.Contains("-Name '$Selector'")
+                }, $true))
+        $calls.Count | Should -Be 1
+        $elements = $calls[0].CommandElements
+        $descriptionSource = $null
+        for ($index = 1; $index -lt $elements.Count - 1; $index++) {
+            if ($elements[$index] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$index].ParameterName -eq 'Description') {
+                $descriptionSource = $elements[$index + 1].Extent.Text
+            }
+        }
+        $descriptionSource | Should -Match 'Format-YurunaOperatorMessage'
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            foreach ($locale in @('en-US', 'qps-Ploc')) {
+                & $adapter { param($tag) $script:OperatorContext = [pscustomobject]@{ ResolvedTag = $tag } } $locale
+                $description = & ([scriptblock]::Create($descriptionSource))
+                if ($locale -eq 'en-US') { $description | Should -BeExactly $English }
+                else { $description | Should -Not -BeExactly $English }
+                $restored = [Collections.Generic.List[string]]::new()
+                $skipped = [Collections.Generic.List[string]]::new()
+                Invoke-HostKnobRestore -State $null -Name $Selector -Description $description -Apply { throw 'An uncaptured knob must not be applied.' } -Cmdlet ([pscustomobject]@{}) -Restored $restored -Skipped $skipped
+                $restored.Count | Should -Be 0
+                $skipped.Count | Should -Be 1
+                $skipped[0] | Should -BeExactly "$description (not captured)"
+            }
+        } finally { & $adapter { param($context) $script:OperatorContext = $context } $priorContext }
+    }
+}
+
 Describe 'the capture file contract' {
     BeforeAll {
         Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Force -DisableNameChecking
@@ -196,6 +242,52 @@ Describe 'the capture file contract' {
         $state = Read-HostAutomationState
         $state.platform | Should -Not -BeNullOrEmpty
         { [datetime]::Parse($state.capturedUtc) } | Should -Not -Throw
+    }
+
+    It 'records the operating system the settings were applied on' {
+        # Without this the harness cannot tell a host that drifted from a host
+        # that was upgraded, and the two have different answers: one knob to
+        # re-check against a whole set to re-apply.
+        $state = Read-HostAutomationState
+        $state.os | Should -Not -BeNullOrEmpty
+        $state.os.Family | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'the operating-system drift reading of a capture' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Force -DisableNameChecking
+        $script:NowOs = Get-HostOsVersionStamp
+        # Only the shape the reader consults; a capture carries more.
+        function New-CaptureWithOsMajor {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Builds an in-memory capture fixture without changing operating-system state.')]
+            param([int]$Major)
+            [pscustomobject]@{ os = [pscustomobject]@{ Family = 'macos'; Version = "$Major.0"; Build = ''; Major = $Major } }
+        }
+    }
+
+    It 'says nothing when the major version has not moved' {
+        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against' }
+        Get-HostAutomationOsDrift -State (New-CaptureWithOsMajor -Major $NowOs.Major) | Should -BeNullOrEmpty
+    }
+
+    It 'names the upgrade, and the command that re-applies the settings, when it has' {
+        if ($NowOs.Major -le 0) { Set-ItResult -Skipped -Because 'this host does not report a version to compare against' }
+        $drift = Get-HostAutomationOsDrift -State (New-CaptureWithOsMajor -Major ($NowOs.Major - 1))
+        $drift | Should -Not -BeNullOrEmpty
+        # The remedy travels inside the line: the pre-cycle gate re-emits only
+        # its own findings to the console, so a fix written anywhere else never
+        # reaches the operator reading a refused cycle.
+        $drift | Should -Match 'Enable-TestAutomation'
+    }
+
+    It 'stays quiet on a capture that predates the recorded version' {
+        # Silence from a capture with no opinion is not agreement. Reading it as
+        # a change would warn every host set up before the field existed, once,
+        # forever.
+        Get-HostAutomationOsDrift -State ([pscustomobject]@{ platform = 'macos.utm' }) | Should -BeNullOrEmpty
+        Get-HostAutomationOsDrift -State $null | Should -BeNullOrEmpty
     }
 }
 

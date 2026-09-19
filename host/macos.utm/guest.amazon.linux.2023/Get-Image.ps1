@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f8008d-9acf-4ba5-8a9f-c29d843ce6a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -38,7 +39,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    Write-Error "host/macos.utm/guest.amazon.linux.2023/Get-Image.ps1 only runs on macOS UTM."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d0f5ad55eaf0f55a')
     exit 1
 }
 
@@ -100,7 +101,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
             $agentResult = Request-DownloadAgentImage @agentArgs
         } catch {
-            Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
             $agentResult = $null
         }
         if ($agentResult -and $agentResult.outcome -eq 'skipped') {
@@ -116,10 +117,10 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             $agentServed = $true
             $downloadUrl = [string]$agentResult.sourceUrl
             $agentLastModified = [string]$agentResult.lastModified
-            Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $downloadFile"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
         } elseif ($agentResult) {
             $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-            Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
         }
     }
 }
@@ -129,7 +130,7 @@ if (-not $agentServed) {
     $html = Invoke-WebRequest -Uri $sourceUrl -ErrorAction Stop
     $qcow2Link = ($html.Links | Where-Object { $_.href -match '\.qcow2$' } | Select-Object -First 1).href
     if (-not $qcow2Link) {
-        Write-Error "No .qcow2 listed at $sourceUrl"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_533d1ebbe03304b9' -Arguments @{ sourceUrl = "$sourceUrl" })
         exit 1
     }
     $downloadUrl = $sourceUrl + $qcow2Link
@@ -165,7 +166,7 @@ if (-not $agentServed) {
         -OnMismatch 'WarnAndDelete' `
         -Confirm:$false
     if (-not $downloaded) {
-        Write-Error "Download failed for $downloadUrl"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_877d321158118deb' -Arguments @{ downloadUrl = "$downloadUrl" })
         exit 1
     }
 }
@@ -176,7 +177,7 @@ $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {
     Move-Item -LiteralPath $baseImageFile -Destination $previousFile
-    Write-Output "Previous image preserved as: $previousFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
 }
 Move-Item -LiteralPath $downloadFile -Destination $baseImageFile
 
@@ -189,9 +190,9 @@ if ($agentServed) {
 } else {
     Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
 }
-Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1dec325a446dd0f7' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
 
-Write-Output "Download complete: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_347faa31fb049e6d' -Arguments @{ baseImageFile = "$baseImageFile" })
 
 # --- REGION: Completion
 # Clear a native discovery probe's stale exit code, including on cache hits.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -97,7 +98,7 @@ Import-Module powershell-yaml -ErrorAction Stop
 
 $canonicalHostId = ConvertTo-YurunaHostId -Value $HostId
 if (-not $canonicalHostId) {
-    Write-Error "HostId '$HostId' is invalid (expected the host's uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5641829b01e1eb6c' -Arguments @{ hostId = "$HostId" }) -ErrorAction Continue
     exit $ExitFailure
 }
 $HostId = $canonicalHostId
@@ -113,7 +114,7 @@ if (Test-Path -LiteralPath $ConfigPath) { $cfg = Read-TestConfig -Path $ConfigPa
 # host archives in copy or move mode is irrelevant to deleting another host's records.
 $storage = if ($cfg) { Get-YurunaPoolStorageConfig -Config $cfg } else { $null }
 if (-not $storage -or [string]::IsNullOrWhiteSpace($storage.LocalPath)) {
-    Write-Error "No pool storage in $ConfigPath -- networkStorage.poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath must all be set to locate the host's NAS records." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_cbeb78ddd2cd7816' -Arguments @{ configPath = "$ConfigPath" }) -ErrorAction Continue
     exit $ExitFailure
 }
 $localPath  = $storage.LocalPath
@@ -126,7 +127,7 @@ $hostFolder = Get-PoolStorageHostFolderPath -Config $storage -HostId $HostId
 $legacyRoot = Join-Path $localPath $HostId
 
 if (-not (Test-Path -LiteralPath $localPath)) {
-    Write-Warning "Pool storage path '$localPath' is not accessible (NAS not mounted here?). Run this on a host with the pool share mounted, or its records cannot be removed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7eec910180112557' -Arguments @{ localPath = "$localPath" })
 }
 
 # --- REGION: Safety guards (overridable with -Force)
@@ -135,7 +136,7 @@ $ownUuidFile = Join-Path $runtimeDir 'host.uuid'
 if (Test-Path -LiteralPath $ownUuidFile) {
     $ownUuid = (Get-Content -Raw -LiteralPath $ownUuidFile).Trim()
     if ($ownUuid -and ($ownUuid -ieq $HostId) -and -not $Force) {
-        Write-Error "$shownHostId is THIS host's own uuid (runtime/host.uuid) -- refusing to self-remove. Pass -Force to override." -ErrorAction Continue
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7385349d84f77b6d' -Arguments @{ shownHostId = "$shownHostId" }) -ErrorAction Continue
         exit $ExitFailure
     }
 }
@@ -154,7 +155,7 @@ if ((Test-Path -LiteralPath $infoPath) -and -not $Force) {
         }
     } catch { Write-Verbose "Could not parse lastSeenUtc from ${infoPath}: $($_.Exception.Message)" }
     if ($recentInfo) {
-        Write-Error "Host $shownHostId was $recentInfo -- it may still be active. Refusing without -Force." -ErrorAction Continue
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_799b226f960c20de' -Arguments @{ shownHostId = "$shownHostId"; recentInfo = "$recentInfo" }) -ErrorAction Continue
         exit $ExitFailure
     }
 }
@@ -163,7 +164,7 @@ if ((Test-Path -LiteralPath $infoPath) -and -not $Force) {
 $removed           = [System.Collections.Generic.List[string]]::new()
 $storageIncomplete = $false
 if (Test-Path -LiteralPath $infoPath) {
-    if ($PSCmdlet.ShouldProcess($infoPath, 'Delete pool host-identity record')) {
+    if ($PSCmdlet.ShouldProcess($infoPath, (Format-YurunaOperatorMessage -Key 'runner.operator_0ea7a491f185a1a6'))) {
         if (Remove-PoolStorageTree -Path $infoPath -Confirm:$false) {
             [void]$removed.Add("identity record  $infoPath")
         } else {
@@ -179,7 +180,7 @@ if (Test-Path -LiteralPath $hostFolder) {
     # is already empty. A leftover tree must not abort the run either -- the
     # membership strip and the dashboard eviction below are what actually stop the
     # host reappearing, and they are worth doing even when the NAS is being slow.
-    if ($PSCmdlet.ShouldProcess($hostFolder, 'Delete archived cycle folder')) {
+    if ($PSCmdlet.ShouldProcess($hostFolder, (Format-YurunaOperatorMessage -Key 'runner.operator_609076c68c3ffd8f'))) {
         if (Remove-PoolStorageTree -Path $hostFolder -Confirm:$false) {
             [void]$removed.Add("cycle data       $hostFolder")
         } else {
@@ -190,7 +191,7 @@ if (Test-Path -LiteralPath $hostFolder) {
     Write-Verbose "No archived cycle folder at $hostFolder (already gone)."
 }
 if (Test-Path -LiteralPath $legacyRoot) {
-    if ($PSCmdlet.ShouldProcess($legacyRoot, 'Delete legacy (pre-unification) cycle folder')) {
+    if ($PSCmdlet.ShouldProcess($legacyRoot, (Format-YurunaOperatorMessage -Key 'runner.operator_5ad3f8500420e985'))) {
         if (Remove-PoolStorageTree -Path $legacyRoot -Confirm:$false) {
             [void]$removed.Add("legacy data      $legacyRoot")
         } else {
@@ -204,11 +205,11 @@ if (Test-Path -LiteralPath $legacyRoot) {
 # --- REGION: Strip membership from every pool (needs the writable intent store)
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Warning "membership: no pool.intentGitUrl (and no -IntentGitUrl) -- removed the NAS records only; pool memberships were not touched."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b752ee38cb8d2c81')
 } else {
     $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
     if (-not $open.Ok) {
-        Write-Warning "membership: could not open the intent store ($($t.IntentGitUrl)): $($open.Error). NAS records removed; memberships NOT touched."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d60c40c2ee69f28' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" })
     } else {
         $doc          = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
         $changedPools = [System.Collections.Generic.List[string]]::new()
@@ -221,14 +222,14 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
             }
         }
         if ($changedPools.Count -eq 0) {
-            Write-Information "membership: $shownHostId is not a member of any pool (no change)." -InformationAction Continue
-        } elseif ($PSCmdlet.ShouldProcess("pools.yml [$($changedPools -join ', ')]", "Remove $HostId from members[]")) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ab09d4d54d248346' -Arguments @{ shownHostId = "$shownHostId" }) -InformationAction Continue
+        } elseif ($PSCmdlet.ShouldProcess("pools.yml [$($changedPools -join ', ')]", (Format-YurunaOperatorMessage -Key 'runner.operator_8660cf0175a55371' -Arguments @{ hostId = "$HostId" }))) {
             $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-            if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
+            if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
             $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: purge host $HostId from members[]" -Confirm:$false
-            if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
+            if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
             if (-not $pub.Pushed) {
-                Write-Error "Committed locally but NOT pushed -- the membership change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
+                Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6374c70e057ee77d' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
                 exit $ExitFailure
             }
             [void]$removed.Add("pool membership  [$($changedPools -join ', ')]")
@@ -245,7 +246,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +
 # TTL still converge) and never fails the purge or throws.
 try {
-    if ($PSCmdlet.ShouldProcess('pool-aggregator-service :9400', "Evict host $HostId from the live dashboard view (forget-host)")) {
+    if ($PSCmdlet.ShouldProcess('pool-aggregator-service :9400', (Format-YurunaOperatorMessage -Key 'runner.operator_243d23ca0fc2d079' -Arguments @{ hostId = "$HostId" }))) {
         if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
             try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
         }
@@ -276,7 +277,7 @@ try {
         } elseif (Get-Command Invoke-PoolForgetHost -ErrorAction SilentlyContinue) {
             $f = Invoke-PoolForgetHost -ProxyIp $proxyIp -HostId $HostId -Token $token -RuntimeDir $runtimeDir
             if ($f.ok) { [void]$removed.Add("dashboard view   pool-aggregator-service forgot $HostId") }
-            else { Write-Warning "forget-host: aggregator did not evict $shownHostId ($($f.reason)). The panel clears on its own after the aggregator host TTL (-host-ttl, default 24h)." }
+            else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e2c9fb708e765fa2' -Arguments @{ shownHostId = "$shownHostId"; reason = "$($f.reason)" }) }
         }
     }
 } catch {
@@ -285,15 +286,15 @@ try {
 
 # --- REGION: Summary
 if ($removed.Count -eq 0) {
-    Write-Information "Host ${shownHostId}: nothing to remove (no NAS records found, not a pool member)." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8417703f46733c00' -Arguments @{ shownHostId = "${shownHostId}" }) -InformationAction Continue
 } else {
-    Write-Information "Purged host ${shownHostId}:" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_63f2c3fd9bb2e4f0' -Arguments @{ shownHostId = "${shownHostId}" }) -InformationAction Continue
     foreach ($r in $removed) { Write-Information "  - $r" -InformationAction Continue }
 }
 # Membership and the dashboard eviction already ran; only the NAS delete is unfinished,
 # and re-running is a safe no-op for everything that did succeed.
 if ($storageIncomplete) {
-    Write-Error "Host ${shownHostId}: NAS records under $localPath were not fully deleted (see the warning above). Re-run this command; it resumes where it stopped." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f9654b9bc37f4396' -Arguments @{ shownHostId = "${shownHostId}"; localPath = "$localPath" }) -ErrorAction Continue
     exit $ExitFailure
 }
 exit $ExitOk

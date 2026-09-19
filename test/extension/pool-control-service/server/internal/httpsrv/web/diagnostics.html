@@ -7,71 +7,71 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Diagnostics &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.diagnostics_yuruna_pool_control">Diagnostics &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign">Assign</a>
-        <a href="/hosts">Hosts</a>
-        <a href="/pools">Pools</a>
-        <a href="/test-sets">Test sets</a>
-        <a href="/scan">Scan</a>
-        <a href="/diagnostics" aria-current="page">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" aria-current="page" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Service diagnostics</h1>
-    <p class="muted">Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.</p>
+    <h1 data-i18n="pool.service_diagnostics">Service diagnostics</h1>
+    <p class="muted" data-i18n="pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque">Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.</p>
     <div id="notice" role="alert" class="notice"></div>
-    <div class="row"><button id="refresh">Re-run checks</button></div>
+    <div class="row"><button id="refresh" data-i18n="pool.re_run_checks">Re-run checks</button></div>
     <div id="summary" role="status"></div>
     <table>
       <thead>
-        <tr><th>Check</th><th>Result</th><th>Detail</th><th>What to do</th></tr>
+        <tr><th data-i18n="pool.check">Check</th><th data-i18n="pool.result">Result</th><th data-i18n="pool.detail">Detail</th><th data-i18n="pool.what_to_do">What to do</th></tr>
       </thead>
       <tbody id="check-rows"></tbody>
     </table>
-    <h2>Intent read &mdash; raw invocation</h2>
-    <p class="muted">The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on <em>stdout</em>, so stdout is usually where the real message is.</p>
+    <h2 data-i18n="pool.intent_read_raw_invocation">Intent read &mdash; raw invocation</h2>
+    <p class="muted" data-i18n="pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo">The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on stdout , so stdout is usually where the real message is.</p>
     <table>
       <tbody id="probe-rows"></tbody>
     </table>
 
-    <h2>Runtime environment</h2>
-    <p class="muted">What the daemon was launched with, and the environment its pwsh child processes inherit.</p>
+    <h2 data-i18n="pool.runtime_environment">Runtime environment</h2>
+    <p class="muted" data-i18n="pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch">What the daemon was launched with, and the environment its pwsh child processes inherit.</p>
     <table>
       <tbody id="env-rows"></tbody>
     </table>
 
-    <h2>Process</h2>
-    <p class="muted">Which build is actually running, and for how long &mdash; establishes whether a fix was deployed at all.</p>
+    <h2 data-i18n="pool.process">Process</h2>
+    <p class="muted" data-i18n="pool.which_build_is_actually_running_and_for_how_long_establishes_whet">Which build is actually running, and for how long &mdash; establishes whether a fix was deployed at all.</p>
     <table>
       <tbody id="runtime-rows"></tbody>
     </table>
 
-    <h2>Persisted health</h2>
-    <p class="muted">The same document <code>/healthz</code> serves, from the state dir on the pool NAS.</p>
+    <h2 data-i18n="pool.persisted_health">Persisted health</h2>
+    <p class="muted" data-i18n="pool.the_same_document_command1_serves_from_the_state_dir_on_the_pool_" data-i18n-args="{&quot;command1&quot;: &quot;/healthz&quot;}">The same document /healthz serves, from the state dir on the pool NAS.</p>
     <pre id="health" class="detail muted">(persistence disabled)</pre>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

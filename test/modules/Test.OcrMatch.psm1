@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
 # engine (Wait-ForText) and the sequence handlers (sshWaitReady), instead of an
 # engine-private function the handler scope could not resolve.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Global -Force
 # Memoize Get-OCRNormalized for repeated patterns. The same pattern string
 # is re-normalized on every poll in Test-OCRMatch (pattern + per-segment
@@ -274,7 +275,7 @@ function Test-OCRMatch {
 function Get-OcrCombineMode {
     $envVal = $env:YURUNA_OCR_COMBINE
     if ($envVal -and $envVal -notin @('Or', 'And')) {
-        throw "Invalid YURUNA_OCR_COMBINE value '$envVal'. Only 'Or' and 'And' are allowed."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_c8d3447d823adc70' -Arguments @{ envVal = "$envVal"; setting = 'YURUNA_OCR_COMBINE' })
     }
     if ($envVal -eq 'And') { return 'And' }
     return 'Or'   # <- default
@@ -342,7 +343,7 @@ function Test-CombinedOcrMatch {
             $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
             $engineText = $engineText.Trim()
         } catch {
-            Write-Warning "OCR provider '$engineName' failed: $_"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_da873a65a08c6d04' -Arguments @{ engineName = "$engineName"; value = "$_" })
             $engineText = ''
         }
 

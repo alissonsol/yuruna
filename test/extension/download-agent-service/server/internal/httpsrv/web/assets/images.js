@@ -17,6 +17,10 @@
   var lastImages = [];
 
   // --- REGION: Agent header
+  function lastErrorText(image) {
+    return image.lastErrorCode ? window.YurunaI18n.t(image.lastErrorCode, image.lastErrorArguments || {}) : (image.lastError || '');
+  }
+
   function setCard(id, value, sub) {
     var v = document.getElementById(id);
     if (v) v.textContent = value;
@@ -28,34 +32,34 @@
 
   function renderStatus(st) {
     var ag = st.agent || {};
-    setCard('ag-pool', ag.poolAvailable ? 'available' : 'unavailable');
+    setCard('ag-pool', ag.poolAvailable ? window.YurunaI18n.t("download.available") : window.YurunaI18n.t("download.unavailable"));
     var pd = document.getElementById('ag-pooldir');
     if (pd) pd.textContent = ag.imagesDir || ag.poolDir || '';
 
     // Read-only is the state that silently explains "why is nothing
     // downloading", so name the holder rather than just the mode.
-    setCard('ag-lease', ag.readOnly ? 'read-only' : 'writer',
-      ag.readOnly ? ('held by ' + (ag.leaseHolder || 'another agent')) : (ag.leaseError || (ag.leaseHolder || '')));
+    setCard('ag-lease', ag.readOnly ? window.YurunaI18n.t("download.read_only") : window.YurunaI18n.t("download.writer"),
+      ag.readOnly ? window.YurunaI18n.t("download.held_by_value1", {value1: (ag.leaseHolder || 'another agent')}) : ag.leaseError || (ag.leaseHolder || ''));
 
-    var every = ag.scanIntervalSeconds ? ('every ' + Y.duration(ag.scanIntervalSeconds)) : '--';
-    var scanSub = 'last ' + Y.stamp(ag.lastScanUtc);
-    if (ag.nextScanUtc) scanSub += ' - next ' + Y.stamp(ag.nextScanUtc);
+    var every = ag.scanIntervalSeconds ? window.YurunaI18n.t("download.every_value1", {value1: (Y.duration(ag.scanIntervalSeconds))}) : '--';
+    var scanSub = window.YurunaI18n.t("download.last_value1", {value1: (Y.stamp(ag.lastScanUtc))});
+    if (ag.nextScanUtc) scanSub += ' — ' + window.YurunaI18n.t('download.next_scan', {time: Y.stamp(ag.nextScanUtc)});
     if (ag.freshnessSeconds) {
-      scanSub += ' - fresh ' + Y.duration(ag.freshnessSeconds) + ', lead ' + Y.duration(ag.prefetchLeadSeconds);
+      scanSub += ' — ' + window.YurunaI18n.t('download.freshness_window', {freshness: Y.duration(ag.freshnessSeconds), lead: Y.duration(ag.prefetchLeadSeconds)});
     }
     setCard('ag-scan', every, scanSub);
 
     var seed = ag.lastSeed || {};
     var seedSub = '';
-    if (seed.error) seedSub = 'last pass failed: ' + seed.error;
-    else if (seed.skipped) seedSub = 'skipped: ' + seed.skipped;
+    if (seed.error) seedSub = window.YurunaI18n.t("download.last_pass_failed_value1", {value1: (seed.error)});
+    else if (seed.skipped) seedSub = window.YurunaI18n.t("download.skipped_value1", {value1: (seed.skipped)});
     else if (seed.atUtc) {
-      seedSub = Y.stamp(seed.atUtc) + ' - started ' + (seed.started || 0);
-      if (seed.deferred) seedSub += ' - deferred ' + seed.deferred;
+      seedSub = window.YurunaI18n.t("download.value1_started_value2", {value1: (Y.stamp(seed.atUtc)), value2: (seed.started || 0)});
+      if (seed.deferred) seedSub += ' — ' + window.YurunaI18n.t('download.deferred_count', {count: seed.deferred});
       if (seed.hostTypes && seed.hostTypes.length) seedSub += ' - ' + seed.hostTypes.join(', ');
-      if (seed.skippedHosts) seedSub += ' - ' + seed.skippedHosts + ' host(s) without status';
+      if (seed.skippedHosts) seedSub += ' — ' + window.YurunaI18n.t('download.hosts_without_status', {count: seed.skippedHosts});
     }
-    setCard('ag-seed', ag.autoSeed ? 'on' : 'off', seedSub);
+    setCard('ag-seed', ag.autoSeed ? window.YurunaI18n.t("download.on") : window.YurunaI18n.t("download.off"), seedSub);
 
     // Name the families that cannot run here, and why. A row that is simply
     // absent looks the same whether the image is pending or the agent has no way
@@ -63,19 +67,19 @@
     var fams = ag.bestEffort || [];
     var down = fams.filter(function (f) { return !f.available; });
     setCard('ag-besteffort',
-      fams.length ? ((fams.length - down.length) + ' of ' + fams.length + ' available') : '--',
+      fams.length ? window.YurunaI18n.t("download.value1_of_value2_available", {value1: (fams.length - down.length), value2: (fams.length)}) : '--',
       down.length
         ? down.map(function (f) { return f.imageKey + ': ' + (f.reason || 'unavailable'); }).join(' - ')
         : fams.map(function (f) { return f.imageKey; }).join(', '));
 
     var totals = ag.totals || {};
     setCard('ag-bytes', Y.bytes(totals.bytes || 0),
-      (totals.images || 0) + ' entries - ' + Y.bytes(totals.currentBytes || 0) + ' current');
+      (window.YurunaI18n.t('download.entry_bytes', {count: totals.images || 0, bytes: Y.bytes(totals.currentBytes || 0)})));
   }
 
   // --- REGION: Table
   function badge(state) {
-    return Y.el('span', { class: 'badge ' + state, text: state });
+    return Y.el('span', { class: 'badge ' + state, text: Y.displayState(state) });
   }
 
   function progressBar(img) {
@@ -87,24 +91,22 @@
     // style attribute but says nothing about a scripted property.
     fill.style.width = pct.toFixed(1) + '%';
     var bar = Y.el('span', { class: 'progress' }, [fill]);
-    var label = img.bytesTotal > 0
-      ? Y.bytes(img.bytesDone) + ' / ' + Y.bytes(img.bytesTotal)
-      : (img.phase || 'working') + '...';
-    return Y.el('div', {}, [Y.el('span', { class: 'muted', text: (img.phase ? img.phase + ' - ' : '') + label }), bar]);
+    var label = img.bytesTotal > 0 ? ("" + (Y.bytes(img.bytesDone)) + " / " + (Y.bytes(img.bytesTotal)) + "") : ("" + Y.displayState(img.phase || 'working') + "...");
+    return Y.el('div', {}, [Y.el('span', { class: 'muted', text: (img.phase ? Y.displayState(img.phase) + ' - ' : '') + label }), bar]);
   }
 
   function verifiedCell(img) {
     if (!img.lastVerifiedAt) { return Y.el('span', { class: 'muted', text: '--' }); }
     var kids = [Y.el('div', { text: Y.stamp(img.lastVerifiedAt) })];
     var s = Number(img.secondsToExpiry || 0);
-    var word = s >= 0 ? ('expires in ' + Y.duration(s)) : ('expired ' + Y.duration(-s) + ' ago');
+    var word = s >= 0 ? window.YurunaI18n.t("download.expires_in_value1", {value1: (Y.duration(s))}) : window.YurunaI18n.t("download.expired_value1_ago", {value1: (Y.duration(-s))});
     kids.push(Y.el('div', { class: 'muted', text: word }));
     return Y.el('div', {}, kids);
   }
 
   function verdictCell(img) {
     if (!img.checksumVerdict) { return Y.el('span', { class: 'muted', text: '--' }); }
-    return Y.el('span', { class: 'verdict-' + img.checksumVerdict, text: img.checksumVerdict });
+    return Y.el('span', { class: 'verdict-' + img.checksumVerdict, text: Y.displayState(img.checksumVerdict) });
   }
 
   function sourceCell(img) {
@@ -131,17 +133,13 @@
     var link = function (href, text) {
       return Y.linkTo(href, ['file:'], { target: '_blank', rel: 'noopener noreferrer', text: text });
     };
-    var parts = ['Fido failed. Visit ', link(mf.pageUrl, 'this page'), '. Select '];
     var selections = mf.selections || [];
-    for (var i = 0; i < selections.length; i++) {
-      if (i > 0) { parts.push(', '); }
-      parts.push(Y.el('em', { text: selections[i] }));
-    }
-    parts.push('. Copy the downloaded file into ');
-    parts.push(mf.folderUrl ? link(mf.folderUrl, 'this folder') : Y.el('span', { text: 'this folder' }));
-    parts.push('.');
+    var parts = [window.YurunaI18n.t('download.manual_resolve', {selections: selections.join(', ')}), ' ',
+      link(mf.pageUrl, window.YurunaI18n.t('download.this_page')), ' ',
+      window.YurunaI18n.t('download.manual_copy'), ' ',
+      mf.folderUrl ? link(mf.folderUrl, window.YurunaI18n.t('download.this_folder')) : Y.el('span', {text: window.YurunaI18n.t('download.this_folder')})];
 
-    var why = img.lastError || img.unavailableReason || '';
+    var why = lastErrorText(img) || img.unavailableReason || '';
     var kids = [Y.el('div', { class: 'hint', title: why }, parts)];
     if (mf.folder) { kids.push(Y.el('div', { class: 'muted mono', text: mf.folder })); }
     return Y.el('div', {}, kids);
@@ -162,11 +160,11 @@
     return Y.api(actionPath(img, verb), { method: 'POST' }).then(function () {
       // In the row as well as the banner: at high zoom the banner is off-screen
       // from the button that caused it.
-      Y.rowFeedback(row, 'ok', verb + ' started.');
+      Y.rowFeedback(row, 'ok', window.YurunaI18n.t("download.value1_started", {value1: (verb)}));
       return load();
     }, function (e) {
-      Y.notice('error', verb + ' failed for ' + img.imageKey + ': ' + e.message);
-      Y.rowFeedback(row, 'error', verb + ' failed: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("download.value1_failed_for_value2_value3", {value1: (verb), value2: (img.imageKey), value3: (e.message)}));
+      Y.rowFeedback(row, 'error', window.YurunaI18n.t("download.value1_failed_value2", {value1: (verb), value2: (e.message)}));
     });
   }
 
@@ -178,9 +176,9 @@
       if (!canMutate) {
         // Say which key opens this door, not just that it is shut: with only a
         // bearer configured there is nothing for the operator to type.
-        if (labTokenGate) { b.title = 'Enter the dashboard Lab token to enable actions'; }
-        else if (gateConfigured) { b.title = 'Actions need the internal authentication key as a bearer'; }
-        else { b.title = 'No aggregator URL or internal authentication key configured on the daemon'; }
+        if (labTokenGate) { b.title = window.YurunaI18n.t("download.enter_the_dashboard_lab_token_to_enable_actions"); }
+        else if (gateConfigured) { b.title = window.YurunaI18n.t("download.actions_need_the_internal_authentication_key_as_a_bearer"); }
+        else { b.title = window.YurunaI18n.t("download.no_aggregator_url_or_internal_authentication_key_configured_on_th"); }
       }
       b.addEventListener('click', handler);
       return b;
@@ -189,24 +187,22 @@
     // the outcome then lands beside the button instead of only in the banner at
     // the top of the page, which is off-screen at high zoom.
     var rowOf = function (ev) { return ev.currentTarget.closest('tr'); };
-    wrap.appendChild(mk('Force refresh', '',
+    wrap.appendChild(mk(window.YurunaI18n.t("download.force_refresh"), '',
       function (ev) { return act(img, 'refresh', null, rowOf(ev)); },
       canMutate && img.supported));
-    wrap.appendChild(mk('Delete', 'danger',
+    wrap.appendChild(mk(window.YurunaI18n.t("download.delete"), 'danger',
       function (ev) {
         return act(img, 'delete',
-          'Delete every generation of ' + img.imageKey + ' (' + img.hostType + ', ' + img.arch + ', ' + img.variant +
-          ')?\n\nThe next host request or seed pass re-downloads it from origin. Hosts keep their local copies.',
+          window.YurunaI18n.t("download.delete_every_generation_of_value1_value2_value3_value4_the_next_h", {value1: (img.imageKey), value2: (img.hostType), value3: (img.arch), value4: (img.variant)}),
           rowOf(ev));
       },
       canMutate && !!img.generation));
     // Prune discards previous generations, which nothing re-creates, so it asks
     // the same way its sibling Delete does -- both destroy bytes.
-    wrap.appendChild(mk('Prune previous', '',
+    wrap.appendChild(mk(window.YurunaI18n.t("download.prune_previous"), '',
       function (ev) {
         return act(img, 'prune',
-          'Discard the previous generations of ' + img.imageKey + ' (' + img.hostType + ', ' + img.arch + ', ' + img.variant +
-          ')?\n\nThe current generation is kept. The discarded ones are not recoverable.',
+          window.YurunaI18n.t("download.discard_the_previous_generations_of_value1_value2_value3_value4_t", {value1: (img.imageKey), value2: (img.hostType), value3: (img.arch), value4: (img.variant)}),
           rowOf(ev));
       },
       canMutate && img.previousBytes > 0));
@@ -228,7 +224,7 @@
       if (img.unavailableReason) {
         stateCell.appendChild(Y.el('div', { class: 'muted', text: img.unavailableReason }));
       }
-      if (img.lastError) { stateCell.appendChild(Y.el('div', { class: 'err-line', text: img.lastError })); }
+      if (img.lastError) { stateCell.appendChild(Y.el('div', { class: 'err-line', text: lastErrorText(img) })); }
     }
 
     // variant is the requested preference; resolvedVariant is what the resolver
@@ -237,11 +233,11 @@
     // build the bytes did not come from.
     var ident = img.hostType + ' - ' + img.arch + ' - ' + img.variant;
     if (img.resolvedVariant && img.resolvedVariant !== img.variant) {
-      ident += ' (resolved ' + img.resolvedVariant + ')';
+      ident = window.YurunaI18n.t('download.resolved_variant', {identity: ident, variant: img.resolvedVariant});
     }
     // Best-effort families are never auto-seeded, so an operator who expects the
     // scanner to fill this row eventually needs to know it will not.
-    if (img.bestEffort) { ident += ' - best effort'; }
+    if (img.bestEffort) { ident = window.YurunaI18n.t('download.best_effort_identity', {identity: ident}); }
     // scope="row" makes this the row header, so a screen reader announces the
     // image key with every other cell in the row -- including the three action
     // buttons, which are otherwise "Delete" repeated down the table.
@@ -255,11 +251,11 @@
         Y.el('code', { text: img.upstreamFilename }),
         img.generation ? Y.el('div', { class: 'muted mono', text: img.generation }) : null
       ])
-      : Y.el('span', { class: 'muted', text: img.supported ? '--' : 'no resolver' });
+      : Y.el('span', { class: 'muted', text: img.supported ? '--' : window.YurunaI18n.t("download.no_resolver") });
 
     var size = Y.el('div', {}, [
       Y.el('div', { text: Y.bytes(img.currentBytes) }),
-      Y.el('div', { class: 'muted', text: img.previousBytes ? ('previous ' + Y.bytes(img.previousBytes)) : 'no previous' })
+      Y.el('div', { class: 'muted', text: img.previousBytes ? window.YurunaI18n.t("download.previous_value1", {value1: (Y.bytes(img.previousBytes))}) : window.YurunaI18n.t("download.no_previous") })
     ]);
 
     return Y.el('tr', {}, [
@@ -284,14 +280,14 @@
       // Blank, but present: the totals row has to carry a cell for the counter
       // column or every figure in it sits one column left of what it sums.
       Y.numCell(0),
-      Y.el('td', { text: 'Totals' }),
-      Y.el('td', { text: (totals.images || 0) + ' entries' }),
+      Y.el('td', { text: window.YurunaI18n.t("download.totals") }),
+      Y.el('td', { text: (window.YurunaI18n.t('download.entry_count', {count: totals.images || 0})) }),
       Y.el('td', { class: 'muted', text: parts.join(' - ') || '--' }),
       Y.el('td', {}, [
         Y.el('div', { text: Y.bytes(totals.currentBytes || 0) }),
-        Y.el('div', { class: 'muted', text: 'previous ' + Y.bytes(totals.previousBytes || 0) })
+        Y.el('div', { class: 'muted', text: window.YurunaI18n.t("download.previous_value1", {value1: (Y.bytes(totals.previousBytes || 0))}) })
       ]),
-      Y.el('td', { colspan: '4', text: Y.bytes(totals.bytes || 0) + ' on the share' })
+      Y.el('td', { colspan: '4', text: window.YurunaI18n.t("download.value1_on_the_share", {value1: (Y.bytes(totals.bytes || 0))}) })
     ]));
   }
 
@@ -329,7 +325,7 @@
       var active = sort && sort.col === th.getAttribute('data-sort');
       th.setAttribute('aria-sort', active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none');
       var arrow = th.querySelector('.sort-arrow');
-      if (arrow) { arrow.textContent = active ? (sort.dir > 0 ? '^' : 'v') : ''; }
+      if (arrow) { arrow.textContent = active ? sort.dir > 0 ? '^' : window.YurunaI18n.t("download.v") : ''; }
     }
   }
 
@@ -357,6 +353,13 @@
   // two clicks cannot drop the chosen order.
   var primaryLoaded = false;
   function renderRows() {
+    return window.YurunaFirstUsable.measure("test/extension/download-agent-service/server/internal/httpsrv/web/index.html", "data", function () {
+      return renderRowsMeasured();
+    });
+  }
+
+
+  function renderRowsMeasured() {
     var body = document.getElementById('image-rows');
     if (Y.holdRepaint(body, renderRows)) { return; }
     body.textContent = '';
@@ -421,10 +424,10 @@
       primaryLoaded = true;
       renderRows();
       renderTotals(cat.totals || {});
-      document.getElementById('as-of').textContent = 'as of ' + Y.stamp(cat.asOfUtc);
+      document.getElementById('as-of').textContent = window.YurunaI18n.t("download.as_of_value1_273588ee", {value1: (Y.stamp(cat.asOfUtc))});
       chrome.stamp();
       if (!cat.poolAvailable) {
-        Y.notice('warn', 'The pool share is not available. The agent still answers metadata, but nothing can be downloaded or served until it is mounted.');
+        Y.notice('warn', window.YurunaI18n.t("download.the_pool_share_is_not_available_the_agent_still_answers_metadata_"));
       } else {
         Y.clearNotice();
       }

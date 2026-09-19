@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4298bdda-71c7-493e-b5d5-cd146860d6ea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -54,7 +57,7 @@ function Set-VMCleanupQuiet {
     param(
         [bool]$Quiet = $false
     )
-    if ($PSCmdlet.ShouldProcess('Yuruna.VMCleanup quiet state', "Set to $Quiet")) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_6601168fcb0f609c'), (Format-YurunaOperatorMessage -Key 'host.operator_8a8cf24e6264519b' -Arguments @{ quiet = "$Quiet" }))) {
         $script:QuietOutput = $Quiet
     }
 }

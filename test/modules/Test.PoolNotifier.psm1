@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@
 #>
 
 # The pool-alert EventCode the operator subscribes to in transports.yml.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:PoolAlertEventCode = 'pool.alert'
 
 function Get-PoolNotifierSpoolRoot {
@@ -85,7 +86,7 @@ function Initialize-PoolNotifierSpool {
                 (Join-Path $SpoolRoot 'outgoing'), (Join-Path $SpoolRoot 'sending'),
                 (Join-Path $SpoolRoot 'delivered'), (Join-Path $SpoolRoot 'failed'))) {
             if (-not (Test-Path -LiteralPath $d)) {
-                if ($PSCmdlet.ShouldProcess($d, 'Create pool notifier spool dir')) {
+                if ($PSCmdlet.ShouldProcess($d, (Format-YurunaOperatorMessage -Key 'runner.operator_6d8a75adf6e1fc23'))) {
                     New-Item -ItemType Directory -Force -Path $d | Out-Null
                 }
             }
@@ -220,8 +221,8 @@ function Get-PoolNotifierReadiness {
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         $TransportsPath = Join-Path $repoRoot 'test' -AdditionalChildPath 'status', 'extension', 'notification', 'transports.yml'
     }
-    if (-not (Test-Path -LiteralPath $TransportsPath)) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'pool.alert transport not configured on this host' } }
-    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'ConvertFrom-Yaml unavailable' } }
+    if (-not (Test-Path -LiteralPath $TransportsPath)) { return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_26103724ba127f67') } }
+    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_876516faaf16bac3') } }
     $cfg = $null
     try {
         $cfg = Get-Content -Raw -LiteralPath $TransportsPath -ErrorAction Stop | ConvertFrom-Yaml -Ordered
@@ -229,11 +230,11 @@ function Get-PoolNotifierReadiness {
         # The file is present but could not be read/parsed this cycle (a flapping host-local
         # read). Report it as 'unreadable', distinct from 'unconfigured', so the caller keeps
         # this host elected enough to drain what it already queued.
-        return @{ Ready = $false; State = 'unreadable'; Reason = "transports.yml unreadable this cycle: $($_.Exception.Message)" }
+        return @{ Ready = $false; State = 'unreadable'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_2aa55cb7ca96ca3b' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
-    if (-not ($cfg -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'transports.yml empty or not a mapping' } }
-    if (-not $cfg.Contains('subscribers') -or -not ($cfg['subscribers'] -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'no subscribers configured' } }
-    if (-not $cfg['subscribers'].Contains($EventCode)) { return @{ Ready = $false; State = 'unconfigured'; Reason = "no $EventCode subscriber" } }
+    if (-not ($cfg -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_3355f84da8763f39') } }
+    if (-not $cfg.Contains('subscribers') -or -not ($cfg['subscribers'] -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_92fcfd32f2581e9f') } }
+    if (-not $cfg['subscribers'].Contains($EventCode)) { return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_74b1807bab68b795' -Arguments @{ eventCode = "$EventCode" }) } }
     foreach ($s in @($cfg['subscribers'][$EventCode])) {
         # Require a transport the notification extension can actually deliver (email today). A
         # subscriber with an unsupported transport would hit the extension's default branch ->
@@ -242,7 +243,7 @@ function Get-PoolNotifierReadiness {
             return @{ Ready = $true; State = 'ready'; Reason = '' }
         }
     }
-    return @{ Ready = $false; State = 'unconfigured'; Reason = "no deliverable $EventCode subscriber" }
+    return @{ Ready = $false; State = 'unconfigured'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_74b65c310d357e43' -Arguments @{ eventCode = "$EventCode" }) }
 }
 
 function Test-PoolNotifierReady {
@@ -334,7 +335,7 @@ function Write-PoolSpoolMessage {
     # pool ids are DNS-label-safe already; sanitize anyway so a stray id never escapes the dir.
     $safe = ([string]$Message['id'] -replace '[^A-Za-z0-9._-]', '_')
     $path = Join-Path $outDir "$safe.json"
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool alert spool message')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_b54fdcbca3ec7366'))) { return $false }
     try {
         if (-not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
         $tmp = "$path.tmp"
@@ -375,7 +376,7 @@ function Write-PoolNotifierState {
         [Parameter(Mandatory)][string]$StatePath,
         [Parameter(Mandatory)][hashtable]$State
     )
-    if (-not $PSCmdlet.ShouldProcess($StatePath, 'Write pool notifier state')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($StatePath, (Format-YurunaOperatorMessage -Key 'runner.operator_47b4e6915537fe6b'))) { return $false }
     try {
         [System.IO.File]::WriteAllText($StatePath, ($State | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
         return $true
@@ -614,12 +615,12 @@ function Invoke-PoolNotifierCycle {
     )
     $summary = @{ ran = $false; ready = $false; enqueued = 0; delivered = 0; failed = 0; retried = 0; reason = '' }
     try {
-        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) { $summary.reason = 'poolStorage module unavailable'; return $summary }
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_0c7a486afc64143a'); return $summary }
         $psCfg = Get-YurunaPoolStorageConfig -Config $Config
         $spoolRoot = Get-PoolNotifierSpoolRoot -Config $psCfg
-        if (-not $spoolRoot) { $summary.reason = 'poolStorage not configured (no NAS queue)'; return $summary }
+        if (-not $spoolRoot) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_c7f2b1fc3724dd82'); return $summary }
         if ((Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue) -and -not (Test-YurunaPoolStorageMounted -Config $psCfg)) {
-            $summary.reason = 'NAS not mounted yet (drain mounts it; retry next cycle)'; return $summary
+            $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_d18a4be8cbf64ef3'); return $summary
         }
         # Self-elect from transports.yml. 'unconfigured' (absent / no matching subscriber) is
         # the clean gauge/Loki-only no-op. 'unreadable' (present but a transient read/parse
@@ -630,14 +631,14 @@ function Invoke-PoolNotifierCycle {
         if ($readiness.State -eq 'unconfigured') { $summary.reason = $readiness.Reason; return $summary }
         $unreadable = ($readiness.State -eq 'unreadable')
         if ($unreadable) {
-            Write-Warning "Invoke-PoolNotifierCycle: $($readiness.Reason); draining already-queued messages without enqueuing new edges."
-            $summary.reason = 'transports.yml unreadable this cycle'
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_379bb6a1df08c42b' -Arguments @{ reason = "$($readiness.Reason)" })
+            $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_780e8a99bfa18090')
         } else {
             $summary.ready = $true
         }
 
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
-        if ([string]::IsNullOrWhiteSpace($runtimeDir)) { $summary.reason = 'YURUNA_RUNTIME_DIR unset'; return $summary }
+        if ([string]::IsNullOrWhiteSpace($runtimeDir)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b94d536e714a3aba'); return $summary }
         $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
 
         if (-not $unreadable) {
@@ -647,11 +648,11 @@ function Invoke-PoolNotifierCycle {
                 try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
             }
             if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $ip = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
-            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = 'no caching-proxy-service IP (cannot reach aggregator)'; return $summary }
+            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f67e91959f7d5ea3'); return $summary }
             $metricsUrl = "http://${ip}:$MetricsPort/metrics"
 
             $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSeconds
-            if ($null -eq $gauge) { $summary.reason = "aggregator metrics unreachable ($metricsUrl)"; return $summary }
+            if ($null -eq $gauge) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_fa10410dc0050ce8' -Arguments @{ metricsUrl = "$metricsUrl" }); return $summary }
 
             $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
             $state = Read-PoolNotifierState -StatePath $statePath
@@ -699,22 +700,10 @@ function Write-PoolNotifierSetupNotice {
             # Write-Information (not Write-Output): a [bool]-contract function must not emit
             # status to the pipeline (it would pollute $x = Func and is swallowed by the
             # caller's $null = assignment); the Information stream survives both.
-            Write-Information 'Pool alerting: the pool.alert notification transport is configured; this host will deliver pool degraded alerts.' -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9c68ac10fb6d1a8e') -InformationAction Continue
             return $true
         }
-        Write-Warning @'
-Pool alerting is NOT configured on this host.
-If this is the host that runs the caching-proxy-service + dashboards, it self-elects as the pool
-alert notifier -- but only once the transport is set up. Add a pool.alert subscriber to
-test/status/extension/notification/transports.yml, for example:
-
-  subscribers:
-    pool.alert:
-      - transport: email
-        address: you@example.com
-
-Until then, pool DEGRADED alerts stay visible on the dashboard but are not delivered.
-'@
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7b1819b1b69bac30')
         return $false
     } catch { Write-Verbose "Write-PoolNotifierSetupNotice: $($_.Exception.Message)"; return $false }
 }

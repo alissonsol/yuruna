@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,8 @@
 # lines + URLs built mid-cycle resolve to the post-rename <base>/ location once
 # Stop-LogFile moves the folder. Get-CycleFolderIdentity lives in sibling Test.Log;
 # fall back to the raw leaf when Test.Log is not imported for this cycle.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -DisableNameChecking
 function Get-StableCycleBaseName {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = '$global:__YurunaCycleFolder is the cross-module per-cycle folder handle the inner runner threads through its helpers; reading it derives the cycle''s rename-stable identity for the URLs/log lines built mid-cycle.')]
@@ -122,7 +124,7 @@ function Write-UncommittedChangesWarning {
         $lines = @($out -split "`r?`n" | Where-Object { $_ })
         Write-Warning ""
         Write-Warning "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        Write-Warning "$($pair.Label) repo at $($pair.Path) has $($lines.Count) uncommitted change(s); $($pair.Endpoint) is built from ``git archive HEAD`` and will NOT include them. Guests will see committed content while the host runs working-tree code."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a2ab6a064c7d5e2a' -Arguments @{ label = "$($pair.Label)"; path = "$($pair.Path)"; count = "$($lines.Count)"; endpoint = "$($pair.Endpoint)" })
         foreach ($l in ($lines | Select-Object -First 10)) { Write-Warning "    $l" }
         if ($lines.Count -gt 10) { Write-Warning "    ... and $($lines.Count - 10) more" }
         Write-Warning "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -174,24 +176,24 @@ function Assert-CachingProxyServiceStillReachable {
 
     if ($reachable) {
         if (-not $script:CachingProxyServiceLastReachable) {
-            Write-Output "  Caching-proxy service reachable again at $GuestKey/$StepName ($ProxyUrl)."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9f9c9f6b7eefac8d' -Arguments @{ guestKey = "$GuestKey"; stepName = "$StepName"; proxyUrl = "$ProxyUrl" })
         }
     } else {
         if ($script:CachingProxyServiceLastReachable) {
-            Write-Warning "  Caching-proxy service LOST at ${GuestKey}/${StepName}: $(Get-TcpOutcomeExplanation -Outcome $result -Endpoint $ProxyUrl)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_edce2aba41f4ffee' -Arguments @{ guestKey = "${GuestKey}"; stepName = "${StepName}"; proxyUrl = "$(Get-TcpOutcomeExplanation -Outcome $result -Endpoint $ProxyUrl)" })
             # The two failures point in opposite directions, so they get
             # opposite advice. A refusal is the cache VM itself answering that
             # squid is not listening -- the shape a cache rebuilt mid-cycle
             # leaves while its provisioning restarts the service -- and no
             # amount of looking at the host network explains it.
             if ($result.Outcome -eq 'refused') {
-                Write-Warning "    Common cause: the cache VM is up but squid is restarting -- a freshly rebuilt cache does this once while provisioning applies its ssl-bump config."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6ec6add9e9a298c1')
             } else {
-                Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle, or a remote/cross-host cache is briefly slow to accept."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5c27b4a69c555ca9')
             }
-            Write-Warning "    Guests configured at New-VM time with this URL will fall back to direct downloads."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_34557efae38c225b')
         } else {
-            Write-Warning "  Caching-proxy service still unreachable at $GuestKey/$StepName ($($result.Outcome), $($result.ElapsedMs) ms)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_017062b3512faede' -Arguments @{ guestKey = "$GuestKey"; stepName = "$StepName"; outcome = "$($result.Outcome)"; elapsedMs = "$($result.ElapsedMs)" })
         }
     }
     $script:CachingProxyServiceLastReachable = $reachable
@@ -340,7 +342,7 @@ function Sync-RunnerCycleConfig {
             $State.CachedConfigValue = $parsed
             $State.CachedConfigMtime = $currentMtime
         } catch {
-            Write-Warning "Config reload from '$ConfigPath' failed: $_ -- keeping previous values."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4bee92025802b50e' -Arguments @{ configPath = "$ConfigPath"; value = "$_" })
             return 'failed'
         }
     }
@@ -405,7 +407,7 @@ function Sync-RunnerStepConfig {
         $State.SyncFailedStreak = [int]$State.SyncFailedStreak + 1
         if ($State.SyncFailedStreak -ge 3 -and -not $State.SyncFailureWarned) {
             $State.SyncFailureWarned = $true
-            Write-Warning "Config reload from '$ConfigPath' has failed $($State.SyncFailedStreak) times in a row -- the runner is coasting on the last good config. The file may be mid-edit or corrupt; reloadable knobs (logLevel, timeouts, cycleDelay) stay frozen until a reload succeeds."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0fcfc6b4604b95ee' -Arguments @{ configPath = "$ConfigPath"; syncFailedStreak = "$($State.SyncFailedStreak)" })
         }
     } else {
         $State.SyncFailedStreak = 0
@@ -449,7 +451,7 @@ function Copy-FailureArtifactsToStatusLog {
         # function is safe to invoke even from pre-loop failure paths.
         $destSeqDir = Get-CycleGuestDataFolder -VMName $VMName
         if (-not $destSeqDir) {
-            Write-Warning "  Copy-FailureArtifactsToStatusLog: no cycle folder established (Start-LogFile not run?)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9c9cf7c09b294d90')
             return
         }
         $destSeqName = Split-Path -Leaf $destSeqDir
@@ -496,23 +498,23 @@ function Copy-FailureArtifactsToStatusLog {
                 Copy-Item -Path $f.FullName -Destination (Join-Path $destSeqDir $f.Name) -Force
                 if ($f.Extension -eq '.png') { $copied++ }
             }
-            Write-Output "  Failure screenshot saved: ./status/log/$cycleBase/$destSeqName/ ($copied frames leading up to the failure)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1415f98ef24fe2ae' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName"; copied = "$copied" })
         }
         if ($hasScreen) {
             # Stable filename inside the folder so the operator can spot the
             # frozen-moment shot at a glance (vs. the timestamped raw_* set).
             Copy-Item -Path $srcScreen -Destination (Join-Path $destSeqDir 'failure_screenshot.png') -Force
             if (-not $hasFrames) {
-                Write-Output "  Failure screenshot saved: ./status/log/$cycleBase/$destSeqName/failure_screenshot.png"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e14ec190db274975' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
             }
         }
         if ($hasOcr) {
             Copy-Item -Path $srcOcr -Destination (Join-Path $destSeqDir 'failure_ocr.txt') -Force
-            Write-Output "  Failure OCR text saved: ./status/log/$cycleBase/$destSeqName/failure_ocr.txt"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_104c124e03bd7afc' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
         }
 
         # Preserve the durable host ring before any guest SSH readiness wait.
-        $failureHostSnapshot = @{ Status='unavailable'; Path=$null; Reason='Host sampler unavailable' }
+        $failureHostSnapshot = @{ Status='unavailable'; Path=$null; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7b76367fda1c3017') }
         try {
             Import-Module (Join-Path $ModulesDir 'Test.HostSampling.psm1') -Global -ErrorAction Stop
             $failureHostSnapshot = Save-YurunaHostSampleSnapshot -DestinationDirectory $destSeqDir -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
@@ -530,7 +532,7 @@ function Copy-FailureArtifactsToStatusLog {
             $null = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $destSeqDir -Id 'yuruna.failure' `
                 -HostSnapshot $failureHostSnapshot
         } catch {
-            Write-Warning "  System diagnostics capture skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f7277de3faa3266' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # Last fetch-and-execute log capture. The guest's fetch-and-execute.sh
@@ -554,14 +556,14 @@ function Copy-FailureArtifactsToStatusLog {
             if ($faeResult.success -and $faeResult.output -and ($faeResult.output -notmatch '^\(file not present\)\s*$')) {
                 $faeOut = Join-Path $destSeqDir 'last-fetch-and-execute.log'
                 Set-Content -LiteralPath $faeOut -Value $faeResult.output -Encoding utf8NoBOM -NoNewline
-                Write-Output "  Last fetch-and-execute log saved: ./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8c42e2c1af2dc6b' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
                 Write-CycleFailureExecutionTail -ExecutionLog $faeResult.output `
                     -LogPath "./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
             } else {
                 Write-Verbose "  fetch-and-execute log: success=$($faeResult.success) exit=$($faeResult.exitCode) output=$($faeResult.output)"
             }
         } catch {
-            Write-Warning "  fetch-and-execute log capture skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d828298e696dacc4' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # The profiling trace that goes with the log above. Its path is recorded
@@ -593,13 +595,13 @@ function Copy-FailureArtifactsToStatusLog {
                 if ($profResult.success -and $profResult.output -and ($profResult.output -notmatch '^\(file not present\)\s*$')) {
                     $profOut = Join-Path $destSeqDir 'fetch-and-execute-profile.log'
                     Set-Content -LiteralPath $profOut -Value $profResult.output -Encoding utf8NoBOM -NoNewline
-                    Write-Output "  fetch-and-execute profile saved: ./status/log/$cycleBase/$destSeqName/fetch-and-execute-profile.log"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fabaae771467a2e2' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
                 } else {
                     Write-Verbose "  fetch-and-execute profile: nothing readable at $profilePath"
                 }
             }
         } catch {
-            Write-Warning "  fetch-and-execute profile capture skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_518a128050a98b0a' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # Host system-diagnostics capture. Separate from the guest snapshot
@@ -621,17 +623,17 @@ function Copy-FailureArtifactsToStatusLog {
                     if (Wait-Job -Job $hostDiagJob -Timeout 120) { Receive-Job -Job $hostDiagJob | Out-Null }
                     else {
                         Stop-Job -Job $hostDiagJob
-                        Add-Content -LiteralPath $hostDiagOut -Value 'Host diagnostics timed out after 120s; see the earlier host sample.'
+                        Add-Content -LiteralPath $hostDiagOut -Value (Format-YurunaOperatorMessage -Key 'runner.host_diagnostic_timeout')
                     }
                 } finally { Remove-Job -Job $hostDiagJob -Force -ErrorAction SilentlyContinue }
                 if (Test-Path -LiteralPath $hostDiagOut) {
-                    Write-Output "  Host diagnostics saved: ./status/log/$cycleBase/$destSeqName/host.diagnostics.txt"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_31ca9d4862015454' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
                 }
             } else {
-                Write-Warning "  Host diagnostics skipped: script not found at $hostDiagScript"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_96499bb7c6ab2097' -Arguments @{ hostDiagScript = "$hostDiagScript" })
             }
         } catch {
-            Write-Warning "  Host diagnostics capture skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5328fbca68e4396a' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # Hypervisor-app crash reports (macOS). When UTM (or its per-VM QEMU
@@ -653,12 +655,12 @@ function Copy-FailureArtifactsToStatusLog {
                         Select-Object -First 5)
                     foreach ($report in $crashReports) {
                         Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $destSeqDir $report.Name) -Force
-                        Write-Output "  Hypervisor crash report saved: ./status/log/$cycleBase/$destSeqName/$($report.Name)"
+                        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f1171073b70e7e79' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName"; name = "$($report.Name)" })
                     }
                 }
             }
         } catch {
-            Write-Warning "  Hypervisor crash-report collection skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_082f38e63f37c36d' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # DHCP wire capture (drivers that arm one at Start-VM). The guest-side
@@ -672,11 +674,11 @@ function Copy-FailureArtifactsToStatusLog {
         try {
             if (Get-Command Save-VMDhcpCapture -ErrorAction SilentlyContinue) {
                 if (Save-VMDhcpCapture -VMName $VMName -OutputDirectory $destSeqDir) {
-                    Write-Output "  DHCP capture saved: ./status/log/$cycleBase/$destSeqName/dhcp.capture.txt"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_421fff6ff7e395a2' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
                 }
             }
         } catch {
-            Write-Warning "  DHCP capture collection skipped: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c8408d1fb61db057' -Arguments @{ message = "$($_.Exception.Message)" })
         }
 
         # Cycle-log inline link. Label adapts to which artifact dominates so
@@ -699,7 +701,7 @@ function Copy-FailureArtifactsToStatusLog {
             Set-GuestFailureArtifact -GuestKey $GuestKey -RelativeUrl "log/$cycleBase/$destSeqName/"
         }
     } catch {
-        Write-Warning "  Could not copy failure artifacts to status/log: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_489224a7c60c2a6e' -Arguments @{ value = "$_" })
     }
 }
 
@@ -793,7 +795,7 @@ function Update-CycleConfigFromTemplate {
     try {
         return Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
     } catch {
-        Write-Warning "Could not reload config after git pull, using previous config: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0b7720e595aaa54f' -Arguments @{ value = "$_" })
         return $PreviousConfig
     }
 }
@@ -931,26 +933,26 @@ function Write-CycleConfigLog {
             Hide-SecretsInConfig $redacted
             $redacted | ConvertTo-Yaml | Write-Output
         } catch {
-            Write-Warning "Could not redact test.config.yml for log: $_"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4b2debe21ee8522f' -Arguments @{ value = "$_" })
             Get-Content -Raw $ConfigPath | Write-Output
         }
     }
     if (-not $GuestSetSource) { return }
     $guestNames = if (@($GuestList).Count -gt 0) { @($GuestList) -join ', ' } else { '(none)' }
     Write-Output ""
-    Write-Output "===== guest set for this cycle: $guestNames"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4b74c010961d27f8' -Arguments @{ guestNames = "$guestNames" })
     switch ($GuestSetSource) {
         'plan' {
-            Write-Output "Resolved from test/test.runner.yml in the project repository; the guestSequence key above was not read."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9ab5d23a81ed76a3')
             foreach ($seq in @($SequenceList)) {
                 Write-Output "  $($seq.name) -> $(@($seq.guests) -join ', ')"
             }
         }
         'guestSequence' {
-            Write-Output "No plan resolved from test/test.runner.yml in the project repository, so the guestSequence key above is what this cycle runs."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f9af128b70465a87')
         }
         default {
-            Write-Output "No plan and no fallback list: this cycle runs no guest."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ed0e5befaf4ad9f7')
         }
     }
 }
@@ -1136,7 +1138,7 @@ function Initialize-CycleGatingState {
     try {
         $prevStatus = Get-Content -Raw $StatusFile | ConvertFrom-Json
         if ($prevStatus.cycle) { $CycleCount = [int]$prevStatus.cycle }
-    } catch { Write-Warning "Could not read previous cycle count from status file: $_" }
+    } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9ddc89743b60da78' -Arguments @{ value = "$_" }) }
 
     $ConsecutiveCrashes   = 0
     $FailuresBeforeAlert  = [int]($Config.notification.failuresBeforeAlert  ?? 1)
@@ -1153,7 +1155,7 @@ function Initialize-CycleGatingState {
             if ($null -ne $gating.alertArmed)           { $AlertArmed           = [bool]$gating.alertArmed }
             if ($null -ne $gating.consecutiveCrashes)   { $ConsecutiveCrashes   = [int]$gating.consecutiveCrashes }
         } catch {
-            Write-Warning "Could not parse $GatingFile (resetting gating state): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f0fa34c4f6e00a60' -Arguments @{ gatingFile = "$GatingFile"; message = "$($_.Exception.Message)" })
         }
     }
     return @{
@@ -1194,7 +1196,7 @@ function Remove-CycleStartOrphanVM {
     # try/catch + EAP scoping mirrors the teardown invocation at end of cycle:
     # cleanup is best-effort, the cycle's pass/fail drives the exit code.
     Write-Output ""
-    Write-Output "--- Cycle-start VM sweep (Prefix: '$($Prefix -join "', '")') ---"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4e76f60a2b0b1f0e' -Arguments @{ join = "$($Prefix -join "', '")" })
     # Zero the release tally here rather than at the teardown that reports it:
     # the count belongs to the cycle that asked, and the runner process outlives
     # the cycle, so a tally left standing would report the previous cycle's work
@@ -1214,7 +1216,7 @@ function Remove-CycleStartOrphanVM {
     try {
         & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix -Quiet
     } catch {
-        Write-Warning "Remove-TestVMFiles.ps1 raised a terminating error at cycle start (continuing). Error: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7732a27037630589' -Arguments @{ value = "$_" })
     }
 }
 
@@ -1247,7 +1249,7 @@ function Remove-CycleTeardownOrphanVM {
     # transition into the cleanup + delay phase.
     Write-Output ""
     Write-Output "========"
-    Write-Output "  CYCLE $CycleCount complete -- entering teardown"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_882811c4bc2ae525' -Arguments @{ cycleCount = "$CycleCount" })
     Write-Output "========"
 
     # One line, every cycle, whatever the number. A release that silently never
@@ -1261,10 +1263,9 @@ function Remove-CycleTeardownOrphanVM {
             $note = if ($releaseTally.succeeded -lt $releaseTally.attempted) {
                 ' The rest keep their address until the lease expires; a guest already unreachable at teardown is the ordinary reason.'
             } else { '' }
-            Write-Output ("  DHCP leases released before teardown: " +
-                "$($releaseTally.succeeded)/$($releaseTally.attempted) guests asked.$note")
+            Write-Output ((Format-YurunaOperatorMessage -Key 'runner.operator_d602430381e0ea54' -Arguments @{ succeeded = "$($releaseTally.succeeded)"; attempted = "$($releaseTally.attempted)"; note = "$note" }))
         } else {
-            Write-Output "  DHCP leases released before teardown: no guest was asked this cycle."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3731b7cf783246dc')
         }
     }
 
@@ -1277,21 +1278,19 @@ function Remove-CycleTeardownOrphanVM {
     if (Get-Command Get-GuestAddressFootprintTally -ErrorAction SilentlyContinue) {
         $addressTally = Get-GuestAddressFootprintTally
         if ($addressTally.checked -gt 0) {
-            Write-Output ("  Guest addresses bounded by identity: " +
-                "$($addressTally.checked - $addressTally.unbounded)/$($addressTally.checked) guests checked.")
+            Write-Output ((Format-YurunaOperatorMessage -Key 'runner.operator_c73196311e501c79' -Arguments @{ unbounded = "$($addressTally.checked - $addressTally.unbounded)"; checked = "$($addressTally.checked)" }))
             foreach ($move in @($addressTally.moves)) {
-                Write-Output ("    '$($move.identity)' was rebuilt and came back on a different address: " +
-                    "$($move.previous) -> $($move.current).")
+                Write-Output ((Format-YurunaOperatorMessage -Key 'runner.operator_42d2c6ca71d39f33' -Arguments @{ identity = "$($move.identity)"; previous = "$($move.previous)"; current = "$($move.current)" }))
             }
         } else {
-            Write-Output "  Guest addresses bounded by identity: no guest could be checked this cycle."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_48a3f144528d5b44')
         }
     }
 
     try {
         & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix -Quiet
     } catch {
-        Write-Warning "Remove-TestVMFiles.ps1 raised a terminating error; cycle exit code will still reflect the cycle's pass/fail. Error: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.vm_cleanup_terminating_error' -Arguments @{ detail = "$_" })
         if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
             foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
                 Write-Warning "  $line"
@@ -1331,7 +1330,7 @@ function Initialize-CycleAuthVault {
         [void](Import-Extension -Area 'authentication' -RequireSingle)
         Initialize-VaultConnection
     } catch {
-        Write-Warning "Authentication extension init failed: $($_.Exception.Message). Continuing; per-guest credential ops will surface the underlying error."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d810c19cbdcdd72' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -1382,7 +1381,7 @@ function Get-CycleGuestAndSequenceList {
         # resolution runs before the cycle transcript is opened, so the count is
         # a console breadcrumb only, and the guest set a log reader needs is
         # written beside the config echo further into the cycle.
-        Write-Information "Cycle plan: $($CyclePlan.Count) entries across $($GuestList.Count) guest(s)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f6a1e5218fec9db1' -Arguments @{ count = "$($CyclePlan.Count)"; count2 = "$($GuestList.Count)" }) -InformationAction Continue
     } else {
         $GuestList    = Get-GuestList -Config $Config
         $SequenceList = @()
@@ -1496,7 +1495,7 @@ function Start-CycleLogFile {
     )
     $CycleNumber = Get-CycleNumber
     $LogFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname $Hostname -CycleNumber $CycleNumber -GitCommits $GitCommits
-    Write-Output "Log file: $LogFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8572ec44a49561c' -Arguments @{ logFile = "$LogFile" })
     return @{
         CycleNumber = $CycleNumber
         LogFile     = $LogFile
@@ -1549,7 +1548,7 @@ function Start-CycleHostDiagnostic {
                 # URL resolves to the post-rename location once Stop-
                 # LogFile moves the folder to <base>/.
                 $cycleBaseName = Get-StableCycleBaseName
-                Write-Output "Host diagnostic (cycle start): ./status/log/$cycleBaseName/host.diagnostic.txt"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = "$cycleBaseName" })
                 # The child also drops a machine-readable sibling next to the prose
                 # dump (<OutFile>.json, schema yuruna.diagnostic.problems/v1) whose
                 # per-class tallies are the only structured statement of what the
@@ -1573,9 +1572,9 @@ function Start-CycleHostDiagnostic {
                             if ($diagCount -gt 0) {
                                 $diagByClass = if ($diagDoc['byClass'] -is [System.Collections.IDictionary]) { $diagDoc['byClass'] } else { @{} }
                                 $diagTally = (@($diagByClass.Keys | Sort-Object | ForEach-Object { "$_=$($diagByClass[$_])" }) -join ', ')
-                                Write-Output "Host diagnostic (cycle start): $diagCount problem(s) reported -- $diagTally"
+                                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5d4003f8fdb37099' -Arguments @{ diagCount = "$diagCount"; diagTally = "$diagTally" })
                             } else {
-                                Write-Output "Host diagnostic (cycle start): no problems reported."
+                                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2f2b89b8229b6a83')
                             }
                         }
                     } catch {
@@ -1584,10 +1583,10 @@ function Start-CycleHostDiagnostic {
                 }
             }
         } else {
-            Write-Warning "Cycle-start host diagnostic skipped: script not found at $hostDiagScript"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b7880bb57e65b573' -Arguments @{ hostDiagScript = "$hostDiagScript" })
         }
     } catch {
-        Write-Warning "Cycle-start host diagnostic capture failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c458b9ad926bc49e' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 
     # Per-step structured perf log (Test.Perf.psm1). Initialized AFTER
@@ -1605,7 +1604,7 @@ function Start-CycleHostDiagnostic {
                 -ProjectCommit      $ProjectGitCommit `
                 -HostDiagnosticPath $cycleHostDiagOut
         } catch {
-            Write-Warning "Start-PerfCycle failed (non-fatal): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99ba6b1738ddcff9' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
 }
@@ -1662,26 +1661,26 @@ function Write-GitPullFailureBanner {
     param([bool]$DnsOk, [bool]$TcpOk, [string]$NetDiag)
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    Write-Output "  ERROR: git sync failed"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d63204d143ea3d13')
     if (-not $DnsOk -or -not $TcpOk) {
-        Write-Output "  Network connectivity issue detected: $NetDiag"
-        Write-Output "  Likely host-side causes (check these FIRST):"
-        Write-Output "  - Ethernet cable unplugged / NIC reset / driver crash"
-        Write-Output "  - Wi-Fi disabled / SSID dropped / Wi-Fi card disabled in Device Manager"
-        Write-Output "  - DNS server unreachable (router rebooting, ISP outage)"
-        Write-Output "  - Captive portal not re-authenticated (hotel/conference Wi-Fi)"
-        Write-Output "  - VPN dropped (corporate DNS no longer reachable)"
-        Write-Output "  Quick checks:"
-        Write-Output "    Windows : ipconfig ; Get-NetAdapter ; Test-NetConnection github.com -Port 443"
-        Write-Output "    Linux   : ip addr ; ping -c 3 8.8.8.8 ; ping -c 3 github.com"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_137d30041e9fa016' -Arguments @{ netDiag = "$NetDiag" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_26e46bcd3899a7d0')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6104479e2632e4fe')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f9fad05d7af1ebdb')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9800331c5d965a39')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_7883b802e36302a6')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_23dbec8c48c57844')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e7ccc3250e90b5a0')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_bbd0a338c354d649')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4603e7553feb36e3')
         Write-Output "    macOS   : ifconfig ; ping -c 3 8.8.8.8 ; ping -c 3 github.com"
-        Write-Output "  Once connectivity is restored the runner will resume on the next outer-loop tick."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b183d4809d9dad1d')
     } else {
-        Write-Output "  Could not update from remote. Possible causes:"
-        Write-Output "  - Local branch has diverged (rebase/merge manually)"
-        Write-Output "  - Uncommitted local changes blocking fast-forward"
-        Write-Output "  - GitHub authentication / token expired"
-        Write-Output "  (Network probes passed: DNS + TCP/443 to github.com both OK, so this is NOT a connectivity problem.)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2b7566bc6087dcaa')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2e7eb677b607c67e')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0d2bb1e23a0f67d7')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a3a2127faa06053b')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_85f4b92d0b8d1787')
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output ""
@@ -1699,16 +1698,16 @@ function Write-CapabilityGateFailureBanner {
     param([Parameter(Mandatory)]$Cap)
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    Write-Output "  CAPABILITY GATE FAILED -- cycle aborted on '$($Cap.hostType)'."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c8888c363a0fb388' -Arguments @{ hostType = "$($Cap.hostType)" })
     if ($Cap.missingHostIO.Count) {
-        Write-Output "  Sequences reference host I/O actions this host has no backend for:"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d2c6af70339c9e86')
         foreach ($a in $Cap.missingHostIO) { Write-Output "    - $a" }
-        Write-Output "  Wire a backend via Register-HostIOProvider in Test.SequenceEngine.psm1,"
-        Write-Output "  or drop the requiring action from the cycle's sequence YAMLs."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_802a4b0de5d5f942')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e44d1c53aa9fba0b')
     }
     if ($Cap.ocrRequired -and -not $Cap.ocrAvailable) {
-        Write-Output "  Sequences require OCR but no OCR provider is enabled+available."
-        Write-Output "  Install tesseract or wire a per-host provider via Register-OcrProvider."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_02d1fa76ed2f0ae2')
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_20c8d607a6fb6e96')
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 }
@@ -1850,7 +1849,7 @@ function Write-CycleHostNetworkReclassification {
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
             $null = Copy-CycleFailureRecord
         }
-        Write-Output "  Host network degraded ($script:CycleHostNetworkVerdict): re-filed as '$reclassified' (was '$current') -- no guest-level retry can influence it."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5b83be1d49000cd4' -Arguments @{ cycleHostNetworkVerdict = "$script:CycleHostNetworkVerdict"; reclassified = "$reclassified"; current = "$current" })
     } catch {
         Write-Verbose "Host-network reclassification of $failFile skipped: $($_.Exception.Message)"
     }
@@ -1913,7 +1912,7 @@ function Write-CycleFailureExecutionTail {
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
             $null = Copy-CycleFailureRecord
         }
-        Write-Output "  Failure record: attached the last $(@($tailLines).Count) lines of the guest's execution log, verbatim, beside the OCR tail."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_41ccadccc24c8f1c' -Arguments @{ count = "$(@($tailLines).Count)" })
     } catch {
         Write-Verbose "Execution-tail enrichment of $failFile skipped: $($_.Exception.Message)"
     }
@@ -2037,7 +2036,7 @@ function Invoke-RunnerBootstrapFailureGate {
     )
     $GatingState.ConsecutiveSuccesses = 0
     $GatingState.ConsecutiveFailures++
-    Write-Output "  Alert:   $($GatingState.ConsecutiveFailures)/$($GatingState.FailuresBeforeAlert) failures $(if ($GatingState.AlertArmed) {'(armed)'} else {'(suppressed)'})"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.failure_alert_state' -Arguments @{ failures = $GatingState.ConsecutiveFailures; threshold = $GatingState.FailuresBeforeAlert; state = $(if ($GatingState.AlertArmed) { 'armed' } else { 'suppressed' }) })
     if ($GatingState.AlertArmed -and $GatingState.ConsecutiveFailures -ge $GatingState.FailuresBeforeAlert) {
         Send-CycleFailureNotification `
             -HostType            $HostType `
@@ -2050,9 +2049,9 @@ function Invoke-RunnerBootstrapFailureGate {
             -DefaultFailureClass $FailureClass `
             -DefaultSeverity     'hard'
         $GatingState.AlertArmed = $false
-        Write-Output "  Notification sent. Alert suppressed until $($GatingState.SuccessesBeforeRearm) consecutive successes or runner restart."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a48765c7df8045c2' -Arguments @{ successesBeforeRearm = "$($GatingState.SuccessesBeforeRearm)" })
     } else {
-        Write-Output "  Notification suppressed ($($GatingState.ConsecutiveFailures)/$($GatingState.FailuresBeforeAlert) failures, armed=$($GatingState.AlertArmed))."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6527df681ce06de1' -Arguments @{ consecutiveFailures = "$($GatingState.ConsecutiveFailures)"; failuresBeforeAlert = "$($GatingState.FailuresBeforeAlert)"; alertArmed = "$($GatingState.AlertArmed)" })
     }
 }
 
@@ -2180,14 +2179,14 @@ $MaxConsecutiveCrashes = 3
 # copy below, and no `continue` re-runs the scope.
 do {
     if ($ShutdownState['Requested']) {
-        Write-Output "Shutdown requested. Exiting cycle loop."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_898775c7ac2d973a')
         break
     }
 
     # Re-check host conditions each cycle -- settings can revert (OS
     # update, manual change) between long-running cycles.
     if (-not (Assert-HostConditionSet -HostType $HostType)) {
-        Write-Warning "Host conditions failed. Fix the reported issues and restart."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e0b5e1d79e3bf108')
         $hostCondErr = 'Host condition set failed at cycle start; the failing condition (elevation, hypervisor service, display/lock timeout) is named in the warnings above and is fixable only at the host console.'
         # Ordering invariant for last_failure.json: Write-CycleInfraFailure never
         # overwrites an existing record, and that rule exists to protect the
@@ -2273,7 +2272,7 @@ do {
     # returns; everything a person is meant to read is on the warning and
     # information streams instead.
     try { $null = Initialize-HostMetricsExporter -HostType $HostType }
-    catch { Write-Warning "Host metrics: the exporter step could not run ($($_.Exception.Message)); the cycle is unaffected." }
+    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e208ce7a4ad46b27' -Arguments @{ message = "$($_.Exception.Message)" }) }
 
     $CycleCount++
     $OverallPassed  = $true
@@ -2292,7 +2291,7 @@ do {
     Write-Output ""
     Write-Output "========"
     Write-Output "  CYCLE $CycleCount"
-    Write-Output "  (inner cycle starting -- local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e56662ca69d3b0f1' -Arguments @{ zzz = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')" })
     Write-Output "========"
 
     # --- REGION: Authentication vault: fresh per cycle
@@ -2382,8 +2381,7 @@ do {
         if ($poolTestSet -is [System.Collections.IDictionary] -and $poolTestSet['frameworkUrl'] -and $poolTestSet['projectUrl']) {
             $Config.repositories['frameworkUrl'] = [string]$poolTestSet['frameworkUrl']
             $Config.repositories['projectUrl']   = [string]$poolTestSet['projectUrl']
-            Write-Information ("Pool '{0}' testSet '{1}': repositories overridden (framework={2}, project={3}); GH_TOKEN stays host-local." -f `
-                [string]$poolManifestForRepos['poolId'], [string]$poolTestSet['name'], [string]$poolTestSet['frameworkUrl'], [string]$poolTestSet['projectUrl']) -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b9980767ec32acdd' -FormatValues ([string]$poolManifestForRepos['poolId'], [string]$poolTestSet['name'], [string]$poolTestSet['frameworkUrl'], [string]$poolTestSet['projectUrl']) -FormatBindings @{ poolId = '0'; name = '1'; frameworkUrl = '2'; projectUrl = '3' }) -InformationAction Continue
             $script:PoolAssignedProjectUrl = [string]$poolTestSet['projectUrl']
             $script:PoolAssignedBy = [ordered]@{
                 poolId  = [string]$poolManifestForRepos['poolId']
@@ -2429,14 +2427,7 @@ do {
             # would misreport the pool's coverage. project_access_denied routes
             # to operator_intervention_required, so this does not consume
             # auto-remediation attempts on a problem no retry can fix.
-            $accessMsg = @(
-                "The pool assigned a project this host cannot read."
-                "  Project: $($script:PoolAssignedProjectUrl)"
-                "  Assigned by: pool '$($script:PoolAssignedBy.poolId)', test-set '$($script:PoolAssignedBy.testSet)'"
-                "  git: $($accessRecord.detail)"
-                "  Fix (either): grant this host's GH_TOKEN access to that repo,"
-                "                or reassign the pool to a project every member can read."
-            ) -join [Environment]::NewLine
+            $accessMsg = (Format-YurunaOperatorMessage -Key 'runner.assigned_project_denied' -Arguments @{ project = $script:PoolAssignedProjectUrl; pool = $script:PoolAssignedBy.poolId; testSet = $script:PoolAssignedBy.testSet; detail = $accessRecord.detail }).Replace("`n", [Environment]::NewLine)
             Write-Warning $accessMsg
             Write-CycleInfraFailure -Stage 'ProjectAccess' -FailureClass 'project_access_denied' -GuestKey '(bootstrap)' -ErrorMessage $accessMsg -HostType $HostType
             # Same exit shape as the ProjectClone failure below: the shared
@@ -2462,7 +2453,7 @@ do {
         if ($accessStatus -eq 'unreachable') {
             # Transient: let the clone below try and fail through the existing
             # network path, which already has the right backoff.
-            Write-Warning "Assigned project '$($script:PoolAssignedProjectUrl)' did not answer (network); the clone below will retry through the normal path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2a962400b1a920c9' -Arguments @{ poolAssignedProjectUrl = "$($script:PoolAssignedProjectUrl)" })
         }
     }
 
@@ -2485,17 +2476,17 @@ do {
         # tarball builders) don't trip over a missing tree.
         $projectDir = Join-Path $RepoRoot 'project'
         if (-not (Test-Path -LiteralPath (Join-Path $projectDir '.git'))) {
-            Write-Warning "-NoProjectClone is set but $projectDir/.git is missing. Cannot proceed; the caller must clone the project before invoking the inner runner."
-            $cloneRes = @{ success = $false; skipped = $false; errorMessage = "No project clone at $projectDir (-NoProjectClone)." }
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0bd78cad6aa93694' -Arguments @{ projectDir = "$projectDir" })
+            $cloneRes = @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_686b7e0d1a7de64a' -Arguments @{ projectDir = "$projectDir" }) }
         } else {
-            Write-Information "Project clone skipped (-NoProjectClone). Using existing $projectDir." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2f250144728022eb' -Arguments @{ projectDir = "$projectDir" }) -InformationAction Continue
             $cloneRes = @{ success = $true; skipped = $false; errorMessage = $null }
         }
     } else {
         $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
     }
     if (-not $cloneRes.success) {
-        Write-Warning "Project clone failed: $($cloneRes.errorMessage). Retrying next cycle."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_58ce825c6c8abbad' -Arguments @{ errorMessage = "$($cloneRes.errorMessage)" })
         # Bootstrap-stage failure -- no cycle folder yet, so the helper builds a
         # minimal payload from these scalars. The infra record above already wrote
         # the canonical 'bootstrap_sync' / 'hard'; pass the same so extensions
@@ -2616,7 +2607,7 @@ do {
         # This branch edits the runner's central plan resolution, so it stays
         # inert unless a pool explicitly opts in. The two-phase schema rollout
         # that governs when a store may emit testSet.sequences[] is recorded in
-        # dev-only/design/default-pool-auto-enrolment-and-test-sets.md (4.6).
+        # dev-only/design/default-pool-auto-enrollment-and-test-sets.md (4.6).
         #
         # An assigned testSet may name a SUBSET of the project's top-level
         # sequences. Absent or empty -> $script:PoolSubset stays empty and the
@@ -2628,7 +2619,7 @@ do {
         }
         if ($script:PoolSubset.Count -gt 0) {
             $setName = [string]$poolManifest['testSet']['name']
-            Write-Output "Pool test-set '$setName': running $($script:PoolSubset.Count) of the project's sequences ($($script:PoolSubset -join ', '))."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c02c29bdd61105ce' -Arguments @{ setName = "$setName"; count = "$($script:PoolSubset.Count)"; join = "$($script:PoolSubset -join ', ')" })
             # Resolve-TestSetCyclePlan produces the identical entry shape and
             # raises the same PlannerFatal, so the catch below and its
             # plan_invalid routing apply here too.
@@ -2646,10 +2637,10 @@ do {
         # runs zero iterations. Cycle still flows through "Finalize cycle"
         # naturally so $OverallPassed=false bumps ConsecutiveFailures and
         # fires notifications on the same threshold as any other failure.
-        if ($_.Exception.Message -like 'PlannerFatal:*') {
+        if (Test-SequencePlannerFailure -ErrorObject $_) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-            Write-Output "  PLANNER ERROR -- cycle aborted, no guests will run."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c1fc37909bdb27d2')
             foreach ($line in (($_.Exception.Message -replace '^PlannerFatal:\s*','') -split "`n")) {
                 Write-Output "  $line"
             }
@@ -2665,7 +2656,7 @@ do {
             # walks the YamlDotNet exception chain to surface file + line:col),
             # so don't prefix with project/test/test.runner.yml -- the actual
             # failure may be in any sequence the planner walked to.
-            Write-Warning "Could not resolve cycle plan - falling back to guestSequence: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ace0695ad4b92c38' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
     $guestSeqLists = Get-CycleGuestAndSequenceList -PlannerFatal $plannerFatal -CyclePlan $script:CyclePlan -Config $Config
@@ -2702,7 +2693,7 @@ do {
         # plan_invalid below for work this cycle was never going to run. Empty
         # when unpooled or when the set names no subset.
         try { $orchestrations = Get-CycleOrchestrationList -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Sequences $script:PoolSubset }
-        catch { Write-Warning "Could not resolve orchestration list: $($_.Exception.Message)" }
+        catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d552afeac836d6d7' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
     if ($orchestrations.Count -gt 0) {
         # Orchestration + per-guest sequences can't share one status cycle (each
@@ -2711,13 +2702,13 @@ do {
         # ambiguous configs loudly and run nothing rather than silently pick one;
         # the plan_invalid infra-failure funnels to the same fail path as a typo.
         if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
-            Write-Warning "test.runner.yml mixes an orchestration sequence with per-guest sequences; that is not supported in one cycle. Split them into separate runner configs."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e597192263582942')
             $OverallPassed = $false; $FailedGuest = "(planner)"; $FailedStep = "orchestration-mix"
             $FailureMessage = "orchestration + guest sequences in one test.runner.yml"
             Write-CycleInfraFailure -Stage 'orchestration-mix' -FailureClass 'plan_invalid' -GuestKey '(planner)' -ErrorMessage $FailureMessage -HostType $HostType
             $plannerFatal = $true; $GuestList = @(); $SequenceList = @()
         } elseif ($orchestrations.Count -gt 1) {
-            Write-Warning "test.runner.yml lists $($orchestrations.Count) orchestration sequences; only one orchestration per cycle is supported."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9cf0f2a644414dd3' -Arguments @{ count = "$($orchestrations.Count)" })
             $OverallPassed = $false; $FailedGuest = "(planner)"; $FailedStep = "orchestration-multi"
             $FailureMessage = "multiple orchestration sequences in one test.runner.yml"
             Write-CycleInfraFailure -Stage 'orchestration-multi' -FailureClass 'plan_invalid' -GuestKey '(planner)' -ErrorMessage $FailureMessage -HostType $HostType
@@ -2729,7 +2720,7 @@ do {
                 $orchestrationDoc = Read-SequenceFile -Path $orchestrationPath
                 $isOrchestrationCycle = $true
             } catch {
-                Write-Warning "Could not parse orchestration sequence '$orchestrationName': $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aded2543e167daec' -Arguments @{ orchestrationName = "$orchestrationName"; message = "$($_.Exception.Message)" })
                 $OverallPassed = $false; $FailedGuest = "(orchestration)"; $FailedStep = $orchestrationName
                 $FailureMessage = $_.Exception.Message
                 Write-CycleInfraFailure -Stage 'orchestration-parse' -FailureClass 'plan_invalid' -GuestKey '(orchestration)' -ErrorMessage $FailureMessage -HostType $HostType
@@ -2766,7 +2757,7 @@ do {
             # Don't fail the cycle on an unknown verb -- the engine still
             # has its own switch which will throw at runtime, but surface
             # the typo early so the operator notices before the slow path.
-            Write-Warning "Cycle plan references unknown action verbs (typo? new verb?): $($cap.unknownActions -join ', ')"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c28bab36fb0db566' -Arguments @{ join = "$($cap.unknownActions -join ', ')" })
         }
     }
     $namingStrategy = Resolve-CycleVmNamingStrategy -Config $Config -IsPoolCycle $script:PoolCycle -HostId $global:__YurunaHostId
@@ -2843,7 +2834,7 @@ do {
         Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleStartUtc $CycleStartUtc -HostType $HostType `
             -Hostname (hostname) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
 
-        Write-Output "Cycle start: $CycleStartUtc"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8e1fecaef8f3a24e' -Arguments @{ cycleStartUtc = "$CycleStartUtc" })
         # Commit line mirrors the dashboard's "Commit" meta-card: framework
         # SHA first, then the project SHA when repositories.projectUrl is set,
         # comma-space delimited (matching renderCommitLinks() in
@@ -2863,9 +2854,9 @@ do {
     foreach ($GuestKey in $GuestList) {
         if (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey) { continue }
         $folder = Join-Path $RepoRoot (Join-Path (Get-HostFolder $HostType) $GuestKey)
-        $err = "Guest folder not found: $folder"
-        Write-Warning "  ERROR [$GuestKey / folder check]: $err"
-        Write-Output "  (add a $(Get-HostFolder $HostType)/$GuestKey/ directory with Get-Image.ps1 + New-VM.ps1 to enable this guest on $HostType)"
+        $err = (Format-YurunaOperatorMessage -Key 'runner.guest_folder_missing' -Arguments @{ folder = $folder })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_da25182366f2d511' -Arguments @{ guestKey = "$GuestKey"; err = "$err" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6b4ee95576ee4d73' -Arguments @{ hostType = "$(Get-HostFolder $HostType)"; guestKey = "$GuestKey"; hostType2 = "$HostType" })
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         # Attach the failure to the first step so the status UI shows it
         # on this guest's row (folder-check has no step of its own).
@@ -2894,7 +2885,7 @@ do {
         Write-Output "--- Get-Image (${GetImageRefreshSeconds}s refresh) ---"
         foreach ($GuestKey in $GuestList) {
             if ($FailedGuests.Contains($GuestKey)) { continue }
-            Write-Output "Downloading image for $GuestKey..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1f01a0e682e4deda' -Arguments @{ guestKey = "$GuestKey" })
             $r = Get-Image -GuestKey $GuestKey -RepoRoot $RepoRoot -Force -Confirm:$false
             if (-not $r.success) {
                 # Refresh failed (network blip, mirror 5xx, partial transfer,
@@ -2905,12 +2896,12 @@ do {
                 # another shot at the upstream fetch.
                 $cachedPath = Get-ImagePath -GuestKey $GuestKey
                 $haveCached = $cachedPath -and (Test-Path $cachedPath)
-                Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1727c6459ac9c606' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
                 if ($haveCached) {
-                    Write-Output "  Cached image present at $cachedPath -- proceeding with cached baseline."
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_23f66d6a6d12417d' -Arguments @{ cachedPath = "$cachedPath" })
                     continue
                 }
-                Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
                 [void]$FailedGuests.Add($GuestKey)
                 $OverallPassed = $false
                 if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
@@ -2918,7 +2909,7 @@ do {
                 if ($StopOnFailure) { break }
                 continue
             }
-            Write-Output "  $GuestKey image: OK"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_699f8a383c898f6c' -Arguments @{ guestKey = "$GuestKey" })
         }
         # Stamp only when there was something to fetch. A cycle with no guests in
         # its plan (an orchestration top-level owns the whole cycle and carries an
@@ -2926,7 +2917,7 @@ do {
         # refresh window for images this host never actually refreshed.
         if ($OverallPassed -and $GuestList.Count -gt 0) {
             Set-LastGetImageTime
-            Write-Output "Get-Image complete. Timestamp updated."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_40cead215101a809')
         }
     } else {
         # Timer not expired, but verify each image exists. Re-download
@@ -2937,11 +2928,11 @@ do {
             $imagePath = Get-ImagePath -GuestKey $GuestKey
             if (-not $imagePath -or -not (Test-Path $imagePath)) {
                 $label = $imagePath ?? "$HostType/$GuestKey"
-                Write-Output "Image file missing: $label -- re-downloading..."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f0a35a4d3852e7fa' -Arguments @{ label = "$label" })
                 $r = Get-Image -GuestKey $GuestKey -RepoRoot $RepoRoot -Force -Confirm:$false
                 if (-not $r.success) {
-                    Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
-                    Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1727c6459ac9c606' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
                     [void]$FailedGuests.Add($GuestKey)
                     $OverallPassed = $false
                     if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
@@ -2950,11 +2941,11 @@ do {
                     if ($StopOnFailure) { break }
                     continue
                 }
-                Write-Output "  $GuestKey image: OK (re-downloaded)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_feb84591935e8ace' -Arguments @{ guestKey = "$GuestKey" })
             }
         }
         if (-not $missingAny) {
-            Write-Output "Get-Image: skipped (last run: $lastGetImage, all images present)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e67a1972f8865190' -Arguments @{ lastGetImage = "$lastGetImage" })
         }
     }
 
@@ -3001,7 +2992,7 @@ do {
                 -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
             if ($qGate.Skip) {
                 Write-Output ""
-                Write-Output "== $GuestKey (skipped -- quarantined after repeated same-class failures) =="
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_709a778095714d42' -Arguments @{ guestKey = "$GuestKey" })
                 Set-GuestStatus     -GuestKey $GuestKey -Status 'skipped'
                 Set-GuestQuarantine -GuestKey $GuestKey -Quarantined $true -UntilCommit $GitCommit
                 continue
@@ -3065,7 +3056,7 @@ do {
                     -HostType $HostType -FailuresToQuarantine ([int]$cfg.GuestQuarantineFailures) -SkipCycles ([int]$cfg.GuestQuarantineSkipCycles)
                 if ($qOut.NewlyQuarantined) {
                     Set-GuestQuarantine -GuestKey $GuestKey -Quarantined $true -UntilCommit $GitCommit
-                    Write-Output "  QUARANTINE: $GuestKey hit $($qOut.ConsecutiveFailures)x '$($qOut.FailureClass)' -- skipping it for up to $($cfg.GuestQuarantineSkipCycles) cycles or until a new commit."
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6106ba3dda5653cd' -Arguments @{ guestKey = "$GuestKey"; consecutiveFailures = "$($qOut.ConsecutiveFailures)"; failureClass = "$($qOut.FailureClass)"; guestQuarantineSkipCycles = "$($cfg.GuestQuarantineSkipCycles)" })
                 }
             } elseif ($guestIterState.Control -eq 'proceed') {
                 [void](Register-GuestQuarantineOutcome -RuntimeDir $env:YURUNA_RUNTIME_DIR -GuestKey $GuestKey -Outcome 'pass')
@@ -3084,7 +3075,7 @@ do {
         # call Complete-CycleRun here; we only map its exit code to the cycle
         # result the gating/notification tail below reads.
         Write-Output ""
-        Write-Output "Delegating cycle to orchestration sequence: $orchestrationName"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d6d232856028e02f' -Arguments @{ orchestrationName = "$orchestrationName" })
         $orchRc = Invoke-OrchestrationSequence `
             -Sequence $orchestrationDoc -SequencePath $orchestrationPath `
             -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
@@ -3102,7 +3093,7 @@ do {
     $script:CycleFinalized = $true
 
     Write-Output ""
-    Write-Output "== Cycle $CycleCount complete: $FinalStatus =="
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9bc0ca0cc8ac34fe' -Arguments @{ cycleCount = "$CycleCount"; finalStatus = "$FinalStatus" })
 
     if ($OverallPassed) {
         $ConsecutiveCrashes  = 0
@@ -3110,7 +3101,7 @@ do {
         $ConsecutiveSuccesses++
         if (-not $AlertArmed -and $ConsecutiveSuccesses -ge $SuccessesBeforeRearm) {
             $AlertArmed = $true
-            Write-Output "  Notification alert rearmed after $ConsecutiveSuccesses consecutive successes."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8c308c4766c63a88' -Arguments @{ consecutiveSuccesses = "$ConsecutiveSuccesses" })
         }
     }
 
@@ -3134,11 +3125,11 @@ do {
         if ($FailedGuest) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-            Write-Output "  FAILURE in cycle $CycleCount (continuing)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3387f09b836c51cc' -Arguments @{ cycleCount = "$CycleCount" })
             Write-Output "  Guest:   $FailedGuest"
             Write-Output "  Step:    $FailedStep"
             Write-Output "  Error:   $FailureMessage"
-            Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_71ba518dfaab6431' -Arguments @{ consecutiveFailures = "$ConsecutiveFailures"; failuresBeforeAlert = "$FailuresBeforeAlert"; suppressed = "$(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})" })
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
             if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
@@ -3190,7 +3181,7 @@ do {
                     -EventData     $inCycleEventData
                 $AlertArmed           = $false
                 $ConsecutiveSuccesses = 0
-                Write-Output "  Notification sent. Alert suppressed until $SuccessesBeforeRearm consecutive successes or runner restart."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_14c473e2b8984580' -Arguments @{ successesBeforeRearm = "$SuccessesBeforeRearm" })
             }
         }
     }
@@ -3224,14 +3215,14 @@ do {
     if ($_.Exception.Message -like 'YurunaCycleRestart:*') {
         Write-Output ""
         Write-Output "========"
-        Write-Output "  CYCLE $CycleCount aborted by /control/start-cycle"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8853dbfde9396bca' -Arguments @{ cycleCount = "$CycleCount" })
         Write-Output "  $($_.Exception.Message)"
         Write-Output "========"
         if ($script:ActiveVMName) {
             try {
-                Write-Output "  Cycle-restart cleanup: stopping VM '$($script:ActiveVMName)'..."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ce85196d8015fec4' -Arguments @{ activeVMName = "$($script:ActiveVMName)" })
                 Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
-            } catch { Write-Warning "  Cycle-restart VM cleanup failed: $_" }
+            } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_084f13041dbb8aec' -Arguments @{ value = "$_" }) }
             $script:ActiveVMName = $null
         }
         if (-not $script:CycleFinalized) {
@@ -3239,7 +3230,7 @@ do {
                 Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount) -ErrorAction SilentlyContinue
                 Save-CycleHostSample
                 Stop-LogFile -Outcome 'aborted' -Reason 'cycle-restart marker consumed mid-cycle' -ErrorAction SilentlyContinue
-            } catch { Write-Warning "  Cycle-restart finalization failed: $_" }
+            } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0701b2318dd0c5cc' -Arguments @{ value = "$_" }) }
             $script:CycleFinalized = $true
         }
         $OverallPassed = $false
@@ -3255,7 +3246,7 @@ do {
     $ConsecutiveCrashes++
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    Write-Output "  UNHANDLED ERROR in cycle $CycleCount"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_922e4c17711e9b26' -Arguments @{ cycleCount = "$CycleCount" })
     Write-Output "  $_"
     # Print the error origin. Otherwise the operator sees only the message
     # (e.g. "Cannot convert value ' Install ' to 'System.Int32'") and has
@@ -3278,9 +3269,9 @@ do {
 
     if ($script:ActiveVMName) {
         try {
-            Write-Output "  Emergency cleanup: stopping VM '$($script:ActiveVMName)'..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_afaf6ea527ec2849' -Arguments @{ activeVMName = "$($script:ActiveVMName)" })
             Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
-        } catch { Write-Warning "  Emergency VM cleanup failed: $_" }
+        } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9a3220c6e73266d8' -Arguments @{ value = "$_" }) }
         $script:ActiveVMName = $null
     }
 
@@ -3290,16 +3281,16 @@ do {
             $emergencyReason = if ($_) { "engine crash: $($_.Exception.Message)" } else { 'engine crash (no exception object)' }
             Save-CycleHostSample
             Stop-LogFile -Outcome 'fail' -Reason $emergencyReason -ErrorAction SilentlyContinue
-        } catch { Write-Warning "  Emergency cycle finalization failed: $_" }
+        } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ff5eb5c0bc8d9c68' -Arguments @{ value = "$_" }) }
         $script:CycleFinalized = $true
     }
 
     if ($ConsecutiveCrashes -ge $MaxConsecutiveCrashes) {
-        Write-Output "  $ConsecutiveCrashes consecutive unhandled errors -- aborting."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_60bc379ff0769edd' -Arguments @{ consecutiveCrashes = "$ConsecutiveCrashes" })
         $OverallPassed = $false
         break
     }
-    Write-Output "  Will retry next cycle ($ConsecutiveCrashes/$MaxConsecutiveCrashes consecutive errors)."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5ced5e66a6f6c7e0' -Arguments @{ consecutiveCrashes = "$ConsecutiveCrashes"; maxConsecutiveCrashes = "$MaxConsecutiveCrashes" })
 
     # yuruna_retry-style auto-retry backoff: capped exponential with jitter.
     # Applied on top of the existing inter-cycle delay so a transient failure
@@ -3313,7 +3304,7 @@ do {
         $autoRetryBase = 30 * [Math]::Pow(2, [Math]::Max(0, $ConsecutiveCrashes - 1))
         $autoRetryBase = [int][Math]::Min($autoRetryBase, 300)
         $backoffSeconds = Get-YurunaRetryBackoff -BaseDelay $autoRetryBase -MaxDelay 300 -JitterFraction 0.25
-        Write-Output "  Auto-retry backoff (yuruna_retry pattern): sleeping ${backoffSeconds}s before next cycle (consecutiveCrashes=$ConsecutiveCrashes)."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4dfa05bd02a0171f' -Arguments @{ backoffSeconds = "${backoffSeconds}"; consecutiveCrashes = "$ConsecutiveCrashes" })
         $backoffDeadline = [DateTime]::UtcNow.AddSeconds($backoffSeconds)
         while ([DateTime]::UtcNow -lt $backoffDeadline -and -not $ShutdownState['Requested']) {
             try {
@@ -3328,7 +3319,7 @@ do {
   }
 
     if ($ShutdownState['Requested']) {
-        Write-Output "Shutdown requested. Exiting cycle loop."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_898775c7ac2d973a')
         break
     }
 
@@ -3351,7 +3342,7 @@ do {
     # are gone and the operator wants a clean cycle.
     $cycleRestartFlagFile = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
     if (Test-Path $cyclePauseFlagFile) {
-        Write-Output "Cycle pause set via status UI. Waiting for resume..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fa55878958d93aef')
         $cyclePauseRequestedAt = Get-PauseFlagStamp -Path $cyclePauseFlagFile
         $cyclePauseHeldFrom    = [DateTime]::UtcNow
         Send-CyclePauseEvent -EventName 'sequence_paused' -RequestedAtUtc $cyclePauseRequestedAt
@@ -3374,11 +3365,11 @@ do {
             $pauseAttempt++
         }
         if ($ShutdownState['Requested']) {
-            Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2b0da17830e5ba59')
             break
         }
         $cyclePauseHeldSeconds = [int]([DateTime]::UtcNow - $cyclePauseHeldFrom).TotalSeconds
-        Write-Output "Cycle pause released after ${cyclePauseHeldSeconds}s. Resuming."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f51bf94661f91a03' -Arguments @{ cyclePauseHeldSeconds = "${cyclePauseHeldSeconds}" })
         Send-CyclePauseEvent -EventName 'sequence_resumed' -RequestedAtUtc $cyclePauseRequestedAt -HeldSeconds $cyclePauseHeldSeconds
     }
 
@@ -3404,8 +3395,8 @@ do {
     $delayId       = 2
     $effectiveDelay = if ($null -ne $CycleDelaySeconds -and [int]$CycleDelaySeconds -gt 0) { [int]$CycleDelaySeconds } else { [int]$CycleDelaySeconds }
     if ($effectiveDelay -gt 0 -and -not $ShutdownState['Requested']) {
-        Write-Output "[cycle $CycleCount] cycleDelaySeconds wait: $effectiveDelay s before exiting to outer."
-        $exitReason = Wait-WithProgress -Activity "[cycle $CycleCount] inter-cycle delay" `
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_916d918c356e6338' -Arguments @{ cycleCount = "$CycleCount"; effectiveDelay = "$effectiveDelay" })
+        $exitReason = Wait-WithProgress -Activity (Format-YurunaOperatorMessage -Key 'runner.operator_2b005d6a24fc7a36' -Arguments @{ cycleCount = "$CycleCount" }) `
             -TotalSeconds $effectiveDelay -PollSeconds 1 -Id $delayId -Test {
                 if ($ShutdownState['Requested']) { return 'shutdown' }
                 # A cycle-pause armed during the wait does NOT cut the countdown
@@ -3420,9 +3411,9 @@ do {
                 return $false
             }
         if ($exitReason -eq 'restart') {
-            Write-Output "[cycle $CycleCount] cycle-restart signal seen -- breaking delay early."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5e565b73b9509586' -Arguments @{ cycleCount = "$CycleCount" })
         }
-        Write-Output "[cycle $CycleCount] cycleDelaySeconds wait complete -- exiting inner; outer will respawn. (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_28bbafccbfc28a76' -Arguments @{ cycleCount = "$CycleCount"; zzz = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')" })
         Write-InnerLog "[cycle $CycleCount] cycleDelaySeconds wait complete -- entering exit path"
     }
 
@@ -3436,7 +3427,7 @@ do {
     # sole cycle boundary. Mirrors that gate's wait loop -- keep the heartbeat-
     # refresh / resume / shutdown handling in sync.
     if (($effectiveDelay -gt 0) -and (Test-Path $cyclePauseFlagFile) -and (-not $ShutdownState['Requested'])) {
-        Write-Output "Cycle pause armed during inter-cycle delay. Pausing before next cycle; waiting for resume..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5b49762d5e7714cc')
         $cyclePauseRequestedAt = Get-PauseFlagStamp -Path $cyclePauseFlagFile
         $cyclePauseHeldFrom    = [DateTime]::UtcNow
         Send-CyclePauseEvent -EventName 'sequence_paused' -RequestedAtUtc $cyclePauseRequestedAt
@@ -3451,11 +3442,11 @@ do {
             $postDelayPauseAttempt++
         }
         if ($ShutdownState['Requested']) {
-            Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2b0da17830e5ba59')
             break
         }
         $cyclePauseHeldSeconds = [int]([DateTime]::UtcNow - $cyclePauseHeldFrom).TotalSeconds
-        Write-Output "Cycle pause released after ${cyclePauseHeldSeconds}s. Resuming."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f51bf94661f91a03' -Arguments @{ cyclePauseHeldSeconds = "${cyclePauseHeldSeconds}" })
         Send-CyclePauseEvent -EventName 'sequence_resumed' -RequestedAtUtc $cyclePauseRequestedAt -HeldSeconds $cyclePauseHeldSeconds
     }
 
@@ -3518,7 +3509,7 @@ function Invoke-GuestProvisionIteration {
     $IterState.Control = 'proceed'
     $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($ShutdownState['Requested']) {
-        Write-Output "Shutdown requested. Skipping remaining guests."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_731765af83006a6d')
         $IterState.OverallPassed = $false; $IterState.FailedStep = "shutdown"
         $IterState.Control = 'break'; return
     }
@@ -3526,7 +3517,7 @@ function Invoke-GuestProvisionIteration {
     # (stopOnFailure=false path).
     if ($FailedGuests.Contains($GuestKey)) {
         Write-Output ""
-        Write-Output "== $GuestKey (skipped -- earlier failure) =="
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_584e647b44f30ad4' -Arguments @{ guestKey = "$GuestKey" })
         $IterState.Control = 'continue'; return
     }
     $VMName = $VMNames[$GuestKey]
@@ -3595,9 +3586,9 @@ function Invoke-GuestProvisionIteration {
                 $otherState = ''
                 try { $otherState = [string](Get-VMState -VMName $otherVM) } catch { $otherState = '' }
                 if ($otherState -eq 'running') {
-                    Write-Output "  Constrained host ($([Environment]::ProcessorCount) threads): stopping '$otherVM' before provisioning $GuestKey"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0fea8156978af908' -Arguments @{ processorCount = "$([Environment]::ProcessorCount)"; otherVM = "$otherVM"; guestKey = "$GuestKey" })
                     try { Stop-VM -VMName $otherVM -Force -Confirm:$false | Out-Null }
-                    catch { Write-Warning "  Could not stop '$otherVM': $($_.Exception.Message)" }
+                    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ef115e3df621bb89' -Arguments @{ otherVM = "$otherVM"; message = "$($_.Exception.Message)" }) }
                 }
             }
         }
@@ -3703,10 +3694,10 @@ function Invoke-GuestProvisionIteration {
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
         $prov = Get-GuestProvenance -GuestKey $GuestKey
         $provSuffix = if ($prov.Filename) { " <== $($prov.Filename)" } else { "" }
-        Write-Output "  $GuestKey New-VM: PASS$provSuffix"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ddefe5718373eff5' -Arguments @{ guestKey = "$GuestKey"; provSuffix = "$provSuffix" })
     } else {
-        Write-Warning "  ERROR [$GuestKey / New-VM]: $($r.errorMessage)"
-        Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_639093862d564ee8' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
         Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "New-VM"; $IterState.FailureMessage = $r.errorMessage
@@ -3721,7 +3712,7 @@ function Invoke-GuestProvisionIteration {
         # hold its 12 GB Startup reservation against the next guest.
         # Mirrors the Start-GuestOS/Start-GuestWorkload failure branches;
         # Stop-VM and Remove-VM are both safe no-ops on an absent VM.
-        Write-Output "  Cleaning up VM '$VMName' after failure..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
         Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
@@ -3755,10 +3746,10 @@ function Invoke-GuestProvisionIteration {
         }
         $guestIp = Wait-VMIp -VMName $VMName -TimeoutSeconds 30
         $ipSuffix = if ($guestIp) { " ==> IP: $guestIp" } else { " ==> IP: (pending)" }
-        Write-Output "  $GuestKey Start-VM: PASS$ipSuffix"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3c07e3c114f23fdf' -Arguments @{ guestKey = "$GuestKey"; ipSuffix = "$ipSuffix" })
     } else {
-        Write-Warning "  ERROR [$GuestKey / Start-VM]: $($r.errorMessage)"
-        Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_edd7d5feb4d01b90' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
         Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Start-VM"; $IterState.FailureMessage = $r.errorMessage
@@ -3774,7 +3765,7 @@ function Invoke-GuestProvisionIteration {
         # down so the next guest in this cycle doesn't hit
         # 0x800705AA (insufficient system resources). Mirrors the
         # Start-GuestOS/Start-GuestWorkload failure branches.
-        Write-Output "  Cleaning up VM '$VMName' after failure..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
         Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
@@ -3809,10 +3800,10 @@ function Invoke-GuestProvisionIteration {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "skipped" -Skipped $true
     } elseif ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "pass"
-        Write-Output "  $GuestKey Start-GuestOS: PASS"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b5dd0e5fc7fa51d3' -Arguments @{ guestKey = "$GuestKey" })
     } else {
-        Write-Warning "  ERROR [$GuestKey / Start-GuestOS]: $($r.errorMessage)"
-        Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1dd429c10317e9b6' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
         Set-StepStatus  -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Start-GuestOS"; $IterState.FailureMessage = $r.errorMessage
@@ -3847,10 +3838,10 @@ function Invoke-GuestProvisionIteration {
         }
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
         if ($StopOnFailure) {
-            Write-Output "  VM '$VMName' left running for investigation."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1559d5c30b410c15' -Arguments @{ vMName = "$VMName" })
             $IterState.Control = 'break'; return
         }
-        Write-Output "  Cleaning up VM '$VMName' after failure..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
         Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
@@ -3864,22 +3855,22 @@ function Invoke-GuestProvisionIteration {
     $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if (-not $ok) {
         $err = "VM '$VMName' did not reach running state after start."
-        Write-Warning "  ERROR [$GuestKey / New-VM.Resource]: $err"
-        Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c72668179e602cdf' -Arguments @{ guestKey = "$GuestKey"; err = "$err" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
         Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "fail" -ErrorMessage $err
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "New-VM.Resource"; $IterState.FailureMessage = $err
         Write-CycleInfraFailure -Stage 'New-VM.Resource' -FailureClass 'provisioning_failure' -GuestKey $GuestKey -VMName $VMName -ErrorMessage $err -HostType $HostType
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
         if ($StopOnFailure) {
-            Write-Output "  VM '$VMName' left running for investigation."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1559d5c30b410c15' -Arguments @{ vMName = "$VMName" })
             $IterState.Control = 'break'; return
         }
-        Write-Output "  Cleaning up VM '$VMName' after failure..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
         Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
-    Write-Output "  $GuestKey New-VM.Resource: PASS"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e899c8ead5d96e4c' -Arguments @{ guestKey = "$GuestKey" })
     Set-StepStatus -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "pass"
 
     # --- REGION: Screenshots (compare against trained references)
@@ -3895,17 +3886,17 @@ function Invoke-GuestProvisionIteration {
         } elseif ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "pass"
         } else {
-            Write-Warning "  ERROR [$GuestKey / Screenshots]: $($r.errorMessage)"
-            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8fb38597bbcd74dd' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
             Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Screenshots"; $IterState.FailureMessage = $r.errorMessage
             Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
             if ($StopOnFailure) {
-                Write-Output "  VM '$VMName' left running for investigation."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1559d5c30b410c15' -Arguments @{ vMName = "$VMName" })
                 $IterState.Control = 'break'; return
             }
-            Write-Output "  Cleaning up VM '$VMName' after failure..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
             Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
             $IterState.Control = 'continue'; return
         }
@@ -3983,17 +3974,14 @@ function Invoke-GuestProvisionIteration {
                         (Get-Command Test-WarmResumeReplayIsSafe -ErrorAction SilentlyContinue) -and
                         -not (Test-WarmResumeReplayIsSafe -StepAction $wrActions -ResumeFromStep ([int]$wrCp.ResumeFromStep))
                     if ($wrReplayUnsafe) {
-                        Write-Warning ("  WARM-RESUME declined: '$($wrDec.ResumeSequence)' failed at step $($wrCp.ResumeFromStep), " +
-                            "which runs guest work, and the sequence has no loadDiskSnapshot at or before it to restore from. " +
-                            "Replaying would land on the state the failed attempt already created and report THAT instead of " +
-                            "$($wrCp.FailureClass). Add a loadDiskSnapshot before the workload steps to make this recoverable.")
+                        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_4fe10480f33d691d' -Arguments @{ resumeSequence = "$($wrDec.ResumeSequence)"; resumeFromStep = "$($wrCp.ResumeFromStep)"; failureClass = "$($wrCp.FailureClass)" }))
                         $wrDone = $true
                     } else {
                         $wrAttempt++
                         if ($wrRewound) {
-                            Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)) at step $($wrCp.ResumeFromStep); step $($wrCp.ResumeFromStep) may be half-applied, so resuming from the loadDiskSnapshot at step $wrStep on VM '$VMName' and REPLAYING $([int]$wrCp.ResumeFromStep - $wrStep) step(s) against restored state."
+                            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a244d3567d53d7d3' -Arguments @{ wrAttempt = "$wrAttempt"; warmResumeMaxAttempts = "$($cfg.WarmResumeMaxAttempts)"; resumeSequence = "$($wrDec.ResumeSequence)"; failureClass = "$($wrCp.FailureClass)"; resumeFromStep = "$($wrCp.ResumeFromStep)"; wrStep = "$wrStep"; vMName = "$VMName"; wrStep2 = "$([int]$wrCp.ResumeFromStep - $wrStep)" })
                         } else {
-                            Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $wrStep on VM '$VMName' instead of redoing it from the top."
+                            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a3db0af449df40be' -Arguments @{ wrAttempt = "$wrAttempt"; warmResumeMaxAttempts = "$($cfg.WarmResumeMaxAttempts)"; resumeSequence = "$($wrDec.ResumeSequence)"; failureClass = "$($wrCp.FailureClass)"; wrStep = "$wrStep"; vMName = "$VMName" })
                         }
                         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                             $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
@@ -4005,7 +3993,7 @@ function Invoke-GuestProvisionIteration {
                             -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap `
                             -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep $wrStep
                         if ($r.success) {
-                            Write-Output "  WARM-RESUME: '$($wrDec.ResumeSequence)' recovered after $wrAttempt attempt(s)."
+                            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f816107e3cf58f3b' -Arguments @{ resumeSequence = "$($wrDec.ResumeSequence)"; wrAttempt = "$wrAttempt" })
                             $wrDone = $true
                         }
                     }
@@ -4018,10 +4006,10 @@ function Invoke-GuestProvisionIteration {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "pass"
-            Write-Output "  $GuestKey Start-GuestWorkload: PASS"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f9abc9f28af5f58f' -Arguments @{ guestKey = "$GuestKey" })
         } else {
-            Write-Warning "  ERROR [$GuestKey / Start-GuestWorkload]: $($r.errorMessage)"
-            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f4b04d4623996d5' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
             Set-StepStatus  -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Start-GuestWorkload"; $IterState.FailureMessage = $r.errorMessage
@@ -4051,10 +4039,10 @@ function Invoke-GuestProvisionIteration {
             }
             Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
             if ($StopOnFailure) {
-                Write-Output "  VM '$VMName' left running for investigation."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1559d5c30b410c15' -Arguments @{ vMName = "$VMName" })
                 $IterState.Control = 'break'; return
             }
-            Write-Output "  Cleaning up VM '$VMName' after failure..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8780a25c77eaf89d' -Arguments @{ vMName = "$VMName" })
             Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
             $IterState.Control = 'continue'; return
         }
@@ -4099,17 +4087,17 @@ function Invoke-GuestProvisionIteration {
     # 'running' after one retry blocks the next guest; anything else (absent /
     # stopped / can't-tell) proceeds.
     if ((Get-VMState -VMName $VMName) -eq 'running') {
-        Write-Warning "  Teardown of '$VMName' left it running; retrying removal."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ff2fa917cf9f21c' -Arguments @{ vMName = "$VMName" })
         Remove-VM -VMName $VMName -Confirm:$false | Out-Null
     }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
         $err = "VM '$VMName' is still running after $GuestKey passed and could not be torn down; refusing to start the next guest so guests stay serialized."
-        Write-Warning "  ERROR [$GuestKey / Cleanup]: $err"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3d585575d8816432' -Arguments @{ guestKey = "$GuestKey"; err = "$err" })
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Cleanup"; $IterState.FailureMessage = $err
         Write-CycleInfraFailure -Stage 'Cleanup' -FailureClass 'provisioning_failure' -GuestKey $GuestKey -VMName $VMName -ErrorMessage $err -HostType $HostType
         $IterState.Control = 'break'; $script:ActiveVMName = $null; return
     }
-    Write-Output "  Cleanup complete for $GuestKey."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9f0bfe47271a0b4b' -Arguments @{ guestKey = "$GuestKey" })
     $script:ActiveVMName = $null
 }
 

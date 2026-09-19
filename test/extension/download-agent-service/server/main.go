@@ -1,13 +1,8 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Command download-agent-service is the Yuruna download-agent daemon: it holds
-// guest images in a shared Download pool on the pool share, serves them to every
-// host's Get-Image.ps1 over HTTP, deduplicates concurrent requests, re-verifies
-// entries against their origin before they go stale, and ships a web UI for
-// inspecting and managing the pool. It self-announces to the pool-aggregator
-// service (beacon) so it shows up in the Extension hosts table, exactly like the
-// stash and pool-control services.
+// Command download-agent-service is the Yuruna download-agent daemon. See
+// ../../../../docs/download-agent.md#what-it-is for what it does. -- main.go
 package main
 
 import (
@@ -48,6 +43,8 @@ func main() {
 	proxyHTTPS := flag.String("proxy-https", "", "caching proxy ssl-bump port for HTTPS byte downloads, e.g. http://<cache>:3129 (empty fetches direct)")
 	proxyCA := flag.String("proxy-ca", "", "PEM file holding the caching proxy's CA, required to trust its ssl-bump port")
 	fidoScript := flag.String("fido-script", "", "path to the vendored, hash-pinned Fido.ps1 that mints the Windows 11 download URL (empty searches the standard install locations; nothing found leaves that family unavailable)")
+	language := flag.String("language", "auto", "Display language: auto or a supported locale")
+	allowPseudo := flag.Bool("allow-pseudo-locale", false, "Enable diagnostic pseudo locales")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -92,6 +89,7 @@ func main() {
 	}
 
 	ui := httpsrv.New(httpsrv.Options{
+		Language: *language, AllowPseudoLocale: *allowPseudo,
 		Addr: *httpAddr, Version: version, Store: store, Images: agent,
 		AuthToken:     authToken,
 		AggregatorURL: *aggregatorURL, HostID: *hostID,

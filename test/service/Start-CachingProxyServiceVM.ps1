@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -56,7 +58,8 @@ param(
     # the safer one to default to. The RAM and squid's cache_mem are resolved
     # together and passed together -- swap is masked in the guest, so moving one
     # without the other is an unrecoverable OOM rather than a slowdown.
-    [switch]$Lab
+    [switch]$Lab,
+    [switch]$AllowPseudoLocale
 )
 
 # --- REGION: Confirm the service operation
@@ -647,7 +650,7 @@ $global:LASTEXITCODE = $null
 # positional parameter cannot be found" and never runs at all. The key is
 # added conditionally so the bare call keeps each platform New-VM.ps1's
 # random-MAC default.
-$newVmParams = @{ VMName = $VMName }
+$newVmParams = @{ VMName = $VMName; AllowPseudoLocale = $AllowPseudoLocale }
 if ($MacAddress) { $newVmParams.MacAddress = $MacAddress }
 # Both or neither: the profile is the only place these two are chosen, so a
 # caller cannot shrink the VM and leave squid budgeted for the larger one.

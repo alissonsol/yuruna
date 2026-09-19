@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,13 +21,10 @@
 # share the same operator-facing format without copy-pasting the
 # counters and Write-Summary banner.
 #
-# One of THREE Yuruna logger modules with disjoint responsibilities --
-# see test/modules/README.md "Three loggers, three jobs" before adding
-# helpers here. This module owns ONLY the per-script PASS/FAIL tally +
-# Write-Summary banner + Exit-WithSummary helper. Sibling modules:
-# Yuruna.Log (stream interceptor) and Test.Log (cycle-filesystem owner).
-# Don't add Start-* cycle helpers or cmdlet-wrappers here -- they belong
-# in the other two.
+# One of THREE Yuruna logger modules with disjoint responsibilities. See
+# ../../docs/loglevels.md and test/modules/README.md "Three loggers, three
+# jobs" before adding helpers here -- this module owns ONLY the per-script
+# PASS/FAIL tally + Write-Summary banner + Exit-WithSummary helper.
 #
 # Eviction-safe counters: $global:YurunaOutputState anchors the live
 # state so Test-Config's helpers and any module that imports this one
@@ -39,6 +36,7 @@
     Justification = 'Cross-module-eviction-safe anchor; PASS/FAIL/WARN counts must survive -Force re-imports of either Test.Output or its callers (Test.ConfigValidator).')]
 param()
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not $global:YurunaOutputState) {
     $global:YurunaOutputState = [ordered]@{
         PassCount         = 0
@@ -66,7 +64,7 @@ function Reset-OutputState {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess('Test.Output counters', 'Reset to zero')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_8649c146a02ed4b8'), (Format-YurunaOperatorMessage -Key 'runner.operator_f5bedf160134ef94'))) { return }
     $script:State.PassCount = 0
     $script:State.FailCount = 0
     $script:State.WarnCount = 0
@@ -266,7 +264,7 @@ function Write-Summary {
     param()
     Write-Output ""
     Write-Output "-----------------------------------------"
-    Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:State.PassCount, $script:State.WarnCount, $script:State.FailCount)
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_10c685bcf110c44a' -FormatValues ($script:State.PassCount, $script:State.WarnCount, $script:State.FailCount) -FormatBindings @{ passCount = '0,3'; warnCount = '1,3'; failCount = '2,3' })
     Write-Output "-----------------------------------------"
     if ($script:State.WarnCount -gt 0) {
         # Reprint every WARN (grouped by section, in section order) so the
@@ -282,18 +280,18 @@ function Write-Summary {
         if ($allWarns.Count -gt 0) {
             Write-Output ""
             Write-Output "========"
-            Write-Output "  WARNINGS ($($allWarns.Count)) -- advisory; the cycle can still start:"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c5f51834f799aa65' -Arguments @{ count = "$($allWarns.Count)" })
             Write-Output "========"
             $wi = 0
             foreach ($wentry in $allWarns) {
                 $wi++
                 Write-Output ""
-                Write-Output ("  [{0}/{1}] in section: {2}" -f $wi, $allWarns.Count, $wentry.Section)
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_015fd1ce7213e3c1' -FormatValues ($wi, $allWarns.Count, $wentry.Section) -FormatBindings @{ wi = '0'; count = '1'; section = '2' })
                 Write-Output ("        {0}" -f $wentry.Message)
             }
             Write-Output ""
             Write-Output "========"
-            Write-Output "  END OF WARNINGS ($($allWarns.Count))"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_135b69704b63ad96' -Arguments @{ count = "$($allWarns.Count)" })
             Write-Output "========"
         }
     }
@@ -302,30 +300,30 @@ function Write-Summary {
     if ($script:State.FailCount -gt 0) {
         Write-Output ""
         Write-Output "========"
-        Write-Output "  FAILURES ($($script:State.FailCount)) -- the cycle gate refuses to start until these are resolved:"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_367163ea3c6b23bb' -Arguments @{ failCount = "$($script:State.FailCount)" })
         Write-Output "========"
         $i = 0
         foreach ($f in $script:State.Failures) {
             $i++
             Write-Output ""
-            Write-Output ("  [{0}/{1}] in section: {2}" -f $i, $script:State.FailCount, $f.Section)
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_87ae60c04f4abd13' -FormatValues ($i, $script:State.FailCount, $f.Section) -FormatBindings @{ i = '0'; failCount = '1'; section = '2' })
             Write-Output ("        {0}" -f $f.Message)
             if ($f.FullPath) {
-                Write-Output ("        File: {0}" -f $f.FullPath)
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_790cb5a2c25f6ab8' -FormatValues ($f.FullPath) -FormatBindings @{ fullPath = '0' })
             }
             if ($f.Section -and $script:State.WarningsBySection.Contains($f.Section)) {
                 $sectionWarns = $script:State.WarningsBySection[$f.Section]
                 if ($sectionWarns.Count -gt 0) {
-                    Write-Output ("        Warnings in this section ({0}):" -f $sectionWarns.Count)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e2c141ede4ed216f' -FormatValues ($sectionWarns.Count) -FormatBindings @{ count = '0' })
                     foreach ($w in $sectionWarns) {
-                        Write-Output ("          [WARN] {0}" -f $w)
+                        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_55db1dbea5f15ba3' -FormatValues ($w) -FormatBindings @{ w = '0' })
                     }
                 }
             }
         }
         Write-Output ""
         Write-Output "========"
-        Write-Output "  END OF FAILURES ($($script:State.FailCount))"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4c9f61ce60ab71d0' -Arguments @{ failCount = "$($script:State.FailCount)" })
         Write-Output "========"
     }
 }

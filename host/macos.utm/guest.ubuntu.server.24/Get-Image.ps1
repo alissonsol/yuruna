@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420bd3b5-66e3-4658-8af0-8077e04e6bc2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@ param(
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -42,7 +43,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    Write-Error "host/macos.utm/guest.ubuntu.server.24/Get-Image.ps1 only runs on macOS UTM."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1a0bab74e1794b2b')
     exit 1
 }
 

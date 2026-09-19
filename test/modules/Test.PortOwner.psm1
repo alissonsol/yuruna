@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4238bc78-c11a-402a-968a-b632c68efcf0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # which decides whether the elevated takeover below may ask for a password or
 # must report instead. -Global -Force matches every other consumer of this
 # module (a nested non-global import evicts a caller's view of it).
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 function Get-PortListenerPid {
@@ -50,7 +51,7 @@ function Get-PortListenerPid {
     if ($PSVersionTable.Platform -eq 'Unix') {
         # lsof is standard on macOS and most Linux.
         if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) {
-            if ($Diagnostic) { $Diagnostic.Value = 'lsof not found in PATH' }
+            if ($Diagnostic) { $Diagnostic.Value = (Format-YurunaOperatorMessage -Key 'remediation.operator_cf05b7bb4e5371b4') }
             return @()
         }
 
@@ -74,16 +75,16 @@ function Get-PortListenerPid {
         $anyPids = @($anyOut | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
         if ($anyPids.Count) {
             if ($Diagnostic) {
-                $Diagnostic.Value = "lsof -sTCP:LISTEN returned no pids, but lsof (any state) found pid(s) $($anyPids -join ','); treating as holder"
+                $Diagnostic.Value = (Format-YurunaOperatorMessage -Key 'remediation.operator_092d2a9134cdc6f6' -Arguments @{ join = "$($anyPids -join ',')" })
             }
             return $anyPids
         }
 
         if ($Diagnostic) {
             $trimErr = if ($lsofStderr) { $lsofStderr.Trim() } else { '' }
-            $parts   = @("lsof -nP -iTCP:$Port -sTCP:LISTEN -> empty", "lsof -nP -iTCP:$Port (any state) -> empty")
-            if ($trimErr) { $parts += "lsof stderr: $trimErr" }
-            $parts += "holder may be owned by another user; retry with: sudo lsof -nP -iTCP:$Port"
+            $parts   = @("lsof -nP -iTCP:$Port -sTCP:LISTEN -> empty", (Format-YurunaOperatorMessage -Key 'remediation.operator_ababc4b189a176eb' -Arguments @{ port = "$Port" }))
+            if ($trimErr) { $parts += (Format-YurunaOperatorMessage -Key 'remediation.operator_5db26636a6ed4019' -Arguments @{ trimErr = "$trimErr" }) }
+            $parts += (Format-YurunaOperatorMessage -Key 'remediation.operator_9944c15ceb34ec02' -Arguments @{ port = "$Port" })
             $Diagnostic.Value = $parts -join '; '
         }
         return @()
@@ -100,7 +101,7 @@ function Get-PortListenerPid {
     # host-binding form.
     $raw = @(netsh http show servicestate 2>$null)
     if (-not $raw) {
-        if ($Diagnostic) { $Diagnostic.Value = 'netsh http show servicestate returned no output' }
+        if ($Diagnostic) { $Diagnostic.Value = (Format-YurunaOperatorMessage -Key 'remediation.port_netsh_empty' -Arguments @{ command = 'netsh http show servicestate' }) }
         return @()
     }
 
@@ -454,8 +455,7 @@ function Request-PortReclaimElevation {
     & sudo -n true 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { return $true }
     if (-not (Test-YurunaCanPrompt)) { return $false }
-    Write-Information ("Port $Port is held by a process this account cannot stop. Freeing it needs root " +
-                       "(you may be prompted for your password)...") -InformationAction Continue
+    Write-Information ((Format-YurunaOperatorMessage -Key 'runner.operator_f3b7e0780dfb74b3' -Arguments @{ port = "$Port" })) -InformationAction Continue
     & sudo -v
     & sudo -n true 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
@@ -580,9 +580,9 @@ function Invoke-PortTakeover {
         $targets = @($Candidate | Select-Object -Unique | Where-Object { $protected -notcontains $_ })
         if (-not $targets.Count) { return @() }
         foreach ($target in $targets) {
-            Write-Information "Port $Port is held by $(Get-PortHolderDescription -ProcessId $target) -- stopping it$Why so the status service can bind." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b4f8483900527385' -Arguments @{ port = "$Port"; target = "$(Get-PortHolderDescription -ProcessId $target)"; why = "$Why" }) -InformationAction Continue
         }
-        if (-not $PSCmdlet.ShouldProcess("PID(s) $($targets -join ', ')", "Stop port $Port holder")) { return @() }
+        if (-not $PSCmdlet.ShouldProcess("PID(s) $($targets -join ', ')", (Format-YurunaOperatorMessage -Key 'remediation.operator_6856d456910a252e' -Arguments @{ port = "$Port" }))) { return @() }
         & $StopAction $targets
         foreach ($target in $targets) { if (-not $stopped.Contains($target)) { $stopped.Add($target) } }
         return $targets
@@ -607,7 +607,7 @@ function Invoke-PortTakeover {
     # Reached when phase 1 saw nothing (a holder hidden
     # from this user's lsof) or could not stop what it saw (another user's).
     if ($IsWindows) {
-        $result.Detail = 'no elevated takeover on Windows -- run the shell as Administrator, or add a urlacl for this port'
+        $result.Detail = (Format-YurunaOperatorMessage -Key 'remediation.operator_fa9d85ead9be0ad7')
         return $result
     }
     $PSNativeCommandUseErrorActionPreference = $false
@@ -616,7 +616,7 @@ function Invoke-PortTakeover {
         Write-Verbose 'Invoke-PortTakeover: id unavailable -- assuming not root.'
     }
     if (-not $isRoot -and -not (Request-PortReclaimElevation -Port $Port)) {
-        $result.Detail = "the holder is out of this account's reach and elevation was unavailable -- sudo has no live authorization and this run cannot ask for one (run 'sudo -v', then re-run)"
+        $result.Detail = (Format-YurunaOperatorMessage -Key 'remediation.operator_7d87024301324c31')
         return $result
     }
 
@@ -627,20 +627,20 @@ function Invoke-PortTakeover {
     })
     $result.Stopped = @($stopped)
     if (-not $phase2.Count) {
-        $result.Detail = 'even a root-level lsof found no holder that may be stopped for this port'
+        $result.Detail = (Format-YurunaOperatorMessage -Key 'remediation.operator_20e82ed313adaba2')
         return $result
     }
     if (Test-PortListenerFree -Port $Port -BudgetMs 5000) {
         $result.Freed = $true
         return $result
     }
-    Write-Information "Port $Port still held after SIGTERM -- sending SIGKILL to $($phase2 -join ', ')." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1eadbbca80253986' -Arguments @{ port = "$Port"; join = "$($phase2 -join ', ')" }) -InformationAction Continue
     Stop-ProcessWithElevation -ProcessId $phase2 -Signal KILL -AsRoot:$isRoot
     if (Test-PortListenerFree -Port $Port -BudgetMs 3000) {
         $result.Freed = $true
         return $result
     }
-    $result.Detail = "stopped holder(s) $($phase2 -join ', ') with elevation, but the port is still not bindable"
+    $result.Detail = (Format-YurunaOperatorMessage -Key 'remediation.operator_992cf1faa91dc2f9' -Arguments @{ join = "$($phase2 -join ', ')" })
     return $result
 }
 
@@ -718,7 +718,7 @@ function Resolve-PortOrphan {
         if ($service.Hostname) { $who += "hostname '$($service.Hostname)'" }
         if ($service.Host)     { $who += "host '$($service.Host)'" }
         $suffix = if ($who.Count) { " ($($who -join ', '))" } else { '' }
-        $svcClause = "A Yuruna status service is already answering on port $Port$suffix -- started by another checkout or user."
+        $svcClause = (Format-YurunaOperatorMessage -Key 'remediation.operator_5c64242438df86ec' -Arguments @{ port = "$Port"; suffix = "$suffix" })
     }
 
     if (-not $holderPids.Count) {
@@ -729,16 +729,9 @@ function Resolve-PortOrphan {
         # places, and the port-is-empty case has no holder to go looking for.
         if (Test-PortPrivilegeBlocked -Port $Port) {
             $lines = @(
-                "Status-service port $Port is FREE, but this process may not reserve http://*:$Port/."
-                "  That is an HTTP.sys URL reservation: making one needs elevation. Nothing is holding"
-                "  the port -- this is a privilege problem, not a port conflict."
-                "  Refusing to start: the status service binds the same wildcard prefix (so that guests"
-                "  can reach it on the host's LAN IP, not just localhost) and would fail identically."
-                "  Resolve by ONE of:"
-                "    - run this shell as Administrator; or"
-                "    - reserve the URL once, then rerun unelevated:"
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_fc7632bc7d328be6' -Arguments @{ port = "$Port" }).Replace("`n", [Environment]::NewLine)
                 "        netsh http add urlacl url=http://*:$Port/ user=$env:USERDOMAIN\$env:USERNAME"
-                "  Diagnostic: $diag"
+                (Format-YurunaOperatorMessage -Key 'remediation.port_diagnostic' -Arguments @{ detail = $diag })
             )
             return @{ Status = 'PrivilegeRequired'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
         }
@@ -758,26 +751,21 @@ function Resolve-PortOrphan {
         # cannot host a status service here, and proceeding would run the cycle
         # blind (no dashboard, no breakpoint controls).
         $ownerLine = if ($svcClause) { "  $svcClause" }
-                     else { "  The holder is owned by another user (its socket is hidden from lsof/netsh without elevation)." }
+                     else { (Format-YurunaOperatorMessage -Key 'remediation.operator_17b1fce158581db3') }
         $lines = @(
-            "Status-service port $Port is in use but no owning PID is visible to this user."
+            (Format-YurunaOperatorMessage -Key 'remediation.operator_e12111b50564c2b8' -Arguments @{ port = "$Port" })
             $ownerLine
-            "  Refusing to start: a second status service cannot bind the same port, and running the"
-            "  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state)."
-            $(if ($takeover.Attempted) { "  Elevated takeover was tried first and did not free it: $($takeover.Detail)" })
+            (Format-YurunaOperatorMessage -Key 'remediation.operator_7fb881306771c597').Replace("`n", [Environment]::NewLine)
+            $(if ($takeover.Attempted) { (Format-YurunaOperatorMessage -Key 'remediation.operator_d2a8de7e95317e4a' -Arguments @{ detail = "$($takeover.Detail)" }) })
             $(if (-not $IsWindows) {
-                "  Most often this is a status service left running as ROOT by an earlier sudo run of a" +
+                (Format-YurunaOperatorMessage -Key 'remediation.port_root_listener').Replace("`n", [Environment]::NewLine) +
                 [Environment]::NewLine +
-                "  setup or runner script. Confirm and clear it with:" +
+                (Format-YurunaOperatorMessage -Key 'remediation.port_inspect_command' -Arguments @{ command = "sudo lsof -nP -iTCP:$Port -sTCP:LISTEN" }) +
                 [Environment]::NewLine +
-                "        sudo lsof -nP -iTCP:$Port -sTCP:LISTEN      # names the root-owned holder" +
-                [Environment]::NewLine +
-                "        sudo pwsh test/service/Stop-StatusService.ps1       # stops it the way it was started"
+                (Format-YurunaOperatorMessage -Key 'remediation.port_stop_command' -Arguments @{ command = 'sudo pwsh test/service/Stop-StatusService.ps1' })
             })
-            "  Resolve by ONE of:"
-            "    - stop the other owner's status service (it may belong to another user account); or"
-            "    - give this checkout its own port in test/test.config.yml (statusService.port) and rerun."
-            "  Diagnostic: $diag"
+            (Format-YurunaOperatorMessage -Key 'remediation.operator_424dd8ef292c44da').Replace("`n", [Environment]::NewLine)
+            (Format-YurunaOperatorMessage -Key 'remediation.port_diagnostic' -Arguments @{ detail = $diag })
         ) | Where-Object { $null -ne $_ }
         return @{ Status = 'Conflict'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
     }
@@ -806,16 +794,14 @@ function Resolve-PortOrphan {
                 if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
                 return @{ Status = 'Recovered'; Port = $Port; Pids = $takeover.Stopped; Owner = ''; Service = $null; Message = '' }
             }
-            $ownerStr = if ($owner) { " owned by '$owner'" } else { '' }
+            $holderLine = if ($owner) { (Format-YurunaOperatorMessage -Key 'remediation.port_holder_owned' -Arguments @{ port = $Port; pid = $holderPid; process = $proc.ProcessName; owner = $owner }) } else { (Format-YurunaOperatorMessage -Key 'remediation.port_holder' -Arguments @{ port = $Port; pid = $holderPid; process = $proc.ProcessName }) }
             $whyLine  = if ($svcClause) { "  $svcClause" }
-                        else { "  Refusing to commandeer a listener this harness does not own." }
+                        else { (Format-YurunaOperatorMessage -Key 'remediation.operator_88121b1e52c84006') }
             $lines = @(
-                "Status-service port $Port is held by PID $holderPid ($($proc.ProcessName))$ownerStr."
+                $holderLine
                 $whyLine
-                $(if ($takeover.Attempted) { "  Elevated takeover was tried first and did not free it: $($takeover.Detail)" })
-                "  Refusing to start so the cycle does not run without its status dashboard / breakpoint controls."
-                "  Resolve by stopping that process (it may belong to another user), or set a different"
-                "  statusService.port in test/test.config.yml and rerun."
+                $(if ($takeover.Attempted) { (Format-YurunaOperatorMessage -Key 'remediation.operator_d2a8de7e95317e4a' -Arguments @{ detail = "$($takeover.Detail)" }) })
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_efc4491d25c27bc3').Replace("`n", [Environment]::NewLine)
             ) | Where-Object { $null -ne $_ }
             return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = $owner; Service = $service; Message = ($lines -join [Environment]::NewLine) }
         }
@@ -824,11 +810,11 @@ function Resolve-PortOrphan {
 
     # Every visible holder is a reclaimable orphan pwsh THIS user owns -> stop them.
     foreach ($r in $reclaimable) {
-        if (-not $PSCmdlet.ShouldProcess("PID $($r.HolderPid)", 'Stop orphan pwsh holder')) { continue }
+        if (-not $PSCmdlet.ShouldProcess("PID $($r.HolderPid)", (Format-YurunaOperatorMessage -Key 'remediation.operator_331d83be3f8e49ab'))) { continue }
         # Write-Information, not Write-Output: this function has a singular
         # hashtable return contract, so a status line on the output stream would
         # be captured alongside the result (Write-Output pipeline pollution).
-        Write-Information "Port $Port held by orphan pwsh PID $($r.HolderPid) (started $($r.Proc.StartTime)). Stopping it." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_dc6eed0a67b49afe' -Arguments @{ port = "$Port"; holderPid = "$($r.HolderPid)"; startTime = "$($r.Proc.StartTime)" }) -InformationAction Continue
         Stop-Process -Id $r.HolderPid -Force -ErrorAction SilentlyContinue
     }
 
@@ -850,12 +836,11 @@ function Resolve-PortOrphan {
     }
 
     $stillLines = @(
-        "Status-service port $Port is still held after stopping the orphan pwsh holder(s) ($($holderPids -join ', '))."
+        (Format-YurunaOperatorMessage -Key 'remediation.operator_ba08eed1519e3ec9' -Arguments @{ port = "$Port"; join = "$($holderPids -join ', ')" })
     )
     if ($svcClause) { $stillLines += "  $svcClause" }
-    if ($takeover.Attempted) { $stillLines += "  Elevated takeover was tried too and did not free it: $($takeover.Detail)" }
-    $stillLines += "  Refusing to start. Inspect with 'lsof -iTCP:$Port -sTCP:LISTEN' (or 'netsh http show servicestate'),"
-    $stillLines += "  free the port, or set a different statusService.port in test/test.config.yml and rerun."
+    if ($takeover.Attempted) { $stillLines += (Format-YurunaOperatorMessage -Key 'remediation.operator_6cc507ac627ec13c' -Arguments @{ detail = "$($takeover.Detail)" }) }
+    $stillLines += (Format-YurunaOperatorMessage -Key 'remediation.port_still_held_help' -Arguments @{ port = $Port }).Replace("`n", [Environment]::NewLine)
     return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $service; Message = ($stillLines -join [Environment]::NewLine) }
 }
 

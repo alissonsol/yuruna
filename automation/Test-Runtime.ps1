@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42716d16-84b0-4329-82d3-c96aec139664
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@ param (
 )
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
@@ -101,7 +102,7 @@ if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
     $dockerExit = $LASTEXITCODE
 }
 if ($dockerExit -ne 0) {
-    $problems.Add("DOCKER: Docker is not running or is unhealthy.")
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_82c987150223392e'))
     if ($IsWindows) {
         $dockerDesktopExe = $null
         $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
@@ -116,19 +117,19 @@ if ($dockerExit -ne 0) {
             if (Test-Path $candidate) { $dockerDesktopExe = $candidate }
         }
         if ($dockerDesktopExe) {
-            $problems.Add("  -> Start Docker Desktop on Windows:")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_00dc7c766802c16f'))
             $problems.Add("       Start-Process '$dockerDesktopExe'")
         } else {
-            $problems.Add("  -> Start Docker Desktop on Windows (not found in the default location).")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_a6a3fec0977d82a0'))
         }
     } elseif ($IsLinux) {
-        $problems.Add("  -> Start Docker on Linux:")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_039d15ebf558f3cc'))
         $problems.Add("       sudo systemctl start docker")
     } else {
-        $problems.Add("  -> Start Docker Desktop on macOS:")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_1b15bdf8fde492ca'))
         $problems.Add("       open -a Docker")
     }
-    $problems.Add("  -> Then retry this check.")
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_538dbbedc6313351'))
 } else {
     Write-Verbose "Docker is running and healthy."
 }
@@ -142,19 +143,19 @@ if ($null -eq (Get-Command kubectl -ErrorAction SilentlyContinue)) {
     $kubectlVersionExit = $LASTEXITCODE
 }
 if ($kubectlVersionExit -ne 0) {
-    $problems.Add("KUBECTL: kubectl is not installed or not in PATH.")
-    $problems.Add("  -> Install kubectl: https://kubernetes.io/docs/tasks/tools/")
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_5916ef3813bf8149'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_9da6aea5b3ca9c8c'))
 } else {
     $null = kubectl cluster-info 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $problems.Add("KUBECTL: kubectl cannot connect to the Kubernetes cluster.")
-        $problems.Add("  -> Verify your kubeconfig with: kubectl config view")
-        $problems.Add("  -> If using Docker Desktop, enable Kubernetes in Docker Desktop settings.")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_d2d4c3349fa9c41f'))
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_ee5948b70f314800'))
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_81c43d658d161aa5'))
         if ($IsLinux) {
             if (Get-Command swapon -ErrorAction SilentlyContinue) {
                 $swapInfo = swapon --show 2>&1
                 if (-not [string]::IsNullOrWhiteSpace($swapInfo)) {
-                    $problems.Add("  -> Swap is ON. Kubernetes requires swap to be disabled:")
+                    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_acf06d0797fb527b'))
                     $problems.Add("       sudo swapoff -a")
                     $problems.Add("       sudo systemctl restart kubelet")
                 }
@@ -162,7 +163,7 @@ if ($kubectlVersionExit -ne 0) {
             if (Get-Command systemctl -ErrorAction SilentlyContinue) {
                 $kubeletStatus = systemctl is-active kubelet 2>&1
                 if ($kubeletStatus -ne "active") {
-                    $problems.Add("  -> kubelet is not active. Try:")
+                    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_250f4d20840b7daf'))
                     $problems.Add("       sudo systemctl start kubelet")
                 }
             }
@@ -179,9 +180,9 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
 } else {
     $nodeLines = @(kubectl get nodes --no-headers 2>&1 | Where-Object { $_ -ne "" })
     if ($LASTEXITCODE -ne 0) {
-        $problems.Add("CLUSTER: Could not retrieve node status.")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_c1183a01da877148'))
         foreach ($line in $nodeLines) { $problems.Add("  $line") }
-        $problems.Add("  -> Run 'kubectl get nodes' manually to investigate.")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_60108482ffac31eb'))
     } else {
         # Error lines must not be filtered out (filtering them hides failures) and zero nodes
         # must not count as healthy: require at least one Ready node. `\bReady\b` matches
@@ -189,14 +190,14 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
         $readyNodes    = @($nodeLines | Where-Object { $_ -match "\bReady\b" })
         $notReadyNodes = @($nodeLines | Where-Object { $_ -notmatch "\bReady\b" })
         if ($readyNodes.Count -eq 0) {
-            $problems.Add("CLUSTER: No Ready nodes reported.")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_8deabd038eb2770d'))
             foreach ($line in $nodeLines) { $problems.Add("  $line") }
-            $problems.Add("  -> Run 'kubectl get nodes' manually; the cluster reports no schedulable nodes.")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_9a08e978373feffe'))
         } elseif ($notReadyNodes.Count -gt 0) {
-            $problems.Add("CLUSTER: One or more nodes are not in Ready state:")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_6b21049f8cccfe28'))
             foreach ($line in $notReadyNodes) { $problems.Add("  $line") }
-            $problems.Add("  -> Run 'kubectl describe node <node-name>' for details.")
-            $problems.Add("  -> On Linux, check: sudo systemctl status kubelet")
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_4c8c5980fef3a417'))
+            $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_b2776f3a9666e4d4'))
         } else {
             Write-Verbose "All Kubernetes nodes are Ready."
         }
@@ -208,10 +209,10 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
 Write-Verbose "Checking helm..."
 $helmVersion = Get-ToolProbeOutput -Name 'helm' -ToolArgs @('version', '--short')
 if ([string]::IsNullOrWhiteSpace($helmVersion)) {
-    $problems.Add("HELM: helm is missing, or is present but not runnable (a zero-length or corrupt binary).")
-    $problems.Add("  -> Chart deployments cannot run without it.")
-    $problems.Add("  -> Check with: ls -l `$(command -v helm); helm version --short")
-    $problems.Add("  -> Reinstall helm: https://helm.sh/docs/intro/install/")
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_87bba5430b63c2ef'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_72e28a58e0301f9b'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_1cb63907b21a7688'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_3bc6d2f5edbf00c0'))
 } else {
     Write-Verbose "helm is runnable: $helmVersion"
 }
@@ -220,22 +221,22 @@ if ([string]::IsNullOrWhiteSpace($helmVersion)) {
 Write-Verbose "Checking mkcert local CA..."
 $caRoot = Get-ToolProbeOutput -Name 'mkcert' -ToolArgs @('-CAROOT')
 if ([string]::IsNullOrWhiteSpace($caRoot)) {
-    $problems.Add("MKCERT: mkcert is missing, or is present but not runnable (a zero-length or corrupt binary).")
-    $problems.Add("  -> Check with: ls -l `$(command -v mkcert); mkcert -version")
-    $problems.Add("  -> Install mkcert: https://github.com/FiloSottile/mkcert/releases")
-    $problems.Add("  -> After installing, run: mkcert -install")
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_d522efedd63f0b44'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_f147ac8566432a50'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_a102b702035dd928'))
+    $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_b5e24639de15386d'))
 } else {
     $caPem = Join-Path $caRoot "rootCA.pem"
     $caItem = Get-Item -LiteralPath $caPem -ErrorAction SilentlyContinue
     if (-not $caItem) {
-        $problems.Add("MKCERT: Local CA certificate not found at: $caPem")
-        $problems.Add("  -> Run (may require elevated privileges): mkcert -install")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_b77f5899ba9b851a' -Arguments @{ caPem = "$caPem" }))
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_dd0de2a2eaf244da'))
     } elseif ($caItem.Length -eq 0) {
         # An existing-but-empty CA passes a bare Test-Path, then fails later as an
         # unexplained TLS error in the ingress. Same lost-write class as the
         # zero-length binaries above.
-        $problems.Add("MKCERT: Local CA certificate at $caPem is zero-length.")
-        $problems.Add("  -> Run (may require elevated privileges): mkcert -install")
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_a447c115b0de3b93' -Arguments @{ caPem = "$caPem" }))
+        $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_dd0de2a2eaf244da'))
     } else {
         Write-Verbose "mkcert local CA is installed at: $caRoot"
     }
@@ -254,14 +255,14 @@ if ($problems.Count -gt 0) {
 }
 
 Write-Information ""
-Write-Information "== Runtime Check: ALL OK =="
+Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_c5d7264ec6630cba')
 Write-Information ""
 
-Write-Information "-- Docker images --"
+Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_142e2f906a880a91')
 docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"
 Write-Information ""
 
-Write-Information "-- Running containers (all) --"
+Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_64cf72692732e576')
 docker ps --all --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
 Write-Information ""
 

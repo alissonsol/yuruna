@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b5c288-370d-4abd-9a24-488e540acb2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
+Import-Module (Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory $here) 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 $script:Driver = Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory $here) 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
 $script:Lifted = @{}
 foreach ($name in 'Get-HostMemoryStatus', 'Format-HostMemoryStatus', 'Test-HostResourceExhaustionError',

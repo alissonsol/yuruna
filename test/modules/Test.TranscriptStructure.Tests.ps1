@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e7a1d5-3b90-4c68-8f24-05c6b93e1a7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,6 +202,95 @@ Describe 'a step boundary is available as data, not only as a line' {
         } finally {
             Set-CycleFolderAnchor -Path $priorFolder
             Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'localized transcript notification and MCP boundaries' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Notify.psm1') -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.Catalog.psm1') -DisableNameChecking
+        $priorNoRun = $env:YURUNA_MCP_SERVER_NO_RUN
+        try { $env:YURUNA_MCP_SERVER_NO_RUN = '1'; . (Join-Path $script:RepoRoot 'test/service/Start-McpServer.ps1') }
+        finally { $env:YURUNA_MCP_SERVER_NO_RUN = $priorNoRun }
+        Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        Import-Module (Join-Path $script:RepoRoot 'test/extension/notification/default.psm1') -DisableNameChecking
+    }
+    AfterAll { Remove-Module -Name 'default' -Force -ErrorAction SilentlyContinue }
+    It 'globalization acceptance: transcript notification and MCP catalog coverage' {
+        $tools = @(Get-McpToolTable)
+        $tools.Count | Should -Be 10
+        foreach ($tool in $tools) {
+            $tool.Description | Should -BeExactly (Format-CatalogMessage -Key ('runner.mcp_' + $tool.Name) -Locale 'en-US')
+            $run = @{ ExitCode = 126; Stdout = ''; Stderr = "`u{5916}`u{90e8}"; TranscriptPath = ''; Refused = $true }
+            $result = ConvertTo-McpToolResult -Tool $tool -Run $run
+            $result.ok | Should -BeFalse
+            $result.noteCode | Should -BeExactly 'mcp_refused'
+            $result.note | Should -BeExactly (Format-CatalogMessage -Key 'runner.mcp_refused' -Locale 'en-US')
+            $result.stderr | Should -BeExactly "`u{5916}`u{90e8}"
+        }
+        $body = Format-FailureMessage -HostType 'host.fixture' -Hostname 'vm.fixture' -GuestKey 'guest.fixture' -StepName 'step.fixture' -ErrorMessage "`u{5916}`u{90e8} <script>&" -CycleStartUtc '2026-09-18T00:00:00Z' -GitCommit 'abc123' -EventData @{ failureClass = 'future_code'; severity = 'hard'; external = "`u{5916}`u{90e8} <script>&" }
+        $body | Should -Match 'Yuruna Test Failure'
+        $trailer = [regex]::Match($body, '(?s)--- yuruna-failure-json ---\s*(.*?)\s*--- end yuruna-failure-json ---')
+        $trailer.Success | Should -BeTrue
+        $data = $trailer.Groups[1].Value | ConvertFrom-Json
+        $data.failureClass | Should -BeExactly 'future_code'
+        $data.external | Should -BeExactly "`u{5916}`u{90e8} <script>&"
+        $rule = New-YurunaStepRuleLine -Index 2 -Total 3 -Name "`u{5916}`u{90e8} <script>&" -Outcome 'FAIL'
+        (Test-YurunaStepRuleLine -Text $rule) | Should -BeTrue
+    }
+    It 'globalization acceptance: generated accessibility and external detail escaping' {
+        $hostile = "`u{5916}`u{90e8} <script>alert(`"x`")</script> & caf`u{e9}"
+        Mock -ModuleName 'default' -CommandName Invoke-RestMethod -MockWith { $script:AcceptanceEmailBody = $Body }
+        InModuleScope 'default' -Parameters @{ hostile = $hostile } {
+            Send-EmailViaResend -ResendCfg @{ apiKey = 'fixture'; fromEmail = 'from@example.invalid' } -ToAddress 'to@example.invalid' -Subject 'fixture' -BodyText $hostile
+        }
+        $email = $script:AcceptanceEmailBody | ConvertFrom-Json
+        $email.text | Should -BeExactly $hostile
+        $email.html | Should -Match '<html lang="en-US" dir="ltr">'
+        $email.html | Should -Not -Match '<script>'
+        $email.html | Should -Match ([regex]::Escape([Net.WebUtility]::HtmlEncode($hostile)))
+        $module = Get-Module Yuruna.Log
+        $target = Join-Path $TestDrive 'acceptance-transcript.html'
+        & $module {
+            param($target, $hostile)
+            function Invoke-TranscriptCapture {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '', Justification = 'Redirects the existing transcript anchor to an isolated fixture and restores it immediately.')]
+                [CmdletBinding()]
+                param($Destination, $Detail)
+                $prior = $global:__YurunaLogFile
+                try {
+                    $global:__YurunaLogFile = $Destination
+                    Add-YurunaLogLine (New-YurunaStepRuleLine -Index 1 -Total 2 -Name $Detail)
+                } finally { $global:__YurunaLogFile = $prior }
+            }
+            Invoke-TranscriptCapture -Destination $target -Detail $hostile
+        } $target $hostile
+        $html = Get-Content -LiteralPath $target -Raw
+        $html | Should -Match 'role="heading" aria-level="2"'
+        $html | Should -Not -Match '<script>'
+        $html | Should -Match ([regex]::Escape([Net.WebUtility]::HtmlEncode($hostile)))
+    }
+}
+
+Describe 'transcript document metadata follows the fixed log locale' {
+    It 'renders its heading and language direction from the same immutable context' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.Log.psm1') -DisableNameChecking
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            foreach ($locale in @(@{ tag = 'en-US'; direction = 'ltr' }, @{ tag = 'qps-Plocm'; direction = 'rtl' })) {
+                & $adapter { param($tag, $direction) $script:OperatorContext = [pscustomobject]@{ ResolvedTag = $tag; Direction = $direction } } $locale.tag $locale.direction
+                $html = Get-YurunaLogPreamble
+                $html | Should -Match ([regex]::Escape('<html lang="' + $locale.tag + '" dir="' + $locale.direction + '">'))
+                $title = [System.Net.WebUtility]::HtmlEncode((Format-CatalogMessage -Key 'runner.transcript_title' -Arguments @{} -Locale $locale.tag))
+                $html | Should -Match ([regex]::Escape('<title>' + $title + '</title>'))
+                $html | Should -Match ([regex]::Escape('<h1>' + $title + '</h1>'))
+                $html | Should -Not -Match '__YURUNA_LOG_'
+            }
+        } finally {
+            & $adapter { param($context) $script:OperatorContext = $context } $priorContext
         }
     }
 }

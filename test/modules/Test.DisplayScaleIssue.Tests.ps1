@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d9fd1b-9965-414d-a198-47696cfff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,7 @@ BeforeAll {
     $here     = Split-Path -Parent $PSCommandPath
     $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
+    Import-Module (Join-Path $here 'Test.CatalogSource.psm1') -DisableNameChecking
     Import-Module (Join-Path $here 'Test.Assert.psm1')                  -Force -Global -DisableNameChecking
     Import-Module (Join-Path $here 'Test.HostCondition.Windows.psm1')   -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.HostCondition.Mac.psm1')       -Force -DisableNameChecking
@@ -224,7 +225,7 @@ Describe 'the Test-Config display scaling section' {
         $section = [regex]::Match($script:TestConfigSource,
             '(?s)# --- REGION: Section 5c.*?(?=# --- REGION: Section 6)').Value
         Assert-Match 'host\.ubuntu\.kvm' $section 'the KVM family needs an explicit answer'
-        Assert-Match 'Not applicable' $section 'silence would read as "checked and fine"'
+        Assert-Match 'Not applicable' ($section + "`n" + ((Get-CatalogSourceMessage -Source $section) -join "`n")) 'silence would read as "checked and fine"'
     }
 }
 

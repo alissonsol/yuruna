@@ -2,19 +2,8 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package webui ships the browser assets every Yuruna extension service UI
-// shares. Today that is the runtime in yuruna.core.js; a service still carries
-// its own stylesheet.
-//
-// A service embeds its OWN pages and page scripts and serves them as before;
-// it asks this package only for the names it does not have. The point is that
-// there is one copy of the shared runtime rather than one per service. Copies
-// drift silently, and the drift is not cosmetic -- these assets carry a browser
-// baseline (Safari iOS 9.0, see docs/definition.md), and a service that has its
-// own copy is a service that can fall off that baseline on its own.
-//
-// //go:embed cannot reach outside a module, which is why the shared files could
-// not simply be referenced in place; embedding them HERE and handing them over
-// through Go is what crosses the boundary.
+// shares. See ../../../../docs/extensions-api.md#filesystem-layout for why
+// there is one shared copy and why it lives here. -- webui.go
 package webui
 
 import (

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,6 +195,12 @@ foreach ($p in $goPages) {
     # including missing the adapter's own bytes and its script block.
     $html = Get-GoRawStringConstant -Path (Join-Path $RepoRoot $p.Source) -Name 'indexHTML'
     $adapter = Get-GoRawStringConstant -Path (Join-Path $RepoRoot $p.Adapter) -Name 'requestAdapterScript'
+    $registryPath = Join-Path (Split-Path (Join-Path $RepoRoot $p.Source) -Parent) 'internal/catalog/registry.go'
+    $registrySource = [IO.File]::ReadAllText($registryPath)
+    $kernelMatch = [regex]::Match($registrySource, '(?m)^const BrowserKernel = ("(?:\\.|[^"\\])*")\s*$')
+    if (-not $kernelMatch.Success) { throw "Generated browser kernel is missing from $registryPath" }
+    $catalogKernel = ConvertFrom-Json -InputObject $kernelMatch.Groups[1].Value
+    $adapter = [string]$catalogKernel + "`nwindow.YurunaI18n.init(document);`n" + $adapter
     # A plain string replace: -replace would read $ sequences in the adapter as
     # capture-group references and silently drop them.
     $html = $html.Replace('</head>', '<script>' + $adapter + "</script>`n</head>")
@@ -527,6 +533,8 @@ foreach ($producer in $provisioned) {
     # %U is Squid's own interpolation point. A gate that rendered the macro
     # would measure a line no reader ever sees; a plausible URL is what the
     # page actually shows, and it is also the longest unbreakable string on it.
+    Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -DisableNameChecking
+    $document = ConvertTo-ProvisionedCatalogHtml -Content $document -RepoRoot $RepoRoot -Language 'en-US'
     $document = $document.Replace('%U', 'http://archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.gz')
     [IO.File]::WriteAllText((Join-Path $OutputDirectory ([string]$producer.page)), $document)
 }
@@ -543,11 +551,11 @@ $expected = [ordered]@{
     'caching-proxy-ui.html'        = @('<html lang="en"', 'id="pause"', "yurunaRequest('/api/status'")
     'caching-proxy-parser-ui-failed.html' = @('<html lang="en"', 'window.yurunaRequest', 'Promise.reject', 'Refresh failed.')
     'caching-proxy-ui-failed.html'        = @('<html lang="en"', 'window.yurunaRequest', 'Promise.reject', 'Refresh failed.')
-    'cycle-transcript.html'        = @('<html lang="en"', 'log-error::before', 'class="log-warning"',
+    'cycle-transcript.html'        = @('<html lang="en-US" dir="ltr"', 'log-error::before', 'class="log-warning"',
                                        'class="log-information"', 'role="heading" aria-level="2"')
     'log-directory-index.html'     = @('<main>', '<caption>', 'scope="col"', 'Parent directory',
                                        '<time datetime=', 'class="scroller"')
-    'notification-email.html'      = @('<html lang="en"', 'pre-wrap', 'background:#ffffff')
+    'notification-email.html'      = @('<html lang="en-US"', 'pre-wrap', 'background:#ffffff')
     'status-reference-qps-Ploc.html' = @('<html lang="qps-Ploc" dir="ltr"',
         'qps-Ploc.status.js', 'data-yuruna-globalization-reference', 'sequence_paused_waiting_resume')
     'status-reference-qps-Plocm.html' = @('<html lang="qps-Plocm" dir="rtl"',
@@ -556,8 +564,8 @@ $expected = [ordered]@{
         'qps-Ploc.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
     'pool-reference-qps-Plocm.html' = @('<html lang="qps-Plocm" dir="rtl"',
         'qps-Plocm.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
-    'squid-no-upstream.html'       = @('<!doctype html>', '<html lang="en">', '<meta charset="utf-8">',
-                                       '<title>', '<main>', '<h1>')
+    'squid-no-upstream.html'       = @('<!doctype html>', '<html lang="en-US" dir="ltr">', '<meta charset="utf-8">',
+                                       '<title data-i18n=', '<main>', '<h1 data-i18n=')
 }
 $missing = [Collections.Generic.List[string]]::new()
 foreach ($file in $expected.Keys) {

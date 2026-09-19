@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42eb9613-e03b-4f67-8b89-1b1e1b198727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,5 +118,54 @@ Describe 'Get-EntryPointExitCode -- the mapping the operator scripts exit throug
     It 'is stable across calls' {
         Assert-Equal -Expected (Get-EntryPointExitCode -Outcome Ok) -Actual (Get-EntryPointExitCode -Outcome Ok)
         Assert-Equal -Expected (Get-EntryPointExitCode -Outcome Failure) -Actual (Get-EntryPointExitCode -Outcome Failure)
+    }
+}
+
+Describe 'localized boundary identity survives changed display prose' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.Catalog.psm1') -DisableNameChecking
+        $priorNoRun = $env:YURUNA_MCP_SERVER_NO_RUN
+        try { $env:YURUNA_MCP_SERVER_NO_RUN = '1'; . (Join-Path $script:RepoRoot 'test/service/Start-McpServer.ps1') }
+        finally { $env:YURUNA_MCP_SERVER_NO_RUN = $priorNoRun }
+    }
+    It 'globalization acceptance: no condition branches on rendered prose' {
+        $records = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/manifests/operator-catalog-sources.json') -Raw | ConvertFrom-Json
+        $violations = @()
+        foreach ($path in @($records.sources.path | Sort-Object -Unique)) {
+            $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $path), [ref]$null, [ref]$null)
+            foreach ($call in $ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Format-YurunaOperatorMessage', 'Format-CatalogMessage') }, $true)) {
+                $ancestor = $call.Parent
+                while ($ancestor -and $ancestor -isnot [Management.Automation.Language.StatementBlockAst]) {
+                    if ($ancestor -is [Management.Automation.Language.BinaryExpressionAst] -and $ancestor.Operator -match '^(I|C)?(eq|ne|match|like|contains|in)$') { $violations += "$path`:$($call.Extent.StartLineNumber)" }
+                    $ancestor = $ancestor.Parent
+                }
+            }
+        }
+        $violations | Should -BeNullOrEmpty
+        foreach ($display in @('sucesso', "`u{5931}`u{6557}", 'Paused (waiting for resume)', 'False is only a word in this sentence')) {
+            $result = ConvertTo-McpToolResult -Tool @{ Name = 'future_tool' } -Run @{ ExitCode = 7; Stdout = $display; Stderr = ''; TranscriptPath = "/fixture/`u{5916}`u{90e8}.txt" }
+            $result.ok | Should -BeFalse
+            $result.exitCode | Should -Be 7
+            $result.transcript | Should -BeExactly "/fixture/`u{5916}`u{90e8}.txt"
+            $result.output | Should -BeExactly $display
+        }
+    }
+    It 'globalization acceptance: stable codes typed arguments and unknown future codes' {
+        $unknown = Invoke-McpMethod -Request ([pscustomobject]@{ id = 4; method = "future/`u{5916}`u{90e8}" })
+        $unknown.error.code | Should -Be -32601
+        $unknown.error.message | Should -BeExactly (Format-CatalogMessage -Key 'runner.mcp_unknown_method' -Arguments @{ method = "future/`u{5916}`u{90e8}" } -Locale 'en-US')
+        $unknownTool = Invoke-McpMethod -Request ([pscustomobject]@{ id = 5; method = 'tools/call'; params = @{ name = "future_`u{5916}`u{90e8}" } })
+        $unknownTool.error.code | Should -Be -32602
+        $unknownTool.error.message | Should -Match "future_`u{5916}`u{90e8}"
+        foreach ($locale in @('en-US', 'qps-Ploc', 'qps-Plocm')) {
+            $text = Format-CatalogMessage -Key 'runner.sequence_step' -Arguments @{ index = 2; total = 3; action = 'future_action'; description = "`u{5916}`u{90e8} <detail>" } -Locale $locale
+            $text | Should -Match 'future_action'
+            $text | Should -Match ([regex]::Escape("`u{5916}`u{90e8} <detail>"))
+            $text | Should -Not -Match '\{(?:index|total|action|description)\}'
+        }
+        { Format-CatalogMessage -Key 'runner.sequence_step' -Arguments @{ index = 'two'; total = 3; action = 'future_action'; description = 'detail' } -Locale 'en-US' } | Should -Throw
+        $result = ConvertTo-McpToolResult -Tool @{ Name = 'future_tool' } -Run @{ ExitCode = 0; Stdout = "`u{672a}`u{6765}"; Stderr = ''; TranscriptPath = '' }
+        $result.ok | Should -BeTrue
+        $result.output | Should -BeExactly "`u{672a}`u{6765}"
     }
 }

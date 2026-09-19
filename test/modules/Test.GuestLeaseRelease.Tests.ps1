@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421af4b2-1e1d-4a6c-80fe-e53a2fb240b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
     # test/modules/<this file> -> test/modules -> test -> repo root.
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $script:NetLib   = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'automation/yuruna-network.sh')
@@ -208,7 +209,7 @@ Describe 'the host-side release, for the kills no shutdown unit sees' {
         # a clean cycle recycles the most addresses. It force-stops, so the
         # guest's own shutdown unit never runs and cannot stand in for this.
         $body = [regex]::Match($script:InnerLoop,
-            '(?s)# --- REGION: Stop and remove this guest VM before starting the next.*?Cleanup complete for').Value
+            '(?s)# --- REGION: Stop and remove this guest VM before starting the next.*?(?=\n\})').Value
         $body | Should -Not -BeNullOrEmpty -Because 'the passing-guest teardown region must be findable'
         $releaseAt = $body.IndexOf('Invoke-GuestDhcpRelease')
         $stopAt    = $body.IndexOf('Stop-VM -VMName $VMName -Force')
@@ -241,7 +242,7 @@ Describe 'the host-side release, for the kills no shutdown unit sees' {
         $script:InnerLoop | Should -Match 'Get-GuestDhcpReleaseTally' -Because 'the teardown must report the count'
         $teardown = [regex]::Match($script:InnerLoop,
             '(?s)function Remove-CycleTeardownOrphanVM.*?\n\}').Value
-        $teardown | Should -Match 'DHCP leases released before teardown' -Because 'reported at the teardown banner'
-        $teardown | Should -Match 'no guest was asked this cycle' -Because 'the zero case is stated, not skipped'
+        ((Get-CatalogSourceMessage -Source $teardown) -join "`n") | Should -Match 'DHCP leases released before teardown' -Because 'reported at the teardown banner'
+        ((Get-CatalogSourceMessage -Source $teardown) -join "`n") | Should -Match 'no guest was asked this cycle' -Because 'the zero case is stated, not skipped'
     }
 }

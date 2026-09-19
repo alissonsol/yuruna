@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b7c9e1-5a4d-4f83-9c26-7d1e08a35b44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
     $here     = Split-Path -Parent $PSCommandPath
     $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -118,9 +119,21 @@ Describe 'the host-settings sweep' {
         # the failure changes, and the next thing they stop trusting is the
         # gate that keeps telling them to run it.
         $body = Get-MacFunctionText -Name 'Set-MacHostConditionSet'
-        Assert-Match 'Set-MacUtmctlLink' $body 'Set-MacHostConditionSet no longer establishes the utmctl link'
-        Assert-Match "unmet\.Add\('utmctl on PATH'\)" $body `
-            'a link the sweep could not create has to raise the unmet count, or Enable-TestAutomation exits 0 on a host that still cannot run a cycle'
+        $ast = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$null)
+        $failureBranches = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.IfStatementAst] -and
+                    $node.Clauses[0].Item1.Extent.Text -match '^\s*-not\s*\(Set-MacUtmctlLink\)\s*$'
+                }, $true))
+        Assert-True ($failureBranches.Count -eq 1) 'the sweep must inspect the failure of exactly one utmctl link repair'
+        $unmetAdds = @($failureBranches[0].Clauses[0].Item2.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+                    $node.Expression.Extent.Text -ceq '$unmet' -and $node.Member.Value -ceq 'Add'
+                }, $true))
+        Assert-True ($unmetAdds.Count -eq 1) `
+            'a failed link repair must add exactly one unmet condition, or Enable-TestAutomation can report the wrong result'
+        $messages = @(Get-CatalogSourceMessage -Source $unmetAdds[0].Extent.Text)
+        Assert-True ($messages.Count -eq 1) 'the unmet condition must name the failed repair through its real catalog call'
+        Assert-StringEqual 'utmctl on PATH' $messages[0] 'the failed repair must report the missing utmctl PATH condition'
     }
 
     It 'declares the link write among the reasons it asks for sudo' {
@@ -135,7 +148,7 @@ Describe 'the quick host check' {
         $body = Get-MacFunctionText -Name 'Test-MacHostMinimum'
         Assert-Match 'Get-MacUtmctlRemediation' $body `
             'the warning has to carry the runnable command; this is the line an operator sees first and most often'
-        Assert-Match 'Enable-TestAutomation' $body `
+        Assert-Match 'Enable-TestAutomation' ((Get-CatalogSourceMessage -Source $body) -join "`n") `
             'the other repair -- the one that also applies the rest of the host settings -- belongs in the same warning'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,14 +77,15 @@ param(
     [string]$RuntimeDir = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
 if (-not $IsLinux) {
-    Write-Error "test/lab/Invoke-HostAddressChurn.ps1 drives NetworkManager and only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_35395d2bfd4fe058')
     exit 1
 }
 if (-not (Get-Command nmcli -ErrorAction SilentlyContinue)) {
-    Write-Error "nmcli is not on PATH; this host's bridge is not NetworkManager-managed and cannot be churned this way."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_982ebcf70e8a5981')
     exit 1
 }
 
@@ -112,7 +113,7 @@ function Get-BridgeAddress {
 
 $before = Get-BridgeAddress -Device $BridgeName
 if (-not $before) {
-    Write-Error "Could not read an IPv4 address for '$BridgeName'. Is the bridge up, and is that the right device name?"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6429336f3cab2361' -Arguments @{ bridgeName = "$BridgeName" })
     exit 1
 }
 Write-ChurnLine "churn injector: bridge '$BridgeName' currently at $before; interval ${IntervalSeconds}s; count $(if ($Count -eq 0) { 'unbounded' } else { $Count })"
@@ -124,7 +125,7 @@ Write-ChurnLine "churn injector: bridge '$BridgeName' currently at $before; inte
 # be recorded as evidence of surviving churn that never happened.
 $probe = & nmcli -t connection show $BridgeName 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "nmcli cannot read connection '$BridgeName': $probe"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c99a6c2b38ea775d' -Arguments @{ bridgeName = "$BridgeName"; probe = "$probe" })
     exit 1
 }
 # Activating a connection is privileged. The runner is deliberately not root,
@@ -134,13 +135,11 @@ if ($LASTEXITCODE -ne 0) {
 # present to answer.
 & sudo -n nmcli --version *> $null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error ("This account cannot run 'sudo -n nmcli'. Install the rule and re-run:`n" +
-        "  sudo install -m 0440 -o root -g root test/lab/yuruna-churn.sudoers /etc/sudoers.d/yuruna-churn`n" +
-        "Without it no churn is injected, and a passing cycle is NOT evidence of surviving any.")
+    Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_7e8f2822a7e563d4'))
     exit 1
 }
 
-if (-not $PSCmdlet.ShouldProcess($BridgeName, "force a DHCP renewal every ${IntervalSeconds}s")) {
+if (-not $PSCmdlet.ShouldProcess($BridgeName, (Format-YurunaOperatorMessage -Key 'runner.operator_93931ea4b90643f7' -Arguments @{ intervalSeconds = "${IntervalSeconds}" }))) {
     Write-ChurnLine "churn injector: -WhatIf; would renew '$BridgeName' every ${IntervalSeconds}s. Privilege probe passed."
     return
 }

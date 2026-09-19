@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,8 @@ param(
     [string]$VMName = "windows-11-01"
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -51,17 +53,17 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_79ce90e85de037ab' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.windows.11/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9b91b0e58e31c650')
     exit 1
 }
 
 $arch = (& uname -m).Trim()
 if ($arch -ne 'x86_64') {
-    Write-Error "Windows 11 KVM guest is x86_64-only (this host is $arch)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_bf7819296c37a7e0' -Arguments @{ arch = "$arch" })
     exit 1
 }
 
@@ -95,11 +97,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -110,12 +112,12 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
 # --- REGION: Render the autounattend.xml + build a CD with it
 $autoTemplate = Join-Path $ScriptDir 'vmconfig/autounattend.xml'
 if (-not (Test-Path -LiteralPath $autoTemplate)) {
-    Write-Error "Template missing: $autoTemplate"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b416f0c3ecd65028' -Arguments @{ autoTemplate = "$autoTemplate" })
     exit 1
 }
 # --- REGION: https://yuruna.link/4220a755-002d
@@ -144,7 +146,7 @@ Set-Content -LiteralPath (Join-Path $autoSrc 'autounattend.xml') -Value $autoXml
 & genisoimage -output $autoIso -volid AUTOUNATTEND -joliet -rock `
     (Join-Path $autoSrc 'autounattend.xml') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage (autounattend) failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_9aec44ead873e6bc' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
@@ -158,7 +160,7 @@ $ovmfCode = '/usr/share/OVMF/OVMF_CODE_4M.secboot.fd'
 $ovmfVars = '/usr/share/OVMF/OVMF_VARS_4M.ms.fd'
 foreach ($p in @($ovmfCode, $ovmfVars)) {
     if (-not (Test-Path -LiteralPath $p)) {
-        Write-Error "OVMF firmware missing at $p (apt install ovmf)."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2b90323d7af4844d' -Arguments @{ p = "$p" })
         exit 1
     }
 }
@@ -171,7 +173,7 @@ if (-not (Test-Path -LiteralPath $nvram)) {
 # See https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 # --- REGION: https://yuruna.link/42fa6f45-0015
@@ -209,7 +211,7 @@ $installArgs = @(
 Write-Verbose "virt-install $($installArgs -join ' ')"
 & virt-install @installArgs
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "virt-install failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_385530ac2faec54f' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 

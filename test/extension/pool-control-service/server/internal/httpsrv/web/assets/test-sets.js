@@ -17,7 +17,7 @@
   function load(opts) {
     window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
-    var done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets...');
+    var done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), window.YurunaI18n.t("pool.loading_test_sets"));
     chrome.busy(true);
     // Runs on the failure path too: an indicator left turning over a read that
     // already failed claims progress that is not happening.
@@ -26,12 +26,19 @@
   }
 
   function renderSets() {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html", "data", function () {
+      return renderSetsMeasured();
+    });
+  }
+
+
+  function renderSetsMeasured() {
     Y.clearNotice();
     return Y.api('/api/state').then(function (data) {
       chrome.markLoaded();
       paintSets(data.testSets || []);
     }, function (e) {
-      Y.notice('error', 'Could not load test sets: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("pool.could_not_load_test_sets_value1", {value1: (e.message)}));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html', 'error');
     });
   }
@@ -42,7 +49,7 @@
     tbody.textContent = '';
     if (sets.length === 0) {
       sorter.set([]);
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: 'No test sets yet.' })]));
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: window.YurunaI18n.t("pool.no_test_sets_yet") })]));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html', 'empty');
       return;
     }
@@ -56,21 +63,21 @@
   // set. Wiring them from inside a loop body would leave every button holding
   // the last row's name.
   function buildRow(t) {
-    var editBtn = Y.el('button', { text: 'Edit' });
+    var editBtn = Y.el('button', { text: window.YurunaI18n.t("pool.edit") });
     editBtn.addEventListener('click', function () {
       document.getElementById('ts-name').value = t.name;
       document.getElementById('ts-framework').value = t.frameworkUrl;
       document.getElementById('ts-project').value = t.projectUrl;
     });
-    var delBtn = Y.el('button', { text: 'Delete', 'aria-label': 'Delete test set ' + t.name });
+    var delBtn = Y.el('button', { text: window.YurunaI18n.t("pool.delete"), 'aria-label': window.YurunaI18n.t("pool.delete_test_set_value1", {value1: (t.name)}) });
     delBtn.addEventListener('click', function () {
-      if (!window.confirm("Delete test set '" + t.name + "'? This cannot be undone.")) { return; }
+      if (!window.confirm(window.YurunaI18n.t("pool.delete_test_set_value1_this_cannot_be_undone", {value1: (t.name)}))) { return; }
       delBtn.disabled = true;
       Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }).then(function () {
-        Y.notice('ok', "Deleted '" + t.name + "'.");
+        Y.notice('ok', window.YurunaI18n.t("pool.deleted_value1", {value1: (t.name)}));
         load();
       }, function (e) {
-        Y.notice('error', 'Delete failed: ' + e.message);
+        Y.notice('error', window.YurunaI18n.t("pool.delete_failed_value1", {value1: (e.message)}));
         delBtn.disabled = false;
       });
     });
@@ -93,12 +100,12 @@
     var name = document.getElementById('ts-name').value.trim();
     var fw = document.getElementById('ts-framework').value.trim();
     var proj = document.getElementById('ts-project').value.trim();
-    if (!name || !fw || !proj) { Y.notice('error', 'name, frameworkUrl and projectUrl are all required.'); return; }
+    if (!name || !fw || !proj) { Y.notice('error', window.YurunaI18n.t("pool.name_frameworkurl_and_projecturl_are_all_required")); return; }
     Y.mutate('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } }).then(function () {
-      Y.notice('ok', "Saved test set '" + name + "'.");
+      Y.notice('ok', window.YurunaI18n.t("pool.saved_test_set_value1", {value1: (name)}));
       load();
     }, function (e) {
-      Y.notice('error', 'Save failed: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("pool.save_failed_value1", {value1: (e.message)}));
     });
   });
 

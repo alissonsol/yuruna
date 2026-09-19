@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:Doc  = $null
 $script:File = $null
 # Owner-side gate for nested-cycle support (see the "Nested-cycle support"
@@ -58,7 +59,7 @@ function Reset-StatusDocumentForCycleStart {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$StatusFilePath)
 
-    if (-not $PSCmdlet.ShouldProcess($StatusFilePath, "Reset status document for new cycle")) { return }
+    if (-not $PSCmdlet.ShouldProcess($StatusFilePath, (Format-YurunaOperatorMessage -Key 'runner.operator_112839be6c0da628'))) { return }
 
     $history        = @()
     $lastGetImageAt = $null
@@ -86,12 +87,12 @@ function Reset-StatusDocumentForCycleStart {
             # the gap explicitly instead of inferring it from a missing
             # history entry.
             $reasonMsg = $_.Exception.Message
-            Write-Warning "Could not read previous status: $reasonMsg"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7e50599bce26a067' -Arguments @{ reasonMsg = "$reasonMsg" })
             try {
                 $tsStamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
                 $dst = $StatusFilePath -replace '\.json$', ".corrupt.$tsStamp.json"
                 Move-Item -LiteralPath $StatusFilePath -Destination $dst -Force -ErrorAction Stop
-                Write-Warning "  preserved corrupt copy at: $dst"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ece636ce3153014' -Arguments @{ dst = "$dst" })
                 # Test.Status does not import the cycle-event logger, so gate the
                 # emit on command existence: in a degraded context where the
                 # logger is absent, the Write-Warning above is the documented
@@ -237,7 +238,7 @@ function Initialize-StatusDocument {
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if ($prev.cycle) { $cycle = [int]$prev.cycle }
             if (-not $repoUrl -and $prev.repoUrl) { $repoUrl = $prev.repoUrl }
-        } catch { Write-Warning "Could not read previous status: $_" }
+        } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d58523ab00f9192' -Arguments @{ value = "$_" }) }
     }
 
     # Build the gitCommits array. Callers using the new GitCommits param
@@ -370,7 +371,7 @@ function Initialize-StatusDocument {
 function Set-GuestVMName {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$GuestKey, [string]$VMName)
-    if ($PSCmdlet.ShouldProcess($GuestKey, "Set VM name to '$VMName'")) {
+    if ($PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_b4afbacf3b4e2c0a' -Arguments @{ vMName = "$VMName" }))) {
         $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
         if ($g) { $g.vmName = $VMName }
     }
@@ -383,7 +384,7 @@ function Set-GuestVMName {
 function Set-GuestStatus {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$GuestKey, [string]$Status)
-    if ($PSCmdlet.ShouldProcess($GuestKey, "Set guest status to '$Status'")) {
+    if ($PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_83365279d47a02ab' -Arguments @{ status = "$Status" }))) {
         $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
         if ($g) { $g.status = $Status }
         Write-StatusJson
@@ -402,7 +403,7 @@ function Set-GuestQuarantine {
         [bool]$Quarantined,
         [string]$UntilCommit = ''
     )
-    if ($PSCmdlet.ShouldProcess($GuestKey, "Set guest quarantine to '$Quarantined'")) {
+    if ($PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_e36c8213e9fb2e41' -Arguments @{ quarantined = "$Quarantined" }))) {
         $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
         if ($g) {
             $g.quarantined            = $Quarantined
@@ -425,7 +426,7 @@ function Set-StepStatus {
         [bool]   $Skipped      = $false,
         [string] $ErrorMessage = $null
     )
-    if ($PSCmdlet.ShouldProcess("$GuestKey/$StepName", "Set step status to '$Status'")) {
+    if ($PSCmdlet.ShouldProcess("$GuestKey/$StepName", (Format-YurunaOperatorMessage -Key 'runner.operator_ae9917047647fc4d' -Arguments @{ status = "$Status" }))) {
         $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
         if (-not $g) { return }
         $step = $g.steps | Where-Object { $_.name -eq $StepName }
@@ -471,7 +472,7 @@ function Set-LastFailureSummary {
         [string]$VmName       = ''
     )
     if (-not $script:Doc) { return }
-    if (-not $PSCmdlet.ShouldProcess('lastFailure', "Record failure cause $FailureClass")) { return }
+    if (-not $PSCmdlet.ShouldProcess('lastFailure', (Format-YurunaOperatorMessage -Key 'runner.operator_0074e7b362cc1375' -Arguments @{ failureClass = "$FailureClass" }))) { return }
     $script:Doc.lastFailure = [ordered]@{
         failureClass = $FailureClass
         severity     = $Severity
@@ -739,7 +740,7 @@ function Write-StatusJson {
     if (-not $ok) {
         # Surface the write failure explicitly rather than leaving it to be inferred from a
         # frozen UI (mirrors the status_doc_corrupt event emitted on the read path).
-        Write-Warning "Write-StatusJson: failed to write status document to $script:File"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fe29288706c2ad6c' -Arguments @{ file = "$script:File" })
         # Same command-existence guard as the status_doc_corrupt emit above: the
         # Write-Warning is the fallback when the cycle-event logger is absent.
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
@@ -777,7 +778,7 @@ function Set-LastGetImageTime {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (-not $script:Doc) { return }
-    if ($PSCmdlet.ShouldProcess("lastGetImageAt", "Set to current UTC time")) {
+    if ($PSCmdlet.ShouldProcess("lastGetImageAt", (Format-YurunaOperatorMessage -Key 'runner.operator_4acb27a6c7c52996'))) {
         $script:Doc.lastGetImageAt = (Get-UtcTimestamp)
         Write-StatusJson
     }
@@ -821,7 +822,7 @@ $Doc field and the per-history snapshot read this value.
         [Parameter(Mandatory)][AllowEmptyString()][string]$RelativeUrl
     )
     if (-not $script:Doc) { return }
-    if (-not $PSCmdlet.ShouldProcess('cycleFolderUrl', "Set to '$RelativeUrl'")) { return }
+    if (-not $PSCmdlet.ShouldProcess('cycleFolderUrl', (Format-YurunaOperatorMessage -Key 'runner.operator_e4bb728bf76aef72' -Arguments @{ relativeUrl = "$RelativeUrl" }))) { return }
     $script:Doc.cycleFolderUrl = $RelativeUrl
     Write-StatusJson
 }
@@ -850,7 +851,7 @@ cmdlet name is singular per PowerShell Verb-Noun convention.
         [Parameter(Mandatory)][AllowEmptyString()][string]$RelativeUrl
     )
     if (-not $script:Doc) { return }
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, "Set failureArtifacts to '$RelativeUrl'")) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_6082b9fff23115bc' -Arguments @{ relativeUrl = "$RelativeUrl" }))) { return }
     $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
     if (-not $g) { return }
     $g.failureArtifacts = $RelativeUrl
@@ -874,7 +875,7 @@ function Set-GuestTopLevel {
         [string]$TopLevel = ''
     )
     if (-not $script:Doc) { return }
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, "Set top-level workload to '$TopLevel'")) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_962bad8a53ba9ab5' -Arguments @{ topLevel = "$TopLevel" }))) { return }
     $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
     if (-not $g) { return }
     $g.topLevel = $TopLevel
@@ -908,7 +909,7 @@ function Set-GuestProvenance {
         [string]$Url      = ''
     )
     if (-not $script:Doc) { return }
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, "Set provenance to filename='$Filename' url='$Url'")) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'runner.operator_c94df17cd3a4e1b3' -Arguments @{ filename = "$Filename"; url = "$Url" }))) { return }
     $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
     if (-not $g) { return }
     $g.provenanceFilename = $Filename
@@ -1020,7 +1021,7 @@ function Publish-CycleContext {
         [Parameter(Mandatory)][string]$ParentId,
         [int]$CycleNumber = 0
     )
-    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', "Publish nested context under '$ParentId'")) { return }
+    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', (Format-YurunaOperatorMessage -Key 'runner.operator_6f6c7a543250fa4b' -Arguments @{ parentId = "$ParentId" }))) { return }
     $ctx = [ordered]@{
         cycleStartUtc         = $CycleStartUtc
         ownerPid        = $PID
@@ -1043,7 +1044,7 @@ function Clear-CycleContext {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', 'Clear nested context')) { return }
+    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', (Format-YurunaOperatorMessage -Key 'runner.operator_ecb81e2285fcca0e'))) { return }
     Remove-Item -LiteralPath Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
 }
 
@@ -1142,7 +1143,7 @@ function Register-NestedRunNode {
         [string]$LogRel = '',
         [string]$CycleStartUtc = ''
     )
-    if (-not $PSCmdlet.ShouldProcess($NodeId, 'Register nested run node')) { return }
+    if (-not $PSCmdlet.ShouldProcess($NodeId, (Format-YurunaOperatorMessage -Key 'runner.operator_4e6db46ed2d2007d'))) { return }
     $lock = Enter-StatusLock -Path $StatusPath
     try {
         $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
@@ -1184,7 +1185,7 @@ function Set-NestedRunStep {
         [bool]$Skipped = $false,
         [string]$ErrorMessage = $null
     )
-    if (-not $PSCmdlet.ShouldProcess("$NodeId/$StepName", "Set nested step status '$Status'")) { return }
+    if (-not $PSCmdlet.ShouldProcess("$NodeId/$StepName", (Format-YurunaOperatorMessage -Key 'runner.operator_7f2be7f628b6661b' -Arguments @{ status = "$Status" }))) { return }
     $lock = Enter-StatusLock -Path $StatusPath
     try {
         $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
@@ -1219,7 +1220,7 @@ function Set-NestedRunStatus {
         [Parameter(Mandatory)][string]$Status,
         [string]$ErrorMessage = ''
     )
-    if (-not $PSCmdlet.ShouldProcess($NodeId, "Set nested node status '$Status'")) { return }
+    if (-not $PSCmdlet.ShouldProcess($NodeId, (Format-YurunaOperatorMessage -Key 'runner.operator_2421d934c8fe2461' -Arguments @{ status = "$Status" }))) { return }
     $lock = Enter-StatusLock -Path $StatusPath
     try {
         $doc = Read-StatusDocFromDisk -StatusPath $StatusPath

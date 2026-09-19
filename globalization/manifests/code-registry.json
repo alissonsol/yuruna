@@ -19,7 +19,9 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The runner is parked at a step boundary and will not continue until an operator resumes it. The guest stays up and keeps printing, which is why this is a distinct state rather than an absence of progress.",
-      "producedBy": ["test/modules/Test.SequenceEngine.psm1"],
+      "producedBy": [
+        "test/modules/Test.SequenceEngine.psm1"
+      ],
       "consumedBy": [
         "test/status/yuruna.common.js",
         "test/extension/pool-aggregator-service/main.go"
@@ -34,7 +36,9 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The host's git credential can read the repository it is configured with.",
-      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "producedBy": [
+        "test/modules/Test.HostGit.psm1"
+      ],
       "consumedBy": [],
       "rendersAs": "pool.repo_held_detail"
     },
@@ -64,7 +68,9 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The host was given no repository to read. Distinct from denied: there is nothing to grant access to.",
-      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "producedBy": [
+        "test/modules/Test.HostGit.psm1"
+      ],
       "consumedBy": [],
       "rendersAs": "pool.repo_unconfigured_detail"
     },
@@ -76,7 +82,9 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "Nothing has asked yet. An absence of evidence, which a surface must not render as a failure.",
-      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "producedBy": [
+        "test/modules/Test.HostGit.psm1"
+      ],
       "consumedBy": [
         "test/service/Start-StatusService.ps1"
       ],
@@ -123,7 +131,9 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A cycle entry began. Carries index, total, name and kind, so a consumer can build a transcript outline without reading the rendered rule.",
-      "producedBy": ["test/modules/Test.Orchestrator.psm1"],
+      "producedBy": [
+        "test/modules/Test.Orchestrator.psm1"
+      ],
       "consumedBy": [],
       "rendersAs": ""
     },
@@ -135,8 +145,1972 @@
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A cycle entry finished, with its outcome as a lower-case token rather than the word the transcript prints.",
-      "producedBy": ["test/modules/Test.Orchestrator.psm1"],
+      "producedBy": [
+        "test/modules/Test.Orchestrator.psm1"
+      ],
       "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "stash.api_search_detail",
+      "wireCode": "stash.api_search_detail",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: search: {detail}",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_search_detail"
+    },
+    {
+      "code": "stash.api_invalid_stash_path",
+      "wireCode": "stash.api_invalid_stash_path",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: invalid stash path",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_invalid_stash_path"
+    },
+    {
+      "code": "stash.api_detail",
+      "wireCode": "stash.api_detail",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: {detail}",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_detail"
+    },
+    {
+      "code": "stash.api_stash_not_found",
+      "wireCode": "stash.api_stash_not_found",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: stash not found",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_stash_not_found"
+    },
+    {
+      "code": "stash.api_not_an_archive",
+      "wireCode": "stash.api_not_an_archive",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: not an archive",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_not_an_archive"
+    },
+    {
+      "code": "stash.api_open_archive_detail",
+      "wireCode": "stash.api_open_archive_detail",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: open archive: {detail}",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_open_archive_detail"
+    },
+    {
+      "code": "stash.api_invalid_json_body",
+      "wireCode": "stash.api_invalid_json_body",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: invalid JSON body",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_invalid_json_body"
+    },
+    {
+      "code": "stash.api_could_not_parse_form",
+      "wireCode": "stash.api_could_not_parse_form",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: could not parse form",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_could_not_parse_form"
+    },
+    {
+      "code": "stash.api_too_many_files_in_one_upload",
+      "wireCode": "stash.api_too_many_files_in_one_upload",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: too many files in one upload",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_too_many_files_in_one_upload"
+    },
+    {
+      "code": "stash.api_open_upload",
+      "wireCode": "stash.api_open_upload",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: open upload",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_open_upload"
+    },
+    {
+      "code": "stash.api_open_uploads",
+      "wireCode": "stash.api_open_uploads",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: open uploads",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_open_uploads"
+    },
+    {
+      "code": "stash.api_nothing_to_store_provide_text_or_files",
+      "wireCode": "stash.api_nothing_to_store_provide_text_or_files",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: nothing to store: provide text or files",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_nothing_to_store_provide_text_or_files"
+    },
+    {
+      "code": "stash.api_no_stashes_given",
+      "wireCode": "stash.api_no_stashes_given",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: no stashes given",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_no_stashes_given"
+    },
+    {
+      "code": "stash.api_too_many_stashes_in_one_request",
+      "wireCode": "stash.api_too_many_stashes_in_one_request",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: too many stashes in one request",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_too_many_stashes_in_one_request"
+    },
+    {
+      "code": "stash.api_invalid_host",
+      "wireCode": "stash.api_invalid_host",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: invalid host",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_invalid_host"
+    },
+    {
+      "code": "stash.api_create_detail",
+      "wireCode": "stash.api_create_detail",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: create: {detail}",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_create_detail"
+    },
+    {
+      "code": "stash.api_open_artifact",
+      "wireCode": "stash.api_open_artifact",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: open artifact",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_open_artifact"
+    },
+    {
+      "code": "stash.api_stat_artifact",
+      "wireCode": "stash.api_stat_artifact",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: stat artifact",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_stat_artifact"
+    },
+    {
+      "code": "stash.api_not_found",
+      "wireCode": "stash.api_not_found",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: not found",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_not_found"
+    },
+    {
+      "code": "download.api_invalid_json_body_detail",
+      "wireCode": "download.api_invalid_json_body_detail",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: invalid JSON body: {detail}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_invalid_json_body_detail"
+    },
+    {
+      "code": "download.api_arch_query_parameter_is_required_amd64_or_arm64",
+      "wireCode": "download.api_arch_query_parameter_is_required_amd64_or_arm64",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: arch query parameter is required (amd64 or arm64)",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_arch_query_parameter_is_required_amd64_or_arm64"
+    },
+    {
+      "code": "download.api_detail",
+      "wireCode": "download.api_detail",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: {detail}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_detail"
+    },
+    {
+      "code": "download.api_invalid_generation_name",
+      "wireCode": "download.api_invalid_generation_name",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: invalid generation name",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_invalid_generation_name"
+    },
+    {
+      "code": "download.api_generation_not_found",
+      "wireCode": "download.api_generation_not_found",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: generation not found",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_generation_not_found"
+    },
+    {
+      "code": "download.api_no_image_store_configured",
+      "wireCode": "download.api_no_image_store_configured",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: no image store configured",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_no_image_store_configured"
+    },
+    {
+      "code": "download.api_refresh_refused_reason",
+      "wireCode": "download.api_refresh_refused_reason",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: refresh refused: {reason}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_refresh_refused_reason"
+    },
+    {
+      "code": "download.api_pool_refresh_refused_reason",
+      "wireCode": "download.api_pool_refresh_refused_reason",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: pool refresh refused: {reason}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_pool_refresh_refused_reason"
+    },
+    {
+      "code": "aggregator.too_many_announced_extensions",
+      "wireCode": "aggregator.too_many_announced_extensions",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.too_many_announced_extensions"
+    },
+    {
+      "code": "aggregator.payload_too_large_or_unreadable",
+      "wireCode": "aggregator.payload_too_large_or_unreadable",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.payload_too_large_or_unreadable"
+    },
+    {
+      "code": "aggregator.stash_target_not_known_to_the_pool",
+      "wireCode": "aggregator.stash_target_not_known_to_the_pool",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.stash_target_not_known_to_the_pool"
+    },
+    {
+      "code": "aggregator.announce_accepted_but_not_durably_recorded_retry",
+      "wireCode": "aggregator.announce_accepted_but_not_durably_recorded_retry",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.announce_accepted_but_not_durably_recorded_retry"
+    },
+    {
+      "code": "aggregator.too_many_failed_attempts_retry_later",
+      "wireCode": "aggregator.too_many_failed_attempts_retry_later",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.too_many_failed_attempts_retry_later"
+    },
+    {
+      "code": "aggregator.failed_to_encode_pool_status",
+      "wireCode": "aggregator.failed_to_encode_pool_status",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.failed_to_encode_pool_status"
+    },
+    {
+      "code": "aggregator.announce_accepted_but_not_recorded",
+      "wireCode": "aggregator.announce_accepted_but_not_recorded",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.announce_accepted_but_not_recorded"
+    },
+    {
+      "code": "aggregator.invalid_hostid",
+      "wireCode": "aggregator.invalid_hostid",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.invalid_hostid"
+    },
+    {
+      "code": "aggregator.failed_to_encode_extension_hosts",
+      "wireCode": "aggregator.failed_to_encode_extension_hosts",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.failed_to_encode_extension_hosts"
+    },
+    {
+      "code": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own",
+      "wireCode": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own"
+    },
+    {
+      "code": "aggregator.announced_address_did_not_serve_status_json",
+      "wireCode": "aggregator.announced_address_did_not_serve_status_json",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.announced_address_did_not_serve_status_json"
+    },
+    {
+      "code": "aggregator.invalid_target_address_detail",
+      "wireCode": "aggregator.invalid_target_address_detail",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.invalid_target_address_detail"
+    },
+    {
+      "code": "aggregator.batch_mixes_multiple_hostids",
+      "wireCode": "aggregator.batch_mixes_multiple_hostids",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.batch_mixes_multiple_hostids"
+    },
+    {
+      "code": "aggregator.the_pool_share_is_not_mounted_on_this_machine",
+      "wireCode": "aggregator.the_pool_share_is_not_mounted_on_this_machine",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.the_pool_share_is_not_mounted_on_this_machine"
+    },
+    {
+      "code": "aggregator.host_not_known_to_the_pool",
+      "wireCode": "aggregator.host_not_known_to_the_pool",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.host_not_known_to_the_pool"
+    },
+    {
+      "code": "aggregator.unsupported_range_use_1h_24h_7d_or_30d",
+      "wireCode": "aggregator.unsupported_range_use_1h_24h_7d_or_30d",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.unsupported_range_use_1h_24h_7d_or_30d"
+    },
+    {
+      "code": "aggregator.invalid_statusport",
+      "wireCode": "aggregator.invalid_statusport",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.invalid_statusport"
+    },
+    {
+      "code": "aggregator.method_not_allowed",
+      "wireCode": "aggregator.method_not_allowed",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.method_not_allowed"
+    },
+    {
+      "code": "aggregator.missing_host",
+      "wireCode": "aggregator.missing_host",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.missing_host"
+    },
+    {
+      "code": "aggregator.ingest_disabled",
+      "wireCode": "aggregator.ingest_disabled",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.ingest_disabled"
+    },
+    {
+      "code": "aggregator.no_cycle_results_folder_for_that_host_at_that_time",
+      "wireCode": "aggregator.no_cycle_results_folder_for_that_host_at_that_time",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.no_cycle_results_folder_for_that_host_at_that_time"
+    },
+    {
+      "code": "aggregator.too_many_lines",
+      "wireCode": "aggregator.too_many_lines",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.too_many_lines"
+    },
+    {
+      "code": "aggregator.failed_to_encode_scrape_targets",
+      "wireCode": "aggregator.failed_to_encode_scrape_targets",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.failed_to_encode_scrape_targets"
+    },
+    {
+      "code": "aggregator.metrics_are_served_to_this_host_only",
+      "wireCode": "aggregator.metrics_are_served_to_this_host_only",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.metrics_are_served_to_this_host_only"
+    },
+    {
+      "code": "aggregator.failed_to_encode_result",
+      "wireCode": "aggregator.failed_to_encode_result",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.failed_to_encode_result"
+    },
+    {
+      "code": "aggregator.unauthorized",
+      "wireCode": "aggregator.unauthorized",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.unauthorized"
+    },
+    {
+      "code": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte",
+      "wireCode": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte"
+    },
+    {
+      "code": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time",
+      "wireCode": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time"
+    },
+    {
+      "code": "aggregator.failed_to_seal_the_token",
+      "wireCode": "aggregator.failed_to_seal_the_token",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.failed_to_seal_the_token"
+    },
+    {
+      "code": "aggregator.announced_address_serves_a_different_hostid",
+      "wireCode": "aggregator.announced_address_serves_a_different_hostid",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.announced_address_serves_a_different_hostid"
+    },
+    {
+      "code": "aggregator.target_host_must_be_the_announcing_address",
+      "wireCode": "aggregator.target_host_must_be_the_announcing_address",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.target_host_must_be_the_announcing_address"
+    },
+    {
+      "code": "aggregator.invalid_hostid_or_area",
+      "wireCode": "aggregator.invalid_hostid_or_area",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.invalid_hostid_or_area"
+    },
+    {
+      "code": "aggregator.invalid_target_url",
+      "wireCode": "aggregator.invalid_target_url",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.invalid_target_url"
+    },
+    {
+      "code": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id",
+      "wireCode": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id"
+    },
+    {
+      "code": "aggregator.no_live_host_for_that_extension_area",
+      "wireCode": "aggregator.no_live_host_for_that_extension_area",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.no_live_host_for_that_extension_area"
+    },
+    {
+      "code": "aggregator.malformed_announce",
+      "wireCode": "aggregator.malformed_announce",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.malformed_announce"
+    },
+    {
+      "code": "aggregator.malformed_request",
+      "wireCode": "aggregator.malformed_request",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.malformed_request"
+    },
+    {
+      "code": "aggregator.labtoken_must_be_6_lowercase_letters_digits",
+      "wireCode": "aggregator.labtoken_must_be_6_lowercase_letters_digits",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.labtoken_must_be_6_lowercase_letters_digits"
+    },
+    {
+      "code": "aggregator.announce_disabled",
+      "wireCode": "aggregator.announce_disabled",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.announce_disabled"
+    },
+    {
+      "code": "aggregator.no_source_address",
+      "wireCode": "aggregator.no_source_address",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.no_source_address"
+    },
+    {
+      "code": "aggregator.encode_failed",
+      "wireCode": "aggregator.encode_failed",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.encode_failed"
+    },
+    {
+      "code": "aggregator.forget_host_disabled_no_auth_token_configured",
+      "wireCode": "aggregator.forget_host_disabled_no_auth_token_configured",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.forget_host_disabled_no_auth_token_configured"
+    },
+    {
+      "code": "aggregator.unknown_or_expired_lab_token",
+      "wireCode": "aggregator.unknown_or_expired_lab_token",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.unknown_or_expired_lab_token"
+    },
+    {
+      "code": "aggregator.loki_query_failed",
+      "wireCode": "aggregator.loki_query_failed",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.loki_query_failed"
+    },
+    {
+      "code": "aggregator.lab_token_exchange_disabled",
+      "wireCode": "aggregator.lab_token_exchange_disabled",
+      "namespace": "aggregator",
+      "owner": "pool_aggregator_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
+      "producedBy": [
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "aggregator.lab_token_exchange_disabled"
+    },
+    {
+      "code": "sequence_restart_requested",
+      "wireCode": "sequence.sequence_restart_requested",
+      "namespace": "sequence",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Sequence abort requested by operator.",
+      "producedBy": [
+        "test/modules/Test.SequenceEngine.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.sequence_restart"
+    },
+    {
+      "code": "sequence_step_active",
+      "wireCode": "sequence.sequence_step_active",
+      "namespace": "sequence",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A sequence step is running.",
+      "producedBy": [
+        "test/modules/Test.SequenceEngine.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.sequence_step"
+    },
+    {
+      "code": "sequence_completed",
+      "wireCode": "sequence.sequence_completed",
+      "namespace": "sequence",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "All sequence steps completed.",
+      "producedBy": [
+        "test/modules/Test.SequenceEngine.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.sequence_completed"
+    },
+    {
+      "code": "mcp_refused",
+      "wireCode": "mcp.mcp_refused",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the server refused to start this run: the entry point cannot bind an argument it was given",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_refused"
+    },
+    {
+      "code": "mcp_runtime_verdict",
+      "wireCode": "mcp.mcp_runtime_verdict",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Test-Runtime has no exit statement; the verdict is its last pipeline object.",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_runtime_verdict"
+    },
+    {
+      "code": "mcp_diagnostic_verdict",
+      "wireCode": "mcp.mcp_diagnostic_verdict",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Get-SystemDiagnostic always exits 0; problems are in the report, not the exit code.",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_diagnostic_verdict"
+    },
+    {
+      "code": "mcp_dependency_drift",
+      "wireCode": "mcp.mcp_dependency_drift",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "exit 1 from this script means a pinned dependency has drifted, not that the report failed",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_dependency_drift"
+    },
+    {
+      "code": "mcp_dependency_invalid_json",
+      "wireCode": "mcp.mcp_dependency_invalid_json",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "expected JSON from -AsJson but the output did not parse",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_dependency_invalid_json"
+    },
+    {
+      "code": "mcp_host_alias_verdict",
+      "wireCode": "mcp.mcp_host_alias_verdict",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Set-HostAlias writes no transcript and has no exit statement; a thrown error is the failure signal.",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_host_alias_verdict"
+    },
+    {
+      "code": "mcp_false_verdict",
+      "wireCode": "mcp.mcp_false_verdict",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the script returned False at top level and exited 0; the verdict is the output, not the exit code",
+      "producedBy": [
+        "test/service/Start-McpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.mcp_false_verdict"
+    },
+    {
+      "code": "auth.malformed_request",
+      "wireCode": "auth.malformed_request",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.malformed_request"
+    },
+    {
+      "code": "auth.token_shape",
+      "wireCode": "auth.token_shape",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.token_shape"
+    },
+    {
+      "code": "auth.token_incorrect",
+      "wireCode": "auth.token_incorrect",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.token_incorrect"
+    },
+    {
+      "code": "auth.proof_shape",
+      "wireCode": "auth.proof_shape",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.proof_shape"
+    },
+    {
+      "code": "auth.proof_expired",
+      "wireCode": "auth.proof_expired",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.proof_expired"
+    },
+    {
+      "code": "auth.session_required",
+      "wireCode": "auth.session_required",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.session_required"
+    },
+    {
+      "code": "auth.bearer_required",
+      "wireCode": "auth.bearer_required",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.bearer_required"
+    },
+    {
+      "code": "auth.attempts_throttled",
+      "wireCode": "auth.attempts_throttled",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The authorization gate rejected the request with this stable condition.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "auth.attempts_throttled"
+    },
+    {
+      "code": "pool.unsupported_range",
+      "wireCode": "pool.unsupported_range",
+      "namespace": "pool",
+      "owner": "pool_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The board request supplied a statistics range outside the accepted enumeration.",
+      "producedBy": [
+        "test/extension/pool-control-service/server/internal/httpsrv/board.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "pool.unsupported_range"
+    },
+    {
+      "code": "status.api_another_start_cycle_request_is_in_progress_3f51d139",
+      "wireCode": "status.api_another_start_cycle_request_is_in_progress_3f51d139",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_another_start_cycle_request_is_in_progress_3f51d139"
+    },
+    {
+      "code": "status.api_authentication_extension_unavailable_2ece9896",
+      "wireCode": "status.api_authentication_extension_unavailable_2ece9896",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_authentication_extension_unavailable_2ece9896"
+    },
+    {
+      "code": "status.api_body_must_be_a_json_object_831ab327",
+      "wireCode": "status.api_body_must_be_a_json_object_831ab327",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_body_must_be_a_json_object_831ab327"
+    },
+    {
+      "code": "status.api_could_not_read_body_aa31dc00",
+      "wireCode": "status.api_could_not_read_body_aa31dc00",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_could_not_read_body_aa31dc00"
+    },
+    {
+      "code": "status.api_expected_diagnostics_folder_filename_5f581c78",
+      "wireCode": "status.api_expected_diagnostics_folder_filename_5f581c78",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_expected_diagnostics_folder_filename_5f581c78"
+    },
+    {
+      "code": "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e",
+      "wireCode": "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e"
+    },
+    {
+      "code": "status.api_filename_must_match_system_diagnostic_id_txt_ec048334",
+      "wireCode": "status.api_filename_must_match_system_diagnostic_id_txt_ec048334",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_filename_must_match_system_diagnostic_id_txt_ec048334"
+    },
+    {
+      "code": "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5",
+      "wireCode": "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5"
+    },
+    {
+      "code": "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5",
+      "wireCode": "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5"
+    },
+    {
+      "code": "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac",
+      "wireCode": "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac"
+    },
+    {
+      "code": "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0",
+      "wireCode": "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0"
+    },
+    {
+      "code": "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c",
+      "wireCode": "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c"
+    },
+    {
+      "code": "status.api_method_not_allowed_be4fb6a2",
+      "wireCode": "status.api_method_not_allowed_be4fb6a2",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_method_not_allowed_be4fb6a2"
+    },
+    {
+      "code": "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf",
+      "wireCode": "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf"
+    },
+    {
+      "code": "status.api_method_not_allowed_post_the_dump_body_fa73866b",
+      "wireCode": "status.api_method_not_allowed_post_the_dump_body_fa73866b",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_method_not_allowed_post_the_dump_body_fa73866b"
+    },
+    {
+      "code": "status.api_no_break_active_bc29bdab",
+      "wireCode": "status.api_no_break_active_bc29bdab",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_break_active_bc29bdab"
+    },
+    {
+      "code": "status.api_no_lab_hold_is_active_49dd8185",
+      "wireCode": "status.api_no_lab_hold_is_active_49dd8185",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_lab_hold_is_active_49dd8185"
+    },
+    {
+      "code": "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b",
+      "wireCode": "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b"
+    },
+    {
+      "code": "status.api_path_escapes_log_dir_355b2034",
+      "wireCode": "status.api_path_escapes_log_dir_355b2034",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_path_escapes_log_dir_355b2034"
+    },
+    {
+      "code": "status.api_path_escapes_log_root_13754cf8",
+      "wireCode": "status.api_path_escapes_log_root_13754cf8",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_path_escapes_log_root_13754cf8"
+    },
+    {
+      "code": "status.api_payload_too_large_1_mb_350b49df",
+      "wireCode": "status.api_payload_too_large_1_mb_350b49df",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_payload_too_large_1_mb_350b49df"
+    },
+    {
+      "code": "status.api_payload_too_large_256_kb_ad49d5cd",
+      "wireCode": "status.api_payload_too_large_256_kb_ad49d5cd",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_payload_too_large_256_kb_ad49d5cd"
+    },
+    {
+      "code": "status.api_payload_too_large_4_mb_3455f869",
+      "wireCode": "status.api_payload_too_large_4_mb_3455f869",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_payload_too_large_4_mb_3455f869"
+    },
+    {
+      "code": "status.api_payload_too_large_5_mb_ab90ca52",
+      "wireCode": "status.api_payload_too_large_5_mb_ab90ca52",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_payload_too_large_5_mb_ab90ca52"
+    },
+    {
+      "code": "status.api_post_required_663cc07c",
+      "wireCode": "status.api_post_required_663cc07c",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_post_required_663cc07c"
+    },
+    {
+      "code": "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b",
+      "wireCode": "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b"
+    },
+    {
+      "code": "status.api_put_or_post_required_1f919659",
+      "wireCode": "status.api_put_or_post_required_1f919659",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_put_or_post_required_1f919659"
+    },
+    {
+      "code": "status.api_sidecar_write_failed_0ce361a9",
+      "wireCode": "status.api_sidecar_write_failed_0ce361a9",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_sidecar_write_failed_0ce361a9"
+    },
+    {
+      "code": "status.api_test_config_yml_not_found_3b38d785",
+      "wireCode": "status.api_test_config_yml_not_found_3b38d785",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_test_config_yml_not_found_3b38d785"
+    },
+    {
+      "code": "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c",
+      "wireCode": "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c"
+    },
+    {
+      "code": "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9",
+      "wireCode": "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9"
+    },
+    {
+      "code": "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3",
+      "wireCode": "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host rejected this request with the identified condition.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3"
+    },
+    {
+      "code": "status.api_could_not_pack_folder_detail_268ee848",
+      "wireCode": "status.api_could_not_pack_folder_detail_268ee848",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_could_not_pack_folder_detail_268ee848"
+    },
+    {
+      "code": "status.api_detail_caf3c2c2",
+      "wireCode": "status.api_detail_caf3c2c2",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_detail_caf3c2c2"
+    },
+    {
+      "code": "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1",
+      "wireCode": "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1"
+    },
+    {
+      "code": "status.api_forbidden_78342a09",
+      "wireCode": "status.api_forbidden_78342a09",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_forbidden_78342a09"
+    },
+    {
+      "code": "status.api_forbidden_deny_list_1c7d1cfa",
+      "wireCode": "status.api_forbidden_deny_list_1c7d1cfa",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_forbidden_deny_list_1c7d1cfa"
+    },
+    {
+      "code": "status.api_forbidden_directory_listing_disabled_5d107f5b",
+      "wireCode": "status.api_forbidden_directory_listing_disabled_5d107f5b",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_forbidden_directory_listing_disabled_5d107f5b"
+    },
+    {
+      "code": "status.api_invalid_json_detail_c907dfc3",
+      "wireCode": "status.api_invalid_json_detail_c907dfc3",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_invalid_json_detail_c907dfc3"
+    },
+    {
+      "code": "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa",
+      "wireCode": "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa"
+    },
+    {
+      "code": "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2",
+      "wireCode": "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2"
+    },
+    {
+      "code": "status.api_no_cycle_results_folder_folder_on_this_host_51798923",
+      "wireCode": "status.api_no_cycle_results_folder_folder_on_this_host_51798923",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_no_cycle_results_folder_folder_on_this_host_51798923"
+    },
+    {
+      "code": "status.api_not_a_cycle_results_archive_name_395b9777",
+      "wireCode": "status.api_not_a_cycle_results_archive_name_395b9777",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_not_a_cycle_results_archive_name_395b9777"
+    },
+    {
+      "code": "status.api_project_repo_not_present_on_host_885e6338",
+      "wireCode": "status.api_project_repo_not_present_on_host_885e6338",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_project_repo_not_present_on_host_885e6338"
+    },
+    {
+      "code": "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c",
+      "wireCode": "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c"
+    },
+    {
+      "code": "status.api_write_failed_detail_c07681e1",
+      "wireCode": "status.api_write_failed_detail_c07681e1",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_write_failed_detail_c07681e1"
+    },
+    {
+      "code": "status.api_yaml_parse_failed_detail_363d5cf4",
+      "wireCode": "status.api_yaml_parse_failed_detail_363d5cf4",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The status service returned this classified HTTP failure.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_yaml_parse_failed_detail_363d5cf4"
+    },
+    {
+      "code": "api_diagnostic_failed",
+      "wireCode": "status.api_diagnostic_failed",
+      "namespace": "status",
+      "owner": "status_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host diagnostic request failed before a report could be returned.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_diagnostic_failed"
+    },
+    {
+      "code": "sequence.plan_invalid",
+      "wireCode": "sequence.plan_invalid",
+      "namespace": "sequence",
+      "owner": "sequence_planner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Typed planner exception classification. The separate YurunaMessageCode identifies its localized diagnostic; message prose never controls plan fallback.",
+      "producedBy": [
+        "test/modules/Test.SequenceResolve.psm1"
+      ],
+      "consumedBy": [
+        "test/modules/Test.SequenceResolve.psm1"
+      ],
       "rendersAs": ""
     }
   ]

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a7694d-69b5-445b-b086-f13404589e45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,9 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
+
 function ConvertFrom-Content {
     param (
         $Content
@@ -24,7 +27,7 @@ function ConvertFrom-Content {
     # Throw a terminating error the caller can catch, rather than killing the whole host process
     # with Exit -1 (which tears down the runner / any embedding script with no chance to recover).
     if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) {
-        throw "powershell-yaml is required. Install it with: Install-Module -Name powershell-yaml"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_4eeea39bff48dea5')
     }
 
     if ($Content -is [string[]]) { $Content = $Content -join "`n" }

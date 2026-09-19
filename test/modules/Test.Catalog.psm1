@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 422bc4f3-b6dd-4964-868e-1ae5f65db198
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,8 +86,70 @@ function Get-CatalogDomain {
         $script:CatalogCache[$key] = @{}
         return $script:CatalogCache[$key]
     }
-    $script:CatalogCache[$key] = Import-PowerShellDataFile -LiteralPath $path
+    # A complete operator domain exceeds the data-file loader's default
+    # hashtable key budget. Removing that size limit keeps its restricted
+    # constant-expression evaluation: catalog files still cannot run code.
+    $script:CatalogCache[$key] = Import-PowerShellDataFile -LiteralPath $path -SkipLimitCheck
     return $script:CatalogCache[$key]
+}
+
+function ConvertTo-CatalogHtml {
+    <#
+    .SYNOPSIS
+        Render explicit text and attribute markers before the document is served.
+    .DESCRIPTION
+        Catalog text is always escaped. Markers may replace only leaf text or
+        presentation attributes; scripts, styles, comments and URL attributes
+        are never interpreted as translation instructions.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'MatchEvaluator closures capture the locale and catalog root; the attribute evaluator has the required delegate signature.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Html,
+        [Parameter(Mandatory)][string]$Locale, [string]$Root)
+
+    # A delegate closure runs in a dynamic module; keep these commands bound
+    # to the catalog module when callers import it into another module scope.
+    $getDomain = Get-Command Get-CatalogDomain -ErrorAction Stop
+    $formatMessage = Get-Command Format-CatalogMessage -ErrorAction Stop
+    $pattern = '(?is)<!--.*?-->|<(?:script|style)\b[^>]*>.*?</(?:script|style)\s*>|<(?<tag>[a-z][a-z0-9]*)\b(?<attributes>[^<>]*\bdata-i18n="(?<key>[a-z][a-z0-9]*\.[a-z0-9_]+)"[^<>]*)>(?<text>[^<]*)</\k<tag>\s*>|<[a-z][a-z0-9]*\b[^<>]*>'
+    return [regex]::Replace($Html, $pattern, [Text.RegularExpressions.MatchEvaluator]{
+        param($match)
+        $element = $match.Value
+        if ($element -match '^(?is)(?:<!--|<(?:script|style)\b)') { return $element }
+        if ($match.Groups['key'].Success) {
+            $key = $match.Groups['key'].Value
+            $table = & $getDomain -Locale $Locale -Domain $key.Split('.')[0] -Root $Root
+            if (-not $table.ContainsKey($key)) { throw "Missing catalog text '$key' for '$Locale'." }
+            $arguments = @{}
+            $argumentMarker = [regex]::Match($match.Groups['attributes'].Value, '\bdata-i18n-args="([^"]*)"')
+            if ($argumentMarker.Success) {
+                $arguments = ConvertFrom-Json -InputObject ([Net.WebUtility]::HtmlDecode($argumentMarker.Groups[1].Value)) -AsHashtable
+                if ($arguments -isnot [hashtable]) { throw 'Static catalog arguments must be an object.' }
+            }
+            $text = [Net.WebUtility]::HtmlEncode((& $formatMessage -Key $key -Locale $Locale -Arguments $arguments -Root $Root))
+            $element = '<' + $match.Groups['tag'].Value + $match.Groups['attributes'].Value + '>' + $text + '</' + $match.Groups['tag'].Value + '>'
+        }
+        $tagEnd = $element.IndexOf('>')
+        $opening = $element.Substring(0, $tagEnd + 1)
+        foreach ($marker in [regex]::Matches($opening, '\bdata-i18n-(title|aria-label|placeholder|alt)="([a-z][a-z0-9]*\.[a-z0-9_]+)"')) {
+            $attribute = $marker.Groups[1].Value
+            $key = $marker.Groups[2].Value
+            $table = & $getDomain -Locale $Locale -Domain $key.Split('.')[0] -Root $Root
+            if (-not $table.ContainsKey($key)) { throw "Missing catalog attribute '$key' for '$Locale'." }
+            $value = [Net.WebUtility]::HtmlEncode((& $formatMessage -Key $key -Locale $Locale -Root $Root))
+            $attributePattern = '(?i)(?<=\s)' + [regex]::Escape($attribute) + '\s*=\s*(?:"[^"]*"|''[^'']*'')'
+            $replacement = $attribute + '="' + $value + '"'
+            if ([regex]::IsMatch($opening, $attributePattern)) {
+                $opening = [regex]::Replace($opening, $attributePattern, [Text.RegularExpressions.MatchEvaluator]{ param($unused) $replacement }.GetNewClosure())
+            } else {
+                $insertAt = if ($opening.EndsWith('/>')) { $opening.Length - 2 } else { $opening.Length - 1 }
+                $opening = $opening.Insert($insertAt, ' ' + $replacement)
+            }
+        }
+        return $opening + $element.Substring($tagEnd + 1)
+    }.GetNewClosure())
 }
 
 function Get-PluralCategory {
@@ -110,6 +172,12 @@ function Get-PluralCategory {
     if (-not $rule) { throw "No pinned plural rule for '$Locale'; refusing to guess one." }
     switch ($rule) {
         'one-if-1' { if ($Count -eq 1) { return 'one' } return 'other' }
+        'pt-cardinal-cldr46' {
+            $absolute = [Math]::Abs($Count)
+            if ([Math]::Floor($absolute) -le 1) { return 'one' }
+            if ($absolute -gt 0 -and $absolute % 1000000 -eq 0) { return 'many' }
+            return 'other'
+        }
         default { throw "Plural rule '$rule' for '$Locale' has no implementation here." }
     }
 }
@@ -314,5 +382,5 @@ function Format-CatalogSegment {
     return $sb.ToString()
 }
 
-Export-ModuleMember -Function Get-CatalogDomain, Get-PluralCategory, Format-CatalogNumber,
+Export-ModuleMember -Function Get-CatalogDomain, ConvertTo-CatalogHtml, Get-PluralCategory, Format-CatalogNumber,
     Format-CatalogArgument, Format-CatalogMessage, Format-CatalogSegment

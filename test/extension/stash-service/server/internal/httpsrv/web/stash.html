@@ -7,25 +7,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Stash &mdash; Yuruna Stash</title>
+  <title data-i18n="stash.stash_yuruna_stash">Stash &mdash; Yuruna Stash</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Stash</a></span>
+      <span class="name"><a href="/" data-i18n="stash.yuruna_stash">Yuruna Stash</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="stash.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Stashes</a>
-        <a href="/new">New stash</a>
-        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="stash.pages">
+        <a href="/" data-i18n="stash.stashes">Stashes</a>
+        <a href="/new" data-i18n="stash.new_stash">New stash</a>
+        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener" data-i18n="stash.guide">Guide</a>
       </nav>
     </div>
   </header>
@@ -33,37 +33,25 @@
     <!-- The detail view names itself from the stash it renders, but that fact
          arrives with the fetch. The heading is here so the page has a subject
          before -- and if -- the data lands. -->
-    <h1>Stash</h1>
+    <h1 data-i18n="stash.stash">Stash</h1>
     <!-- Same lab-token prompt as the list page: viewing and downloading render
          regardless, and Delete is the one action that needs a session. -->
     <section id="login" class="login" hidden>
       <form id="login-form" class="row">
         <input id="lab-token" type="text" maxlength="6" size="8"
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
-        <button type="submit" class="btn primary">Unlock actions</button>
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard" data-i18n-aria-label="stash.six_character_lab_token_from_the_dashboard" data-i18n-placeholder="stash.lab_token">
+        <button type="submit" class="btn primary" data-i18n="stash.unlock_actions">Unlock actions</button>
         <span id="login-error" role="alert" class="muted"></span>
       </form>
-      <p class="muted">
-        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
-        tile; upper or lower case both work. Opening this page from that
-        dashboard unlocks it without the code. Needed only to delete.
-      </p>
-      <p class="muted">
-        If unlocking answers that the code <em>could not be checked</em>, the
-        code is not the problem -- the pool aggregator that checks it is
-        unreachable, and you cannot unlock until it is back.
-      </p>
+      <p class="muted" data-i18n="stash.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti">The 6-character code on the Yuruna hosts dashboard&#x27;s Lab token tile; upper or lower case both work. Opening this page from that dashboard unlocks it without the code. Needed only to delete.</p>
+      <p class="muted" data-i18n="stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_">If unlocking answers that the code could not be checked , the code is not the problem -- the pool aggregator that checks it is unreachable, and you cannot unlock until it is back.</p>
     </section>
-    <p id="gate-unconfigured" class="muted" hidden>
-      No pool aggregator is configured, so no Lab token can be checked and
-      nothing here can be deleted. Set <code>--aggregator-url</code> on the
-      daemon to enable it.
-    </p>
+    <p id="gate-unconfigured" class="muted" hidden data-i18n="stash.no_pool_aggregator_is_configured_so_no_lab_token_can_be_checked_a" data-i18n-args="{&quot;command1&quot;: &quot;--aggregator-url&quot;}">No pool aggregator is configured, so no Lab token can be checked and nothing here can be deleted. Set --aggregator-url on the daemon to enable it.</p>
     <div id="msg" role="alert"></div>
-    <div id="detail" class="muted">Loading...</div>
+    <div id="detail" class="muted" data-i18n="stash.loading">Loading...</div>
   </main>
-  <footer class="app">Yuruna stash service</footer>
+  <footer class="app" data-i18n="stash.yuruna_stash_service">Yuruna stash service</footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->
   <script src="/assets/yuruna.core.js"></script>

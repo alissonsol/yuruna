@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,6 +212,7 @@ param(
     [switch]$Force
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -243,8 +244,8 @@ function Confirm-Step {
 
 function Read-NewPassword {
     param([string]$Name)
-    $first = Read-Host -Prompt "Password for new account '$Name'" -AsSecureString
-    $again = Read-Host -Prompt "Confirm password" -AsSecureString
+    $first = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_e0b33e122bc96ca1' -Arguments @{ name = "$Name" }) -AsSecureString
+    $again = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_0dfb80d85bdca638') -AsSecureString
     $a = [System.Net.NetworkCredential]::new('', $first).Password
     $b = [System.Net.NetworkCredential]::new('', $again).Password
     if ($a -ne $b) { throw "The two passwords did not match." }
@@ -298,17 +299,17 @@ if ($YamlAvailable) {
         $WhatIfPreference = $false
         Import-Module powershell-yaml -Verbose:$false -ErrorAction Stop
     } catch {
-        Write-Warning "powershell-yaml is present but failed to import: $($_.Exception.Message)"
-        Write-Warning "Falling back to a text scan of users.yml."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5c6a1d8c5466eae1' -Arguments @{ message = "$($_.Exception.Message)" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1b7841e3289bf783')
         $YamlAvailable = $false
     } finally {
         $WhatIfPreference = $PreviousWhatIf
     }
 } else {
     Write-Information ""
-    Write-Information "powershell-yaml is not installed: users.yml will be checked by text scan"
-    Write-Information "instead of a YAML parse. Account creation is unaffected."
-    Write-Information "Install it later with:  Install-Module powershell-yaml -Scope CurrentUser"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_13c098483d4f4c49')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6db2729f4ace52e7')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_96c44416adfc3cc0')
 }
 
 # --- REGION: Elevation
@@ -349,12 +350,12 @@ function Invoke-SelfElevation {
     elseif ($PromptForPassword) { $argList += '-PromptForPassword' }
 
     Write-Information ""
-    Write-Information "Launching an elevated PowerShell window (UAC will prompt for consent)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_213409dfa7d92529')
     if ($WantsPassword) {
-        Write-Information "That window will ask you to type the password for '$AccountName'."
-        Write-Information "It is not passed on the command line, where other accounts could read it."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_82526458a1a29a27' -Arguments @{ accountName = "$AccountName" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4c9eae1b8e30960e')
     }
-    Write-Information "The elevated window stays open so you can read the result."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_588a227ff4f65891')
     Write-Information ""
     Start-Process -FilePath $shellExe -Verb RunAs -ArgumentList $argList
 }
@@ -364,16 +365,16 @@ function Invoke-SelfElevation {
 # messages below describe what an elevated run would do.
 if ($WhatIfPreference) {
     Write-Information ""
-    Write-Information "-WhatIf: skipping the elevation request. A real run needs Administrator (Windows) or sudo (macOS / Ubuntu)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_85f773939904ad98')
 } elseif ($IsWindows) {
     if (-not (Test-IsElevated)) {
         Write-Information ""
-        Write-Information "Creating a local OS account requires Administrator rights on Windows."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_03f133aca57bd2cb')
         Write-Information "  account : $AccountName ($FullName)"
-        Write-Information "  admin   : $(if ($Admin) { 'yes -- will join the built-in Administrators group' } else { 'no' })"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_77d9db5835dcc034' -Arguments @{ no = "$(if ($Admin) { 'yes -- will join the built-in Administrators group' } else { 'no' })" })
         Write-Information ""
         if (-not (Confirm-Step "Relaunch this script elevated")) {
-            Write-Information "Canceled. Nothing was changed."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_04265e41f16edc05')
             return
         }
         Invoke-SelfElevation -WantsPassword $WantsPassword
@@ -390,15 +391,15 @@ if ($WhatIfPreference) {
     $invokingUser = $env:USER
     if ([string]::IsNullOrWhiteSpace($invokingUser)) { $invokingUser = & id -un }
     Write-Information ""
-    Write-Information "About to create a new local OS user via sudo."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8b08b414d23d6def')
     Write-Information "  account : $AccountName ($FullName)"
     Write-Information "  admin   : $(if ($Admin) { 'yes' } else { 'no' })"
     Write-Information ""
     Write-Information "sudo will prompt for YOUR login password ($invokingUser) -- NOT the"
-    Write-Information "password for the new account."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c1b596d7a4419ab5')
     Write-Information ""
     if (-not (Confirm-Step "Proceed")) {
-        Write-Information "Canceled. Nothing was changed."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_04265e41f16edc05')
         return
     }
     & sudo -v
@@ -503,10 +504,10 @@ function Remove-OsUserHome {
     $parent = $null
     try { $parent = ([System.IO.DirectoryInfo]::new($Path)).Parent } catch { $parent = $null }
     if ($null -eq $parent -or $null -eq $parent.Parent) {
-        Write-Warning "Not removing '$Path': a home directory does not sit at, or one level below, the filesystem root. Whatever the account left there needs a pair of eyes."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_140e197d642a7f7b' -Arguments @{ path = "$Path" })
         return
     }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Remove the home directory the account delete left behind')) { return }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_fb1f33b7473e1277'))) { return }
 
     try {
         if ($IsWindows) {
@@ -516,14 +517,14 @@ function Remove-OsUserHome {
             if ($LASTEXITCODE -ne 0) { throw "rm -rf exited $LASTEXITCODE`: $out" }
         }
     } catch {
-        Write-Warning "The account is deleted but $Path could not be removed: $($_.Exception.Message)"
-        Write-Warning "Remove it by hand before the recreated account uses it: its files belong to an id that no longer exists."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3ed0888647b78ffb' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_66c59fb94122df6a')
         return
     }
     if (Test-Path -LiteralPath $Path) {
-        Write-Warning "$Path still exists after the removal. Remove it by hand: its files belong to an id that no longer exists."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d01c908b7e1943f2' -Arguments @{ path = "$Path" })
     } else {
-        Write-Information "Removed the leftover home directory $Path."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8439ce329c12c44a' -Arguments @{ path = "$Path" })
     }
 }
 
@@ -540,7 +541,7 @@ function Remove-OsUser {
     param([string]$Name, [hashtable]$Fact)
 
     $target = if ($Fact.Home) { "$Name (and $($Fact.Home))" } else { $Name }
-    if (-not $PSCmdlet.ShouldProcess($target, 'Delete the existing OS account')) { return }
+    if (-not $PSCmdlet.ShouldProcess($target, (Format-YurunaOperatorMessage -Key 'runner.operator_80631a3ed310d88c'))) { return }
 
     if ($IsWindows) {
         Remove-LocalUser -Name $Name -ErrorAction Stop
@@ -554,8 +555,8 @@ function Remove-OsUser {
                 $stored = Get-CimInstance -ClassName Win32_UserProfile -Filter "SID='$($Fact.Id)'" -ErrorAction Stop
                 if ($stored) { Remove-CimInstance -InputObject $stored -ErrorAction Stop }
             } catch {
-                Write-Warning "Deleted the account but could not remove its profile instance for SID $($Fact.Id): $($_.Exception.Message)"
-                Write-Warning "The files are cleared below, but the ProfileList registry entry is not: remove it by hand, or the recreated account gets a second profile directory, suffixed .000, beside the old one."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2b64497fe1d6bed5' -Arguments @{ id = "$($Fact.Id)"; message = "$($_.Exception.Message)" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4b325ef891a8ed11')
             }
         }
     } elseif ($IsMacOS) {
@@ -576,7 +577,7 @@ function Remove-OsUser {
             if (Test-OsUser -Name $Name) { throw "userdel -r exited $rc`: $out" }
             # Exit 12 is "account removed, home directory could not be": the
             # recreate still works, on a directory the sweep below clears.
-            Write-Warning "userdel -r exited $rc but '$Name' is gone: $out"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3c149b79d6b0f5b' -Arguments @{ rc = "$rc"; name = "$Name"; out = "$out" })
         }
     }
 
@@ -618,15 +619,15 @@ if (Test-OsUser -Name $AccountName) {
     # which is what makes an unattended recreate possible.
     $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
     Write-Information ""
-    Write-Warning "'$AccountName' already exists on this host (home: $homeNote)."
-    Write-Warning "Recreating it DELETES the account and everything under its home directory. Nothing of the old account survives."
-    Write-Warning "The Yuruna users.yml entry is not touched: an entry that already declares '$AccountName' is reused as-is."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42dcde04bb769692' -Arguments @{ accountName = "$AccountName"; homeNote = "$homeNote" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11a27b5d651f84e3')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6121ef24c9e88198' -Arguments @{ accountName = "$AccountName" })
     if ($WhatIfPreference) {
         # A dry run has no consent to ask for -- it deletes nothing.
-        Write-Information "-WhatIf: a real run would ask to confirm this deletion; -Force answers it in advance."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_46cf3f3b25c7b1d5')
     } else {
         if ($Force) {
-            Write-Warning "-Force: the confirmation is answered in advance -- deleting now."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_56d07230931cc37f')
         }
         if (-not (Confirm-Step "Delete $consentTarget and recreate the account")) {
             throw "Declined: '$AccountName' is untouched and nothing was created. Re-run with -Force to answer that confirmation in advance, or with a different -AccountName to leave this account alone."
@@ -678,7 +679,7 @@ function Test-YurunaUserDeclared {
         # than blocking account creation on an unrelated edit elsewhere in
         # the file.
         if ($Force) {
-            Write-Warning "Could not parse $Path as YAML ($($_.Exception.Message)); -Force: falling back to a text scan for the '$Name' entry. Fix the file before the next cycle -- Test-Config.ps1 will refuse it."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_84832aa8f31a6464' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)"; name = "$Name" })
             return (@(Get-DeclaredUserNameFromText -Lines (Get-Content -LiteralPath $Path)) -contains $Name)
         }
         throw "Could not parse $Path as YAML: $($_.Exception.Message). Fix the file (entries are two-space-indented keys under the top-level 'users:' mapping), or re-run with -Force to fall back to a text scan of it."
@@ -696,9 +697,9 @@ $DeclaredIn = @(foreach ($p in @($UsersRuntime, $UsersTemplate)) {
 })
 $UsersEntryReused = ($DeclaredIn.Count -gt 0)
 if ($UsersEntryReused) {
-    Write-Warning "'$AccountName' is already declared as a Yuruna user in $($DeclaredIn -join ' and '). The existing entry is kept as it is -- nothing is written to users.yml, and the credentials it points at are reused."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ab6c6159190ac7ff' -Arguments @{ accountName = "$AccountName"; and = "$($DeclaredIn -join ' and ')" })
     if ($DeclaredIn -notcontains $UsersRuntime) {
-        Write-Warning "That declaration is in the committed template. This run adds nothing to it; new entries go to $UsersRuntime, which inherits the template's entries when it is seeded."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ad81b45f1712b9c6' -Arguments @{ usersRuntime = "$UsersRuntime" })
     }
 }
 
@@ -729,13 +730,13 @@ function Get-VaultLocalOsPassword {
                 if ($ref) { $key = $ref }
             }
         } catch {
-            Write-Warning "Could not read $UsersPath to resolve the vault key: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_94283e93422a2b2c' -Arguments @{ usersPath = "$UsersPath"; message = "$($_.Exception.Message)" })
         }
     }
     try {
         $vault = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered -ErrorAction Stop
     } catch {
-        Write-Warning "Could not parse $Path as YAML: $($_.Exception.Message). Asking for a password instead."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_905cb8b93b701fa9' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
         return $null
     }
     if ($null -eq $vault -or $null -eq $vault.users -or -not $vault.users.Contains($key)) { return $null }
@@ -759,17 +760,17 @@ if ($WantsPassword -and [string]::IsNullOrEmpty($Password)) {
     if ($WhatIfPreference) {
         $source = if ($ReuseStored) { "reuse the password stored in the vault under key '$($StoredCredential.Key)'" } else { 'ask for a password' }
         Write-Information ""
-        Write-Information "-WhatIf: a real run would $source."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_90f1184615501062' -Arguments @{ source = "$source" })
     } elseif ($ReuseStored) {
         $Password          = $StoredCredential.Password
         $PasswordFromVault = $true
         Write-Information ""
-        Write-Information "The authentication vault already holds a local-OS password for '$AccountName'"
-        Write-Information "(vault key '$($StoredCredential.Key)'). Reusing it, so the account matches the"
-        Write-Information "credential Yuruna already hands out. Pass -PromptForPassword to set a new one."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_adcbeaf50ba5d167' -Arguments @{ accountName = "$AccountName" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0f5a8f43e49a6d8b' -Arguments @{ key = "$($StoredCredential.Key)" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fc8ff78e8d43540a')
     } else {
         if ($StoredCredential) {
-            Write-Warning "The vault holds a local-OS password for '$AccountName' (key '$($StoredCredential.Key)') and -PromptForPassword was given: the account gets what you type now, and the stored copy stops matching until you update $VaultPath (users.$($StoredCredential.Key).password)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0486223c9c2a3ea4' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)"; vaultPath = "$VaultPath" })
         }
         $Password = Read-NewPassword -Name $AccountName
     }
@@ -777,10 +778,10 @@ if ($WantsPassword -and [string]::IsNullOrEmpty($Password)) {
 $HasPassword = -not [string]::IsNullOrEmpty($Password)
 
 if ($StoredCredential -and $HasPassword -and -not $PasswordFromVault -and $Password -ne $StoredCredential.Password) {
-    Write-Warning "The password being set on '$AccountName' differs from the one the vault stores under key '$($StoredCredential.Key)'. Yuruna keeps handing out the stored one until you update $VaultPath (users.$($StoredCredential.Key).password)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3897cb6768db5aa5' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)"; vaultPath = "$VaultPath" })
 }
 if ($StoredCredential -and $NoPassword) {
-    Write-Warning "'$AccountName' is being created without a password while the vault still stores one under key '$($StoredCredential.Key)'. Nothing can log in with it until the account's password is set to match."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_837a0a153498d90e' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)" })
 }
 
 # macOS sets the password through sysadminctl's argument vector, and
@@ -803,7 +804,7 @@ function New-WindowsLocalUser {
     $what = if ($Secret) { 'with password' } else { 'no password' }
     if (-not $PSCmdlet.ShouldProcess($Name, "New-LocalUser ($what, FullName='$Display')")) { return }
 
-    $common = @{ Name = $Name; FullName = $Display; Description = 'Yuruna local test user'; ErrorAction = 'Stop' }
+    $common = @{ Name = $Name; FullName = $Display; Description = (Format-YurunaOperatorMessage -Key 'runner.operator_b1e68dfd3e1dc85c'); ErrorAction = 'Stop' }
     if ($Secret) {
         # New-LocalUser only accepts a SecureString, so the password never
         # reaches a command line here.
@@ -822,8 +823,8 @@ function New-WindowsLocalUser {
             $user.PasswordExpired = 1
             $user.SetInfo()
         } catch {
-            Write-Warning "Could not set PasswordExpired flag via ADSI: $($_.Exception.Message)"
-            Write-Warning "Set it manually with:  net user $Name /logonpasswordchg:yes"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8330193335bf15c6' -Arguments @{ message = "$($_.Exception.Message)" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc4be49860381c3d' -Arguments @{ name = "$Name" })
         }
     }
 
@@ -849,8 +850,8 @@ function New-WindowsLocalUser {
             $members  = @(Get-LocalGroupMember -Group $adminGroup.Name -ErrorAction Stop)
             $isMember = [bool]($members | Where-Object { $_.Name -eq $Name -or $_.Name -like "*\$Name" })
         } catch {
-            Write-Warning "Could not enumerate '$($adminGroup.Name)' to verify membership: $($_.Exception.Message)"
-            Write-Warning "Verify manually with:  net localgroup `"$($adminGroup.Name)`""
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aaa6a4a2c37b1716' -Arguments @{ name = "$($adminGroup.Name)"; message = "$($_.Exception.Message)" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_68de40e1de70dffb' -Arguments @{ name = "$($adminGroup.Name)" })
         }
         if ($false -eq $isMember) {
             throw "Added '$Name' to '$($adminGroup.Name)' but the membership did not verify."
@@ -895,8 +896,8 @@ function New-MacLocalUser {
         # more expensive to diagnose after the fact than here.
         & sudo dscl . -authonly $Name $Secret *> $null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Created '$Name' but could not verify the password with 'dscl . -authonly'."
-            Write-Warning "Verify manually, and reset if needed with:  sudo sysadminctl -resetPasswordFor $Name -newPassword <password>"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2c1e0d4c810e5b32' -Arguments @{ name = "$Name" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_200a7d32aba9bfdf' -Arguments @{ name = "$Name" })
         }
     }
 
@@ -904,8 +905,8 @@ function New-MacLocalUser {
         # newPasswordRequired=1 forces a password change on the next login.
         $out = & sudo pwpolicy -u $Name -setpolicy "newPasswordRequired=1" 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "pwpolicy newPasswordRequired=1 failed (exit $LASTEXITCODE): $out"
-            Write-Warning "Set it manually with:  sudo pwpolicy -u $Name -setpolicy 'newPasswordRequired=1'"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f47e5116da805733' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; out = "$out" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7b20400706381dc6' -Arguments @{ name = "$Name" })
         }
     }
 }
@@ -960,13 +961,13 @@ function New-LinuxLocalUser {
         $out = & sudo chage -d 0 $Name 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "chage -d 0 failed (exit $LASTEXITCODE): $out"
-            Write-Warning "Set it manually with:  sudo chage -d 0 $Name"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_448fe7d7e7ace692' -Arguments @{ name = "$Name" })
         }
     }
 }
 
 Write-Information ""
-Write-Information "Creating local OS user '$AccountName' ($FullName) ..."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3f8083a9bb99b964' -Arguments @{ accountName = "$AccountName"; fullName = "$FullName" })
 $osArgs = @{
     Name        = $AccountName
     Display     = $FullName
@@ -1103,7 +1104,7 @@ function Set-WindowsUserExecutionPolicy {
     param([string]$Name, [string]$Secret, [string]$Command, [hashtable[]]$Shell)
 
     $applied = New-Object System.Collections.Generic.List[string]
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Set the CurrentUser execution policy to RemoteSigned (one-shot logon)')) {
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_0622a4d0730acf6c'))) {
         return $applied.ToArray()
     }
 
@@ -1141,7 +1142,7 @@ function Set-WindowsUserExecutionPolicy {
             try {
                 $proc = Start-Process @launch
             } catch {
-                Write-Warning "Could not run $($entry.Leaf) as '$Name': $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6526abeb32709165' -Arguments @{ leaf = "$($entry.Leaf)"; name = "$Name"; message = "$($_.Exception.Message)" })
                 continue
             }
         }
@@ -1159,7 +1160,7 @@ function Set-WindowsUserExecutionPolicy {
         try { $code = $proc.ExitCode } catch { $code = $null }
         if ($null -ne $code -and $code -ne 0) {
             $detail = if ($said) { " $said" } else { '' }
-            Write-Warning "$($entry.Leaf) exited $code setting the execution policy for '$Name'; its CurrentUser policy for that host may still be the default.$detail"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39bf9a1d65c34845' -Arguments @{ leaf = "$($entry.Leaf)"; code = "$code"; name = "$Name"; detail = "$detail" })
         } else {
             $null = $applied.Add($entry.Leaf)
         }
@@ -1178,7 +1179,7 @@ function Register-WindowsUserExecutionPolicyTask {
     [OutputType([bool])]
     param([string]$Name, [string]$TaskName, [string]$Command, [hashtable[]]$Shell)
 
-    if (-not $PSCmdlet.ShouldProcess($Name, "Register scheduled task '$TaskName' to set RemoteSigned at first sign-in")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_8a8eb73bf7a84874' -Arguments @{ taskName = "$TaskName" }))) { return $false }
     if (-not $Shell -or $Shell.Count -eq 0) { return $false }
 
     $encoded   = ConvertTo-EncodedCommand -Command $Command
@@ -1203,7 +1204,7 @@ function Register-WindowsUserExecutionPolicyTask {
             -Action $actions -Trigger $trigger -Principal $principal -Settings $settings
         return $true
     } catch {
-        Write-Warning "Could not register '$TaskName' for '$Name': $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2ac10b82cfb7f59d' -Arguments @{ taskName = "$TaskName"; name = "$Name"; message = "$($_.Exception.Message)" })
         return $false
     }
 }
@@ -1219,7 +1220,7 @@ if ($IsWindows) {
     $PolicyOneUserHost = @($PolicyShell | Where-Object { -not $_.Usable })
     $PolicyUsableShell = @($PolicyShell | Where-Object { $_.Usable })
     foreach ($entry in $PolicyOneUserHost) {
-        Write-Warning "$($entry.Leaf) is installed for one user only ($($entry.Path)), so '$AccountName' cannot run it and its policy for that host cannot be set from here."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d6cee957ccc95679' -Arguments @{ leaf = "$($entry.Leaf)"; path = "$($entry.Path)"; accountName = "$AccountName" })
     }
 
     if ($WhatIfPreference) {
@@ -1228,7 +1229,7 @@ if ($IsWindows) {
         $PolicyState = 'manual'
     } else {
         Write-Information ""
-        Write-Information "Enabling script execution for '$AccountName' (RemoteSigned, CurrentUser) ..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_70f4ef82d6fff1cb' -Arguments @{ accountName = "$AccountName" })
         # A password the account cannot log in with yet -- none at all, or one
         # the first sign-in has to replace -- rules the direct logon out.
         if ($HasPassword -and -not $ShouldForceChange) {
@@ -1256,7 +1257,7 @@ if ($IsWindows) {
                     Unregister-ScheduledTask -TaskName $PolicyTaskName -Confirm:$false -ErrorAction Stop
                 }
             } catch {
-                Write-Warning "The policy is set, but the older task '$PolicyTaskName' could not be removed: $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_440852a11f738607' -Arguments @{ policyTaskName = "$PolicyTaskName"; message = "$($_.Exception.Message)" })
             }
         }
     }
@@ -1290,7 +1291,7 @@ function Initialize-UsersRuntimeFile {
     param([string]$Path, [string]$Template)
 
     if (Test-Path -LiteralPath $Path) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($Path, "Seed users.yml from $Template")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_f8a9850aa3fba4f6' -Arguments @{ template = "$Template" }))) { return $false }
     $dir = Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Path $dir -Force }
     Copy-Item -LiteralPath $Template -Destination $Path -Force
@@ -1302,7 +1303,7 @@ $SeededUsers = $false
 if (-not $UsersEntryReused) {
     $SeededUsers = -not (Test-Path -LiteralPath $UsersRuntime)
     if ((Initialize-UsersRuntimeFile -Path $UsersRuntime -Template $UsersTemplate) -and
-        $PSCmdlet.ShouldProcess($UsersRuntime, "Append yuruna users entry '$AccountName'")) {
+        $PSCmdlet.ShouldProcess($UsersRuntime, (Format-YurunaOperatorMessage -Key 'runner.operator_fd5b18a91f365cb8' -Arguments @{ accountName = "$AccountName" }))) {
         Add-Content -LiteralPath $UsersRuntime -Value $YamlEntry -NoNewline:$false
         # Re-read to confirm the new entry is reachable. With powershell-yaml
         # this also proves the whole file still parses as YAML, which the text
@@ -1341,10 +1342,10 @@ $step = 1
 if ($Recreated) {
     $deleted  = if ($WhatIfPreference) { 'WOULD BE deleted' } else { 'was deleted' }
     $homeVerb = if ($WhatIfPreference) { 'would go' } else { 'went' }
-    Write-Information "  $step. The '$AccountName' account that existed before this run $deleted"
-    Write-Information "     and recreated from scratch: nothing of the old account survives."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2ce865cd89b0edf9' -Arguments @{ step = "$step"; accountName = "$AccountName"; deleted = "$deleted" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d13b200888c6a2ae')
     if ($RemovedHome) {
-        Write-Information "     Its home directory ($RemovedHome) $homeVerb with it."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_82f0cd22ff5610aa' -Arguments @{ removedHome = "$RemovedHome"; homeVerb = "$homeVerb" })
     }
     Write-Information ""
     $step++
@@ -1352,59 +1353,59 @@ if ($Recreated) {
 
 if ($HasPassword -or ($WhatIfPreference -and $WantsPassword)) {
     if ($WhatIfPreference -and $ReuseStored) {
-        Write-Information "  $step. A real run would reuse the password the authentication vault"
-        Write-Information "     already holds for '$AccountName' (vault key '$($StoredCredential.Key)')"
-        Write-Information "     and set it as usable."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_65ea555d7c6b007e' -Arguments @{ step = "$step" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_085c897ff1b3b2eb' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b6bb67156bb6824a')
     } elseif ($WhatIfPreference -and $HasPassword) {
-        Write-Information "  $step. A real run would set the password supplied on the command line."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5103c2386d75f437' -Arguments @{ step = "$step" })
     } elseif ($WhatIfPreference) {
-        Write-Information "  $step. A real run would ask for the password and set it as usable."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_25ec9907cee8c3d0' -Arguments @{ step = "$step" })
     } elseif ($PasswordFromVault) {
-        Write-Information "  $step. The password is the one the authentication vault already held"
-        Write-Information "     for '$AccountName' (vault key '$($StoredCredential.Key)'); it is set"
-        Write-Information "     and usable, and Yuruna's copy still matches."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_74b20cd417e8817c' -Arguments @{ step = "$step" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ea4164a81364283f' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c32a98a17ba89dd9')
     } else {
-        Write-Information "  $step. The password is set and usable."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_68164e927bcc0e9e' -Arguments @{ step = "$step" })
     }
     if (-not $ShouldForceChange) {
-        Write-Information "     The account can log in unattended -- no first-login rotation."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9afb7feae8a625ef')
     }
-    Write-Information "     Do not leave it in open text files or shell history."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f5355ca99920de09')
 } else {
-    Write-Information "  $step. The initial password for '$AccountName' HAS NOT been set."
-    Write-Information "     The account exists but cannot log in until you set one."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6bc36c3e1265c23b' -Arguments @{ step = "$step"; accountName = "$AccountName" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58b5a5c9f50f5bed')
     if ($IsWindows) {
-        Write-Information "     Set it with:  net user $AccountName *"
-        Write-Information "     (or use 'Computer Management > Local Users and Groups')"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_14611400ea942a10' -Arguments @{ accountName = "$AccountName" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f3932e86f1166a66')
     } elseif ($IsMacOS) {
-        Write-Information "     Set it with:  sudo passwd $AccountName"
-        Write-Information "     (or use 'System Settings > Users & Groups')"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b0f17a6c92efa2d7' -Arguments @{ accountName = "$AccountName" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7bc16ca8ad50156')
     } elseif ($IsLinux) {
-        Write-Information "     Set it with:  sudo passwd $AccountName"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b0f17a6c92efa2d7' -Arguments @{ accountName = "$AccountName" })
     }
 }
 Write-Information ""
 $step++
 
 if ($Admin) {
-    Write-Information "  $step. The account IS a local machine administrator:"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9f7c5863216cc042' -Arguments @{ step = "$step" })
     if ($IsWindows) {
-        Write-Information "     member of the built-in Administrators group (S-1-5-32-544)."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ce0dbb11233015ec')
     } elseif ($IsMacOS) {
-        Write-Information "     member of the 'admin' group, which is what grants sudo."
-        Write-Information "     The group list is fixed when a session starts, so it takes"
-        Write-Information "     effect on the account's next sign-in."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a6732496b1fd1e11')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9822f504b5c43500')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f86fd5765e14a20b')
     } elseif ($IsLinux) {
-        Write-Information "     member of the 'sudo' group. Group membership is read at login,"
-        Write-Information "     so it takes effect on the account's next sign-in."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4c55f8e185ed596a')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ec9e341ad6d6e62a')
     }
     Write-Information ""
     $step++
 } else {
-    Write-Information "  $step. The account is NOT a local machine administrator."
-    Write-Information "     It cannot run the host installer or Enable-TestAutomation:"
-    Write-Information "     both need root / Administrator and will refuse. Grant the"
-    Write-Information "     rights from an account that already has them:"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_715d84e1ff4deba7' -Arguments @{ step = "$step" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bd4f326517a4237a')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d138c41ccd0a05c4')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0eeb0f082780ca5f')
     if ($IsWindows) {
         # The group's NAME is localized, so the guidance resolves it by SID for
         # the same reason New-WindowsLocalUser does.
@@ -1415,27 +1416,27 @@ if ($Admin) {
     } elseif ($IsLinux) {
         Write-Information "       sudo usermod -aG sudo $AccountName"
     }
-    Write-Information "     The group list is fixed when a session starts, so sign"
-    Write-Information "     '$AccountName' out and back in before retrying -- a session"
-    Write-Information "     opened before the grant keeps the list it started with."
-    Write-Information "     Re-running is the other way out: it offers to delete the"
-    Write-Information "     account, home directory included, and recreate it with the"
-    Write-Information "     rights asked for (-Force answers that in advance). The grant"
-    Write-Information "     above keeps the home directory."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f360a3b3c52c7237')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b4eec42f2cd69aeb' -Arguments @{ accountName = "$AccountName" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a6e937a984ef59bc')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9a69333b784c7f9d')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a528ae45427ecf1f')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_52cebdb9b046f8fe')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ffc71b673ec1b46f')
     Write-Information ""
     $step++
 }
 
 if ($ShouldForceChange) {
-    Write-Information "  $step. The account is flagged 'must change password at first login':"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a9b463e8eefbc554' -Arguments @{ step = "$step" })
     if ($IsWindows) {
-        Write-Information "     PasswordExpired=1 via ADSI; the first interactive sign-in"
-        Write-Information "     will prompt for a new password."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9ce00da594f93e57')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c2f406962277a0e6')
     } elseif ($IsMacOS) {
-        Write-Information "     pwpolicy newPasswordRequired=1; the first login will prompt"
-        Write-Information "     for a new password."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3980446c8dcd23f0')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_68256ad6a8f47d12')
     } elseif ($IsLinux) {
-        Write-Information "     chage -d 0 forces a password change on the next login."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6148001e471f7a7e')
     }
     Write-Information ""
     $step++
@@ -1446,10 +1447,10 @@ if ($PolicyState -ne 'skipped') {
     $pendingIn = (@($PolicyPendingHost | ForEach-Object { $_.Leaf }) -join ', ')
     switch ($PolicyState) {
         'applied' {
-            Write-Information "  $step. The account can run scripts: its CurrentUser execution policy"
-            Write-Information "     is RemoteSigned in $appliedIn."
-            Write-Information "     It was set through a one-shot logon as '$AccountName', which is"
-            Write-Information "     also what created the profile the policy is stored in."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ce945d6cc139f9f8' -Arguments @{ step = "$step" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_989a4da22ecc109d' -Arguments @{ appliedIn = "$appliedIn" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cc4c31e1b2eeb4aa' -Arguments @{ accountName = "$AccountName" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7a67605dbaf9e1a4')
         }
         'deferred' {
             $why = if (-not $HasPassword) {
@@ -1461,66 +1462,66 @@ if ($PolicyState -ne 'skipped') {
                        @('Logging the account on from here did not work -- the warnings',
                          'above say why.')
                    }
-            Write-Information "  $step. The account cannot run scripts YET in $pendingIn."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1c6dd74bf713ea0f' -Arguments @{ step = "$step"; pendingIn = "$pendingIn" })
             foreach ($line in $why) { Write-Information "     $line" }
-            Write-Information "     A scheduled task sets the CurrentUser execution policy to"
-            Write-Information "     RemoteSigned at the account's first sign-in instead"
-            Write-Information "     ('$PolicyTaskName', which expires after 30 days)."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bb4af2f3a3025c74')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_93a6a19ab6710180')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_878114d3a2fe825c' -Arguments @{ policyTaskName = "$PolicyTaskName" })
             if ($appliedIn) {
-                Write-Information "     Already set now in $appliedIn."
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_083efcacf651607c' -Arguments @{ appliedIn = "$appliedIn" })
             }
-            Write-Information "     Nothing to do; confirm after signing in with:"
-            Write-Information "       Get-ExecutionPolicy -Scope CurrentUser"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9aaf1b0c5d4459')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4df966af1ca31c35')
         }
         'manual' {
-            Write-Information "  $step. The account CANNOT run scripts: its execution policy is still"
-            Write-Information "     the Windows default, and this run could not set it for the"
-            Write-Information "     account -- the warnings above say why. Signed in as"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_02a1066126f92854' -Arguments @{ step = "$step" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_23987bbbb4b24ea9')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1defe9aa2e99aade')
             Write-Information "     '$AccountName', run:"
-            Write-Information "       Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7da73041a39f4b80')
         }
         'whatif' {
-            Write-Information "  $step. A real run would set the account's CurrentUser execution policy"
-            Write-Information "     to RemoteSigned from a session running as '$AccountName': a"
-            Write-Information "     one-shot logon when it has a usable password, a first-sign-in"
-            Write-Information "     scheduled task when it does not."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bb64a99aeac164e1' -Arguments @{ step = "$step" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6b696d3285e8ca00' -Arguments @{ accountName = "$AccountName" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_10a793be596c4168')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7b66a70890db579')
         }
     }
     foreach ($entry in $PolicyOneUserHost) {
-        Write-Information "     $($entry.Leaf) is installed for one user only:"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aa76f347f02aaf4d' -Arguments @{ leaf = "$($entry.Leaf)" })
         Write-Information "       $($entry.Path)"
-        Write-Information "     No other account on this host can run it, so '$AccountName' has"
-        Write-Information "     no execution policy for that host and nothing here can give it"
-        Write-Information "     one. Install PowerShell 7 for all users and re-run:"
-        Write-Information "       winget uninstall --id Microsoft.PowerShell"
-        Write-Information "       winget install --id Microsoft.PowerShell --scope machine"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_322a7712eada0ba2' -Arguments @{ accountName = "$AccountName" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aab0c4b852934709')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5344b9e7147b1112')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_41856668e101e1fc')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e7cfc0e93e3d317b')
     }
     Write-Information ""
     $step++
 }
 
 if ($UsersEntryReused) {
-    Write-Information "  $step. Already registered with the default Yuruna authentication"
-    Write-Information "     extension; the existing entry was kept, not rewritten:"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_988bcc81b612252e' -Arguments @{ step = "$step" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_149acad0d480ff72')
     foreach ($p in $DeclaredIn) { Write-Information "       $p" }
-    Write-Information "     Whatever corporate mapping / vaultKey / localOsPasswordRef it"
-    Write-Information "     already carries still applies -- this run changed none of it."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0c5ca3e94b40c48f')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3f965b8f770b8f1a')
 } elseif ($wrote.Count -gt 0) {
-    Write-Information "  $step. Added to the default Yuruna authentication extension:"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c507d87ba69cca7d' -Arguments @{ step = "$step" })
     foreach ($p in $wrote) { Write-Information "       $p" }
-    Write-Information "     corporate.* / vaultKey / localOsPasswordRef are empty --"
-    Write-Information "     the account is registered as a purely-local Yuruna user,"
-    Write-Information "     NOT yet bound to any corporate (AD / Entra / etc.) identity."
-    Write-Information "     See test/extension/authentication/users.yml.template for how"
-    Write-Information "     to bind a vault key / corporate identity later."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_caf0ab7112acaa07')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_41e429dcda992869')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8069f016af00b06d')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3d774626ea2cc3a3')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d73fcc096d8e1a4e')
     if ($SeededUsers) {
-        Write-Information "     This host had no runtime users.yml, so it was seeded from the"
-        Write-Information "     committed template before the entry was appended. The template"
-        Write-Information "     itself is never written to."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b401dc408a31017a')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c3cec8d182e17227')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_251d5f5cdbef69b0')
     }
     if (-not $YamlAvailable) {
-        Write-Information "     The entry was confirmed by text scan; install powershell-yaml"
-        Write-Information "     to have the whole file re-validated as YAML on future runs."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c90d554bcabfe8e5')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_87723d817eb7fefc')
     }
 }
 Write-Information ""

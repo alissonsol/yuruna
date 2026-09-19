@@ -1,0 +1,59 @@
+{
+  "schema": "yuruna.plural-fixture/v1",
+  "locale": "pt-BR",
+  "rule": "pt-cardinal-cldr46",
+  "cases": [
+    {
+      "count": 0,
+      "category": "one"
+    },
+    {
+      "count": 0.5,
+      "category": "one"
+    },
+    {
+      "count": 1,
+      "category": "one"
+    },
+    {
+      "count": 1.99,
+      "category": "one"
+    },
+    {
+      "count": 2,
+      "category": "other"
+    },
+    {
+      "count": 2.1,
+      "category": "other"
+    },
+    {
+      "count": -1,
+      "category": "one"
+    },
+    {
+      "count": -2,
+      "category": "other"
+    },
+    {
+      "count": 1000000,
+      "category": "many"
+    },
+    {
+      "count": 2000000,
+      "category": "many"
+    },
+    {
+      "count": -1000000,
+      "category": "many"
+    },
+    {
+      "count": 1000000.5,
+      "category": "other"
+    },
+    {
+      "count": 1000001,
+      "category": "other"
+    }
+  ]
+}

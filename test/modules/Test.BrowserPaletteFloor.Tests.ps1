@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e575be-d2eb-4fca-aff0-b96b48ea124c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.ProductGlobalization.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -398,5 +399,16 @@ Describe 'the shared chrome palette resolves to one set of literals' {
             }
         }
         Assert-NoFinding $findings 'a chrome token that differs makes the copied block impossible to keep identical'
+    }
+}
+
+Describe 'product globalization acceptance' {
+    It 'globalization acceptance: all surfaces expanded and mirrored locales' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/globalization-pages.test.js'
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/extension/ui-pages.test.js'
+    }
+    It 'globalization acceptance: capability off keyboard IME and hostile bidi' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/yuruna.common.test.js'
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/extension/ui-pages.test.js'
     }
 }

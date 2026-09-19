@@ -18,6 +18,7 @@ import (
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/labgate"
+	"yuruna.com/test/extension/extension-sdk/webui"
 )
 
 // ImageAPI is the pool surface the handlers call; imagestore.Agent satisfies it
@@ -39,8 +40,10 @@ type ImageAPI interface {
 
 // Options configures the server.
 type Options struct {
-	Addr    string
-	Version string
+	Language          string
+	AllowPseudoLocale bool
+	Addr              string
+	Version           string
 	// Store persists the audit log + status under the pool share; nil disables it.
 	Store *state.Store
 	// Images is the pool engine; nil leaves every image route answering 503.
@@ -65,6 +68,7 @@ type Options struct {
 
 // Server is the download-agent-service UI/API HTTP server.
 type Server struct {
+	pages   *webui.Pages
 	opts    Options
 	state   *state.Store
 	images  ImageAPI
@@ -76,7 +80,9 @@ type Server struct {
 // New builds a Server.
 func New(opts Options) *Server {
 	s := &Server{opts: opts, state: opts.Store, images: opts.Images, started: time.Now()}
+	s.pages = prepareLocalizedPages(opts.Language, opts.AllowPseudoLocale)
 	s.gate = labgate.New(labgate.Options{
+		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
 		BearerToken:   opts.AuthToken,
 		CookieName:    sessionCookie,

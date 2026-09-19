@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4233bb36-0ed5-4529-acff-23258b23fec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Reusable validation primitives -- schema validation, emptiness check,
 # git-tree freshness -- that any check script (Test-Config.ps1 included)
@@ -79,14 +82,14 @@ function Test-AgainstSchema {
         [Parameter(Mandatory)][string]$SchemaPath
     )
     $YamlFull = try { [System.IO.Path]::GetFullPath($YamlPath) } catch { $YamlPath }
-    if (-not (Test-Path $YamlPath))   { Write-Fail "${Label}: file not found ($YamlFull)" -FullPath $YamlFull; return }
-    if (-not (Test-Path $SchemaPath)) { Write-Warn "${Label}: schema not found ($SchemaPath)"; return }
+    if (-not (Test-Path $YamlPath))   { Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_8e99318e4c9efaea' -Arguments @{ label = "${Label}"; yamlFull = "$YamlFull" }) -FullPath $YamlFull; return }
+    if (-not (Test-Path $SchemaPath)) { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_a355b1e1a1867c72' -Arguments @{ label = "${Label}"; schemaPath = "$SchemaPath" }); return }
     try {
         # Route through the hardened reader (root-shape check + the macOS Resolve-Path
         # fallback + the shared cache) instead of a second, divergent parse path.
         $doc = Read-TestConfig -Path $YamlPath -ThrowOnError
     } catch {
-        Write-Fail "${Label}: YAML parse error in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_2fae4316e7c5107a' -Arguments @{ label = "${Label}"; yamlFull = "${YamlFull}"; message = "$($_.Exception.Message)" }) -FullPath $YamlFull
         return
     }
     $hasTestJson = Get-Command Test-Json -ErrorAction SilentlyContinue
@@ -102,10 +105,10 @@ function Test-AgainstSchema {
                 Write-Fail "${Label}: schema-invalid -- ${YamlFull}" -FullPath $YamlFull
             }
         } catch {
-            Write-Fail "${Label}: schema validation failed in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f815487911dc3595' -Arguments @{ label = "${Label}"; yamlFull = "${YamlFull}"; message = "$($_.Exception.Message)" }) -FullPath $YamlFull
         }
     } else {
-        Write-Pass "${Label}: parse-only check passed (Test-Json unavailable; schema not enforced)"
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_4b7205979bd3ff32' -Arguments @{ label = "${Label}" })
     }
 }
 
@@ -125,7 +128,7 @@ function Test-RepoFreshness {
         [Parameter(Mandatory)][string]$Path
     )
     if (-not (Test-Path (Join-Path $Path '.git'))) {
-        Write-Warn "${Label}: not a git working tree ($Path) -- skipping freshness check."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_34ae6df2f15089e2' -Arguments @{ label = "${Label}"; path = "$Path" })
         return
     }
     # Fetch through the shared network-git helper: it neutralizes every
@@ -146,22 +149,22 @@ function Test-RepoFreshness {
                 # than leaving a reader to guess which half of an either/or they
                 # are in.
                 $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
-                Write-Warn "${Label}: git fetch was REFUSED -- the remote rejected this host's GitHub credential, so staleness is unknown (and every other check here that reaches a remote will fail the same way). Refresh the login with ONE of: $remedy. git said: $(Get-GitFirstOutputLine -Output $fetch.Output)"
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_e4106fbdb61cf353' -Arguments @{ label = "${Label}"; remedy = "$remedy"; output = "$(Get-GitFirstOutputLine -Output $fetch.Output)" })
             } else {
-                Write-Warn "${Label}: git fetch failed (offline, or the remote is unreachable from this host); cannot determine staleness."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_ee4f9562277e1df3' -Arguments @{ label = "${Label}" })
             }
             return
         }
         $st = Get-GitUpstreamStatus -Path $Path
         switch ($st.State) {
-            'no-upstream' { Write-Info "${Label}: no upstream tracking branch -- skipping ahead/behind." }
-            'up-to-date'  { Write-Pass "${Label}: up to date with $($st.Remote)." }
-            'behind'      { Write-Warn "${Label}: $($st.Behind) commit(s) behind upstream -- 'git pull --ff-only' before next cycle." }
-            'ahead'       { Write-Pass "${Label}: $($st.Ahead) commit(s) ahead of upstream (unpushed local work)." }
-            default       { Write-Warn "${Label}: diverged ($($st.Ahead) ahead, $($st.Behind) behind). Rebase or merge manually." }
+            'no-upstream' { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_683bf2c36f24325c' -Arguments @{ label = "${Label}" }) }
+            'up-to-date'  { Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_d6f51da4e1e89388' -Arguments @{ label = "${Label}"; remote = "$($st.Remote)" }) }
+            'behind'      { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_e6cadf29b3937ddf' -Arguments @{ label = "${Label}"; behind = "$($st.Behind)" }) }
+            'ahead'       { Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_317c6bd9520041bd' -Arguments @{ label = "${Label}"; ahead = "$($st.Ahead)" }) }
+            default       { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_6ca71048f9914bc3' -Arguments @{ label = "${Label}"; ahead = "$($st.Ahead)"; behind = "$($st.Behind)" }) }
         }
     } catch {
-        Write-Warn "${Label}: freshness check threw -- $($_.Exception.Message)"
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_5e66ae4d5f5ea1e5' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
     }
 }
 

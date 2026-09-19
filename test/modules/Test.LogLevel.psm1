@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d2ed87-fda6-40a4-8e87-7605f8be0616
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     Justification = 'Eviction-safe anchors: the transcript writer and the captured ProgressPreference are singletons for the PROCESS, and must survive -Force re-imports of this module by nested in-process scripts.')]
 param()
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:LogLevelRank = [ordered]@{
     Error       = 1
     Warning     = 2
@@ -138,7 +139,7 @@ function Resolve-LogLevel {
     # 'Information' so a typo in YAML still surfaces step-level output.
     $matched = $script:LogLevelRank.Keys | Where-Object { $_ -ieq $effective } | Select-Object -First 1
     if (-not $matched) {
-        Write-Warning "logLevel '$effective' is not one of $($script:LogLevelRank.Keys -join ', '); falling back to 'Information'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2a029a7dd2ab14cd' -Arguments @{ effective = "$effective"; join = "$($script:LogLevelRank.Keys -join ', ')" })
         $matched = 'Information'
     }
     Set-LogLevelPreference -Level $matched

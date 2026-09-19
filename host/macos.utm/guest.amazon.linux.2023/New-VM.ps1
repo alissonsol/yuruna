@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,8 @@ param(
     [string]$Hostname = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -37,12 +39,12 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cd82e39650ead9bb' -Arguments @{ hostname = "$Hostname" })
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
@@ -71,7 +73,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 # --- REGION: Create copies and files for VM
@@ -84,7 +86,7 @@ $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Copying base qcow2 disk image..."
 Copy-Item -Path $baseImageFile -Destination $DiskImage
 if (-not (Test-Path $DiskImage)) {
-    Write-Error "Failed to copy base qcow2 to '$DiskImage'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_e543f3b62fe834ce' -Arguments @{ diskImage = "$DiskImage" })
     exit 1
 }
 
@@ -93,7 +95,7 @@ if (-not (Test-Path $DiskImage)) {
 Write-Verbose "Resizing disk image to 128GB..."
 & qemu-img resize -f qcow2 "$DiskImage" 128G 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img resize failed. Install QEMU tools with: brew install qemu"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d077adca37bbf33b')
     exit 1
 }
 
@@ -112,7 +114,7 @@ $overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.utm.overlay.yml
 $MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -126,7 +128,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Read the persistent authentication vault; a new cycle must not reset credentials.
@@ -134,9 +136,9 @@ $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $S
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $Password = Get-LocalOsPassword -Username $Username
-if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
@@ -173,14 +175,14 @@ $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with cloud-init configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create seed.iso with hdiutil."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
     exit 1
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -200,7 +202,7 @@ $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -221,8 +223,8 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."

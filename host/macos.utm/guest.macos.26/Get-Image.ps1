@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -49,7 +50,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    Write-Error "Get-Image.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_607d7ff275d56f40')
     exit 1
 }
 
@@ -69,8 +70,8 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # message before we burn time on a here-string + temp-file dance for what
 # is really just a "command not found".
 if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
-    Write-Error "swift not found on PATH. The macOS 26 IPSW catalog probe needs the Apple Virtualization framework via swift."
-    Write-Information "Install with: xcode-select --install" -InformationAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_79fdf80d7c21c98e')
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_30f614d6e42fae94') -InformationAction Continue
     exit 1
 }
 
@@ -142,42 +143,19 @@ if ($LASTEXITCODE -ne 0) {
         Select-Object -Last 1) -replace '^ERROR_KIND=',''
     switch ($errorKind) {
         'vz-catalog-fetch' {
-            Write-Error @"
-VZMacOSRestoreImage.fetchLatestSupported failed inside Apple's
-installation service (VZErrorDomain code 10001, "restore image
-catalog failed to load").
-"@
-            Write-Information @"
-To continue, download a macOS 26 IPSW for Apple Virtualization here:
-    https://ipsw.me/VirtualMac2,1
-Save it as this exact path, then re-run Get-Image.ps1:
-    $baseImageFile
-
-Raw VZ output:
-$resolvedText
-"@ -InformationAction Continue
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1e7cd29fbb2332d2')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4385f6ff408b1852' -Arguments @{ baseImageFile = "$baseImageFile"; resolvedText = "$resolvedText" }) -InformationAction Continue
         }
         'version-below-floor' {
-            Write-Error 'Apple published a macOS below 26 as "latest supported" for this host.'
-            Write-Information @"
-The host probably has an older chip (M3 or earlier) or an older host
-OS that Apple has not yet matched to a macOS 26 IPSW bucket. The full
-VZ message follows:
-
-$resolvedText
-"@ -InformationAction Continue
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_03631e7fcccff720')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f63ef0c4c6099b60' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
         }
         default {
             # vz-other or no ERROR_KIND line at all (compiler error,
             # swift crash). The latter is the only case where the
             # Xcode CLT hint is actually relevant.
-            Write-Error "VZMacOSRestoreImage probe failed."
-            Write-Information @"
-$resolvedText
-If swift itself errored (compile failure, missing framework), make
-sure the host runs macOS 15+ on Apple Silicon and that Xcode command
-line tools are present: xcode-select --install
-"@ -InformationAction Continue
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce75ea0fbe6f282d')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f824c272a80574f8' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
         }
     }
     exit 1
@@ -188,14 +166,14 @@ line tools are present: xcode-select --install
 # entry, so pick that one rather than .Trim()-ing the whole capture.
 $resolvedLine = ($resolved -split "`n" | Where-Object { ($_ -split "`t").Count -ge 3 } | Select-Object -Last 1)
 if (-not $resolvedLine) {
-    Write-Error ("VZMacOSRestoreImage probe returned no usable line: " + ($resolved -join "`n"))
+    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_3b5d2f7573930a29' -Arguments @{ n = [string](($resolved -join "`n")) }))
     exit 1
 }
 $fields = $resolvedLine -split "`t"
 $sourceUrl  = $fields[0].Trim()
 $build      = $fields[1].Trim()
 $version    = $fields[2].Trim()
-Write-Output "Apple published macOS $version (build $build): $sourceUrl"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ddd6375b1613a19a' -Arguments @{ version = "$version"; build = "$build"; sourceUrl = "$sourceUrl" })
 
 # --- REGION: https://yuruna.link/42ec97cd-0006
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
@@ -208,11 +186,11 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 # --- REGION: Retrieve and process the files
 $downloadFile = Join-Path $downloadDir "downloaded.ipsw"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Write-Output "Downloading $sourceUrl to $downloadFile (~15-20 GB)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7f86dc7594de5a99' -Arguments @{ sourceUrl = "$sourceUrl"; downloadFile = "$downloadFile" })
 try {
     Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
 } catch {
-    Write-Error "Download failed: $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_617808006d5c6420' -Arguments @{ message = "$($_.Exception.Message)" })
     exit 1
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
@@ -260,7 +238,7 @@ print("Validated IPSW: macOS \(versionString ?? "?")")
 Write-Verbose "Validating downloaded IPSW via VZMacOSRestoreImage.load(from:)..."
 $vOut = Invoke-EntitledSwift -Source $validateSrc -ArgumentList @($downloadFile)
 if ($LASTEXITCODE -ne 0) {
-    Write-Error ("IPSW validation failed: " + ($vOut -join "`n"))
+    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_8fb20ea52d59a761' -Arguments @{ n = [string](($vOut -join "`n")) }))
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     exit 1
 }
@@ -271,7 +249,7 @@ $previousFile = Join-Path $downloadDir "$baseImageName.previous.ipsw"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
     Move-Item -Path $baseImageFile -Destination $previousFile
-    Write-Output "Previous image preserved as: $previousFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
@@ -280,9 +258,9 @@ Move-Item -Path $downloadFile -Destination $baseImageFile
 # Must go through the shared 4-line writer: the reader rejects shorter
 # sentinels, and a hand-rolled 3-line one silently disables the skip guard.
 Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
-Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1dec325a446dd0f7' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
 
-Write-Output "Download complete: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_347faa31fb049e6d' -Arguments @{ baseImageFile = "$baseImageFile" })
 
 # --- REGION: Completion
 # Clear a native discovery probe's stale exit code, including on cache hits.

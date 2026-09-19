@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 # -Global evicts the caller's binding into Test.VMUtility's private scope,
 # which is exactly what broke Start-StatusService.ps1 at "Initialize-
 # YurunaRuntimeDir is not recognized".
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -Global
 
 # The cross-host pure helpers (IP validation, proxy/port parsing, crypt hash,
@@ -96,7 +97,7 @@ function Wait-VMRunning {
         }
         Start-Sleep -Seconds $PollSeconds
     }
-    Write-Warning "VM '$VMName' did not reach running state within ${TimeoutSeconds}s"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_633d4d21c32631f7' -Arguments @{ vMName = "$VMName"; timeoutSeconds = "${TimeoutSeconds}" })
     return $false
 }
 
@@ -117,11 +118,11 @@ function Compare-Screenshot {
         [double]$Threshold = 0.85
     )
     if (-not (Test-Path $ReferencePath)) {
-        Write-Error "Reference screenshot not found: $ReferencePath"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_40d3da6b76c0b48c' -Arguments @{ referencePath = "$ReferencePath" })
         return @{ match=$false; similarity=0.0; error="Reference not found" }
     }
     if (-not (Test-Path $ActualPath)) {
-        Write-Error "Actual screenshot not found: $ActualPath"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e1236559e86aeb0b' -Arguments @{ actualPath = "$ActualPath" })
         return @{ match=$false; similarity=0.0; error="Actual not found" }
     }
     $ref = $null
@@ -175,7 +176,7 @@ function Compare-Screenshot {
             }
             $similarity = $sampled -gt 0 ? [Math]::Round($matchingPixels / $sampled, 4) : 0.0
             $isMatch = $similarity -ge $Threshold
-            Write-Information "Screenshot comparison: similarity=$similarity threshold=$Threshold match=$isMatch"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b99f17d075e3e4c2' -Arguments @{ similarity = "$similarity"; threshold = "$Threshold"; isMatch = "$isMatch" })
             return @{ match=$isMatch; similarity=$similarity; error=$null }
         } finally {
             # Dispose both source bitmaps on EVERY path: a LockBits / Marshal.Copy
@@ -187,7 +188,7 @@ function Compare-Screenshot {
             if ($act) { $act.Dispose() }
         }
     } catch {
-        Write-Error "Screenshot comparison failed: $_"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_1726de64253fb95b' -Arguments @{ value = "$_" })
         return @{ match=$false; similarity=0.0; error="$_" }
     }
 }
@@ -206,7 +207,7 @@ function Get-ScreenshotSchedule {
         $schedule = Get-Content -Raw $scheduleFile | ConvertFrom-Json
         return @($schedule.checkpoints)
     } catch {
-        Write-Warning "Failed to read screenshot schedule: $scheduleFile -- $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cb6a71a1e920d6b8' -Arguments @{ scheduleFile = "$scheduleFile"; value = "$_" })
         return @()
     }
 }
@@ -255,14 +256,14 @@ function Invoke-ScreenshotTest {
         $threshold = $cp.threshold ? [double]$cp.threshold : 0.85
         $refFile   = Join-Path $guestDir "reference/$cpName.png"
         if (-not (Test-Path $refFile)) {
-            return @{ success=$false; skipped=$false; errorMessage="Reference screenshot missing: $refFile. Commit a PNG at that path (one per checkpoint in schedule.json) or remove the checkpoint." }
+            return @{ success=$false; skipped=$false; errorMessage=(Format-YurunaOperatorMessage -Key 'runner.operator_d5856d430b1fcf7f' -Arguments @{ refFile = "$refFile" }) }
         }
-        Write-Information "  Screenshot checkpoint '$cpName': waiting ${delay}s..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0f4ba2aabfda7ec0' -Arguments @{ cpName = "$cpName"; delay = "${delay}" })
         Start-Sleep -Seconds $delay
         $capFile = Join-Path $captureDir "${GuestKey}__${cpName}.png"
         $captured = Get-VMScreenshot -VMName $VMName -OutFile $capFile
         if (-not $captured) {
-            return @{ success=$false; skipped=$false; errorMessage="Failed to capture screenshot for checkpoint '$cpName'" }
+            return @{ success=$false; skipped=$false; errorMessage=(Format-YurunaOperatorMessage -Key 'runner.operator_3cc22bbaf8a92ad9' -Arguments @{ cpName = "$cpName" }) }
         }
         $result = Compare-Screenshot -ReferencePath $refFile -ActualPath $capFile -Threshold $threshold
         if (-not $result.match) {
@@ -270,7 +271,7 @@ function Invoke-ScreenshotTest {
             if ($result.error) { $msg += " error=$($result.error)" }
             return @{ success=$false; skipped=$false; errorMessage=$msg }
         }
-        Write-Information "  Screenshot checkpoint '$cpName': PASS (similarity=$($result.similarity))"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_135be7f232c54246' -Arguments @{ cpName = "$cpName"; similarity = "$($result.similarity)" })
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
@@ -399,7 +400,7 @@ function Reset-GuestDhcpReleaseTally {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param()
-    if (-not $PSCmdlet.ShouldProcess('DHCP release tally', 'Reset')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_d56f46447950984d'), 'Reset')) { return }
     $script:DhcpReleaseAttempted = 0
     $script:DhcpReleaseSucceeded = 0
 }
@@ -467,7 +468,7 @@ function Register-GuestAddressObservation {
     )
     $result = @{ bounded = $true; firstSighting = $true; previous = ''; current = $Address }
     $path = Get-GuestAddressLedgerPath -RuntimeDir $RuntimeDir
-    if (-not $PSCmdlet.ShouldProcess($path, "Record $Identity at $Address")) { return $result }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_dad499c20565e589' -Arguments @{ identity = "$Identity"; address = "$Address" }))) { return $result }
 
     $ledger = @{}
     if (Test-Path -LiteralPath $path -PathType Leaf) {
@@ -534,7 +535,7 @@ function Assert-GuestAddressBounded {
     )
     $key = if ([string]::IsNullOrWhiteSpace($Identity)) { $VMName } else { $Identity }
     $outcome = @{ checked = $false; bounded = $true; previous = ''; current = ''; identity = $key }
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Check guest address is bounded by identity')) { return $outcome }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_6db5fc69aee3d930'))) { return $outcome }
     if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return $outcome }
 
     $address = ''
@@ -584,7 +585,7 @@ function Reset-GuestAddressFootprintTally {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param()
-    if (-not $PSCmdlet.ShouldProcess('guest address footprint tally', 'Reset')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_eed973f8cf3a5ccb'), 'Reset')) { return }
     $script:GuestAddressChecked   = 0
     $script:GuestAddressUnbounded = 0
     $script:GuestAddressMoves     = [System.Collections.Generic.List[object]]::new()
@@ -668,7 +669,7 @@ function Remove-GuestVMQuietly {
             # Remove-VM's return, whose [bool] cast is corrupted by the host
             # driver's status Write-Output lines.
             if (-not $SkipStop -and (Get-VMState -VMName $VMName) -eq 'running') {
-                Write-Warning "Remove-GuestVMQuietly: '$VMName' is still running after teardown (possible serialization hazard)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fef93ef33a3fbad6' -Arguments @{ vMName = "$VMName" })
             }
         }
     } catch {
@@ -680,7 +681,7 @@ function Remove-GuestVMQuietly {
         # already-gone VM would still take a teardown fault all the way out to the
         # caller. Reported as a warning so the fault is visible and skippable.
         if (-not $BestEffort) { throw }
-        Write-Warning "Remove-GuestVMQuietly: teardown of '$VMName' did not complete ($($_.Exception.Message)); continuing (-BestEffort)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_82753e898e78dd3f' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)" })
     } finally {
         $global:ProgressPreference = $savedProgress
     }
@@ -904,9 +905,7 @@ function Update-StashServiceMarkerAddress {
         # daemon takes to build. The address already being on the marker means
         # this was said when it was first published and nothing has changed since.
         if ($unconfirmed -and [string]$marker.stashBaseUrl -ne $url) {
-            Write-Warning ("Update-StashServiceMarkerAddress: '$VMName' reports $ip but nothing answered $url/healthz" +
-                $(if ($TimeoutSeconds -gt 0) { " within the ${TimeoutSeconds}s budget" } else { ' on a single unbudgeted probe' }) +
-                ". Publishing it unconfirmed -- if the dashboard's stash link is dead, this address is the reason.")
+            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.stash_probe_unconfirmed' -Arguments @{ vmName = $VMName; address = $ip; url = $url; budget = $TimeoutSeconds; mode = $(if ($TimeoutSeconds -gt 0) { 'bounded' } else { 'single' }) }))
         }
         if ([string]$marker.stashBaseUrl -eq $url -and [string]$marker.baseUrl -eq $url -and
             -not (($marker.PSObject.Properties.Name -contains 'poolWithheld') -and [bool]$marker.poolWithheld)) { return $url }
@@ -1079,7 +1078,7 @@ function Wait-YurunaServiceVmEndpoint {
         if ($resolved -and $resolved -ne $current) {
             if ($current) {
                 Close-YurunaWaitProgress
-                Write-Information "  '$VMName' moved from $current to $resolved -- following it (a guest re-requests DHCP under a new identity while cloud-init runs)." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_541e28e3451a6069' -Arguments @{ vMName = "$VMName"; current = "$current"; resolved = "$resolved" }) -InformationAction Continue
                 $addressChanges++
                 # A new address deserves a fresh verdict now, not at the next
                 # interval: a listener check made against the old one proves
@@ -1088,7 +1087,7 @@ function Wait-YurunaServiceVmEndpoint {
             }
             $current = $resolved
             if ($OnAddressChanged) {
-                try { & $OnAddressChanged $current } catch { Write-Warning "Re-pointing host-side forwarding to ${current} failed: $($_.Exception.Message). The service is unaffected; peers may still be sent to the previous address." }
+                try { & $OnAddressChanged $current } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3bd37c4c4fa991cf' -Arguments @{ current = "${current}"; message = "$($_.Exception.Message)" }) }
             }
         }
 
@@ -1162,7 +1161,7 @@ function Wait-YurunaServiceVmEndpoint {
                     if ($progress -and $progress -ne $lastProgress) {
                         $lastProgress = $progress
                         Close-YurunaWaitProgress
-                        Write-Information "  [guest] cloud-init: $cloudInitStatus -- $progress" -InformationAction Continue
+                        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bad2e0cc6cbf2536' -Arguments @{ cloudInitStatus = "$cloudInitStatus"; progress = "$progress" }) -InformationAction Continue
                     }
                 }
                 if ($answer -match 'YURUNA_LISTENING') {
@@ -1174,12 +1173,12 @@ function Wait-YurunaServiceVmEndpoint {
                     try { $sshAddress = [string](& $ResolveAddress $VMName) } catch { Write-Verbose "Wait-YurunaServiceVmEndpoint: post-SSH resolve: $($_.Exception.Message)" }
                     if ($sshAddress -and $sshAddress -ne $VMName -and $sshAddress -ne $current) {
                         Close-YurunaWaitProgress
-                        Write-Information "  SSH reached '$VMName' at $sshAddress while :$Port was being probed at $current -- adopting $sshAddress." -InformationAction Continue
+                        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fca25ad3ba618f96' -Arguments @{ vMName = "$VMName"; sshAddress = "$sshAddress"; port = "$Port"; current = "$current" }) -InformationAction Continue
                         $current = $sshAddress
                         $addressChanges++
                         $nextInGuestCheck = $elapsed
                         if ($OnAddressChanged) {
-                            try { & $OnAddressChanged $current } catch { Write-Warning "Re-pointing host-side forwarding to ${current} failed: $($_.Exception.Message)." }
+                            try { & $OnAddressChanged $current } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a80e5f25687bd914' -Arguments @{ current = "${current}"; message = "$($_.Exception.Message)" }) }
                         }
                         continue
                     }
@@ -1201,7 +1200,7 @@ function Wait-YurunaServiceVmEndpoint {
                 # its port in the seconds after cloud-init finishes.
                 if ($cloudInitStatus -match '^error$') {
                     Close-YurunaWaitProgress
-                    Write-Information "  cloud-init on '$VMName' ERRORED and :$Port is not bound -- ending the wait; more time cannot help." -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_82804c66bfb3bd9a' -Arguments @{ vMName = "$VMName"; port = "$Port" }) -InformationAction Continue
                     $cloudInitErrored = $true
                     break
                 }

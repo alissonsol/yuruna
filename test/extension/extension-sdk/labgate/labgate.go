@@ -2,34 +2,9 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package labgate is the write gate every Yuruna extension service puts in
-// front of a route that changes host or pool configuration.
-//
-// Three ways through one door. An operator reads the rotating 6-character lab
-// token off the Yuruna hosts dashboard and exchanges it once per device for a
-// signed session cookie; an operator who followed a link FROM that dashboard
-// arrives holding a short-lived control proof instead, and exchanges that; and
-// automation sends the shared lab auth token as a bearer. All three guard the
-// same routes, because a second credential store buys nothing here: none of them
-// tells you WHO made a change, which is why every mutation is also audited.
-//
-// The proof is the weakest of the three and deliberately so: minted for one
-// visit, valid for minutes, and worth nothing but a session here -- unlike the
-// 6-character code, which can be redeemed for the lab auth token itself.
-//
-// The lab token is public on the LAN by construction -- the aggregator publishes
-// it on its open /metrics and paints it on a dashboard tile. It is a
-// stop-a-stray-click gate, not a secret, and it is worth having precisely
-// because it rotates: a code copied out of the lab stops working on its own.
-//
-// Validation belongs to the aggregator, which owns the codes and their rotation.
-// A service holds no copy to go stale and no comparison to get wrong; it asks,
-// and it believes only a definite answer. When the check cannot be made at all,
-// the gate stays shut and says so -- an operator who cannot tell "wrong code"
-// from "validator down" retypes a correct code until they give up.
-//
-// Reads are deliberately outside all of this. Catalogs, artifacts and status are
-// open on the trusted LAN, matching the pool-status posture; gating them would
-// make a credential a prerequisite for a host doing its job.
+// front of a route that changes host or pool configuration. See
+// ../../../../docs/extensions-api.md#the-lab-token-rule for the three
+// credentials it accepts and why reads stay outside it. -- labgate.go
 package labgate
 
 import (
@@ -43,7 +18,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -122,6 +96,10 @@ var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.[A-Za-z0-9+/]{4,128}={0,2
 
 // Options configures a Gate.
 type Options struct {
+	// Language and AllowPseudoLocale use the same authority as the service pages.
+	Language          string
+	AllowPseudoLocale bool
+
 	// AggregatorURL validates submitted lab tokens. Empty disables the lab-token
 	// route into the gate, leaving the bearer as the only way in.
 	AggregatorURL string
@@ -151,6 +129,8 @@ type Options struct {
 // Gate holds the signing key and the per-source failure counts. The codes
 // themselves live only at the aggregator.
 type Gate struct {
+	locale *i18n.Negotiator
+
 	mu sync.Mutex
 
 	aggregatorURL string
@@ -172,6 +152,7 @@ type Gate struct {
 // forgeable cookies would not be.
 func New(opts Options) *Gate {
 	g := &Gate{
+		locale:        newAuthNegotiator(opts.Language, opts.AllowPseudoLocale),
 		aggregatorURL: strings.TrimRight(strings.TrimSpace(opts.AggregatorURL), "/"),
 		bearer:        strings.TrimSpace(opts.BearerToken),
 		cookieName:    strings.TrimSpace(opts.CookieName),
@@ -353,22 +334,22 @@ const (
 // not be checked over the configured URL must fail, not find another route.
 func (g *Gate) verify(ctx context.Context, code string) (Verdict, string) {
 	if !g.LabTokenEnabled() {
-		return Unavailable, "no aggregator URL configured"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_no_aggregator", nil)
 	}
 	body, err := json.Marshal(map[string]string{"labToken": code})
 	if err != nil {
-		return Unavailable, "request encoding failed"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_encoding", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, labTokenTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.aggregatorURL+labTokenPath, bytes.NewReader(body))
 	if err != nil {
-		return Unavailable, "malformed aggregator URL"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_malformed_aggregator", nil)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return Unavailable, "unreachable"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_unreachable", nil)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 	resp.Body.Close()
@@ -381,7 +362,7 @@ func (g *Gate) verify(ctx context.Context, code string) (Verdict, string) {
 		// 503 (exchange disabled), 429 (the aggregator is throttling this
 		// service's address), 400 (its shape rule moved out from under the local
 		// check) and anything else are all "no answer about the code".
-		return Unavailable, "aggregator answered HTTP " + strconv.Itoa(resp.StatusCode)
+		return Unavailable, g.renderDetail(ctx, "auth.detail_http", map[string]any{"status": resp.StatusCode})
 	}
 }
 
@@ -437,22 +418,22 @@ func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
 		return Rejected, ""
 	}
 	if g.aggregatorURL == "" {
-		return Unavailable, "no lab auth token and no aggregator URL configured"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_unconfigured", nil)
 	}
 	body, err := json.Marshal(map[string]string{"proof": wire})
 	if err != nil {
-		return Unavailable, "request encoding failed"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_encoding", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, labTokenTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.aggregatorURL+controlProofPath, bytes.NewReader(body))
 	if err != nil {
-		return Unavailable, "malformed aggregator URL"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_malformed_aggregator", nil)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return Unavailable, "unreachable"
+		return Unavailable, g.renderDetail(ctx, "auth.detail_unreachable", nil)
 	}
 	// Drained rather than abandoned, so the connection stays reusable. The
 	// status is the entire verdict; the body says nothing the status does not.
@@ -466,7 +447,7 @@ func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
 	default:
 		// 503 (the aggregator holds no token either), 400, anything else: no
 		// answer about the proof, which is never the same as "not valid".
-		return Unavailable, "aggregator answered HTTP " + strconv.Itoa(resp.StatusCode)
+		return Unavailable, g.renderDetail(ctx, "auth.detail_http", map[string]any{"status": resp.StatusCode})
 	}
 }
 
@@ -501,8 +482,7 @@ func (g *Gate) Session(r *http.Request) Session {
 func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := ClientIP(r)
 	if !g.LabTokenEnabled() {
-		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
-			"no aggregator URL is configured, so the pool aggregator cannot check a lab token; actions stay locked")
+		g.refuse(w, r, http.StatusServiceUnavailable, "auth.login_unavailable", ReasonUnavailable, nil)
 		return
 	}
 	// Throttling stays here even though the aggregator throttles too. Its bucket
@@ -511,14 +491,14 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// of enrollment.
 	if g.throttled(ip) {
 		g.auditLogin(ip, "throttled", "")
-		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("too many attempts; wait %d minutes and try again", int(FailWindow.Minutes())))
+		g.refuse(w, r, http.StatusTooManyRequests, "auth.attempts_throttled", "", map[string]any{"minutes": int(FailWindow.Minutes())})
 		return
 	}
 	var body struct {
 		LabToken string `json:"labToken"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxLoginBody)).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "malformed request body")
+		g.refuse(w, r, http.StatusBadRequest, "auth.malformed_request", "", nil)
 		return
 	}
 	// Case and stray whitespace come from reading a code off a screen, not from
@@ -527,21 +507,20 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if !labTokenRE.MatchString(code) {
 		// Not a failed guess: it never reached the aggregator, so it neither
 		// counts toward the throttle nor spends the lab's shared attempts.
-		writeErr(w, http.StatusBadRequest, "the lab token is the 6-character code on the dashboard's Lab token tile")
+		g.refuse(w, r, http.StatusBadRequest, "auth.token_shape", "", nil)
 		return
 	}
-	switch verdict, detail := g.verify(r.Context(), code); verdict {
+	switch verdict, detail := g.verify(context.WithValue(r.Context(), authLocaleKey{}, g.locale.Resolve(r).ResolvedTag), code); verdict {
 	case Unavailable:
 		g.auditLogin(ip, "unavailable", detail)
-		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
-			"the pool aggregator could not check the lab token ("+detail+"); actions stay locked")
+		g.refuse(w, r, http.StatusServiceUnavailable, "auth.token_check_failed", ReasonUnavailable, map[string]any{"detail": detail})
 		return
 	case Rejected:
 		g.recordFail(ip)
 		g.auditLogin(ip, "refused", "")
 		// Deliberately generic: distinguishing "wrong code" from "expired code"
 		// only helps someone guessing.
-		writeErr(w, http.StatusUnauthorized, "incorrect lab token")
+		g.refuse(w, r, http.StatusUnauthorized, "auth.token_incorrect", "", nil)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -580,8 +559,7 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 	ip := ClientIP(r)
 	if !g.ProofUnlockEnabled() {
-		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
-			"no lab auth token and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked")
+		g.refuse(w, r, http.StatusServiceUnavailable, "auth.proof_unconfigured", ReasonUnavailable, nil)
 		return
 	}
 	// Same bucket as the lab token. A forged proof and a guessed code are the
@@ -589,28 +567,27 @@ func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 	// guesser a second allowance.
 	if g.throttled(ip) {
 		g.auditLogin(ip, "throttled", "control proof")
-		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("too many attempts; wait %d minutes and try again", int(FailWindow.Minutes())))
+		g.refuse(w, r, http.StatusTooManyRequests, "auth.attempts_throttled", "", map[string]any{"minutes": int(FailWindow.Minutes())})
 		return
 	}
 	var body struct {
 		Proof string `json:"proof"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxLoginBody)).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "malformed request body")
+		g.refuse(w, r, http.StatusBadRequest, "auth.malformed_request", "", nil)
 		return
 	}
 	proof := strings.TrimSpace(body.Proof)
 	if !controlProofRE.MatchString(proof) {
 		// Not a failed attempt: a truncated fragment never reached a verifier, so
 		// it neither counts toward the throttle nor spends the lab's attempts.
-		writeErr(w, http.StatusBadRequest, "not a control proof")
+		g.refuse(w, r, http.StatusBadRequest, "auth.proof_shape", "", nil)
 		return
 	}
-	switch verdict, detail := g.verifyProof(r.Context(), proof); verdict {
+	switch verdict, detail := g.verifyProof(context.WithValue(r.Context(), authLocaleKey{}, g.locale.Resolve(r).ResolvedTag), proof); verdict {
 	case Unavailable:
 		g.auditLogin(ip, "unavailable", "control proof: "+detail)
-		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
-			"the control proof could not be checked ("+detail+"); actions stay locked")
+		g.refuse(w, r, http.StatusServiceUnavailable, "auth.proof_check_failed", ReasonUnavailable, map[string]any{"detail": detail})
 		return
 	case Rejected:
 		g.recordFail(ip)
@@ -618,7 +595,7 @@ func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 		// An expired proof is the common case here -- a tab left open, or a link
 		// followed an hour late -- and the UI turns this into its lab-token
 		// prompt, so the operator is told what to do rather than why it failed.
-		writeErr(w, http.StatusUnauthorized, "the control proof is expired or not from this pool")
+		g.refuse(w, r, http.StatusUnauthorized, "auth.proof_expired", "", nil)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -648,15 +625,14 @@ func (g *Gate) auditLogin(ip, outcome, detail string) {
 func (g *Gate) Require(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !g.Configured() {
-			writeReason(w, http.StatusServiceUnavailable, ReasonUnconfigured,
-				"no aggregator URL and no lab auth token configured; changes are disabled")
+			g.refuse(w, r, http.StatusServiceUnavailable, "auth.changes_disabled", ReasonUnconfigured, nil)
 			return
 		}
 		if g.Authed(r) {
 			next(w, r)
 			return
 		}
-		writeErr(w, http.StatusUnauthorized, "lab token session or lab auth token required")
+		g.refuse(w, r, http.StatusUnauthorized, "auth.session_required", "", nil)
 	}
 }
 
@@ -666,12 +642,11 @@ func (g *Gate) Require(next http.HandlerFunc) http.HandlerFunc {
 func (g *Gate) RequireBearer(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !g.BearerEnabled() {
-			writeReason(w, http.StatusServiceUnavailable, ReasonUnconfigured,
-				"no lab auth token configured; this route is disabled")
+			g.refuse(w, r, http.StatusServiceUnavailable, "auth.route_disabled", ReasonUnconfigured, nil)
 			return
 		}
 		if !g.bearerAuthed(r) {
-			writeErr(w, http.StatusUnauthorized, "lab auth token required")
+			g.refuse(w, r, http.StatusUnauthorized, "auth.bearer_required", "", nil)
 			return
 		}
 		next(w, r)
@@ -691,7 +666,7 @@ func ClientIP(r *http.Request) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
@@ -714,7 +689,7 @@ func writeReason(w http.ResponseWriter, status int, reason, msg string) {
 		// Every caller supplies one of the constants above. Treat any future
 		// unregistered value as a producer defect instead of silently emitting
 		// another prose-shaped protocol.
-		writeErr(w, http.StatusInternalServerError, "the gate could not encode its refusal")
+		writeErr(w, http.StatusInternalServerError, authCatalog().Render("auth.encode_refusal", nil, "en-US"))
 		return
 	}
 	writeJSON(w, status, map[string]any{

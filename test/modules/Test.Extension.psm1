@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
 # via -Global import.
 
 # Repo root = three levels above this file (test/modules/Test.Extension.psm1).
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RepoRoot     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:ExtensionDir = Join-Path $script:RepoRoot 'test/extension'
 
@@ -43,7 +44,7 @@ $script:ExtensionConfigCache = @{}
 function Resolve-ExtensionAreaDir {
     param([Parameter(Mandatory)][string]$Area)
     $dir = Join-Path $script:ExtensionDir $Area
-    if (-not (Test-Path $dir)) { throw "Extension area directory not found: $dir" }
+    if (-not (Test-Path $dir)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a36f9aee4f868c72' -Arguments @{ dir = "$dir" }) }
     return $dir
 }
 
@@ -145,7 +146,7 @@ function Assert-ExtensionContractCoverage {
         if (-not $exported.Contains($name)) { [void]$missing.Add($name) }
     }
     if ($missing.Count -gt 0) {
-        Write-Warning "Extension '$ExtensionName' for area '$Area' is missing $($missing.Count) contract verb(s): $($missing -join ', '). See $contractFile."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8d84017ce35d5327' -Arguments @{ extensionName = "$ExtensionName"; area = "$Area"; count = "$($missing.Count)"; join = "$($missing -join ', ')"; contractFile = "$contractFile" })
         return $false
     }
     Write-Verbose "Extension '$ExtensionName' for area '$Area' covers all $($required.Count) contract verbs."
@@ -165,11 +166,11 @@ function Import-Extension {
     $dir   = Resolve-ExtensionAreaDir -Area $Area
     $names = @(Get-ActiveExtensionName -Area $Area)
     if ($RequireSingle -and $names.Count -ne 1) {
-        throw "Area '$Area' requires exactly one active extension; $Area.config.yml lists $($names.Count): $($names -join ', ')."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_bcfafa04e60d24c8' -Arguments @{ area = "$Area"; count = "$($names.Count)"; join = "$($names -join ', ')" })
     }
     foreach ($n in $names) {
         $path = Join-Path $dir "$n.psm1"
-        if (-not (Test-Path $path)) { throw "Extension module not found for area '$Area', name '$n': $path" }
+        if (-not (Test-Path $path)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3045e8dd4d3523e0' -Arguments @{ area = "$Area"; n = "$n"; path = "$path" }) }
         # Skip re-import if the same .psm1 path is already loaded. -Force
         # on Import-Module evicts any module sharing the basename
         # ('default') -- so a second area's default.psm1 gets re-loaded
@@ -243,7 +244,7 @@ function Resolve-ExtensionMethod {
         $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $modPath)
     } | Select-Object -First 1
     if (-not $mod) {
-        throw "Extension module not loaded for area '$Area' (looked for $modPath in Get-Module)."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_4600bf42e8f5c6cb' -Arguments @{ area = "$Area"; modPath = "$modPath" })
     }
     $hyphenated = [regex]::Replace($Method, '^([A-Z][a-z]+)([A-Z])', '$1-$2')
     foreach ($candidate in @($Method, $hyphenated) | Select-Object -Unique) {
@@ -251,7 +252,7 @@ function Resolve-ExtensionMethod {
             return $mod.ExportedCommands[$candidate]
         }
     }
-    throw "Extension '$ExtensionName' (loaded from $modPath) does not export '$Method' (also tried '$hyphenated')."
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d65c529aa94bc884' -Arguments @{ extensionName = "$ExtensionName"; modPath = "$modPath"; method = "$Method"; hyphenated = "$hyphenated" })
 }
 
 <#
@@ -314,7 +315,7 @@ function Import-ConfiguredExtension {
             $loaded = @(Import-Extension -Area $area)
         } catch {
             $err = $_.Exception.Message
-            Write-Warning "Import-ConfiguredExtension: area '$area' failed to load: $err"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ab9e5e9291514fde' -Arguments @{ area = "$area"; err = "$err" })
         }
         $rows += [PSCustomObject]@{
             Area   = $area
@@ -463,7 +464,7 @@ function Get-ExtensionHostAddress {
                 # nothing about whether the service exists.
                 $poolOutcome = Get-PoolExtensionHostLastOutcome
                 if ($poolOutcome.Outcome -in @('transport-error', 'http-error')) {
-                    Write-Warning "Get-ExtensionHostAddress: the pool could not be asked about '$HostType' ($($poolOutcome.Outcome): $($poolOutcome.Detail)). Treat this as 'unknown', not as 'no $HostType host exists'."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_595d6cba9e408dc2' -Arguments @{ hostType = "$HostType"; outcome = "$($poolOutcome.Outcome)"; detail = "$($poolOutcome.Detail)" })
                 } else {
                     Write-Verbose "Get-ExtensionHostAddress: the pool has no '$HostType' host ($($poolOutcome.Outcome): $($poolOutcome.Detail))."
                 }

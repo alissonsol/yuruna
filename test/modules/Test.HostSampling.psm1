@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,7 @@
     See https://yuruna.link/42dc5bb9-0010 for counter interpretation and controls.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-YurunaHostSamplingSetting {
     <# .SYNOPSIS
         Resolve inexpensive sampling defaults and the environment opt-out.
@@ -63,7 +64,7 @@ function Resolve-YurunaHostCounterCapability {
         $set = @($CounterSets | Where-Object CounterSetName -EQ $objectName | Select-Object -First 1)
         $paths = @($set | ForEach-Object { $_.Paths } | Where-Object { $_.EndsWith('\' + $counterName, [StringComparison]::OrdinalIgnoreCase) })
         $status = if ($spec.Guest -and $null -ne $RunningVmCount -and $RunningVmCount -eq 0) { 'not-applicable' } elseif ($paths.Count) { 'present' } else { 'absent' }
-        [pscustomobject]@{ Object = $spec.Object; Counter = $spec.Counter; LocalObject = $objectName; LocalCounter = $counterName; Paths = $paths; Guest = $spec.Guest; Status = $status; Reason = if ($status -eq 'not-applicable') { 'No running VM.' } elseif ($status -eq 'absent') { 'Counter not found in this host inventory.' } else { '' } }
+        [pscustomobject]@{ Object = $spec.Object; Counter = $spec.Counter; LocalObject = $objectName; LocalCounter = $counterName; Paths = $paths; Guest = $spec.Guest; Status = $status; Reason = if ($status -eq 'not-applicable') { (Format-YurunaOperatorMessage -Key 'runner.operator_66b5545928b78b87') } elseif ($status -eq 'absent') { (Format-YurunaOperatorMessage -Key 'runner.operator_74ab27201629f72c') } else { '' } }
     }
 }
 
@@ -211,7 +212,7 @@ function Invoke-YurunaHostSampling {
     $null = [IO.Directory]::CreateDirectory($Directory)
     Write-YurunaHostSampleRecord -Directory $Directory -Record @{ Kind='state'; Status='collecting'; Utc=[datetime]::UtcNow.ToString('o'); MonotonicTicks=[Diagnostics.Stopwatch]::GetTimestamp(); MonotonicFrequency=[Diagnostics.Stopwatch]::Frequency }
     if (-not $IsWindows) {
-        Write-YurunaHostSampleRecord -Directory $Directory -Record @{ Kind='state'; Status='not-applicable'; Reason='Windows PDH sampling is not applicable on this host.' }
+        Write-YurunaHostSampleRecord -Directory $Directory -Record @{ Kind='state'; Status='not-applicable'; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_b86ea943b0beb5ed') }
         return
     }
     $metadata = Get-YurunaHostSampleInfo
@@ -281,11 +282,11 @@ function Start-YurunaHostSampling {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$RuntimeDirectory, [string]$PwshPath = (Get-Process -Id $PID).Path)
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDirectory, 'Start bounded host sampling')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDirectory, (Format-YurunaOperatorMessage -Key 'runner.operator_2276f721ecc44594'))) { return $null }
     $setting = Get-YurunaHostSamplingSetting
     if (-not $setting.Enabled) {
         [void][IO.Directory]::CreateDirectory($RuntimeDirectory)
-        @{ Directory=''; Status='not-applicable'; Reason='Host sampling disabled or unsupported.'; Utc=[datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $RuntimeDirectory 'host-sampling.current.json') -Encoding utf8
+        @{ Directory=''; Status='not-applicable'; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_0f1cc6c29ab6043f'); Utc=[datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $RuntimeDirectory 'host-sampling.current.json') -Encoding utf8
         return $null
     }
     $process = $null
@@ -322,7 +323,7 @@ function Start-YurunaHostSampling {
         [pscustomobject]@{ Process=$process; Job=$job; Directory=$directory }
     } catch {
         if ($process -and -not $process.HasExited) { $process.Kill($true) }
-        Write-Warning "Host sampling unavailable: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d042e67680b63d87' -Arguments @{ message = "$($_.Exception.Message)" })
         return $null
     }
 }
@@ -334,13 +335,13 @@ function Stop-YurunaHostSampling {
     [CmdletBinding(SupportsShouldProcess)]
     param($Handle)
     if (-not $Handle) { return }
-    if (-not $PSCmdlet.ShouldProcess($Handle.Directory, 'Stop host sampling')) { return }
+    if (-not $PSCmdlet.ShouldProcess($Handle.Directory, (Format-YurunaOperatorMessage -Key 'runner.operator_2fa9168635fa01f9'))) { return }
     try {
         [IO.File]::WriteAllText((Join-Path $Handle.Directory 'stop'), '')
         $forced = -not $Handle.Process.WaitForExit(2000)
         if ($forced) { $Handle.Process.Kill($true) }
         if (-not (Test-Path (Join-Path $Handle.Directory 'sampler-outcome.json'))) {
-            @{ Status=if ($forced) { 'stopped' } elseif ($Handle.Process.ExitCode -eq 0) { 'complete' } else { 'partial' }; Reason='Outer runner completed this sampling interval.'; Utc=[datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Handle.Directory 'sampler-outcome.json')
+            @{ Status=if ($forced) { 'stopped' } elseif ($Handle.Process.ExitCode -eq 0) { 'complete' } else { 'partial' }; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_448f7135573f0ef3'); Utc=[datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Handle.Directory 'sampler-outcome.json')
         }
         if ($Handle.Job) { $null = Wait-Job -Job $Handle.Job -Timeout 3; Remove-Job -Job $Handle.Job -Force -ErrorAction SilentlyContinue }
     } catch { Write-Verbose "Host sampler cleanup: $($_.Exception.Message)" }
@@ -355,7 +356,7 @@ function Save-YurunaHostSampleSnapshot {
     try {
         $target = Join-Path $DestinationDirectory ('host-samples-' + [datetime]::UtcNow.ToString('yyyyMMddTHHmmssfffffffZ'))
         $null = [IO.Directory]::CreateDirectory($target)
-        $status = 'unavailable'; $reason = 'No retained host sampler is available.'
+        $status = 'unavailable'; $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_ed5920e8d2fdc735')
         if ($RuntimeDirectory) {
             $pointer = Join-Path $RuntimeDirectory 'host-sampling.current.json'
             if (Test-Path -LiteralPath $pointer) {
@@ -373,7 +374,7 @@ function Save-YurunaHostSampleSnapshot {
                         }
                         [IO.File]::WriteAllBytes((Join-Path $target $file.Name), $bytes)
                     }
-                    if ($files.Count) { $status = 'partial'; $reason = 'Bounded flushed samples copied; inspect capability and sampler outcomes for missing evidence.' }
+                    if ($files.Count) { $status = 'partial'; $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_50198f42d649113b') }
                 }
             }
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42abeebb-d197-4906-b1e6-91cfd0f2576a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,8 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -80,11 +82,11 @@ function Write-BaseImageProvenance {
     )
     $p = Get-BaseImageProvenance -BaseImagePath $BaseImagePath
     if (-not $p.FileExists) {
-        Write-Warning "base image provenance file not present"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_979392b3d7430581')
         return
     }
     if ([string]::IsNullOrWhiteSpace($p.Url)) {
-        Write-Warning "base image provenance not present"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ef4f353ea68ef975')
         return
     }
     # Write-Information (not Write-Verbose) so the base-image URL lands in

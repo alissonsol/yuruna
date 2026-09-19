@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -64,8 +66,11 @@ param(
     [Parameter()]
     [int]$MemoryMb = 12288,
     [Parameter()]
-    [string]$SquidCacheMem = '7 GB'
+    [string]$SquidCacheMem = '7 GB',
+    [switch]$AllowPseudoLocale
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -77,11 +82,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7e2bf182cc305e95')
     exit 1
 }
 
@@ -94,7 +99,7 @@ if ($MacAddress) {
     Import-Module (Join-Path $ScriptDir '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
     if (-not $MacAddress) {
-        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5a147a3482612cdd')
         exit 1
     }
 }
@@ -117,7 +122,7 @@ $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImage
 
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
 # Provenance side-channel for operators reading the transcript. Emits
 # "Provenance: <url>" when the sidecar is healthy; warns otherwise.
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
@@ -135,11 +140,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -152,13 +157,13 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
-Write-Output "Copying base image to per-VM disk (sparse copy)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8531557fc4c0c787')
 # `cp --sparse=always` preserves qcow2 hole semantics on ext4/btrfs/xfs.
 # The cloud image is mostly empty; cp WITHOUT --sparse=always would fully
 # allocate every hole in it.
 & /bin/cp --sparse=always -- $baseImageFile $diskImg
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "cp --sparse=always failed copying $baseImageFile -> $diskImg"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a61a7d21cdb5e750' -Arguments @{ baseImageFile = "$baseImageFile"; diskImg = "$diskImg" })
     exit 1
 }
 
@@ -166,7 +171,7 @@ if ($LASTEXITCODE -ne 0) {
 # See https://yuruna.link/42e220c4-0004
 # Keep enough virtual capacity for the Squid cache and OS/log headroom.
 if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2')) {
-    Write-Error "Could not resize '$diskImg' to 512 GB; refusing to build the cache VM on base-capacity disk."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_c3812246baa50ef9' -Arguments @{ diskImg = "$diskImg" })
     exit 1
 }
 
@@ -176,7 +181,7 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2'
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Vault admin password
 # See https://yuruna.link/42f6b05f-0041
@@ -188,9 +193,9 @@ $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $persisted = (Read-CachingProxyServiceState).password
 if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
 $AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching-proxy-service-admin'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyServiceStatePath
 
@@ -200,7 +205,7 @@ $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.kvm
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -212,9 +217,18 @@ $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 $YurunaHostIp = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Pool storage replication
 # See https://yuruna.link/42f6b05f-0042
@@ -232,7 +246,7 @@ $ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg
 # Refuse to bake a value containing a single quote: it would unbalance the guest's
 # single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
 if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
-    Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4f836dfb9d84f4e5')
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
 # REPLICATE turns on only when pool storage is configured; the NAS password
@@ -261,14 +275,16 @@ try {
     }
 } catch {
     $keyReadFailed = $true
-    Write-Warning ("internal authentication key: reading this host's vault failed ($($_.Exception.Message)). Building with an EMPTY key and leaving the vault untouched: " +
-        "the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token. Resolve the vault error and rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_7691e5e3206997ff' -Arguments @{ message = "$($_.Exception.Message)" }))
 }
-# Refuse a token carrying a newline or quote: it would corrupt the baked token file or
-# the runner's bearer header.
-if ($internalAuthKey -match '[\r\n''"]') {
-    Write-Warning ("The internal authentication key in this host's vault contains a newline or quote character, which would corrupt the baked key file; building with an EMPTY key. " +
-        "Re-enroll this host (pwsh test/lab/Set-LabToken.ps1) or store a clean value, then rebuild.")
+# Trim first, then refuse whatever survives. Every reader of the baked file strips
+# surrounding whitespace, so a stored value that merely picked up a trailing newline
+# is healed here rather than costing the proxy its key. Interior whitespace or a
+# quote has no safe reading: it would corrupt the baked key file or the runner's
+# bearer header.
+$internalAuthKey = $internalAuthKey.Trim()
+if ($internalAuthKey -match '[\s''"]') {
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_714943b9011e0bbd'))
     $internalAuthKey = ''
     $keyReadFailed = $true
 }
@@ -283,12 +299,14 @@ if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
     Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
     $keyProvision = Set-InternalAuthKey -Token $internalAuthKey
     if ($keyProvision.ok) {
-        Write-Output "internal authentication key: none was stored on this host; minted one and stored it (vaultKey '$($keyProvision.vaultKey)')."
+        # A warning, not a status line: this mint sets the key for the WHOLE lab, and
+        # it is silent from every other host's point of view. A pool that was already
+        # enrolled against an earlier proxy keeps the old key and reads as
+        # "onsite (token mismatch)" on the dashboard from the moment this proxy comes
+        # up, with no clue pointing back here.
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_2098089a9d722ad9' -Arguments @{ vaultKey = "$($keyProvision.vaultKey)" }))
     } else {
-        Write-Warning ("Could not store a freshly minted internal authentication key in this host's vault " +
-            "(keyChanged=$($keyProvision.keyChanged), verified=$($keyProvision.verified)); building with an EMPTY " +
-            "token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows " +
-            "no Lab token until one is provisioned and the proxy rebuilt.")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_641824f231dc3781' -Arguments @{ keyChanged = "$($keyProvision.keyChanged)"; verified = "$($keyProvision.verified)" }))
         $internalAuthKey = ''
     }
 }
@@ -311,8 +329,7 @@ try {
         }
     }
 } catch {
-    Write-Warning ("dockerhub-token: reading this host's vault failed ($($_.Exception.Message)). Building with NO Docker Hub credential: the cache syncs " +
-        "anonymously against a pull budget shared by every guest behind this egress IP. Resolve the vault error and rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_c8f003fc6b37a1de' -Arguments @{ message = "$($_.Exception.Message)" }))
     $dockerHubWarned = $true
 }
 # Refuse a value carrying a control character, quote, or backslash: the guest
@@ -321,8 +338,7 @@ try {
 # backslash-n reads back as a newline -- a DIFFERENT secret, presented to Hub on
 # every sync in place of the anonymous path that would have been served.
 if (($dockerHubUsername -match '[\x00-\x1f\x7f''"\\]') -or ($dockerHubToken -match '[\x00-\x1f\x7f''"\\]')) {
-    Write-Warning ("dockerhub-token: the stored account name or secret contains a control character, quote, or backslash, which the guest's JSON " +
-        "credential file cannot carry unchanged; building with NO Docker Hub credential. Store a clean value, then rebuild.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_62a464c885f1b62c'))
     $dockerHubUsername = ''
     $dockerHubToken    = ''
     $dockerHubWarned   = $true
@@ -357,7 +373,7 @@ try {
     $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
     $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
 } catch {
-    Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: Dashboard brand identity
@@ -378,6 +394,8 @@ $userData = New-CloudInitUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
@@ -415,7 +433,7 @@ Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') 
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
     (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
@@ -425,42 +443,42 @@ if ($LASTEXITCODE -ne 0) {
 # via virt-viewer -- without the password they'd have to dig seed.iso
 # off disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
-Write-Output "== caching-proxy-service console/SSH login (available NOW) =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_988e727e609d9616')
 Write-Output "  user:     caching-proxy-service-admin"
 Write-Output "  password: $PasswordFile"
-Write-Output "  If the wait below stalls or fails, open"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
 Write-Output "    virt-viewer --connect $virshUri $VMName"
-Write-Output "  and log in with the credentials above to inspect cloud-init state."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
 Write-Output ""
 
 # --- REGION: Validate the resolved libvirt network
 # $networkName was resolved above via Resolve-GuestHostBinding; see the
 # .DESCRIPTION network-choice notes for what each mode costs.
 if (-not $networkName) {
-    Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
     exit 1
 }
 if ($networkName -eq 'default') {
     Write-Warning ""
-    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The"
-    Write-Warning "cache VM will be reachable from this host only; LAN clients"
-    Write-Warning "will NOT see the cache VM at its libvirt IP."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_00a55c89ffcb04b0')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_53bfb93c5ec083e3')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_703158263ed6da77')
     Write-Warning ""
-    Write-Warning "The multi-host POOL DASHBOARD will not work on this NAT path:"
-    Write-Warning "the host-side forwarder masks every LAN client as the NAT gateway"
-    Write-Warning "(192.168.122.1), so the pool-aggregator-service -- which discovers hosts by"
-    Write-Warning "their real client IP in squid's log -- discovers none, and the"
-    Write-Warning "'Yuruna hosts' Grafana dashboard shows 'No data'."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5cf83067e8662a8a')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b7901bbfe602a61f')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_cba19cd860e44a28')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2c39a46858dd9e79')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a8fc864c6160b85c')
     Write-Warning ""
-    Write-Warning "For LAN exposure AND a working pool dashboard (cache VM gets a real"
-    Write-Warning "LAN IP so squid sees real client IPs), put it on the bridged"
-    Write-Warning "'yuruna-external' network: connect the host by Ethernet and run"
-    Write-Warning "test/service/Start-CachingProxyServiceVM.ps1 (auto-builds the bridge + rebuilds the"
-    Write-Warning "cache VM on it), or define it by hand -- see"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d32b2d3c28f9479a')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c431836a3783fc70')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_710fc121edba17d5')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bd5a9e331c6b0e59')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a127790ebde6e4ff')
     Write-Warning "host/ubuntu.kvm/guest.caching-proxy-service/README.md."
     Write-Warning ""
 } else {
-    Write-Output "Using libvirt network: $networkName (cache VM will get a LAN-routable IP)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a2981769678f97b3' -Arguments @{ networkName = "$networkName" })
     # --- REGION: https://yuruna.link/42e220c4-0004
     # Require a physical uplink only for bridge-mode networks; NAT bridges need none.
     $netXml = & virsh --connect $virshUri net-dumpxml $networkName 2>&1
@@ -477,7 +495,7 @@ if ($networkName -eq 'default') {
               Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
         } else { @() }
         if ($uplink.Count -eq 0) {
-            Write-Error "libvirt network '$networkName' is backed by bridge '$bridgeDev', which is missing or has NO physical uplink port -- guests on it can never get DHCP. Re-run test/service/Start-CachingProxyServiceVM.ps1 (it heals or rebuilds the bridge), or roll the bridge back per host/ubuntu.kvm/guest.caching-proxy-service/README.md."
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_08b96223c1b8497a' -Arguments @{ networkName = "$networkName"; bridgeDev = "$bridgeDev" })
             exit 1
         }
     }
@@ -514,7 +532,7 @@ if ($LASTEXITCODE -eq 0) {
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -561,7 +579,7 @@ $virtInstallExit = $LASTEXITCODE
 $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
 if ($virtInstallExit -ne 0) {
     $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error "virt-install failed (exit $virtInstallExit)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
     exit 1
 }
 
@@ -574,9 +592,9 @@ Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 # qemu-guest-agent (installed via cloud-init) lets `--source agent`
 # query the guest directly. ARP (`--source arp`) is the third fallback
 # for the brief window before the guest agent comes up.
-Write-Output "Waiting for VM to obtain an IP address..."
-Write-Output "  (first boot runs cloud-init: apt update + install squid + monitoring;"
-Write-Output "   this can take 5-15 minutes on a slow connection -- be patient)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9e6aad8fd131bdbe')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e6346c74a10ae90e')
 
 $cacheIp = $null
 $maxIterations = 240  # 240 * 5s = 20 minutes
@@ -606,7 +624,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         $min     = [int][math]::Floor($elapsed / 60)
         $sec     = [int]($elapsed % 60)
         $totalMinutes = [int][math]::Floor($maxIterations * 5 / 60)
-        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for IP -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMinutes, $sizeMB, $deltaMB)
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ab6af692ee9143e8' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, $deltaMB) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' })
     }
 }
 
@@ -649,12 +667,12 @@ idempotent and will rebuild the VM cleanly.
     exit 1
 }
 
-Write-Output "Cache VM IP: $cacheIp"
-Write-Output "Waiting for squid to listen on port 3128 (up to 15 minutes)..."
-Write-Output "  (cloud-init installs squid + apache2, then pre-warms"
-Write-Output "   the cache by pulling linux-firmware through the local proxy --"
-Write-Output "   squid binds :3128 before pre-warm starts, so port response"
-Write-Output "   usually happens 3-5 minutes in on a responsive mirror.)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9e2d9646b0f0ef93' -Arguments @{ cacheIp = "$cacheIp" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9fd4cfcb4f9f1fd3')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4ace8c3ff53c8f23')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d5a3fa645b8d4936')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6a2d68f7c8f9b5ed')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a7dbfa1fdd6ae717')
 
 $portMaxIterations = 360  # 360 * 2.5s = 15 minutes
 $portStartTime = Get-Date
@@ -667,26 +685,25 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
             $tcp.EndConnect($async) | Out-Null
             $tcp.Close()
             Write-Output ""
-            Write-Output "== caching-proxy-service is READY =="
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4535de8a13b4592f')
             Write-Output "  VM:        $VMName"
             Write-Output "  IP:        $cacheIp"
             Write-Output "  Network:   $networkName"
             Write-Output "  Proxy:     http://${cacheIp}:3128"
-            Write-Output "  Monitor:   ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1043864cdd7a3dc7')
             Write-Output "  Grafana:   http://${cacheIp}:3000"
             Write-Output ""
-            Write-Output "  Console/SSH login:"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a19074ac4867746e')
             Write-Output "    user:     caching-proxy-service-admin"
             Write-Output "    password: $PasswordFile"
-            Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a9dbdd1577bb8c0e')
             Write-Output ""
-            Write-Output "Pre-warm may still be running in the background (pulling"
-            Write-Output "linux-firmware and the HWE kernel meta through the local"
-            Write-Output "proxy). Confirm completion by opening the Monitor URL"
-            Write-Output "above -> 'storedir' and checking cache occupancy > 0."
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_53cb004a6b8ce8fe')
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_34f70e922875bd84')
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ecb97e42bf6353fc')
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a3e88d164570394c')
             Write-Output ""
-            Write-Output "Guest VMs will auto-detect squid at port 3128 when their"
-            Write-Output "New-VM.ps1 runs. Keep the VM running across cycles."
+            Write-Output ((Format-YurunaOperatorMessage -Key 'host.operator_ac9a237901fc8f7d').Replace("`n", [Environment]::NewLine))
             exit 0
         }
     } catch {
@@ -705,7 +722,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         $min     = [int][math]::Floor($elapsed / 60)
         $sec     = [int]($elapsed % 60)
         $totalMinutes = 15
-        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for squid on :3128 -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMinutes, $sizeMB, $deltaMB)
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_36df4ca1dba64b69' -FormatValues ($min, $sec, $totalMinutes, $sizeMB, $deltaMB) -FormatBindings @{ min = '0:D2'; sec = '1:D2'; totalMinutes = '2'; sizeMB = '3'; deltaMB = '4' })
     }
 
     Start-Sleep -Seconds 2

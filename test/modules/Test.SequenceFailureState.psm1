@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,9 @@
 
 #requires -version 7
 
-# Shared, cross-module failure-state for the sequence engine.
-#
-# The engine's verb Handlers and the SSH/OCR handlers in
-# Test.SequenceHandler must read and write the SAME failure slots. A
-# scriptblock's $script: resolves to the module that DEFINED it, so a
-# handler in Test.SequenceHandler writing $script:WaitForTextMatchedFailurePattern
-# lands in a scope the engine (Invoke-Sequence) never reads -- the signal
-# silently vanishes and an installer-crash gets mis-classified as a plain
-# timeout. Anchoring the slots in one New-YurunaRegistry-backed store (a
-# $global: ordered hashtable, eviction-safe across -Force re-imports) lets
-# every module share one object: each does `$script:Fail = Get-SequenceFailureState`
-# once and then reads/writes $script:Fail.<slot>. This is also the
-# prerequisite that lets the retry / recoverFromSnapshot verbs migrate out
-# of the engine without losing their failure-state coupling.
+# Shared, cross-module failure-state for the sequence engine. See
+# ../../docs/failure-schema.md#failure-record-schema for why this is one
+# registry-backed store rather than per-module $script: variables. -- Test.SequenceFailureState.psm1
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Global -Force
 

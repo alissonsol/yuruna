@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,9 @@ param(
     [switch]$Restart
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
 $ErrorActionPreference = "Stop"
 
 # Seconds to wait for the detached status service to start answering on $Port
@@ -75,7 +78,7 @@ if ($Port -le 0) {
         try {
             $config = Get-Content -Raw $configPath | ConvertFrom-Yaml -Ordered
             if ($config.statusService.port) { $Port = [int]$config.statusService.port }
-        } catch { Write-Warning "Could not read port from config: $_" }
+        } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b679e6af39104f7b' -Arguments @{ value = "$_" }) }
     }
     if ($Port -le 0) { $Port = 8080 }
 }
@@ -86,10 +89,10 @@ if ($Restart -and (Test-Path $PidFile)) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
         if ($proc -and (Test-PidFileIdentity -PidFile $PidFile -Process $proc)) {
             Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-            Write-Output "Stopped existing status service (PID $oldPid)."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_7d154137c3c42ce0' -Arguments @{ oldPid = "$oldPid" })
             Start-Sleep -Seconds 1
         } elseif ($proc) {
-            Write-Warning "PID $oldPid is not the status service (started after the PID file -- recycled onto an unrelated process); leaving it running and clearing the stale PID file."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_605eb1849fd039c2' -Arguments @{ oldPid = "$oldPid" })
         }
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
@@ -126,7 +129,7 @@ if (Test-Path $PidFile) {
                 $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true
             } catch {
-                Write-Output "PID $oldPid exists but port $Port is not responding. Replacing server."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_804eb754aac66717' -Arguments @{ oldPid = "$oldPid"; port = "$Port" })
                 Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 1
             }
@@ -142,8 +145,8 @@ if (Test-Path $PidFile) {
             try { $persistedSha = (Get-Content -LiteralPath $ShaFile -Raw).Trim() } catch { Write-Verbose "server.sha read failed: $($_.Exception.Message)" }
         }
         if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha)) {
-            Write-Output "Status service is already running on the current framework SHA (PID $oldPid, port $Port, sha $($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length))))."
-            Write-Output "Stop with: .\service\Stop-StatusService.ps1"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0c4975f10de7b90a' -Arguments @{ oldPid = "$oldPid"; port = "$Port"; length = "$($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length)))" })
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ab8b41c49078fda')
             exit 0
         }
         # SHA differs (or either side is unknown). Tear down + fall
@@ -152,10 +155,14 @@ if (Test-Path $PidFile) {
         # server.sha (e.g. upgrade from an older Start-StatusService
         # that didn't persist it) forces a restart rather than risking
         # a stale-code server.
-        $reason = if (-not $currentSha) { 'current HEAD unknown' }
-                  elseif (-not $persistedSha) { 'no persisted SHA' }
-                  else { "framework SHA changed ($persistedSha -> $currentSha)" }
-        Write-Output "Restarting status service (PID $oldPid): $reason."
+        $restartMessage = if (-not $currentSha) {
+            Format-YurunaOperatorMessage -Key 'runner.status_restart_unknown_head' -Arguments @{ processId = $oldPid }
+        } elseif (-not $persistedSha) {
+            Format-YurunaOperatorMessage -Key 'runner.status_restart_missing_pin' -Arguments @{ processId = $oldPid }
+        } else {
+            Format-YurunaOperatorMessage -Key 'runner.status_restart_changed_head' -Arguments @{ processId = $oldPid; previous = $persistedSha; current = $currentSha }
+        }
+        Write-Output $restartMessage
         Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
     }
@@ -221,7 +228,7 @@ if (Test-Path $StatusFile) {
             } elseif ($LASTEXITCODE -eq 0 -and $remote) {
                 Write-Warning "Git remote URL has unexpected format, skipping: $remote"
             } else {
-                Write-Warning "Could not derive repoUrl from git remote: $remote"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c60b9cd85c0b5307' -Arguments @{ remote = "$remote" })
             }
         }
         if ($repoUrl -and (-not $statusDoc.repoUrl -or $statusDoc.repoUrl -ne $repoUrl)) {
@@ -238,10 +245,10 @@ if (Test-Path $StatusFile) {
             # status.json writes and the canonical sidecar encoding.
             $statusJson = $statusDoc | ConvertTo-Json -Depth 10
             [System.IO.File]::WriteAllText($StatusFile, $statusJson, [System.Text.UTF8Encoding]::new($false))
-            Write-Output "Set repoUrl in status.json: $repoUrl"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d930446c8044b6fe' -Arguments @{ repoUrl = "$repoUrl" })
         }
     } catch {
-        Write-Warning "Could not update repoUrl in status.json: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d697f222c6bc539a' -Arguments @{ value = "$_" })
     }
 }
 
@@ -325,9 +332,9 @@ try {
     }
     # UTF-8 without BOM so a browser fetch() yields a clean string.
     [System.IO.File]::WriteAllText($IpAddressesFile, $fileContent, [System.Text.UTF8Encoding]::new($false))
-    Write-Output "IP addresses ($reportCount): written to $IpAddressesFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e009e767fbf24bd9' -Arguments @{ reportCount = "$reportCount"; ipAddressesFile = "$IpAddressesFile" })
 } catch {
-    Write-Warning "Failed to enumerate/write IP addresses: $_"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_da36587ee2ba9291' -Arguments @{ value = "$_" })
     # Best-effort: leave a previous file intact.
 }
 
@@ -341,7 +348,7 @@ try {
     # is resolvable here without a redundant Import-Module call.
     $detectedHost = Get-HostType
 } catch {
-    Write-Warning "Host-type detection failed (continuing with HTTP status service): $_"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8028cfa409a3186a' -Arguments @{ value = "$_" })
 }
 
 # --- REGION: Announce the forwarder teardown's sudo
@@ -380,11 +387,10 @@ if ($IsMacOS) {
         if ($env:YURUNA_NONINTERACTIVE -eq '1') {
             & sudo -n -v 2>$null
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning ("  Root-owned caching-proxy forwarder detected and this run is non-interactive, so it cannot be stopped: " +
-                               "sudo has no live authorization. Run 'sudo -v' and re-run, or stop it by hand. Continuing without it.")
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_forwarder_sudo_unavailable')
             }
         } else {
-            Write-Output "  Root-owned caching-proxy forwarder detected -- the port-map refresh below must stop it, which needs sudo (you may be prompted for your password)..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c369c06124066bbe')
             & sudo -v
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "  sudo -v failed -- the root-owned forwarder may not be stopped cleanly."
@@ -428,6 +434,38 @@ try {
         # YURUNA_CACHING_PROXY_SERVICE_IP at a remote cache, describes a problem
         # nobody has. The runner's own bootstrap probe stays loud: a missing
         # cache there silently costs the whole cycle its downloads.
+        #
+        # Resolve the operator's configured cache FIRST. The probe consults only
+        # $Env:YURUNA_CACHING_PROXY_SERVICE_IP and this host's own cache-VM state
+        # file -- never vmStart.cachingProxyIp -- and that environment variable is
+        # published by the cycle's caching-proxy gate. A status service started by
+        # anything other than a running cycle therefore probes with neither source
+        # set, finds nothing, and reports a remote cache that is up and serving as
+        # absent. The same file is where the Dashboards link comes from, so the
+        # wrong answer also removes the link at the moment an operator goes
+        # looking for it. Resolving here applies the same precedence and the same
+        # :3128 acceptance the cycle applies, so the banner names the cache the
+        # cycle would use -- or stays silent when nothing answers.
+        $configuredCacheIp = ''
+        if (-not $Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+            try {
+                $proxyConfigPath = Join-Path $TestRoot 'test.config.yml'
+                if (Test-Path -LiteralPath $proxyConfigPath) {
+                    $proxyConfig = Get-Content -Raw $proxyConfigPath | ConvertFrom-Yaml -Ordered
+                    if ($proxyConfig.vmStart -and $proxyConfig.vmStart.cachingProxyIp) {
+                        $configuredCacheIp = "$($proxyConfig.vmStart.cachingProxyIp)".Trim()
+                    }
+                }
+            } catch { Write-Verbose "Could not read vmStart.cachingProxyIp for the caching-proxy banner: $_" }
+            if ($configuredCacheIp -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
+                try {
+                    $resolvedCacheEndpoint = Resolve-CachingProxyServiceEndpoint -EnvIp '' -ConfigIp $configuredCacheIp
+                    if ($resolvedCacheEndpoint.EffectiveIp) {
+                        $Env:YURUNA_CACHING_PROXY_SERVICE_IP = $resolvedCacheEndpoint.EffectiveIp
+                    }
+                } catch { Write-Verbose "Caching-proxy endpoint resolution failed for the banner: $_" }
+            }
+        }
         $cachingProxyUrl = Test-CachingProxyServiceAvailable -Quiet
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
@@ -486,7 +524,7 @@ try {
             } else { @{ Acquired = $true; PidPath = $null } }
             if (-not $cpPortLock.Acquired) {
                 $portMapDeferred = $true
-                Write-Output "Caching-proxy service: a caching-proxy-service bring-up holds the lock -- leaving the port map to it."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6e9385fec86f1e3d')
             } else {
                 try {
                 if ($isExternal) {
@@ -608,8 +646,8 @@ try {
                 }
             }
             if ($portMapDeferred) {
-                $cachingProxyContent = 'Caching-proxy service: detected (port map owned by a bring-up)'
-                Write-Output "Caching-proxy service: detected, port map deferred -- written to $CachingProxyServiceFile"
+                $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937">Caching-proxy service: detected (port map owned by a bring-up)</span>'
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_05564109830bf14c' -Arguments @{ cachingProxyServiceFile = "$CachingProxyServiceFile" })
             } elseif ($mapOk) {
                 # Port 80 on the caching-proxy VM, which serves that VM's landing
                 # page: an index of the Grafana dashboards and the extension
@@ -620,22 +658,29 @@ try {
                 # landing page is plain server-rendered HTML that says what
                 # exists and lets the operator choose.
                 $dashboardUrl = "http://${bestIp}"
-                $cachingProxyContent = 'Caching-proxy service: <a href="' + $dashboardUrl + '" target="_blank">detected</a>'
-                Write-Output "Caching-proxy service: detected, port map OK, dashboard=$dashboardUrl -- written to $CachingProxyServiceFile"
+                $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_306beb37">Caching-proxy service:</span> <a data-i18n="status.cache_detected_b96da48a" href="' + $dashboardUrl + '" target="_blank">detected</a>'
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8b6ee3aa9ee2accc' -Arguments @{ dashboardUrl = "$dashboardUrl"; cachingProxyServiceFile = "$CachingProxyServiceFile" })
             } else {
-                $cachingProxyContent = 'Caching-proxy service: detected (port map failed)'
-                Write-Output "Caching-proxy service: detected, port map failed -- written to $CachingProxyServiceFile"
+                $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf">Caching-proxy service: detected (port map failed)</span>'
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_7b24fa88b4b5c43b' -Arguments @{ cachingProxyServiceFile = "$CachingProxyServiceFile" })
             }
+        } elseif ($configuredCacheIp) {
+            # A cache IS configured and did not answer. That is a different
+            # report from "this host has no cache", and conflating the two sends
+            # the reader to the configuration when the configuration is right and
+            # the cache is down -- or unreachable from here.
+            $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d" data-i18n-args="' + [System.Net.WebUtility]::HtmlEncode((@{ address = $configuredCacheIp } | ConvertTo-Json -Compress)) + '">Caching-proxy service: configured at ' + [System.Net.WebUtility]::HtmlEncode($configuredCacheIp) + ', not answering</span>'
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d1a8b606d415b200' -Arguments @{ configuredCacheIp = "$configuredCacheIp"; cachingProxyServiceFile = "$CachingProxyServiceFile" })
         } else {
-            $cachingProxyContent = 'Caching-proxy service: not detected'
-            Write-Output "Caching-proxy service: not detected -- written to $CachingProxyServiceFile"
+            $cachingProxyContent = '<span data-i18n="status.cache_caching_proxy_service_not_detected_eeb2edfb">Caching-proxy service: not detected</span>'
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4e4329f6b3a6f23d' -Arguments @{ cachingProxyServiceFile = "$CachingProxyServiceFile" })
         }
         [System.IO.File]::WriteAllText($CachingProxyServiceFile, $cachingProxyContent, [System.Text.UTF8Encoding]::new($false))
     } else {
-        Write-Warning "Proxy-cache probe skipped -- module missing or host not detected."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aabcbb7e32e7daf7')
     }
 } catch {
-    Write-Warning "Failed to probe/write proxy-cache state: $_"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8de82fa7556a6dc9' -Arguments @{ value = "$_" })
     # Best-effort: leave a previous file intact if there was one.
 }
 
@@ -789,7 +834,7 @@ function Resolve-PageLocale {
     }
 
     `$baseManifest = Get-LocaleManifest
-    `$supported = @('en-US')
+    `$supported = @(`$baseManifest.Supported)
     if (`$env:YURUNA_ALLOW_PSEUDO_LOCALE -in @('1', 'true')) {
         `$supported += @('qps-Ploc', 'qps-Plocm')
     }
@@ -815,7 +860,7 @@ function Resolve-PageLocale {
 # are separate assets so an ordinary page pays no extra request.
 function Add-PageLocaleCatalog {
     param([string]`$Html, [string]`$Locale, [string]`$CatalogRoot = `$statusDir)
-    if (`$Locale -notin @('qps-Ploc', 'qps-Plocm')) { return `$Html }
+    if (`$Locale -ceq 'en-US') { return `$Html }
     `$marker = '<script src="yuruna.common.js"></script>'
     if (-not `$Html.Contains(`$marker)) {
         # Transcript and nested report HTML share this generic file route but
@@ -845,6 +890,7 @@ function ConvertTo-LocalizedPageHtml {
         ('<html lang="' + `$localeTagEnc + '" dir="' + `$localeDirectionEnc +
             '" data-yuruna-requested-language="' + `$localeRequestedEnc +
             '" data-yuruna-locale-source="' + `$localeSourceEnc + '">'))
+    `$localized = ConvertTo-CatalogHtml -Html `$localized -Locale `$Locale.Tag
     return Add-PageLocaleCatalog -Html `$localized -Locale `$Locale.Tag -CatalogRoot `$CatalogRoot
 }
 
@@ -863,7 +909,8 @@ function Get-RepresentationETag {
 function Get-StatusLocaleCatalogAsset {
     param([string]`$Locale, [string]`$Root = `$statusDir)
 
-    if (`$Locale -notin @('qps-Ploc', 'qps-Plocm') -or -not `$Root) { return `$null }
+    `$delivered = @((Get-LocaleManifest).Supported) + @('qps-Ploc', 'qps-Plocm')
+    if (`$Locale -ceq 'en-US' -or `$Locale -cnotin `$delivered -or -not `$Root) { return `$null }
     `$sourceName = `$Locale + '.status.js'
     `$sourcePath = Join-Path `$Root `$sourceName
     if (-not (Test-Path -LiteralPath `$sourcePath -PathType Leaf)) { return `$null }
@@ -981,8 +1028,29 @@ function ConvertTo-IsoUtcString {
 # status code + body-byte emit + stream close that every branch repeats
 # identically. ``continue`` stays at the call site because it must target the
 # request loop, not this function.
+function Get-StatusMessageBytes {
+    param(`$Request, `$Response, [string]`$Key, [hashtable]`$Arguments = @{}, [switch]`$Json)
+    `$locale = Resolve-PageLocale -AcceptLanguage `$Request.Headers['Accept-Language']
+    Set-ResponseLocaleHeaders -Response `$Response -Locale `$locale
+    `$Response.Headers.Set('Cache-Control', 'no-store')
+    `$Response.Headers.Set('X-Yuruna-Message-Code', `$Key)
+    `$text = Format-CatalogMessage -Key `$Key -Arguments `$Arguments -Locale `$locale.Tag
+    if (`$Json) { `$text = @{ ok = `$false; code = `$Key; error = `$text } | ConvertTo-Json -Compress }
+    return ,([System.Text.Encoding]::UTF8.GetBytes(`$text))
+}
+
 function Send-JsonError {
-    param(`$Response, [int]`$StatusCode, [string]`$Json)
+    param(`$Response, [int]`$StatusCode, [string]`$Json, `$Request,
+        [string]`$Key, [hashtable]`$Arguments = @{}, [string]`$Reason)
+    if (`$Key) {
+        `$locale = Resolve-PageLocale -AcceptLanguage `$Request.Headers['Accept-Language']
+        Set-ResponseLocaleHeaders -Response `$Response -Locale `$locale
+        `$Response.ContentType = 'application/json; charset=utf-8'
+        `$Response.Headers.Set('Cache-Control', 'no-store')
+        `$payload = [ordered]@{ ok = `$false; code = `$Key; error = (Format-CatalogMessage -Key `$Key -Arguments `$Arguments -Locale `$locale.Tag) }
+        if (`$Reason) { `$payload.reason = `$Reason }
+        `$Json = `$payload | ConvertTo-Json -Compress -Depth 4
+    }
     `$Response.StatusCode = `$StatusCode
     `$b = [System.Text.Encoding]::UTF8.GetBytes(`$Json)
     `$Response.ContentLength64 = `$b.Length
@@ -1312,7 +1380,7 @@ try {
                 if (`$needsHeader -and `$req.Headers['X-Yuruna'] -ne '1') {
                     `$res.ContentType = 'application/json; charset=utf-8'
                     `$res.Headers.Add('Cache-Control', 'no-store')
-                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"forbidden: missing X-Yuruna request header (cross-site request guard)"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5'
                     continue
                 }
                 # A mutating control route additionally requires that the caller
@@ -1390,7 +1458,7 @@ try {
                         if (`$ctlReason) {
                             `$res.ContentType = 'application/json; charset=utf-8'
                             `$res.Headers.Add('Cache-Control', 'no-store')
-                            Send-JsonError -Response `$res -StatusCode 403 -Json ('{"ok":false,"reason":"' + `$ctlReason + '","error":"follow guidance at https://yuruna.link/42185271-0007"}')
+                            Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1' -Reason `$ctlReason
                             continue
                         }
                     }
@@ -1414,7 +1482,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -eq 'GET' -or `$req.HttpMethod -eq 'HEAD') {
                     if (-not (Test-Path -LiteralPath `$testConfigFile)) {
-                        Send-JsonError -Response `$res -StatusCode 404 -Json '{"ok":false,"error":"test.config.yml not found"}'
+                        Send-JsonError -Response `$res -StatusCode 404 -Request `$req -Key 'status.api_test_config_yml_not_found_3b38d785'
                         continue
                     }
                     try {
@@ -1440,7 +1508,7 @@ try {
                     } catch {
                         `$res.StatusCode = 500
                         `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                        `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"YAML parse failed: ' + `$errMsg + '"}')
+                        `$bytes = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_yaml_parse_failed_detail_363d5cf4' -Arguments @{ detail = `$_.Exception.Message } -Json)
                     }
                     `$res.ContentLength64 = `$bytes.Length
                     if (`$req.HttpMethod -ne 'HEAD') {
@@ -1453,7 +1521,7 @@ try {
                     `$payload = `$null
                     # ContentLength64 == -1 means chunked/unknown; allow those through.
                     if (`$req.ContentLength64 -gt 1MB) {
-                        Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>1 MB)"}'
+                        Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_1_mb_350b49df'
                         continue
                     }
                     try {
@@ -1461,7 +1529,7 @@ try {
                         `$payload = `$reader.ReadToEnd()
                         `$reader.Close()
                     } catch {
-                        Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"could not read body"}'
+                        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_could_not_read_body_aa31dc00'
                         continue
                     }
                     `$parsedDoc = `$null
@@ -1469,7 +1537,7 @@ try {
                         `$parsedDoc = `$payload | ConvertFrom-Json -AsHashtable -ErrorAction Stop
                     } catch {
                         `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                        Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
+                        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_invalid_json_detail_c907dfc3' -Arguments @{ detail = `$_.Exception.Message }
                         continue
                     }
                     # Validate vmStart.cachingProxyIp at save time: must be
@@ -1557,7 +1625,7 @@ try {
                         `$writeOk = `$true
                     } catch {
                         `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                        Send-JsonError -Response `$res -StatusCode 500 -Json ('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
+                        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
                         Write-ServerErr "test-config write failed: `$errMsg"
                     } finally {
                         # On the failure path, Set-Content may have left
@@ -1576,7 +1644,7 @@ try {
                     continue
                 }
                 `$res.Headers.Add('Allow', 'GET, POST, PUT')
-                Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_be4fb6a2'
                 continue
             }
 
@@ -1593,7 +1661,7 @@ try {
             if (`$path -eq 'control/runtime-env') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_be4fb6a2'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -1639,7 +1707,7 @@ try {
             if (`$path -eq 'control/host-facts') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_be4fb6a2'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -1764,7 +1832,7 @@ try {
             if (`$path -eq 'control/perf-aggregates') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET, POST')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_be4fb6a2'
                     continue
                 }
                 if (`$req.HttpMethod -eq 'POST') {
@@ -1907,11 +1975,11 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed; POST the checkpoint body"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 256KB) {
-                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>256 KB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_256_kb_ad49d5cd'
                     continue
                 }
                 `$rawBody = ''
@@ -1922,7 +1990,7 @@ try {
                 `$parsed = `$null
                 try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
                 if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"body must be a JSON object"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_body_must_be_a_json_object_831ab327'
                     continue
                 }
                 # Bounded, validated copy of the checkpoint list (max 500;
@@ -2005,7 +2073,7 @@ try {
                     Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
                 }
                 if (-not `$writeOk) {
-                    Send-JsonError -Response `$res -StatusCode 500 -Json '{"ok":false,"error":"sidecar write failed"}'
+                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_sidecar_write_failed_0ce361a9'
                     continue
                 }
                 # Fresh checkpoint data invalidates the memoized aggregates so the
@@ -2036,7 +2104,7 @@ try {
                 # is still honored on the POST.
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_be4fb6a2'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -2069,7 +2137,7 @@ try {
                     }
                     if (-not `$ipAllowed -and `$env:YURUNA_CACHING_PROXY_SERVICE_IP -and (`$ipQ -eq "`$env:YURUNA_CACHING_PROXY_SERVICE_IP".Trim())) { `$ipAllowed = `$true }
                     if (-not `$ipAllowed) {
-                        Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP"}'
+                        Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac'
                         continue
                     }
                 }
@@ -2317,6 +2385,7 @@ try {
                 `$diagScript = Join-Path `$repoRoot 'automation/Get-SystemDiagnostic.ps1'
                 `$tmpFile    = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-hostinfo.txt'
                 `$content    = ''
+                `$diagnosticLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
                 # Rate-limit the per-request pwsh spawn. Get-SystemDiagnostic
                 # forks a fresh pwsh, so an unthrottled caller (even a valid-
                 # proof LAN peer -- the route is already loopback-or-proof
@@ -2337,12 +2406,14 @@ try {
                     `$script:LastHostDiagUtc = `$nowUtc
                     try {
                         if (-not (Test-Path -LiteralPath `$diagScript)) {
-                            throw "Get-SystemDiagnostic.ps1 not found at `$diagScript"
+                            throw (Format-CatalogMessage -Key 'status.api_diagnostic_script_missing' -Locale `$diagnosticLocale.Tag -Arguments @{ path = `$diagScript })
                         }
                         `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
                         Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
                     } catch {
-                        `$content = "Error running Get-SystemDiagnostic.ps1: `$(`$_.Exception.Message)"
+                        Set-ResponseLocaleHeaders -Response `$res -Locale `$diagnosticLocale
+                        `$res.Headers.Set('X-Yuruna-Message-Code', 'status.api_diagnostic_failed')
+                        `$content = Format-CatalogMessage -Key 'status.api_diagnostic_failed' -Locale `$diagnosticLocale.Tag -Arguments @{ detail = `$_.Exception.Message }
                         Write-ServerErr "host-diagnostic failed: `$(`$_.Exception.Message)"
                     }
                 }
@@ -2368,11 +2439,11 @@ try {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'GET')
-                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                    `$bytes = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_method_not_allowed_be4fb6a2' -Json)
                 } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.PoolStorage.psm1' -RequiredCommand 'Get-PoolStorageServerName') -or
                           -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'      -RequiredCommand 'Read-TestConfig')) {
                     `$res.StatusCode = 500
-                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)"}')
+                    `$bytes = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c' -Json)
                 } else {
                     try {
                         `$doc = Read-TestConfig -Path (Join-Path `$repoRoot 'test/test.config.yml') -ThrowOnError
@@ -2429,17 +2500,20 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$vcStatus = 200
                 `$vcError  = `$null
+                `$vcCode = 'status.api_detail_caf3c2c2'
+                `$vcLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
+                Set-ResponseLocaleHeaders -Response `$res -Locale `$vcLocale
                 `$qUser  = `$req.QueryString['user']
                 `$qNonce = `$req.QueryString['nonce']
                 `$qProof = `$req.QueryString['proof']
                 if (`$req.HttpMethod -ne 'GET') {
-                    `$vcStatus = 405; `$vcError = 'method not allowed'
+                    `$vcStatus = 405; `$vcCode = 'status.api_method_not_allowed_be4fb6a2'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                     `$res.Headers.Add('Allow', 'GET')
                 } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
-                    `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
+                    `$vcStatus = 400; `$vcCode = 'status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                 } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-InternalAuthKeyValue') -or
                           -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'        -RequiredCommand 'Read-TestConfig')) {
-                    `$vcStatus = 500; `$vcError = 'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
+                    `$vcStatus = 500; `$vcCode = 'status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                 }
                 if (-not `$vcError) {
                     # Lazy authentication-extension load: the vault only has
@@ -2452,7 +2526,7 @@ try {
                     }
                     if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -or
                         -not (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
-                        `$vcStatus = 503; `$vcError = 'authentication extension unavailable'
+                        `$vcStatus = 503; `$vcCode = 'status.api_authentication_extension_unavailable_2ece9896'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                     }
                 }
                 if (-not `$vcError) {
@@ -2467,21 +2541,21 @@ try {
                             }
                         }
                         if (-not `$allowed.Contains([string]`$qUser)) {
-                            `$vcStatus = 404; `$vcError = 'user not referenced by this host''s networkStorage config'
+                            `$vcStatus = 404; `$vcCode = 'status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                         } else {
                             # Legacy-name fallback included: a host still holding
                             # its token under 'pool-auth-token' keeps serving peers.
                             `$vcToken = Get-InternalAuthKeyValue
                             if (-not `$vcToken) {
-                                `$vcStatus = 503; `$vcError = 'internal authentication key not configured on this host'
+                                `$vcStatus = 503; `$vcCode = 'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                             } else {
                                 if (-not (Test-ConfigSyncProof -Token `$vcToken -User `$qUser -Nonce `$qNonce -Proof `$qProof)) {
-                                    `$vcStatus = 403; `$vcError = 'proof mismatch (wrong or stale internal authentication key)'
+                                    `$vcStatus = 403; `$vcCode = 'status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                                 } else {
                                     `$um = Get-EffectiveUser -LogicalUser `$qUser
                                     `$vcKey = if (`$um.vaultKey) { `$um.vaultKey } else { [string]`$qUser }
                                     if (-not (Test-VaultEntry -VaultKey `$vcKey)) {
-                                        `$vcStatus = 404; `$vcError = 'no stored credential for that user on this host'
+                                        `$vcStatus = 404; `$vcCode = 'status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b'; `$vcError = Format-CatalogMessage -Key `$vcCode -Locale `$vcLocale.Tag
                                     } else {
                                         `$pw = Get-Password -Username `$qUser
                                         `$envelope = Protect-ConfigSyncCredential -Token `$vcToken -User `$qUser -ClientNonce `$qNonce -Password `$pw
@@ -2499,8 +2573,7 @@ try {
                 }
                 if (`$vcError) {
                     `$res.StatusCode = `$vcStatus
-                    `$errMsg = (ConvertTo-JsonEscapedString `$vcError)
-                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes((@{ ok = `$false; code = `$vcCode; error = `$vcError } | ConvertTo-Json -Compress))
                 } else {
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 }
@@ -2569,11 +2642,11 @@ try {
             # which is the opposite of an operator decision.
             if (`$path -eq 'control/lab-hold-release') {
                 if (`$req.HttpMethod -ne 'POST') {
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
                     continue
                 }
                 if (-not (Test-Path `$labHoldFile)) {
-                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"no lab hold is active"}'
+                    Send-JsonError -Response `$res -StatusCode 409 -Request `$req -Key 'status.api_no_lab_hold_is_active_49dd8185'
                     continue
                 }
                 try { Set-Content -Path `$labHoldReleaseFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue }
@@ -2603,13 +2676,13 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
                     continue
                 }
                 `$breakActiveFile   = Join-Path `$runtimeDir 'break-active.json'
                 `$breakContinueFile = Join-Path `$runtimeDir 'control.break-continue'
                 if (-not (Test-Path -LiteralPath `$breakActiveFile)) {
-                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"no break active"}'
+                    Send-JsonError -Response `$res -StatusCode 409 -Request `$req -Key 'status.api_no_break_active_bc29bdab'
                     continue
                 }
                 try {
@@ -2647,7 +2720,7 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
                     continue
                 }
                 # File-existence lock. CreateNew is atomic at the OS layer;
@@ -2675,7 +2748,7 @@ try {
                 try {
                     `$lockHandle = [System.IO.File]::Open(`$lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
                 } catch {
-                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"another start-cycle request is in progress"}'
+                    Send-JsonError -Response `$res -StatusCode 409 -Request `$req -Key 'status.api_another_start_cycle_request_is_in_progress_3f51d139'
                     continue
                 }
                 `$action = 'restarted'
@@ -2744,7 +2817,8 @@ try {
                         `$action = 'spawned'
                         `$runnerScript = Join-Path `$repoRoot 'test/Start-TestRunner.ps1'
                         if (-not (Test-Path -LiteralPath `$runnerScript)) {
-                            throw "Start-TestRunner.ps1 not found at `$runnerScript"
+                            `$runnerLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
+                            throw (Format-CatalogMessage -Key 'status.api_runner_script_missing' -Locale `$runnerLocale.Tag -Arguments @{ path = `$runnerScript })
                         }
                         `$spawnOut = Join-Path `$runtimeDir 'runner.spawned-from-web.out'
                         `$spawnErr = Join-Path `$runtimeDir 'runner.spawned-from-web.err'
@@ -2794,12 +2868,10 @@ try {
                     }
                 }
                 if (`$errMsg) {
-                    `$res.StatusCode = 500
-                    `$escapedErr = (`$errMsg -replace '\\', '\\\\') -replace '"', '\"'
-                    `$payload = '{"ok":false,"error":"' + `$escapedErr + '"}'
-                } else {
-                    `$payload = '{"ok":true,"action":"' + `$action + '"}'
+                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_detail_caf3c2c2' -Arguments @{ detail = `$errMsg }
+                    continue
                 }
+                `$payload = '{"ok":true,"action":"' + `$action + '"}'
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -2857,7 +2929,7 @@ try {
                 } else {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'application/json; charset=utf-8'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no caching-proxy-service CA resolvable"}')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_no_caching_proxy_service_ca_resolvable_f924b0aa' -Json)
                 }
                 `$res.ContentLength64 = `$body.Length
                 # HEAD: advertise Content-Length but send no body -- HTTP.sys
@@ -2891,7 +2963,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed; POST the dump body"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_method_not_allowed_post_the_dump_body_fa73866b'
                     continue
                 }
                 # path: 'diagnostics/<folder>.../<filename>' -- at least
@@ -2908,7 +2980,7 @@ try {
                 `$rel  = `$path.Substring(12)
                 `$segs = @(`$rel -split '/' | Where-Object { `$_ })
                 if (`$segs.Count -lt 2 -or (`$segs | Where-Object { -not `$_ })) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"expected /diagnostics/<folder>.../<filename>"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_expected_diagnostics_folder_filename_5f581c78'
                     continue
                 }
                 `$diagFile   = `$segs[-1]
@@ -2930,17 +3002,17 @@ try {
                     if (`$seg -match '[\\]' -or `$seg -match '\.\.') { `$segReject = `$true; break }
                 }
                 if (`$segReject) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"folder segment contains traversal or backslash"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5'
                     continue
                 }
                 if (`$diagFile -notlike '*.system.diagnostic.*.txt' -or `$diagFile -match '[\\/]' -or `$diagFile -match '\.\.') {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"filename must match *.system.diagnostic.<id>.txt"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_filename_must_match_system_diagnostic_id_txt_ec048334'
                     continue
                 }
                 `$folderPath = `$logDir
                 foreach (`$seg in `$folderSegs) { `$folderPath = Join-Path `$folderPath `$seg }
                 if (-not (Test-Path -LiteralPath `$folderPath -PathType Container)) {
-                    Send-JsonError -Response `$res -StatusCode 404 -Json '{"ok":false,"error":"failure folder not found; runner must have created it first"}'
+                    Send-JsonError -Response `$res -StatusCode 404 -Request `$req -Key 'status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e'
                     continue
                 }
                 # Pin the resolved file under logDir so a folder name that
@@ -2952,11 +3024,11 @@ try {
                 # 'log' vs 'log-evil').
                 `$logRootFull = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
                 if (-not `$filePath.StartsWith(`$logRootFull, [System.StringComparison]::Ordinal)) {
-                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"path escapes log root"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_path_escapes_log_root_13754cf8'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 5MB) {
-                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>5 MB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_5_mb_ab90ca52'
                     continue
                 }
                 # Stream the body straight to disk via a FileStream copy --
@@ -2985,7 +3057,7 @@ try {
                 } catch {
                     `$res.StatusCode = 500
                     `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message } -Json)
                     `$res.ContentLength64 = `$body.Length
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                     Write-ServerErr "diagnostics write failed (`$diagFolder/`$diagFile): `$errMsg"
@@ -3034,7 +3106,7 @@ try {
                 `$projectRoot = Join-Path `$repoRoot 'project'
                 if (-not (Test-Path -LiteralPath (Join-Path `$projectRoot '.git'))) {
                     `$res.StatusCode = 404
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('project repo not present on host')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_project_repo_not_present_on_host_885e6338')
                     `$res.ContentLength64 = `$body.Length
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                     `$res.OutputStream.Close()
@@ -3060,7 +3132,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'PUT' -and `$req.HttpMethod -ne 'POST') {
                     `$res.Headers.Add('Allow', 'PUT, POST')
-                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"PUT or POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_put_or_post_required_1f919659'
                     continue
                 }
                 `$uploadRel = `$path.Substring(11) -replace '\\','/'
@@ -3070,11 +3142,11 @@ try {
                 elseif (`$uploadRel -match '^/')                           { `$uploadDeny = `$true }
                 elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash|tar)`$')) { `$uploadDeny = `$true }
                 if (`$uploadDeny) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 4MB) {
-                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>4 MB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_4_mb_3455f869'
                     continue
                 }
                 `$uploadTarget = Join-Path `$logDir `$uploadRel
@@ -3083,7 +3155,7 @@ try {
                 # admit sibling directories sharing the prefix.
                 `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
                 if (-not `$uploadFull.StartsWith(`$logDirFull, [System.StringComparison]::Ordinal)) {
-                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"path escapes log dir"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Request `$req -Key 'status.api_path_escapes_log_dir_355b2034'
                     continue
                 }
                 `$uploadParent = Split-Path -Parent `$uploadFull
@@ -3195,7 +3267,7 @@ try {
                 }
                 `$res.StatusCode = 404
                 `$res.ContentType = 'text/plain; charset=utf-8'
-                `$body = [System.Text.Encoding]::UTF8.GetBytes("No cycle `$wantedCycle in the retained log history.")
+                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2' -Arguments @{ cycle = `$wantedCycle })
                 `$res.ContentLength64 = `$body.Length
                 if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
                 `$res.OutputStream.Close()
@@ -3212,7 +3284,7 @@ try {
                 if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.zip`$') {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Not a cycle results archive name.')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_not_a_cycle_results_archive_name_395b9777')
                     `$res.ContentLength64 = `$body.Length
                     if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
                     `$res.OutputStream.Close()
@@ -3237,7 +3309,7 @@ try {
                 if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes("No cycle results folder `$cycleFolder on this host.")
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_no_cycle_results_folder_folder_on_this_host_51798923' -Arguments @{ folder = `$cycleFolder })
                     `$res.ContentLength64 = `$body.Length
                     if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
                     `$res.OutputStream.Close()
@@ -3335,7 +3407,7 @@ try {
                     Write-ServerErr "archive `$cycleFolder failed: `$(`$_.Exception.Message)"
                     `$res.StatusCode = 500
                     `$res.ContentType = 'text/plain; charset=utf-8'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes("Could not pack `${cycleFolder}: `$(`$_.Exception.Message)")
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_could_not_pack_folder_detail_268ee848' -Arguments @{ folder = `$cycleFolder; detail = `$_.Exception.Message })
                     `$res.ContentLength64 = `$body.Length
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 } finally {
@@ -3384,7 +3456,7 @@ try {
                 }
                 if (`$denied) {
                     `$res.StatusCode = 403
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden (deny-list)')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa')
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                     `$res.OutputStream.Close()
                     continue
@@ -3406,7 +3478,7 @@ try {
             # bytes under an immutable cache key.
             `$immutableLocaleCatalog = `$null
             if (`$root -ceq `$statusDir -and
-                `$rel -cmatch '^(qps-Ploc|qps-Plocm)\.([0-9a-f]{64})\.status\.js$') {
+                `$rel -cmatch '^([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)\.([0-9a-f]{64})\.status\.js$') {
                 `$candidateCatalog = Get-StatusLocaleCatalogAsset -Locale `$Matches[1] -Root `$statusDir
                 if (`$candidateCatalog -and `$rel -ceq `$candidateCatalog.RequestName) {
                     `$immutableLocaleCatalog = `$candidateCatalog
@@ -3439,7 +3511,7 @@ try {
                 }
                 if (`$denied) {
                     `$res.StatusCode = 403
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden (deny-list)')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa')
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                     `$res.OutputStream.Close()
                     continue
@@ -3466,7 +3538,7 @@ try {
             # a '<repo>-something' checkout next to it) cannot pass.
             if (-not ((`$file -ceq `$rootFull) -or `$file.StartsWith(`$rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::Ordinal))) {
                 `$res.StatusCode = 403
-                `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden')
+                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09')
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 `$res.OutputStream.Close()
                 continue
@@ -3481,7 +3553,7 @@ try {
             if (Test-Path `$file -PathType Container) {
                 if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/') {
                     `$res.StatusCode = 403
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden (directory listing disabled)')
+                    `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_directory_listing_disabled_5d107f5b')
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                     `$res.OutputStream.Close()
                     continue
@@ -3883,8 +3955,8 @@ $serverReady = Wait-WithProgress -Activity "Status service: waiting for http://l
         } catch { return $false }
     }
 if (-not $serverReady) {
-    Write-Warning "Status service process started but port $Port is not responding after $script:StatusServiceReadyTimeoutSeconds seconds."
-    Write-Warning "Check the server error log: $(Join-Path $RuntimeDir 'server.err')"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d938ab5118c5d2c1' -Arguments @{ port = "$Port"; statusServiceReadyTimeoutSeconds = "$script:StatusServiceReadyTimeoutSeconds" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8a43d6f86299328' -Arguments @{ err = "$(Join-Path $RuntimeDir 'server.err')" })
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
@@ -3967,9 +4039,7 @@ if ($serverReady) {
         # aggregator's own log-tail discovery, which lags exactly when it
         # matters. A verbose-only line makes that state indistinguishable from
         # a healthy one in the cycle log.
-        Write-Warning ("Host-address beacon could not be started: $($_.Exception.Message) -- this host will not " +
-            "announce an address change to the pool directory until the next status-service start. Details: " +
-            (Join-Path $RuntimeDir 'hostaddress.beacon.err'))
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_beacon_start_failed' -Arguments @{ detail = $_.Exception.Message; logPath = (Join-Path $RuntimeDir 'hostaddress.beacon.err') })
     }
 }
 
@@ -3999,7 +4069,7 @@ $ip = try {
 
 Write-Output ""
 $serverPid = (Get-Content $PidFile).Trim()
-Write-Output "Status service started (PID $serverPid, port $Port)."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_22a9eb2cecee6010' -Arguments @{ serverPid = "$serverPid"; port = "$Port" })
 Write-Output "  Local:  http://localhost:$Port/status/"
 if ($ip) {
     Write-Output "  Remote: http://${ip}:$Port/status/"
@@ -4032,7 +4102,7 @@ try {
     $markerJson = ((ConvertTo-Json -InputObject $markerBody -Depth 5) -replace "`r`n", "`n").TrimEnd() + "`n"
     [System.IO.File]::WriteAllText($ServiceMarkerFile, $markerJson, [System.Text.UTF8Encoding]::new($false))
 } catch {
-    Write-Warning "Could not publish the status service marker: $($_.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_79a383bb842b92af' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: LAN reachability self-heal (all host types)
@@ -4049,12 +4119,12 @@ try {
 Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
 $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
 if ($fw.Changed) {
-    Write-Output "LAN reachability: $($fw.Message)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be11a610adef5489' -Arguments @{ message = "$($fw.Message)" })
 } elseif ($fw.Blocked) {
-    Write-Warning "LAN reachability: $($fw.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_298b29b58a48d4d4' -Arguments @{ message = "$($fw.Message)" })
     if ($ip) {
         Write-Warning "  http://localhost:$Port/status/ works, but LAN clients hitting http://${ip}:$Port/status/ will time out."
     }
 }
 
-Write-Output "Stop with: .\service\Stop-StatusService.ps1"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ab8b41c49078fda')

@@ -812,6 +812,28 @@ state, by construction: any tag it can measure cheaply and repeatedly is one the
 cache already holds. The warm-set residency counts are the reading that shows
 it.
 
+<a id="42f6b05f-0055"></a>
+
+### Probing pull-through liveness needs a manifest request, not `GET /v2/`
+
+`GET /v2/` is answered out of `zot`'s own process and returns in single-digit
+milliseconds no matter how badly the pull-through path behind it is stalled,
+so it cannot tell a live cache from one whose upstream leg is wedged. A
+manifest request is the only request shaped like the pull it stands in for,
+because resolving a tag is what re-runs the upstream sync. It must name a
+**tag**, not a digest -- a digest is immutable and answered from local
+storage, which is exactly why it stays fast through an outage that a tag
+request would expose. The `Accept:` header has to be spelled out too: a
+manifest request that states no preference gets whatever `zot` considers the
+default, which for a multi-arch tag is not the index a pull actually
+resolves.
+
+A caller timing this probe should send it with no proxy in the path -- a
+runtime pulls straight at the cache's registry port, so routing the probe
+through the proxy would time a path no real pull takes, and the proxy
+refuses `CONNECT` to that port anyway, which reads as a dead cache rather
+than a routing mismatch.
+
 <a id="42f6b05f-0020"></a>
 
 ### Warm sets and the cold-sync reading
@@ -2416,6 +2438,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

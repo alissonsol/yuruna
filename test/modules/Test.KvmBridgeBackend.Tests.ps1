@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b1ac37-5615-4bfc-a3de-731b717694e9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $modulePath = Join-Path $repo 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
@@ -113,7 +114,7 @@ Describe 'Ubuntu-KVM bridge backend: source keys the choice off NIC management' 
     }
     It 'still falls back to the netplan path when nmcli fails' {
         $src = Get-Content -Raw -LiteralPath $modulePath
-        Assert-True ($src -match 'nmcli bridge build failed; falling back to the netplan') 'an nmcli failure must fall back to netplan, not straight to NAT'
+        Assert-True (((Get-CatalogSourceMessage -Source $src) -join "`n") -match 'nmcli bridge build failed; falling back to the netplan') 'an nmcli failure must fall back to netplan, not straight to NAT'
     }
 }
 

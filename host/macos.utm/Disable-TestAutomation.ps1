@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,12 +37,13 @@ param(
     [switch]$StopServices
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    Write-Error 'Disable-TestAutomation.ps1 (host/macos.utm) only runs on macOS.'
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_bf69280290368131')
     exit 1
 }
 
@@ -57,8 +58,8 @@ if (-not (Assert-SafeToDisable)) { exit 1 }
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if (-not $state) {
-    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
-    Write-Warning 'Nothing will be changed: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore.'
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b151e82086a9c67b')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2679edd915af22f8')
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
@@ -100,7 +101,7 @@ foreach ($key in @('displaysleep', 'sleep', 'disksleep')) {
         Restore-Knob -Name "pmset/$scope/$key" -Description "pmset $key ($scope)" -Apply {
             param($v)
             $r = Invoke-YurunaSudo -Argument @('pmset', $flag, $key, "$v") -TolerateBlocked
-            if ($r.ExitCode -ne 0) { throw "pmset $flag $key $v failed (exit $($r.ExitCode)): $($r.Output)" }
+            if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9a7684fc14fabdb7' -Arguments @{ flag = "$flag"; key = "$key"; v = "$v"; exitCode = "$($r.ExitCode)"; output = "$($r.Output)" }) }
         }.GetNewClosure()
     }
 }
@@ -119,13 +120,13 @@ foreach ($guard in (Get-MacPmsetGuardList)) {
     $absentBlock = if ($absentValue) {
         {
             $r = Invoke-YurunaSudo -Argument @('pmset', '-a', $key, $absentValue) -TolerateBlocked
-            if ($r.ExitCode -ne 0) { throw "pmset -a $key $absentValue failed (exit $($r.ExitCode)): $($r.Output)" }
+            if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9e5168a03fb971f1' -Arguments @{ key = "$key"; absentValue = "$absentValue"; exitCode = "$($r.ExitCode)"; output = "$($r.Output)" }) }
         }.GetNewClosure()
     } else { $null }
     Restore-Knob -Name "pmset/guard/$key" -Description "pmset $key" -Apply {
         param($v)
         $r = Invoke-YurunaSudo -Argument @('pmset', '-a', $key, "$v") -TolerateBlocked
-        if ($r.ExitCode -ne 0) { throw "pmset -a $key $v failed (exit $($r.ExitCode)): $($r.Output)" }
+        if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_c3577106b0f799eb' -Arguments @{ key = "$key"; v = "$v"; exitCode = "$($r.ExitCode)"; output = "$($r.Output)" }) }
     }.GetNewClosure() -Absent $absentBlock
 }
 
@@ -161,7 +162,7 @@ foreach ($spec in @(
         # automation left it.
         $value = if ($dIsBool) { if ("$v".Trim() -in @('0', 'false', 'no', 'NO', 'FALSE')) { 'false' } else { 'true' } } else { "$v" }
         & defaults @dWrite $value
-        if ($LASTEXITCODE -ne 0) { throw "defaults write $dLabel failed (exit $LASTEXITCODE)" }
+        if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_4e1b665678bb8be4' -Arguments @{ dLabel = "$dLabel"; lASTEXITCODE = "$LASTEXITCODE" }) }
     }.GetNewClosure() -Absent {
         # The key did not exist before automation, so delete rather than write a
         # zero: macOS treats "unset" and "set to the default value" differently
@@ -186,21 +187,21 @@ foreach ($corner in @('tl', 'tr', 'bl', 'br')) {
         Restore-Knob -Name "defaults/dock/wvous-$corner-$part" -Description "Hot corner $corner ($part)" -Apply {
             param($v)
             & defaults @dWrite "$v"
-            if ($LASTEXITCODE -ne 0) { throw "defaults write $dLabel failed (exit $LASTEXITCODE)" }
+            if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_4e1b665678bb8be4' -Arguments @{ dLabel = "$dLabel"; lASTEXITCODE = "$LASTEXITCODE" }) }
         }.GetNewClosure() -Absent {
             & defaults @dDelete 2>$null
         }.GetNewClosure()
         if ($restored.Count -ne $before) { $cornerChanged = $true }
     }
 }
-if ($cornerChanged -and $PSCmdlet.ShouldProcess('Dock', 'Restart so the restored hot corners take effect')) {
+if ($cornerChanged -and $PSCmdlet.ShouldProcess('Dock', (Format-YurunaOperatorMessage -Key 'host.operator_9b6d3debb275f79f'))) {
     # The Dock caches hot-corner state; without this the plist is correct and
     # the live behavior is still the automation's until the next login.
     & killall Dock 2>$null
 }
 
 # --- REGION: Unified screen lock and auto-logout
-Restore-Knob -Name 'sysadminctl/screenLock' -Description 'sysadminctl unified screen lock' -Apply {
+Restore-Knob -Name 'sysadminctl/screenLock' -Description (Format-YurunaOperatorMessage -Key 'host.unified_screen_lock_description') -Apply {
     param($v)
     # The captured string is sysadminctl's own status line, e.g.
     #   "screenLock delay is 300.000000 seconds"  /  "screenLock is off"
@@ -214,7 +215,7 @@ Restore-Knob -Name 'sysadminctl/screenLock' -Description 'sysadminctl unified sc
     } elseif ($text -match 'screenLock\s+is\s+off') {
         $target = 'off'
     } else {
-        throw "the captured status '$text' does not name an interval to restore"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_c499e6600386ccd3' -Arguments @{ text = "$text" })
     }
     # Not Invoke-YurunaSudo: `-password -` leaves sysadminctl reading the
     # ACCOUNT password off whatever stdin it inherits, and it does that with a
@@ -222,14 +223,14 @@ Restore-Knob -Name 'sysadminctl/screenLock' -Description 'sysadminctl unified sc
     # its prompt watches their password appear in the clear. The shared helper
     # reads it masked and pipes it in, which is also what keeps it out of argv.
     $r = Set-MacScreenLockState -State $target -Reason "restore the unified screen lock to '$target'"
-    if (-not $r.Attempted) { throw "sysadminctl -screenLock $target needs the account password: $($r.Output). Run it by hand: $(Get-MacScreenLockManualCommand -State $target)" }
-    if ($r.ExitCode -ne 0) { throw "sysadminctl -screenLock $target failed: $($r.Output)" }
+    if (-not $r.Attempted) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b719fe2e9aee1899' -Arguments @{ target = "$target"; output = "$($r.Output)"; target2 = "$(Get-MacScreenLockManualCommand -State $target)" }) }
+    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_35a1dbbdd2006dae' -Arguments @{ target = "$target"; output = "$($r.Output)" }) }
 }
 
 Restore-Knob -Name 'autologout' -Description 'Auto-logout delay' -Apply {
     param($v)
     $r = Invoke-YurunaSudo -Argument @('defaults', 'write', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay', '-int', "$v") -TolerateBlocked
-    if ($r.ExitCode -ne 0) { throw "auto-logout write failed: $($r.Output)" }
+    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_37d35a4c65c7d70a' -Arguments @{ output = "$($r.Output)" }) }
 } -Absent {
     $r = Invoke-YurunaSudo -Argument @('defaults', 'delete', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay') -TolerateBlocked
     if ($r.ExitCode -ne 0) { Write-Verbose "auto-logout delete: $($r.Output)" }
@@ -240,7 +241,7 @@ Restore-Knob -Name 'networktime' -Description 'Network time' -Apply {
     param($v)
     $onOff = if ("$v" -match 'On') { 'on' } else { 'off' }
     $r = Invoke-YurunaSudo -Argument @('systemsetup', '-setusingnetworktime', $onOff) -TolerateBlocked
-    if ($r.ExitCode -ne 0) { throw "systemsetup -setusingnetworktime $onOff failed: $($r.Output)" }
+    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_4ff2b596d293bb78' -Arguments @{ onOff = "$onOff"; output = "$($r.Output)" }) }
 }
 
 # --- REGION: Services (opt-in)
@@ -252,15 +253,15 @@ if ($StopServices) {
 Write-DisableReport -Platform 'macos.utm' -Restored $restored -Skipped $skipped
 
 Write-Output ''
-Write-Output 'NOT reversed (deliberately) -- run these yourself if you want them gone:'
-Write-DisableManualStep -What 'Homebrew packages and PSGallery modules (powershell-yaml, PSScriptAnalyzer)' -Command @(
-    'Uninstall-Module powershell-yaml, PSScriptAnalyzer'
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_87f50089fdd7e8c5')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_9fbf219357a24e5f') -Command @(
+    (Format-YurunaOperatorMessage -Key 'host.operator_8da23b13d6bee38a')
 )
-Write-DisableManualStep -What 'Accessibility and Screen Recording (TCC) grants' -Command @(
-    'System Settings > Privacy & Security > Accessibility / Screen Recording'
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_dd54e1221e1df026') -Command @(
+    (Format-YurunaOperatorMessage -Key 'host.operator_df3396f890eae3df')
 )
-Write-DisableManualStep -What 'Cloned repos, VM images and run history under ~/yuruna'
-Write-DisableManualStep -What 'networkStorage configuration, the vaulted credential and any mounts' `
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_51ad715d8bf6eabf')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_c65c4b6881513631') `
     -Command (Get-PoolStorageManualTeardown -RepoRoot $RepoRoot)
-Write-DisableManualStep -What "The manual Dock step, if you set it: right-click UTM > Options > Assign To > All Desktops"
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_dcce50e7f8a2921d')
 Write-DisableCommonEpilogue -StateCaptured ([bool]$state) -StopServices ([bool]$StopServices)

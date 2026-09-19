@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Get-YurunaGitHubSource: which repository/commit this host serves, and the token
 # that opens it. New-CloudInitUserData bakes those into every guest seed.
@@ -63,7 +66,7 @@ function Read-OverlaySection {
         [Parameter(Mandatory)][string]$OverlayPath
     )
     if (-not (Test-Path -LiteralPath $OverlayPath)) {
-        throw "Overlay file not found: $OverlayPath"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_8b8f2d24872ecf9a' -Arguments @{ overlayPath = "$OverlayPath" })
     }
     $sections   = [ordered]@{}
     $currentKey = $null
@@ -77,7 +80,7 @@ function Read-OverlaySection {
             # A repeated header would silently overwrite the earlier payload (and the merge-time
             # consumed/orphan validation cannot see the loss); fail loudly instead.
             if ($sections.Contains($currentKey)) {
-                throw "Duplicate overlay section '$currentKey' in ${OverlayPath}: a repeated header would silently overwrite the earlier payload."
+                throw (Format-YurunaOperatorMessage -Key 'automation.operator_607a7ca5cfe89be1' -Arguments @{ currentKey = "$currentKey"; overlayPath = "${OverlayPath}" })
             }
             $current    = New-Object System.Collections.Generic.List[string]
             continue
@@ -122,7 +125,7 @@ function Merge-CloudInitUserData {
         [string]$OutputPath
     )
     if (-not (Test-Path -LiteralPath $BasePath)) {
-        throw "Base user-data file not found: $BasePath"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_54ad31700e7323b1' -Arguments @{ basePath = "$BasePath" })
     }
     $sections     = Read-OverlaySection -OverlayPath $OverlayPath
     $baseLines    = Get-Content -LiteralPath $BasePath
@@ -133,7 +136,7 @@ function Merge-CloudInitUserData {
         if ($line -match $anchorRegex) {
             $key = $Matches[1]
             if (-not $sections.Contains($key)) {
-                throw "Base file '$BasePath' anchors YURUNA_OVERLAY_$key but overlay '$OverlayPath' does not define this section."
+                throw (Format-YurunaOperatorMessage -Key 'automation.operator_77efb8119a26e1df' -Arguments @{ basePath = "$BasePath"; key = "$key"; overlayPath = "$OverlayPath" })
             }
             foreach ($payloadLine in $sections[$key]) {
                 $result.Add($payloadLine)
@@ -149,7 +152,7 @@ function Merge-CloudInitUserData {
     # is host-tuned but is actually running on the base.
     $orphan = @($sections.Keys | Where-Object { -not $consumed.Contains($_) })
     if ($orphan.Count -gt 0) {
-        throw "Overlay '$OverlayPath' defines section(s) the base never anchors: $($orphan -join ', '). Remove them or add the matching anchor to the base."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_0a82e1007f732858' -Arguments @{ overlayPath = "$OverlayPath"; join = "$($orphan -join ', ')" })
     }
     # Cloud-init reads YAML; LF terminators are universally portable.
     # \r\n is tolerated by cloud-init >= 22 but trips older guests on
@@ -198,7 +201,7 @@ function Get-YurunaGuestScriptBase64 {
     $locatePath    = Join-Path $automationDir 'yuruna-host-locate.sh'
     foreach ($p in @($retryPath, $versionsPath, $faePath, $networkPath, $locatePath)) {
         if (-not (Test-Path -LiteralPath $p)) {
-            throw "Get-YurunaGuestScriptBase64: required guest script missing: $p"
+            throw (Format-YurunaOperatorMessage -Key 'automation.operator_ed6c4bcd982b86b4' -Arguments @{ p = "$p" })
         }
     }
     return @{
@@ -266,9 +269,44 @@ function Resolve-CloudInitPlaceholder {
     )
     $unexpected = @($remainingTokens | Where-Object { $AllowedUnresolved -notcontains $_ })
     if ($unexpected.Count -gt 0) {
-        throw "Resolve-CloudInitPlaceholder: template still contains unresolved placeholder(s) after substitution: $($unexpected -join ', '). Add them to -Replacement (with empty value if intentional) or pass -AllowedUnresolved."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_ad9c42ff8e5e7995' -Arguments @{ join = "$($unexpected -join ', ')" })
     }
     return $result
+}
+
+function ConvertTo-ProvisionedCatalogHtml {
+    <#
+    .SYNOPSIS
+        Localize marked static guest HTML using the deployment's fixed locale.
+    .DESCRIPTION
+        Static Squid templates have no application request boundary. Their language
+        is fixed when the VM is provisioned; Squid retains ownership of URL macros.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'The regex evaluator captures the resolved deployment locale.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Content, [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$Language = 'auto', [switch]$AllowPseudoLocale)
+    if (-not $Content.Contains('data-yuruna-static-locale')) { return $Content }
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.Catalog.psm1') -DisableNameChecking
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.Locale.psm1') -DisableNameChecking
+    $manifest = (Get-LocaleManifest).Clone()
+    if ($AllowPseudoLocale) {
+        $declared = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
+        $manifest.Supported = @($manifest.Supported) + @($declared.locales.Keys | Where-Object { $declared.locales[$_].status -eq 'pseudo' })
+    }
+    $locale = New-LocaleContext -ConfigLanguage $Language -Manifest $manifest
+    # A regex closure has its own module scope; retain the imported command.
+    $renderCatalogHtml = Get-Command ConvertTo-CatalogHtml -ErrorAction Stop
+    return [regex]::Replace($Content, '(?s)<html lang="en" data-yuruna-static-locale>.*?</html>', [Text.RegularExpressions.MatchEvaluator]{
+        param($match)
+        $html = & $renderCatalogHtml -Html $match.Value -Locale $locale.ResolvedTag
+        $html = $html.Replace('<html lang="en" data-yuruna-static-locale>', ('<html lang="' + $locale.ResolvedTag + '" dir="' + $locale.Direction + '">'))
+        # Keep a translated newline from escaping the YAML block scalar. HTML
+        # collapses prose whitespace; CSS declarations remain intact on one line.
+        return [regex]::Replace($html, '\r?\n\s*', ' ')
+    }.GetNewClosure())
 }
 
 function New-CloudInitUserData {
@@ -407,6 +445,11 @@ function New-CloudInitUserData {
         $fullReplacement['YURUNA_PROJECT_URL_PLACEHOLDER'] = $ghSource.ProjectUrl
     }
     $resolved = Resolve-CloudInitPlaceholder -TemplateContent $merged -Replacement $fullReplacement -AllowedUnresolved $AllowedUnresolved
+    if ($resolved.Contains('data-yuruna-static-locale')) {
+        $resolved = ConvertTo-ProvisionedCatalogHtml -Content $resolved -RepoRoot $RepoRoot `
+            -Language ([string]$fullReplacement['YURUNA_LANGUAGE_PLACEHOLDER']) `
+            -AllowPseudoLocale:($fullReplacement['YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER'] -eq 'true')
+    }
     if ($OutputPath) {
         if ($PSCmdlet.ShouldProcess($OutputPath, 'Write resolved cloud-init user-data')) {
             [System.IO.File]::WriteAllText($OutputPath, $resolved, [System.Text.UTF8Encoding]::new($false))
@@ -415,4 +458,4 @@ function New-CloudInitUserData {
     return $resolved
 }
 
-Export-ModuleMember -Function Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Resolve-CloudInitPlaceholder, New-CloudInitUserData
+Export-ModuleMember -Function ConvertTo-ProvisionedCatalogHtml, Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Resolve-CloudInitPlaceholder, New-CloudInitUserData

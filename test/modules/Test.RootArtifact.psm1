@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,7 @@
 # behind. Unix-only: an elevated Windows run writes files the operator's
 # account can still modify, so there is no equivalent trap to sweep.
 # --- REGION: https://yuruna.link/429fb30b-0014
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RootArtifactProcessTimeoutSeconds = 20
 
 function Invoke-RootArtifactProcess {
@@ -192,7 +193,7 @@ function Get-YurunaRootOwnedRepoFile {
         $detail = @($sample | ForEach-Object { "    $_" })
         if ($paths.Count -gt $sample.Count) { $detail += "    ... and $($paths.Count - $sample.Count) more" }
         [void]$records.Add((New-RootArtifactRecord -Kind 'repo-file' -Blocking $true `
-            -Summary "$($paths.Count) file(s) under $relative are owned by root" `
+            -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_9998c4074276a3ad' -Arguments @{ count = "$($paths.Count)"; relative = "$relative" }) `
             -Detail $detail `
             -Remedy @("sudo chown -R ${user}: '$dir'") `
             -Items $paths -Target $dir))
@@ -227,11 +228,11 @@ function Get-YurunaRootOwnedListener {
         try { $visible = @(Get-PortListenerPid -Port $p) } catch { Write-Verbose "Get-PortListenerPid($p): $($_.Exception.Message)" }
         if ($visible.Count -gt 0) { continue }
         $out.Add((New-RootArtifactRecord -Kind 'listener' -Blocking $true `
-            -Summary "port $p is held by a listener this account cannot see (a root-owned service)" `
+            -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_3415ad161db696dc' -Arguments @{ p = "$p" }) `
             -Detail @(
-                "    nothing binds :$p, and 'lsof' as this user reports no holder --"
-                "    the signature of a socket owned by another account, normally a"
-                "    status or config service left running by an earlier sudo run."
+                (Format-YurunaOperatorMessage -Key 'runner.operator_79e483f03ceb4c90' -Arguments @{ p = "$p" })
+                (Format-YurunaOperatorMessage -Key 'runner.operator_30b13a9549c56fd4')
+                (Format-YurunaOperatorMessage -Key 'runner.operator_05ce2f4407c33af4')
             ) `
             -Remedy @("sudo lsof -nP -iTCP:$p -sTCP:LISTEN") `
             -Items @($p)))
@@ -274,9 +275,9 @@ function Get-YurunaRootHomeArtifact {
     # shortcut for hosts where the answer is free.
     if (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue) {
         return New-RootArtifactRecord -Kind 'root-home' -Blocking $false `
-            -Summary "root's own yuruna tree exists at $target" `
-            -Detail @('    Base images and VM bundles a previous sudo run wrote into root''s home.',
-                      '    The hypervisor runs as you and cannot reach them, so they are dead weight.') `
+            -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_ffcbfaedf4c6f6c3' -Arguments @{ target = "$target" }) `
+            -Detail @((Format-YurunaOperatorMessage -Key 'runner.operator_b972004ea843b4d2'),
+                      (Format-YurunaOperatorMessage -Key 'runner.operator_13eefd852d733d69')) `
             -Remedy @("sudo du -sh '$target'", "sudo rm -rf '$target'") `
             -Items @($target)
     }
@@ -285,17 +286,17 @@ function Get-YurunaRootHomeArtifact {
     $r = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'test', '-d', $target)
     if (-not (Test-RootArtifactSudoAnswered -ExitCode $r.ExitCode -StdErr $r.StdErr)) {
         return New-RootArtifactRecord -Kind 'root-home' -Blocking $false `
-            -Summary "could not check whether root has its own yuruna tree at $target" `
-            -Detail @('    root''s home is not readable by this account and sudo declined to answer',
-                      '    without a password. Harmless if no sudo run ever happened here.') `
+            -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_ec3512ec6f251482' -Arguments @{ target = "$target" }) `
+            -Detail @((Format-YurunaOperatorMessage -Key 'runner.operator_151603089ca04636'),
+                      (Format-YurunaOperatorMessage -Key 'runner.operator_02e17ac26c29d2cb')) `
             -Remedy @("sudo test -d '$target' && sudo du -sh '$target'") `
             -Items @()
     }
     if ($r.ExitCode -ne 0) { return $null }
     return New-RootArtifactRecord -Kind 'root-home' -Blocking $false `
-        -Summary "root's own yuruna tree exists at $target" `
-        -Detail @('    Base images and VM bundles a previous sudo run wrote into root''s home.',
-                  '    The hypervisor runs as you and cannot reach them, so they are dead weight.') `
+        -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_ffcbfaedf4c6f6c3' -Arguments @{ target = "$target" }) `
+        -Detail @((Format-YurunaOperatorMessage -Key 'runner.operator_b972004ea843b4d2'),
+                  (Format-YurunaOperatorMessage -Key 'runner.operator_13eefd852d733d69')) `
         -Remedy @("sudo du -sh '$target'", "sudo rm -rf '$target'") `
         -Items @($target)
 }
@@ -368,7 +369,7 @@ function Get-YurunaRootOwnedMount {
     $points = @(Select-RootArtifactMountLine -MountLine (($r.StdOut -split "`n")) -RootHome $rootHome)
     if ($points.Count -eq 0) { return $null }
     return New-RootArtifactRecord -Kind 'mount' -Blocking $true `
-        -Summary "$($points.Count) share(s) are mounted under root's home" `
+        -Summary (Format-YurunaOperatorMessage -Key 'runner.operator_5bbf53d9f6389903' -Arguments @{ count = "$($points.Count)" }) `
         -Detail (@("    Mounted by an earlier sudo run, under a home you cannot reach:") +
                  @($points | ForEach-Object { "    $_" }) +
                  @("    On macOS these block your own mount of the same share with 'File exists'.")) `
@@ -443,14 +444,14 @@ function Write-YurunaRootArtifactReport {
     $items = @($Artifact | Where-Object { $_ })
     if ($items.Count -eq 0) { return }
     Write-Information '' -InformationAction Continue
-    Write-Information 'A previous run of these scripts under sudo left state behind on this machine:' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_31d16bf059040025') -InformationAction Continue
     foreach ($a in ($items | Sort-Object -Property @{ Expression = { -not $_.Blocking } })) {
         $tag = if ($a.Blocking) { 'BLOCKS' } else { 'waste ' }
         Write-Information '' -InformationAction Continue
         Write-Information "  [$tag] $($a.Summary)" -InformationAction Continue
         foreach ($d in $a.Detail) { Write-Information $d -InformationAction Continue }
         if ($a.Remedy.Count -gt 0) {
-            Write-Information '    Clears with:' -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ca979da686d5f85e') -InformationAction Continue
             foreach ($c in $a.Remedy) { Write-Information "      $c" -InformationAction Continue }
         }
     }
@@ -482,10 +483,10 @@ function Clear-YurunaRootArtifact {
     if ($IsWindows) { return $false }
     $sudo = (Get-Command -CommandType Application -Name 'sudo' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (-not $sudo) {
-        Write-Warning 'sudo is not available, so root-owned state cannot be cleared from here.'
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_857fbb0996330c25')
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($Artifact.Summary, 'Clear root-owned state (elevates)')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Artifact.Summary, (Format-YurunaOperatorMessage -Key 'runner.operator_48d7e4295a1c26a0'))) { return $false }
 
     switch ($Artifact.Kind) {
         'repo-file' {
@@ -494,13 +495,13 @@ function Clear-YurunaRootArtifact {
             # truncated as well as anything written since.
             $target = [string]$Artifact.Target
             if (-not $target) {
-                Write-Warning 'the finding carries no target directory to take ownership of.'
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5ea26e2a1f29b25e')
                 return $false
             }
             $user = Get-RootArtifactCurrentUser
             $r = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'chown', '-R', "${user}:", $target) -TimeoutSeconds 120
             if ($r.ExitCode -ne 0) {
-                Write-Warning "could not take ownership of $target (sudo chown rc=$($r.ExitCode)): $($r.StdErr.Trim())"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8200a5d4bfb1f74f' -Arguments @{ target = "$target"; exitCode = "$($r.ExitCode)"; trim = "$($r.StdErr.Trim())" })
                 return $false
             }
             return $true
@@ -510,7 +511,7 @@ function Clear-YurunaRootArtifact {
             foreach ($point in $Artifact.Items) {
                 $r = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'umount', [string]$point) -TimeoutSeconds 60
                 if ($r.ExitCode -ne 0) {
-                    Write-Warning "could not unmount $point (rc=$($r.ExitCode)): $($r.StdErr.Trim())"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9d0335d2e9995fdd' -Arguments @{ point = "$point"; exitCode = "$($r.ExitCode)"; trim = "$($r.StdErr.Trim())" })
                     $allOk = $false
                 }
             }
@@ -521,7 +522,7 @@ function Clear-YurunaRootArtifact {
             foreach ($path in $Artifact.Items) {
                 $r = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'rm', '-rf', [string]$path) -TimeoutSeconds 300
                 if ($r.ExitCode -ne 0) {
-                    Write-Warning "could not remove $path (rc=$($r.ExitCode)): $($r.StdErr.Trim())"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fe0be201392ee095' -Arguments @{ path = "$path"; exitCode = "$($r.ExitCode)"; trim = "$($r.StdErr.Trim())" })
                     $allOk = $false
                 }
             }
@@ -531,7 +532,7 @@ function Clear-YurunaRootArtifact {
             $port = [int]@($Artifact.Items)[0]
             $lsof = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'lsof', '-t', '-nP', "-iTCP:$port", '-sTCP:LISTEN')
             if ($lsof.ExitCode -ne 0 -and -not $lsof.StdOut) {
-                Write-Warning "could not identify the holder of port $port (sudo lsof rc=$($lsof.ExitCode)): $($lsof.StdErr.Trim())"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_94db9305cb7bc96c' -Arguments @{ port = "$port"; exitCode = "$($lsof.ExitCode)"; trim = "$($lsof.StdErr.Trim())" })
                 return $false
             }
             $pids = @(($lsof.StdOut -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' })
@@ -543,12 +544,12 @@ function Clear-YurunaRootArtifact {
                 $ps = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'ps', '-o', 'comm=', '-p', $holderPid)
                 $comm = "$($ps.StdOut)".Trim()
                 if ($comm -notmatch '(?i)pwsh|powershell') {
-                    Write-Warning "port $port is held by PID $holderPid ($comm), which is not a PowerShell host -- refusing to stop it. Stop it yourself or move statusService.port."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8d97213c234d0423' -Arguments @{ port = "$port"; holderPid = "$holderPid"; comm = "$comm" })
                     continue
                 }
                 $k = Invoke-RootArtifactProcess -FilePath $sudo -ArgumentList @('-n', 'kill', $holderPid)
                 if ($k.ExitCode -eq 0) { $killed = $true }
-                else { Write-Warning "could not stop PID $holderPid (rc=$($k.ExitCode)): $($k.StdErr.Trim())" }
+                else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e2599a8eecc66d33' -Arguments @{ holderPid = "$holderPid"; exitCode = "$($k.ExitCode)"; trim = "$($k.StdErr.Trim())" }) }
             }
             if (-not $killed) { return $false }
             # The socket is released asynchronously; give it a moment before the

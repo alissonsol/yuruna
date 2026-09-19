@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -173,7 +176,7 @@ function New-WindowsGuestBootstrap {
     # rather than over the network it exists to repair.
     $locatePath = Join-Path $RepoRoot 'automation' | Join-Path -ChildPath 'yuruna-host-locate.ps1'
     if (-not (Test-Path -LiteralPath $locatePath -PathType Leaf)) {
-        throw "New-WindowsGuestBootstrap: required guest script missing: $locatePath"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_0b62c1c9d3cf7476' -Arguments @{ locatePath = "$locatePath" })
     }
     $locateB64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($locatePath))
 
@@ -183,7 +186,7 @@ function New-WindowsGuestBootstrap {
     # and lints like any other script instead of being opaque text.
     $templatePath = Join-Path $RepoRoot 'automation' | Join-Path -ChildPath 'windows-guest-bootstrap.ps1'
     if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
-        throw "New-WindowsGuestBootstrap: required template missing: $templatePath"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_fac07c9b40638bff' -Arguments @{ templatePath = "$templatePath" })
     }
     $script = Get-Content -LiteralPath $templatePath -Raw
 

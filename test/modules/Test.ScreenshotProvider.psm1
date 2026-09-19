@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424e571a-0f6b-4eef-b112-0794f8d85952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,13 +16,11 @@
 
 #requires -version 7
 
-# Screenshot-capture provider registry. Same shape as
-# Test.HostIO and Test.OcrEngine: per-host capture implementations
-# register, and Wait-ForText / saveDebugScreenshot dispatch through
-# Invoke-ScreenshotProvider. The legacy Yuruna.Host\Get-VMScreenshot
-# contract still works -- this registry is the seam for adding a
-# fast-path capturer (e.g., a delta-only frame grabber) or a fallback
-# (e.g., when WMI / virsh screenshot times out).
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+# Screenshot-capture provider registry. See
+# ../../docs/host-io.md#backends-today for the registry shape and its seam. -- Test.ScreenshotProvider.psm1
 #
 # --- REGION: https://yuruna.link/4222e5f2-0009
 # Storage: shared Test.Registry primitive; the $global:YurunaScreenshotProviders
@@ -119,7 +117,7 @@ function Repair-ScreenshotRing {
     param([Parameter(Mandatory)][string]$VMName)
     $ringDir = Join-Path $env:YURUNA_LOG_DIR "screen-$VMName"
     if (-not (Test-Path -LiteralPath $ringDir)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($ringDir, 'Clear screenshot ring buffer')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($ringDir, (Format-YurunaOperatorMessage -Key 'runner.operator_eb4ca73c6f91b714'))) { return $true }
     try {
         Get-ChildItem -LiteralPath $ringDir -Filter '*.png' -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
@@ -142,7 +140,7 @@ function Clear-ScreenshotProvider {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.ScreenshotProvider registry', 'Clear all providers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_fab6e861f7820d90'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
         & $script:Reg.Clear
     }
 }

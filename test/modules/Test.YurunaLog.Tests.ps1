@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ac2b74-32fe-4772-8fad-0e7833bd2f68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -251,7 +251,7 @@ Describe 'yuruna-log-tee -- the transcript preamble' {
         # header rather than on a live transcript, because the header is what
         # every transcript -- owner cycle and nested sub-run -- starts from.
         $header = Get-YurunaLogPreamble
-        Assert-True ($header -match '<html lang="en"')  'the transcript declares a document language'
+        Assert-True ($header -match '<html lang="en-US" dir="ltr"')  'the transcript declares a document language'
         foreach ($sev in @('error', 'warning', 'debug', 'verbose')) {
             Assert-True ($header -match "\.log-$sev\b")      "the header defines a rule for log-$sev"
             Assert-True ($header -match "\.log-$sev::before") "log-$sev carries a text cue, not color alone"

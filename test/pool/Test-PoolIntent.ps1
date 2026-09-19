@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -62,11 +63,11 @@ Import-Module powershell-yaml -ErrorAction Stop
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Report
 $failures = 0
@@ -91,12 +92,12 @@ if (Test-Path -LiteralPath $poolsPath) {
             foreach ($m in @($p['members'])) {
                 $h = [string]$m
                 if ($seen.ContainsKey($h)) {
-                    Write-Warning "FAIL  member-uniqueness: host $h is in both '$($seen[$h])' and '$thisPool' (a host belongs to at most one pool)."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fe2c5d57673db03c' -Arguments @{ h = "$h"; h2 = "$($seen[$h])"; thisPool = "$thisPool" })
                     $dupes++
                 } else { $seen[$h] = $thisPool }
             }
         }
-        if ($dupes -eq 0) { Write-Information 'PASS  member-uniqueness: no host is in more than one pool.' -InformationAction Continue }
+        if ($dupes -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb9468440861e598') -InformationAction Continue }
         else { $failures += $dupes }
 
         # The auto-enrollment target pool must carry NO test-set. This is the
@@ -114,23 +115,23 @@ if (Test-Path -LiteralPath $poolsPath) {
                 if ($p -isnot [System.Collections.IDictionary]) { continue }
                 if ([string]$p['poolId'] -ne $targetPoolId) { continue }
                 if ($p['testSet']) {
-                    Write-Warning "FAIL  target-pool-no-testset: '$targetPoolId' is the auto-enrollment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_331c67920b1a4f01' -Arguments @{ targetPoolId = "$targetPoolId" })
                     $violations++
                 }
             }
-            if ($violations -eq 0) { Write-Information "PASS  target-pool-no-testset: '$targetPoolId' carries no testSet." -InformationAction Continue }
+            if ($violations -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f4ce3623f58ca8ac' -Arguments @{ targetPoolId = "$targetPoolId" }) -InformationAction Continue }
             else { $failures += $violations }
         }
     } catch {
-        Write-Warning "FAIL  member-uniqueness: could not parse pools.yml -- $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4b7f2e4a23f336a0' -Arguments @{ message = "$($_.Exception.Message)" })
         $failures++
     }
 }
 
 Write-Information "" -InformationAction Continue
 if ($failures -eq 0) {
-    Write-Information 'Pool intent: all files schema-valid.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b11e32378aff0234') -InformationAction Continue
     exit $ExitOk
 }
-Write-Warning "Pool intent: $failures file(s) FAILED validation."
+Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b85e68a82dd79259' -Arguments @{ failures = "$failures" })
 exit $ExitFailure

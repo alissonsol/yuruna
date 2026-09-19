@@ -1,20 +1,9 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package discovery finds Yuruna hosts by sweeping a network and keeps the ones
-// it finds in a list this daemon monitors on its own.
-//
-// The pool's own view of "which hosts exist" is second-hand: the aggregator
-// learns a host when that host registers or beacons, and pool membership is a
-// separate fact again, held in git-backed intent. A machine that is running a
-// Yuruna status service but has never enrolled is therefore invisible to every
-// pool UI, even though it is sitting on the same subnet answering probes.
-//
-// This package closes that gap from the other direction -- ask the network -- and
-// deliberately keeps its answers local: the store is this daemon's, so the list
-// survives an aggregator outage and needs no write path into anyone else's
-// registry. Membership of a pool is untouched; a discovered host is monitored,
-// not enrolled.
+// Package discovery finds Yuruna hosts by sweeping a network. See
+// ../../../../../../docs/pool-admin.md#network-scan----finding-hosts-nobody-registered
+// for why this exists and why it monitors rather than enrolls. -- discovery.go
 package discovery
 
 import (

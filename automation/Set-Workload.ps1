@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a7b68b-0145-4180-9461-1dd7c9bbb69a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ param (
 )
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
@@ -72,7 +73,7 @@ if (-not $runtimeOk) {
     # `set -euo pipefail`, so a zero exit reads as "deployed" -- the sequence
     # marches on and the real fault surfaces minutes later, in a different step,
     # as an unreachable endpoint. Same contract as Complete-YurunaRun's failure tail.
-    Write-Warning "Runtime pre-flight failed; no workload was deployed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_acfdc6c69e5739b9')
     exit 1
 }
 
@@ -80,7 +81,7 @@ if (-not $runtimeOk) {
 # lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
 if (-not $roots) {
-    Write-Warning "Root resolution failed; no workload was deployed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_19fa10611ea08e8b')
     exit 1
 }
 $yuruna_root = $roots.YurunaRoot

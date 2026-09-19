@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 // The pool-admin CLIs the daemon shells out to, each relative to <RepoDir>/test/.
@@ -133,7 +135,8 @@ func runProbe(ctx context.Context, name string, args ...string) (string, error) 
 // UI request, in the order a request actually touches them: interpreter, then
 // the CLI scripts, then git (the CLIs' own dependency), then persistence, then
 // a live end-to-end intent read.
-func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
+func (s *Server) collectDiagnostics(ctx context.Context, locales ...i18n.Context) Diagnostics {
+	locale := diagnosticLocale(locales)
 	d := Diagnostics{
 		Version:     s.opts.Version,
 		CollectedAt: time.Now().UTC().Format(time.RFC3339),
@@ -182,15 +185,15 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 		d.Checks = append(d.Checks, Check{
 			Name:   "pwsh",
 			OK:     err == nil,
-			Detail: firstNonEmpty(ver, errText(err), "no output"),
-			Hint:   hintIf(err != nil, "pwsh exists at "+resolved+" but did not run; check its shared-library dependencies."),
+			Detail: firstNonEmpty(ver, errText(err), Translate(locale, "pool.diagnostic_no_output", nil)),
+			Hint:   hintIf(err != nil, Translate(locale, "pool.diagnostic_pwsh_execution", map[string]any{"path": resolved})),
 		})
 	} else {
 		d.Checks = append(d.Checks, Check{
 			Name:   "pwsh",
 			OK:     false,
-			Detail: "not found: " + errText(lookErr),
-			Hint:   "Install PowerShell in the guest. packages.microsoft.com has no powershell package for this Ubuntu release; use the GitHub-release tarball, then restart pool-control-service.service.",
+			Detail: Translate(locale, "pool.diagnostic_pwsh_not_found", map[string]any{"detail": errText(lookErr)}),
+			Hint:   Translate(locale, "pool.diagnostic_install_pwsh", nil),
 		})
 	}
 
@@ -202,18 +205,18 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 		d.Checks = append(d.Checks, Check{
 			Name:   "powershell-yaml",
 			OK:     err == nil && strings.Contains(out, "present"),
-			Detail: firstNonEmpty(out, errText(err), "no output"),
+			Detail: firstNonEmpty(out, errText(err), Translate(locale, "pool.diagnostic_no_output", nil)),
 			Hint:   hintIf(!strings.Contains(out, "present"), "Install-Module powershell-yaml -Scope AllUsers -Force"),
 		})
 	}
 
 	// 3. The framework checkout and the CLI scripts inside it.
-	d.Checks = append(d.Checks, s.checkRepoDir())
+	d.Checks = append(d.Checks, s.checkRepoDir(locale))
 	if s.opts.RepoDir != "" {
 		if b, err := os.ReadFile(filepath.Join(s.opts.RepoDir, "VERSION")); err == nil {
 			env.FrameworkVersion = strings.TrimSpace(string(b))
 		}
-		rev, revCheck := s.frameworkRevision(ctx)
+		rev, revCheck := s.frameworkRevision(ctx, locale)
 		env.FrameworkRevision = rev
 		d.Checks = append(d.Checks, revCheck)
 	}
@@ -228,14 +231,14 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 	} else {
 		d.Checks = append(d.Checks, Check{
 			Name: "git", OK: false,
-			Detail: "not found on PATH: " + errText(err),
-			Hint:   "The pool-admin CLIs clone and push pool intent; install git in the guest.",
+			Detail: Translate(locale, "pool.diagnostic_git_not_found", map[string]any{"detail": errText(err)}),
+			Hint:   Translate(locale, "pool.diagnostic_install_git", nil),
 		})
 	}
 
 	// 5. Persistence. An unset state dir is a deliberate mode (no NAS), so it
 	// reports OK with the reason rather than as a failure.
-	d.Checks = append(d.Checks, s.checkStateDir())
+	d.Checks = append(d.Checks, s.checkStateDir(locale))
 
 	// 6. The intent store URL. Every read and write targets it, and an empty
 	// value fails all of them identically -- so name it as its own check rather
@@ -247,13 +250,13 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 	if liveURL == "" {
 		d.Checks = append(d.Checks, Check{
 			Name: "intent-git-url", OK: false,
-			Detail: "empty: no intent store resolved from the launch flag or the config file",
-			Hint:   "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding.",
+			Detail: Translate(locale, "pool.diagnostic_intent_empty", nil),
+			Hint:   Translate(locale, "pool.diagnostic_intent_configure", nil),
 		})
 	} else {
 		detail := redactURL(liveURL)
 		if flag := strings.TrimSpace(s.opts.IntentGitURL); flag != liveURL {
-			detail += "  (config file overrides the launch flag " + redactURL(flag) + ")"
+			detail += Translate(locale, "pool.diagnostic_intent_override", map[string]any{"flag": redactURL(flag)})
 		}
 		d.Checks = append(d.Checks, Check{Name: "intent-git-url", OK: true, Detail: detail})
 	}
@@ -261,7 +264,7 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 	// 7. The store itself, when it is a local path (the pool NAS case). A URL the
 	// daemon cannot write is the failure mode that only shows up on the first
 	// mutation, long after the UI looked healthy, so probe it up front.
-	d.Checks = append(d.Checks, checkIntentStore(liveURL))
+	d.Checks = append(d.Checks, checkIntentStore(liveURL, locale))
 
 	// 8. End-to-end: the same call the Assign page makes on load. This is the
 	// check that reproduces the operator-visible symptom directly.
@@ -269,8 +272,8 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 	d.Checks = append(d.Checks, Check{
 		Name:   "intent-read",
 		OK:     res.OK,
-		Detail: firstNonEmpty(strings.TrimSpace(res.Error), strings.TrimSpace(res.Stderr), truncate(strings.TrimSpace(res.Stdout), 400), "no output"),
-		Hint:   hintIf(!res.OK, "See the raw invocation below for the CLI's own output; the checks above name any missing dependency."),
+		Detail: firstNonEmpty(strings.TrimSpace(res.Error), strings.TrimSpace(res.Stderr), truncate(strings.TrimSpace(res.Stdout), 400), Translate(locale, "pool.diagnostic_no_output", nil)),
+		Hint:   hintIf(!res.OK, Translate(locale, "pool.diagnostic_raw_invocation", nil)),
 	})
 	// The unabridged invocation. Argv and both streams are kept verbatim: the
 	// summary line above is lossy by design, and this is the page's reason to
@@ -361,7 +364,8 @@ func (s *Server) repoDirIsItsOwnGitCheckout(ctx context.Context) bool {
 // describes, and an unresolvable revision means the deployment cannot be tied to
 // any commit at all -- both are reported as failures with no revision rather
 // than as a value a reader would take for proof.
-func (s *Server) frameworkRevision(ctx context.Context) (string, Check) {
+func (s *Server) frameworkRevision(ctx context.Context, locales ...i18n.Context) (string, Check) {
+	locale := diagnosticLocale(locales)
 	const name = "framework-revision"
 	gitRev := ""
 	// Only when the repository git finds IS this checkout. Repository discovery
@@ -381,29 +385,30 @@ func (s *Server) frameworkRevision(ctx context.Context) (string, Check) {
 	case err != nil:
 		return "", Check{Name: name, OK: false,
 			Detail: frameworkRevisionSidecar + ": " + err.Error(),
-			Hint:   "The revision sidecar is corrupt, so the deployed commit is unprovable. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+			Hint:   Translate(locale, "pool.diagnostic_revision_corrupt", nil)}
 	case gitRev != "" && sidecar != "" && gitRev != sidecar:
 		return "", Check{Name: name, OK: false,
-			Detail: "git reports " + gitRev + " but " + frameworkRevisionSidecar + " records " + sidecar,
-			Hint:   "The checkout and its revision sidecar describe different commits; the tree is a mix of sources. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+			Detail: Translate(locale, "pool.diagnostic_revision_conflict", map[string]any{"git": gitRev, "file": frameworkRevisionSidecar, "sidecar": sidecar}),
+			Hint:   Translate(locale, "pool.diagnostic_revision_mixed", nil)}
 	case gitRev != "":
-		return gitRev, Check{Name: name, OK: true, Detail: gitRev + " (Git checkout)"}
+		return gitRev, Check{Name: name, OK: true, Detail: Translate(locale, "pool.diagnostic_revision_git", map[string]any{"revision": gitRev})}
 	case sidecar != "":
-		return sidecar, Check{Name: name, OK: true, Detail: sidecar + " (" + frameworkRevisionSidecar + ", archive-only checkout)"}
+		return sidecar, Check{Name: name, OK: true, Detail: Translate(locale, "pool.diagnostic_revision_archive", map[string]any{"revision": sidecar, "file": frameworkRevisionSidecar})}
 	default:
 		return "", Check{Name: name, OK: false,
-			Detail: "no Git checkout and no " + frameworkRevisionSidecar,
-			Hint:   "Nothing in the checkout names a commit, so this deployment cannot be tied to reviewed source. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+			Detail: Translate(locale, "pool.diagnostic_revision_no_source", map[string]any{"file": frameworkRevisionSidecar}),
+			Hint:   Translate(locale, "pool.diagnostic_revision_missing", nil)}
 	}
 }
 
-func (s *Server) checkRepoDir() Check {
+func (s *Server) checkRepoDir(locales ...i18n.Context) Check {
+	locale := diagnosticLocale(locales)
 	if s.opts.RepoDir == "" {
-		return Check{Name: "repo-dir", OK: false, Detail: "not configured", Hint: "Pass --repo-dir pointing at the yuruna framework checkout."}
+		return Check{Name: "repo-dir", OK: false, Detail: Translate(locale, "pool.diagnostic_not_configured", nil), Hint: Translate(locale, "pool.diagnostic_configure_repo", nil)}
 	}
 	if _, err := os.Stat(s.opts.RepoDir); err != nil {
 		return Check{Name: "repo-dir", OK: false, Detail: s.opts.RepoDir + ": " + errText(err),
-			Hint: "The framework checkout is missing; re-run the guest bring-up script."}
+			Hint: Translate(locale, "pool.diagnostic_repo_missing", nil)}
 	}
 	var missing []string
 	for _, cli := range poolAdminCLIs {
@@ -413,10 +418,10 @@ func (s *Server) checkRepoDir() Check {
 	}
 	if len(missing) > 0 {
 		return Check{Name: "repo-dir", OK: false,
-			Detail: s.opts.RepoDir + ": missing " + strings.Join(missing, ", "),
-			Hint:   "The checkout is stale or partial; re-fetch the framework archive."}
+			Detail: Translate(locale, "pool.diagnostic_repo_missing_files", map[string]any{"path": s.opts.RepoDir, "files": strings.Join(missing, ", ")}),
+			Hint:   Translate(locale, "pool.diagnostic_repo_partial", nil)}
 	}
-	return Check{Name: "repo-dir", OK: true, Detail: s.opts.RepoDir + ": all " + strconv.Itoa(len(poolAdminCLIs)) + " pool-admin CLIs present"}
+	return Check{Name: "repo-dir", OK: true, Detail: Translate(locale, "pool.diagnostic_repo_complete", map[string]any{"path": s.opts.RepoDir, "count": strconv.Itoa(len(poolAdminCLIs))})}
 }
 
 // intentURLReporter is satisfied by intent.Runner. Declared as an optional
@@ -438,58 +443,60 @@ func (s *Server) liveIntentURL() string {
 // checkIntentStore validates a LOCAL intent store (the pool NAS case). A remote
 // URL is reported as not-locally-checkable rather than failed: reachability is
 // then the intent-read check's job, and probing it here would just duplicate it.
-func checkIntentStore(url string) Check {
+func checkIntentStore(url string, locales ...i18n.Context) Check {
+	locale := diagnosticLocale(locales)
 	if url == "" {
-		return Check{Name: "intent-store", OK: false, Detail: "no intent URL to check"}
+		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_absent", nil)}
 	}
 	if strings.Contains(url, "://") {
 		hint := ""
 		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 			// The proxy publishes the store through a plain apache Alias, which
 			// serves fetches but cannot accept a push.
-			hint = "An http(s) intent store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS."
+			hint = Translate(locale, "pool.diagnostic_intent_pull_only", nil)
 		}
-		return Check{Name: "intent-store", OK: true, Detail: "remote URL; reachability is covered by intent-read", Hint: hint}
+		return Check{Name: "intent-store", OK: true, Detail: Translate(locale, "pool.diagnostic_intent_remote", nil), Hint: hint}
 	}
 	if _, err := os.Stat(filepath.Join(url, "refs")); err != nil {
-		return Check{Name: "intent-store", OK: false, Detail: url + ": not a bare git repo (" + errText(err) + ")",
-			Hint: "The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it."}
+		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_not_bare", map[string]any{"path": url, "detail": errText(err)}),
+			Hint: Translate(locale, "pool.diagnostic_intent_initialize", nil)}
 	}
 	probe := filepath.Join(url, ".pool-control-service-write-probe")
 	if err := os.WriteFile(probe, []byte("probe\n"), 0o600); err != nil {
-		return Check{Name: "intent-store", OK: false, Detail: url + ": bare repo present but NOT writable: " + errText(err),
-			Hint: "Writes will fail at push. Check the pool NAS mount's uid/gid against the service user."}
+		return Check{Name: "intent-store", OK: false, Detail: Translate(locale, "pool.diagnostic_intent_not_writable", map[string]any{"path": url, "detail": errText(err)}),
+			Hint: Translate(locale, "pool.diagnostic_intent_permission", nil)}
 	}
 	_ = os.Remove(probe)
-	return Check{Name: "intent-store", OK: true, Detail: url + ": bare repo, writable"}
+	return Check{Name: "intent-store", OK: true, Detail: Translate(locale, "pool.diagnostic_intent_writable", map[string]any{"path": url})}
 }
 
-func (s *Server) checkStateDir() Check {
+func (s *Server) checkStateDir(locales ...i18n.Context) Check {
+	locale := diagnosticLocale(locales)
 	if s.state == nil || !s.state.Enabled() {
-		return Check{Name: "state-dir", OK: true, Detail: "persistence disabled (no state dir configured)",
-			Hint: "The audit log and status.json are not being written; the pool NAS mount is what supplies this dir."}
+		return Check{Name: "state-dir", OK: true, Detail: Translate(locale, "pool.diagnostic_persistence_disabled", nil),
+			Hint: Translate(locale, "pool.diagnostic_persistence_logs_missing", nil)}
 	}
 	dir := s.opts.StateDir
 	if dir == "" {
 		// The store is persisting somewhere the report was not told about, so
 		// the path it names cannot be trusted -- say so rather than stat "".
-		return Check{Name: "state-dir", OK: false, Detail: "store is enabled but no state dir was reported to the server",
-			Hint: "Pass Options.StateDir alongside Options.Store so this check can probe the real path."}
+		return Check{Name: "state-dir", OK: false, Detail: Translate(locale, "pool.diagnostic_persistence_unknown", nil),
+			Hint: Translate(locale, "pool.diagnostic_persistence_configure", nil)}
 	}
 	if _, err := os.Stat(dir); err != nil {
 		return Check{Name: "state-dir", OK: false, Detail: dir + ": " + errText(err),
-			Hint: "The pool NAS mount is absent; the audit log is not durable."}
+			Hint: Translate(locale, "pool.diagnostic_persistence_nas_missing", nil)}
 	}
 	// Prove writability rather than inferring it from the mode: a cifs mount
 	// maps ownership at mount time, so the mode alone can read as writable
 	// while the server rejects the write.
 	probe := filepath.Join(dir, ".pool-control-service-write-probe")
 	if err := os.WriteFile(probe, []byte("probe\n"), 0o600); err != nil {
-		return Check{Name: "state-dir", OK: false, Detail: dir + ": not writable: " + errText(err),
-			Hint: "Check the mount's uid/gid options against the service user."}
+		return Check{Name: "state-dir", OK: false, Detail: Translate(locale, "pool.diagnostic_state_not_writable", map[string]any{"path": dir, "detail": errText(err)}),
+			Hint: Translate(locale, "pool.diagnostic_persistence_permission", nil)}
 	}
 	_ = os.Remove(probe)
-	return Check{Name: "state-dir", OK: true, Detail: dir + ": writable"}
+	return Check{Name: "state-dir", OK: true, Detail: Translate(locale, "pool.diagnostic_state_writable", map[string]any{"path": dir})}
 }
 
 func errText(err error) string {
@@ -511,4 +518,11 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func diagnosticLocale(locales []i18n.Context) i18n.Context {
+	if len(locales) > 0 && locales[0].ResolvedTag != "" {
+		return locales[0]
+	}
+	return i18n.Context{ResolvedTag: "en-US"}
 }

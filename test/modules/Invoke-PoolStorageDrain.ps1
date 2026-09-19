@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42370011-0231-4e74-92a9-2c8cee1d8a15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
 [CmdletBinding()]
 param([string]$HostId = '')
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 
@@ -53,7 +54,7 @@ if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
 $runtimeDir = $env:YURUNA_RUNTIME_DIR
 $logDir     = $env:YURUNA_LOG_DIR
 if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($logDir)) {
-    Write-Warning "poolStorage drain: YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR not set; nothing to do."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3990610f59f48a37')
     return
 }
 
@@ -79,9 +80,9 @@ try {
             -MoveLogs:$moveLogs -SpaceCheck:$moveLogs -Confirm:$false
         if ($summary) {
             $tail = if ($moveLogs) { " moved=$($summary.moved) deleted=$($summary.deleted) spaceShort=$($summary.spaceShort)" } else { '' }
-            Write-Information ("poolStorage drain: connectOk=$($summary.connectOk) copied=$($summary.copied) pending=$($summary.pending)$tail error='$($summary.error)'") -InformationAction Continue
+            Write-Information ((Format-YurunaOperatorMessage -Key 'runner.operator_4f22b6f3e5bff59b' -Arguments @{ connectOk = "$($summary.connectOk)"; copied = "$($summary.copied)"; pending = "$($summary.pending)"; tail = "$tail"; error = "$($summary.error)" })) -InformationAction Continue
         }
     }
 } catch {
-    Write-Warning "poolStorage drain error (non-fatal): $($_.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_458625e945938fdf' -Arguments @{ message = "$($_.Exception.Message)" })
 }

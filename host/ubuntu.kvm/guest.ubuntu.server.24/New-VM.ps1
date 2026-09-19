@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f12da2-1112-4de8-b565-c97a7434c2c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,8 @@ param(
     [string]$Cores = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -81,19 +83,19 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Error "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3127c22c5596f553' -Arguments @{ hostname = "$Hostname" })
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 # --- REGION: Environment checks
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5b90e07df6e150e7')
     exit 1
 }
 
@@ -115,7 +117,7 @@ $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $virtArch = 'x86_64';  $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
     'aarch64' { $virtArch = 'aarch64'; $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
-    default   { Write-Error "Unsupported arch: $arch"; exit 1 }
+    default   { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fdfd0961eabd7db1' -Arguments @{ arch = "$arch" }); exit 1 }
 }
 
 # --- REGION: Seek the base image
@@ -130,7 +132,7 @@ if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSS
 # KVM retains its documented ad hoc environment override before using the vault.
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
-    Write-Error "openssl is required for the autoinstall password hash. apt install openssl."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_356561278d80158b')
     exit 1
 }
 $Password = $env:YURUNA_GUEST_PASSWORD
@@ -138,17 +140,17 @@ if (-not $Password) {
     Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
     $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
     $Password = Get-LocalOsPassword -Username $Username
-    if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
-    Write-Output "Password came from authentication mechanism: $_authActiveName"
-    Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+    if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 } else {
-    Write-Output "Password came from environment variable: YURUNA_GUEST_PASSWORD"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ada79849fa8dc53a')
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
-    Write-Error "Password hashing failed: $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a22129b198b9c117' -Arguments @{ message = "$($_.Exception.Message)" })
     exit 1
 }
 
@@ -171,11 +173,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -190,7 +192,7 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
-if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $sshPub) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Build the autoinstall apt block
 # See https://yuruna.link/429f3d06-000a
@@ -223,7 +225,7 @@ if ($CachingProxyServiceUrl) {
     $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
-        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status service at update time. HTTP caching via :3128 unaffected."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
     }
 }
 
@@ -237,7 +239,7 @@ $baseUserData     = Join-Path $hostVmConfigDir 'ubuntu.server.base.user-data'
 $overlayUserData  = Join-Path $hostVmConfigDir 'ubuntu.server.kvm.overlay.yml'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -277,7 +279,7 @@ Copy-Item -LiteralPath (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') 
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
     (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
@@ -287,7 +289,7 @@ if ($LASTEXITCODE -ne 0) {
 # Fresh 64 G qcow2; subiquity partitions and installs onto it.
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
 # --- REGION: Create and configure the libvirt domain (virt-install)
 # See https://yuruna.link/42d69dfa-0008
@@ -311,7 +313,7 @@ if ($LASTEXITCODE -eq 0) {
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 # --- REGION: https://yuruna.link/42fa6f45-0015
@@ -322,11 +324,11 @@ $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores /
 if ($Cores) {
     $coresInt = 0
     if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
-        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0e7d8993e0f54ff9' -Arguments @{ cores = "$Cores" })
         exit 1
     }
     if ($coresInt -gt $hostCores) {
-        Write-Warning "Requested -Cores $coresInt exceeds host cores ($hostCores); clamping to $hostCores."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8e635d5ac6761fab' -Arguments @{ coresInt = "$coresInt"; hostCores = "$hostCores" })
         $coresInt = $hostCores
     }
     $vmCores = $coresInt
@@ -376,7 +378,7 @@ switch ($virtArch) {
 Write-Verbose "virt-install --print-xml=1 $($installArgs -join ' ')"
 $installXml = (& virt-install @installArgs --print-xml=1 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "virt-install --print-xml failed (exit $LASTEXITCODE):`n$installXml"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_bba21c5cbbc83755' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; installXml = "$installXml" })
     exit 1
 }
 
@@ -388,7 +390,7 @@ if ($LASTEXITCODE -ne 0) {
 # `virsh screenshot failed` loop.
 $patchedXml = $installXml -replace '<on_reboot>[^<]*</on_reboot>', '<on_reboot>restart</on_reboot>'
 if ($patchedXml -eq $installXml -and $installXml -notmatch '<on_reboot>restart</on_reboot>') {
-    Write-Error "Failed to locate <on_reboot> element in virt-install --print-xml output. Refusing to define a domain that would kill itself on first reboot."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7dcd4815768ac5a4')
     exit 1
 }
 
@@ -403,7 +405,7 @@ elseif ($patchedXml -match '<boot dev="cdrom"/>' -and $patchedXml -match '<boot 
     $patchedXml = $patchedXml -replace '<boot dev="cdrom"/>(\s*)<boot dev="hd"/>', '<boot dev="hd"/>$1<boot dev="cdrom"/>'
 }
 if ($patchedXml -eq $preBootSwap) {
-    Write-Error "Failed to locate <boot order='1'/>+<boot order='2'/> OR <boot dev=`"cdrom`"/>+<boot dev=`"hd`"/> pair in virt-install --print-xml output. Refusing to define a domain whose post-install reboot would loop back to the install CDROM. XML follows:`n$installXml"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_cdc9bbc4510f4f72' -Arguments @{ installXml = "$installXml" })
     exit 1
 }
 
@@ -411,9 +413,9 @@ $xmlFile = New-TemporaryFile
 try {
     Set-Content -LiteralPath $xmlFile.FullName -Value $patchedXml -NoNewline
     & virsh --connect $virshUri define $xmlFile.FullName
-    if ($LASTEXITCODE -ne 0) { Write-Error "virsh define failed (exit $LASTEXITCODE)"; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a419339df771d79e' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); exit 1 }
     & virsh --connect $virshUri start $VMName
-    if ($LASTEXITCODE -ne 0) { Write-Error "virsh start failed (exit $LASTEXITCODE)"; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1b83e0a223018f37' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); exit 1 }
 } finally {
     Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
 }

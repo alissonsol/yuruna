@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 # Every input arrives by parameter (no script-scope reads) so a test harness
 # can call these with fixture data. The host-driver-resolved $VMName and
 # Invoke-Sequence's $ShowSensitive switch are passed through verbatim.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -DisableNameChecking -Global
 
 function Resolve-TestSequencePlan {
@@ -89,14 +90,14 @@ function Resolve-TestSequencePlan {
         $path = $ChainPlan.chainPaths[$name]
         if (-not $path) {
             $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
-            Write-Error "Chain prereq not found: $name (referenced via baseline of $SequenceName)"
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9b3ed84eefe28021' -Arguments @{ name = "$name"; sequenceName = "$SequenceName" })
             # Status via Write-Information, never Write-Output: this function's
             # return value is captured (`$plan = Resolve-TestSequencePlan`), so a
             # Write-Output string would join the returned hashtable into an array
             # (the pipeline-pollution trap). A later `$plan.chainEntries` member
             # access would then enumerate and unwrap a single warm-path entry to a
             # bare object, failing the chain runner's [IList] binding.
-            Write-Information "Searched (no match):" -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bb6ea47ea248dbf6') -InformationAction Continue
             foreach ($p in $searched) { Write-Information "  $p" -InformationAction Continue }
             return @{
                 chainEntries       = $null
@@ -126,9 +127,9 @@ function Resolve-TestSequencePlan {
     $ChainTotalSteps = $globalCount
 
     if ($ChainPlan.fullChain.Count -gt 1) {
-        Write-Information "Chain: $($ChainPlan.fullChain -join ' -> ')" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_84795985ec3433c6' -Arguments @{ join = "$($ChainPlan.fullChain -join ' -> ')" }) -InformationAction Continue
     } else {
-        Write-Information "Chain: $($ChainPlan.fullChain[0]) (no baseline prereqs declared)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_57d386e54fe5ebcf' -Arguments @{ fullChain = "$($ChainPlan.fullChain[0])" }) -InformationAction Continue
     }
 
     # --- REGION: requiresSnapshot warm-path probe
@@ -174,7 +175,7 @@ function Resolve-TestSequencePlan {
             }
         }
         if (-not $probeDetermined) {
-            Write-Warning "requiresSnapshot: could not determine whether snapshot '$requiredSnapshotId' exists after 3 probe attempts ($probeError). Failing the plan rather than risk a cold rebuild that clobbers an existing snapshot."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cd765839a3cbe235' -Arguments @{ requiredSnapshotId = "$requiredSnapshotId"; probeError = "$probeError" })
             return @{
                 chainEntries       = $null
                 chainPlan          = $ChainPlan
@@ -199,15 +200,15 @@ function Resolve-TestSequencePlan {
                 if ($reuse.Status -eq 'stale' -and $policy.rebuildOnMismatch -eq $true) {
                     if (-not (Remove-StaleManagedSnapshot -SnapshotId $requiredSnapshotId -HostType $HostType `
                         -Policy $policy -SourceIdentity $identity -Confirm:$false)) {
-                        throw 'Could not remove the stale managed baseline.'
+                        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2751aa86523ed820')
                     }
-                    Write-Information "requiresSnapshot: $($reuse.Reason) Rebuilding '$requiredSnapshotId'." -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_975dbdbeee0d6269' -Arguments @{ reason = "$($reuse.Reason)"; requiredSnapshotId = "$requiredSnapshotId" }) -InformationAction Continue
                     $snapPresent = $false
                 } elseif ($reuse.Status -ne 'reusable') {
                     throw $reuse.Reason
                 }
             } catch {
-                Write-Warning "requiresSnapshot: refusing baseline '$requiredSnapshotId': $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4b69403b63858415' -Arguments @{ requiredSnapshotId = "$requiredSnapshotId"; message = "$($_.Exception.Message)" })
                 return @{
                     chainEntries = $null; chainPlan = $ChainPlan
                     effectiveUser = $effectiveUser; effectiveHost = $effectiveHost
@@ -219,7 +220,7 @@ function Resolve-TestSequencePlan {
             }
         }
         if ($snapPresent) {
-            Write-Information "requiresSnapshot: snapshot '$requiredSnapshotId' present on persisted VM '$requiredSnapshotId' -- skipping baseline chain (warm path)." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f89ff497e73a195c' -Arguments @{ requiredSnapshotId = "$requiredSnapshotId" }) -InformationAction Continue
             $warmPath = $true
             # Drop every prereq; keep only the top-level entry and rebase its
             # globalStart to 1 so -StartStep / -StopStep index into the
@@ -229,7 +230,7 @@ function Resolve-TestSequencePlan {
             [void]$ChainEntries.Add($topLevelEntry)
             $ChainTotalSteps = $topLevelEntry.stepCount
         } else {
-            Write-Information "requiresSnapshot: snapshot '$requiredSnapshotId' not on host -- running full baseline chain (cold path; VM will be renamed to '$requiredSnapshotId' at saveDiskSnapshot)." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_173d23fb320278cc' -Arguments @{ requiredSnapshotId = "$requiredSnapshotId" }) -InformationAction Continue
         }
     }
 
@@ -400,7 +401,7 @@ function Invoke-TestSequenceChain {
     # Write-Output string would join the returned hashtable into an array (the
     # pipeline-pollution trap) -- `$result.ok` then survives only by member-
     # enumeration luck and the operator loses the progress lines into `$result`.
-    Write-Information "Running steps $StartStep to $EffectiveStop..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ceb894661c0bb86d' -Arguments @{ startStep = "$StartStep"; effectiveStop = "$EffectiveStop" }) -InformationAction Continue
     Write-Information "" -InformationAction Continue
 
     foreach ($entry in $ChainEntries) {
@@ -411,7 +412,7 @@ function Invoke-TestSequenceChain {
         $sliceStart = [Math]::Max($StartStep, $thisStart)
         $sliceEnd   = [Math]::Min($EffectiveStop, $thisEnd)
         if ($sliceStart -gt $sliceEnd) {
-            Write-Information "Skipping (no steps in requested range): $($entry.name)" -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4bc20230e5c927ae' -Arguments @{ name = "$($entry.name)" }) -InformationAction Continue
             continue
         }
 
@@ -420,7 +421,7 @@ function Invoke-TestSequenceChain {
         $localEnd   = $sliceEnd   - $thisStart + 1
 
         Write-Information "" -InformationAction Continue
-        Write-Information "--- $($entry.name): local steps $localStart-$localEnd of $($entry.stepCount) (global $sliceStart-$sliceEnd) ---" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_019df28e2a34d19e' -Arguments @{ name = "$($entry.name)"; localStart = "$localStart"; localEnd = "$localEnd"; stepCount = "$($entry.stepCount)"; sliceStart = "$sliceStart"; sliceEnd = "$sliceEnd" }) -InformationAction Continue
 
         # Run the entry's real file with the local step window. Invoke-Sequence
         # slices internally (Select-SequenceStepWindow), so there is no temp YAML
@@ -430,9 +431,9 @@ function Invoke-TestSequenceChain {
         # for cleartext during local debugging.
         $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $entry.path -EffectiveVariables $ChainPlan.effectiveVariables -ShowSensitive:$ShowSensitive -StartStep $localStart -StopStep $localEnd
         if ($ok -ne $true) {
-            Write-Warning "Sequence failed: $($entry.name)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d9a6cf39bfb7156a' -Arguments @{ name = "$($entry.name)" })
             Write-Information "" -InformationAction Continue
-            Write-Information "To reproduce with full diagnostics:" -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d2018d2fd5d50e44') -InformationAction Continue
             Write-Information "  pwsh test/Debug-TestSequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug" -InformationAction Continue
             return @{ ok = $false; finishedVmName = $VMName }
         }
@@ -444,16 +445,16 @@ function Invoke-TestSequenceChain {
         # subsequent entries on the renamed VM instead of the now-absent original.
         $finishedVmName = Get-SequenceFinishedVMName
         if ($finishedVmName -and $finishedVmName -ne $VMName) {
-            Write-Information "VM renamed mid-chain: '$VMName' -> '$finishedVmName'; subsequent entries will target '$finishedVmName'." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4c506c1c34e3d41a' -Arguments @{ vMName = "$VMName"; finishedVmName = "$finishedVmName" }) -InformationAction Continue
             $VMName = $finishedVmName
         }
     }
 
     Write-Information "" -InformationAction Continue
     if ($StopStep -ne 0 -and $EffectiveStop -lt $ChainTotalSteps) {
-        Write-Information "Chain stopped after step $EffectiveStop of $ChainTotalSteps. VM '$VMName' left running for inspection." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_66ea655ef4171c82' -Arguments @{ effectiveStop = "$EffectiveStop"; chainTotalSteps = "$ChainTotalSteps"; vMName = "$VMName" }) -InformationAction Continue
     } else {
-        Write-Information "Chain completed successfully ($ChainTotalSteps step(s) across $($ChainPlan.fullChain.Count) sequence(s))." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cf1a72c9998c9f41' -Arguments @{ chainTotalSteps = "$ChainTotalSteps"; count = "$($ChainPlan.fullChain.Count)" }) -InformationAction Continue
     }
 
     return @{ ok = $true; finishedVmName = $VMName }

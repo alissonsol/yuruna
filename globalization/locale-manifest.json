@@ -14,8 +14,8 @@
       "direction": "ltr",
       "status": "planned",
       "displayName": "Portugues (Brasil)",
-      "pluralCategories": ["one", "other"],
-      "pluralRule": null,
+      "pluralCategories": ["one", "many", "other"],
+      "pluralRule": "pt-cardinal-cldr46",
       "numberFormat": { "group": ".", "decimal": ",", "groupSize": 3 }
     },
     "qps-Ploc": {
@@ -41,7 +41,11 @@
     "pt-PT": "pt-BR"
   },
   "pluralRules": {
-    "one-if-1": "The count takes the 'one' form when it is exactly 1, and 'other' in every other case, zero included."
+    "one-if-1": "The count takes the 'one' form when it is exactly 1, and 'other' in every other case, zero included.",
+    "pt-cardinal-cldr46": "CLDR 46 Portuguese cardinal rule for canonical numeric counts (no compact exponent or preserved trailing decimal zeros): the absolute integer part 0 or 1 takes one; other nonzero integral multiples of 1000000 take many; all other counts take other."
+  },
+  "pluralRuleSources": {
+    "pt-cardinal-cldr46": "https://github.com/unicode-org/cldr/blob/release-46/common/supplemental/plurals.xml"
   },
   "pluralRulesNote": "A locale whose pluralRule is null has no rule pinned yet, and every runtime refuses it rather than borrowing another locale's -- English and Portuguese disagree about zero, and a borrowed rule reads as fluent, confident, wrong grammar to anyone who does not speak the language. Pinning a rule means transcribing it from a CLDR release and naming it here, so all three runtimes select the same form for the same count.",
   "numberFormatNote": "Separators are declared here rather than read from each runtime's own locale database. The browser floor has no Intl at all, and the ICU version behind a server runtime changes between releases; a table that lives in one place is the only way the same number reaches every reader identically.",

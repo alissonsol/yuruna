@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4207e139-f8d7-47ca-aef7-9b91cc585612
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@ param(
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -42,15 +43,15 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
-    Write-Error "host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1 only runs on Windows Hyper-V."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2542864c23790bce')
     exit 1
 }
 
 # --- REGION: Elevation check
-Write-Output "This script requires elevation (Run as Administrator)."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e3de8bf7b8f6ba1')
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Write-Output "Be careful."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9fd336c78bc7623')
     exit 1
 }
 
@@ -60,17 +61,17 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $hostArch = 'amd64' }
     'Arm64' { $hostArch = 'arm64' }
     default {
-        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
         exit 1
     }
 }
-Write-Output "Host architecture: $hostArch"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5d5bccb746b0bc5e' -Arguments @{ hostArch = "$hostArch" })
 
 # --- REGION: Configuration
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
-Write-Output "Hyper-V default VHDX folder: $downloadDir"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e30f6e2006f710fa' -Arguments @{ downloadDir = "$downloadDir" })
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
 }
 

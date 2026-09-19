@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423d0e57-097d-4f6e-aabb-76a866d96fe5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
 
 # Test-IsAdministrator comes from the dependency-free leaf next door. Imported
 # into this module's scope only -- the caller's session is left alone.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module -Name (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Force -DisableNameChecking
 
 function Get-YurunaRepoRoot {
@@ -75,7 +76,7 @@ function Get-CurrentPwshPath {
     $fallback = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($fallback) { return $fallback.Source }
-    throw 'Could not locate a pwsh executable to launch the host script with.'
+    throw (Format-YurunaOperatorMessage -Key 'automation.operator_2c97df948ff5ed77')
 }
 
 function Test-ScriptRequiresElevation {
@@ -126,7 +127,7 @@ function Import-HostDetectionModule {
     }
     $detectionModule = Join-Path $RepoRoot 'test/modules/Test.HostDetection.psm1'
     if (-not (Test-Path -LiteralPath $detectionModule -PathType Leaf)) {
-        throw "Host detection module not found: $detectionModule"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_f4f77e3413af6867' -Arguments @{ detectionModule = "$detectionModule" })
     }
     # -Global: the importing script (and anything it calls) must see these too,
     # not just this module's scope.
@@ -159,7 +160,7 @@ function Resolve-YurunaHostScript {
 
     if (-not $HostType) { $HostType = Get-HostType }
     if (-not $HostType) {
-        throw 'Host type could not be determined. Only macOS (UTM), Windows (Hyper-V), and Linux (KVM/libvirt) are supported.'
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_60747ca0849cfbc6')
     }
 
     if ($ScriptName -notmatch '\.ps1$') { $ScriptName = "$ScriptName.ps1" }
@@ -167,12 +168,12 @@ function Resolve-YurunaHostScript {
     $relativeFolder = Get-HostFolder $HostType
     $hostFolder     = Join-Path $RepoRoot $relativeFolder
     if (-not (Test-Path -LiteralPath $hostFolder -PathType Container)) {
-        throw "Host folder not found: $hostFolder"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_c17cf396c249fccd' -Arguments @{ hostFolder = "$hostFolder" })
     }
 
     $scriptPath = Join-Path $hostFolder $ScriptName
     if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-        throw "'$ScriptName' is not available for $HostType (looked for: $scriptPath)."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_163577cbcc97e68e' -Arguments @{ scriptName = "$ScriptName"; hostType = "$HostType"; scriptPath = "$scriptPath" })
     }
 
     return @{
@@ -290,11 +291,11 @@ function Invoke-YurunaHostScript {
         # One line, no embedded newlines: PowerShell re-wraps a multi-line
         # exception message into its error block and the shape is lost.
         throw ("$($target.RelativePath) requires Administrator, and this session is not elevated. " +
-               "Re-run the same command from an elevated PowerShell (Start-Process pwsh -Verb RunAs).")
+               (Format-YurunaOperatorMessage -Key 'automation.operator_d010ef7a06fe926c'))
     }
 
     if (-not $Quiet) {
-        Write-Output "Host type: $($target.HostType)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_82bcd42076e94095' -Arguments @{ hostType = "$($target.HostType)" })
         Write-Output "Running:   $($target.RelativePath)"
         Write-Output ''
     }

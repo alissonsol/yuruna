@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
 
 # Own the dependencies (Get-CachingProxyServicePort, Format-IpUrlHost) rather than
 # assuming a caller imported Yuruna.Common into a visible scope.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -165,7 +166,7 @@ function Write-ImageSentinel {
             Write-Verbose "Write-ImageSentinel: Last-Modified HEAD probe failed (recording empty): $($_.Exception.Message)"
         }
     }
-    if ($PSCmdlet.ShouldProcess($OriginFile, 'Write 4-line image sentinel')) {
+    if ($PSCmdlet.ShouldProcess($OriginFile, (Format-YurunaOperatorMessage -Key 'host.operator_b3a4a5bafc255b3c'))) {
         Set-Content -LiteralPath $OriginFile -Value @($filename, $SourceUrl, "$SizeBytes", "$LastModified")
     }
 }
@@ -192,7 +193,7 @@ function Invoke-DownloadWithRetry {
         try { & $Download; return }
         catch {
             if ([DateTime]::UtcNow -ge $deadline) { throw }
-            Write-Warning "Download attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b9071f2223cd19e1' -Arguments @{ attempt = "$attempt"; message = "$($_.Exception.Message)"; backoff = "${backoff}" })
             Start-Sleep -Seconds $backoff
             $backoff = [Math]::Min($backoff * 2, $MaxBackoffSeconds)
         }
@@ -290,11 +291,11 @@ function Save-CachedHttpUri {
         return
     }
     if (-not $cfg.CaPemPath) {
-        Write-Information "Routing download through squid cache: $($cfg.Proxy)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6324f0717ba924d0' -Arguments @{ proxy = "$($cfg.Proxy)" }) -InformationAction Continue
         Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Proxy $cfg.Proxy -ErrorAction Stop
         return
     }
-    Write-Information "Routing HTTPS download through squid SSL-bump: $($cfg.Proxy) (per-process trust of Yuruna CA at $($cfg.CaPemPath))" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_103c960e4cbdd8a2' -Arguments @{ proxy = "$($cfg.Proxy)"; caPemPath = "$($cfg.CaPemPath)" }) -InformationAction Continue
     Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
 }
 
@@ -389,7 +390,7 @@ function Invoke-HttpsViaSquidBump {
         $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
         try {
             if (-not $response.IsSuccessStatusCode) {
-                throw "HTTP $([int]$response.StatusCode) $($response.ReasonPhrase) for $Uri"
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.host_3fa13d65fc1bcf6d' -Arguments @{ statusCode = "$([int]$response.StatusCode)"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" })
             }
             $total = $response.Content.Headers.ContentLength
             $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
@@ -406,9 +407,9 @@ function Invoke-HttpsViaSquidBump {
                         if ([DateTime]::UtcNow -gt $next) {
                             if ($total) {
                                 $pct = [math]::Round($written * 100.0 / $total, 1)
-                                Write-Progress -Activity $activity -Status ("{0:N1} / {1:N1} MB ({2}%)" -f ($written/1MB), ($total/1MB), $pct) -PercentComplete $pct
+                                Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_ede646f387ba0602' -FormatValues (($written/1MB), ($total/1MB), $pct) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; pct = '2' }) -PercentComplete $pct
                             } else {
-                                Write-Progress -Activity $activity -Status ("{0:N1} MB" -f ($written/1MB))
+                                Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_e12c13989dfbd234' -FormatValues (($written/1MB)) -FormatBindings @{ mB = '0:N1' })
                             }
                             $next = [DateTime]::UtcNow.AddSeconds(2)
                         }

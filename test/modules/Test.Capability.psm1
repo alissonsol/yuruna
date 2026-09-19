@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 # fails the cycle plan up front, not three steps deep with "Unknown host:".
 # Rationale and banner format: https://yuruna.link/42d38664-000f
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1')         -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1')       -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1')  -Global -Force
@@ -158,15 +159,15 @@ function Write-HostCapabilityBanner {
     $sep = '---------------------------------------------------------'
     Write-Information ''
     Write-Information $sep
-    Write-Information "Yuruna capability matrix ($($Matrix.hostType))"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d99ef639ed95d834' -Arguments @{ hostType = "$($Matrix.hostType)" })
     Write-Information $sep
     $hostIO = if ($Matrix.hostIO.Count) { ($Matrix.hostIO | Sort-Object) -join ', ' } else { '(none registered)' }
-    Write-Information "  Host I/O:   $hostIO"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a5c025fc8856bead' -Arguments @{ hostIO = "$hostIO" })
     $ocr = if ($Matrix.ocr.Count) { ($Matrix.ocr -join ', ') } else { '(none available)' }
     Write-Information "  OCR:        $ocr"
     $vncR = if ($Matrix.vncReconnect) { 'per-host provider' } else { 'built-in (clear cached handle)' }
     $ssR  = if ($Matrix.screenshotProvider) { 'fast-path provider' } else { 'legacy capture' }
-    Write-Information "  Recovery:   VNC reconnect ($vncR), screenshot ($ssR)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8d5d42edd6f17a97' -Arguments @{ vncR = "$vncR"; ssR = "$ssR" })
     if ($Matrix.extensions.Keys.Count) {
         Write-Information '  Extensions:'
         foreach ($area in $Matrix.extensions.Keys) {

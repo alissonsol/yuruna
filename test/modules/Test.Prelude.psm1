@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,26 +16,10 @@
 
 #requires -version 7
 
-# Cross-entry-point prelude. One function returns the canonical path
-# bundle every entry-point script needs ($TestRoot, $RepoRoot,
-# $ModulesDir, $SequencesDir, $StatusDir, $ConfigPath), so the four
-# entry points (Start-TestRunner, Invoke-TestRunnerInnerLoop,
-# Debug-TestSequence, Invoke-TestProject) can never drift.
-#
-# Centralizes the path-bundle computation that every entry point
-# needs, so a new entry point ("Test-DockerCycle.ps1",
-# "Invoke-K8sRunner.ps1") doesn't have to copy-paste:
-#
-#   $TestRoot   = $PSScriptRoot                # or one level up in a subfolder
-#   $RepoRoot   = Split-Path -Parent $TestRoot
-#   $ModulesDir = Join-Path $TestRoot 'modules'
-#   ...
-#
-# Exit-code contract: 0 = success, 1 = anything else. Distinct preflight
-# failures surface via Stop-WithReason banner text (operator + CI parser
-# reads the "STOP at <Step>" line, not the numeric code). Standardizing
-# on 0/1 means CI doesn't need a per-script lookup table.
+# Cross-entry-point prelude. See ../../docs/test-harness.md#entry-points
+# for the shared path bundle and the 0/1 exit-code contract. -- Test.Prelude.psm1
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Initialize-YurunaEntryPoint {
     <#
     .SYNOPSIS
@@ -391,7 +375,7 @@ function Initialize-YurunaEntryPointModuleSet {
     foreach ($modName in $sets[$For]) {
         $modPath = Join-Path $ModulesDir $modName
         if (-not (Test-Path -LiteralPath $modPath)) {
-            Write-Warning "Initialize-YurunaEntryPointModuleSet: $modName not found at $modPath (kind=$For); skipping."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5eb94d6047f29167' -Arguments @{ modName = "$modName"; modPath = "$modPath"; for = "$For" })
             continue
         }
         Import-Module -Name $modPath -Global -Force -DisableNameChecking -Verbose:$false
@@ -464,7 +448,7 @@ function Wait-WithProgress {
             $pct          = [math]::Min(100, [math]::Max(0, [int](($elapsedSeconds * 100) / $TotalSeconds)))
             try {
                 Write-Progress -Id $Id -Activity $Activity `
-                    -Status ("{0}s remain (of {1}s)" -f $remainingSeconds, $TotalSeconds) `
+                    -Status (Format-YurunaOperatorMessage -Key 'runner.operator_c28443177bbd5207' -FormatValues ($remainingSeconds, $TotalSeconds) -FormatBindings @{ remainingSeconds = '0'; totalSeconds = '1' }) `
                     -PercentComplete $pct -SecondsRemaining $remainingSeconds
             } catch { $null = $_ }
             Start-Sleep -Seconds $PollSeconds
@@ -509,7 +493,7 @@ function Initialize-SequenceEngineRegistry {
     param(
         [Parameter(Mandatory)][string]$ModulesDir
     )
-    if (-not $PSCmdlet.ShouldProcess('SequenceAction + HostIO registries', 'Reset + repopulate')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_5dcd5b979f692173'), 'Reset + repopulate')) { return }
     Clear-SequenceAction -Confirm:$false
     Clear-HostIOProvider -Confirm:$false
     Import-Module -Name (Join-Path $ModulesDir 'Test.SequenceEngine.psm1') `
@@ -551,11 +535,11 @@ function Assert-NoOtherRunner {
     if ($state.status -ne 'OtherRunner') { return $true }
     Write-Output ''
     Write-Output '========'
-    Write-Output '  Another Start-TestRunner is already running'
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5375f3983fa12ae6')
     Write-Output "  PID:    $($state.pid)"
-    Write-Output "  Caller: $CallerName refuses to interfere"
-    Write-Output '  Action: stop the existing runner first, or run'
-    Write-Output '          this from a different YURUNA_RUNTIME_DIR.'
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_225c9051c6604c3b' -Arguments @{ callerName = "$CallerName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_bc15af7415320b3e')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_134f1bf954b9d352')
     Write-Output '========'
     return $false
 }
@@ -599,7 +583,7 @@ function Register-EntryPointCancelHandler {
             -SourceIdentifier $SourceIdentifier -MessageData $state -Action {
                 $Event.SourceEventArgs.Cancel = $true
                 $Event.MessageData['Requested'] = $true
-                Write-Warning "Shutdown requested (Ctrl+C). Will exit after the current $($Event.MessageData['ExitAfterLabel'])..."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0fac9c35eb687cbe' -Arguments @{ exitAfterLabel = "$($Event.MessageData['ExitAfterLabel'])" })
             }
     } catch {
         Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $($_.Exception.Message)"
@@ -758,7 +742,7 @@ function Start-YurunaConfigServiceIfEnabled {
                 if ($Restart) { & $StartScript -Port $decision.Port -Restart }
                 else          { & $StartScript -Port $decision.Port }
             } catch {
-                Write-Warning "config service ensure failed: $($_.Exception.Message). NAS-credential serving (Extension hosts + ypool-nas rotation) is unavailable until the next cycle re-ensures it."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_81ca660efffe92cc' -Arguments @{ message = "$($_.Exception.Message)" })
             }
         } else {
             Write-Verbose "Start-ConfigService.ps1 not found at '$StartScript'; skipping config-service ensure."

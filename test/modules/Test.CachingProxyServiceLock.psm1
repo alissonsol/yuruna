@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c6a229-b03a-4ffe-979e-1360be03ef47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # hold-profile table, and the adopt-or-rebuild
 # decision shape: docs/caching.md#rebuild-adopt-if-healthy-and-the-bring-up-lock
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:CachingProxyServiceLockFile = 'caching-proxy-service.lock'
 
 # Age past which a recorded lock is ABANDONED rather than slow, so it is drained
@@ -204,7 +205,7 @@ function Enter-CachingProxyServiceLock {
                 # dot-sourced or run as a job. A self-owned lock is therefore stale
                 # by definition. Warned (not Verbose): it means an earlier bring-up
                 # in this shell died, which the operator should know about.
-                Write-Warning "caching-proxy-service lock: reclaiming this process's own leftover lock (PID $PID, role '$($holder.Role)') from an earlier bring-up that exited without releasing it."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc0ae585e86ec0a2' -Arguments @{ pID = "$PID"; role = "$($holder.Role)" })
                 Remove-Item -LiteralPath $pidPath, $startPath -Force -ErrorAction SilentlyContinue
                 continue
             }
@@ -215,7 +216,7 @@ function Enter-CachingProxyServiceLock {
                 # a leak: the recorded PID is some other still-live shell, so neither
                 # the liveness drain nor the self-owned reclaim applies. An unknown age
                 # ($null -- no sidecar, or an unreadable stamp) never drains.
-                Write-Warning ("caching-proxy-service lock: draining an abandoned lock -- PID $($holder.Pid) (role '$($holder.Role)') has held it {0:N1} h, past the {1:N1} h ceiling." -f ($holderAge / 3600), ($script:CachingProxyServiceLockMaxAgeSeconds / 3600))
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_ef9804a60837bfd2' -Arguments @{ pid = "$($holder.Pid)"; role = "$($holder.Role)" } -FormatValues (($holderAge / 3600), ($script:CachingProxyServiceLockMaxAgeSeconds / 3600)) -FormatBindings @{ holderAge = '0:N1'; cachingProxyServiceLockMaxAgeSeconds = '1:N1' }))
                 Remove-Item -LiteralPath $pidPath, $startPath -Force -ErrorAction SilentlyContinue
                 continue
             }

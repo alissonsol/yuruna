@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 # Both paths and the sentinel formats:
 # docs/guest-image-setup.md#ubuntu-iso-downloads-yurunaubuntuimagepsm1
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Write-UbuntuImageExceptionDetail {
     param($Record)
     Write-Verbose "Exception type: $($Record.Exception.GetType().FullName)"
@@ -111,13 +112,13 @@ function Resolve-UbuntuServerStableImage {
     try {
         $page = (Invoke-WebRequest -Uri "$ReleaseBaseUrl/" -ErrorAction Stop).Content
     } catch {
-        Write-Warning "Stable release index at $ReleaseBaseUrl not reachable: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_42f0f8d1abd44b3f' -Arguments @{ releaseBaseUrl = "$ReleaseBaseUrl"; message = "$($_.Exception.Message)" })
         Write-UbuntuImageExceptionDetail $_
         return $null
     }
     $found = [regex]::Matches($page, $IsoPattern)
     if ($found.Count -eq 0) {
-        Write-Warning "No ISO matching pattern '$IsoPattern' found at $ReleaseBaseUrl"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a22385e20dbe740d' -Arguments @{ isoPattern = "$IsoPattern"; releaseBaseUrl = "$ReleaseBaseUrl" })
         return $null
     }
     # Sort by the parsed [version], not lexically: as strings '24.04.2' sorts ABOVE '24.04.10',
@@ -144,7 +145,7 @@ function Resolve-UbuntuServerDailyImage {
     try {
         Invoke-WebRequest -Uri $url -Method Head -ErrorAction Stop | Out-Null
     } catch {
-        Write-Warning "Daily ISO at $url not reachable: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bf10148337542752' -Arguments @{ url = "$url"; message = "$($_.Exception.Message)" })
         Write-UbuntuImageExceptionDetail $_
         return $null
     }
@@ -169,46 +170,46 @@ function Write-UbuntuImageProxyDiagnostic {
         genuinely unreachable mirror.
     #>
     param([string[]]$ProbeUrls = @())
-    Write-Output "Proxy-related environment variables:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d47b313283bbfa9f')
     foreach ($v in 'http_proxy','https_proxy','HTTP_PROXY','HTTPS_PROXY','no_proxy','NO_PROXY','all_proxy','ALL_PROXY') {
         $val = [System.Environment]::GetEnvironmentVariable($v)
         Write-Output ("  " + $v + '=' + ($(if ($val) { $val } else { '(not set)' })))
     }
-    Write-Output "System-level proxy configuration:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ca6b567d25ee4169')
     if ($IsMacOS) {
         try {
             $sc = (& scutil --proxy 2>&1) -join "`n"
             Write-Output "  scutil --proxy:"
             foreach ($line in ($sc -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
         } catch {
-            Write-Output "  scutil --proxy failed: $($_.Exception.Message)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4de7942157cfd862' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     } elseif ($IsWindows) {
         try {
             $nw = (& netsh winhttp show proxy 2>&1) -join "`n"
-            Write-Output "  netsh winhttp show proxy:"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4ac977c303f1ed0e')
             foreach ($line in ($nw -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
         } catch {
-            Write-Output "  netsh winhttp failed: $($_.Exception.Message)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_151869ef5e88ee85' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     } else {
-        Write-Output "  (no platform-specific system-proxy probe on this OS)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9c87c921239516dc')
     }
     if ($ProbeUrls.Count -gt 0) {
-        Write-Output ".NET DefaultWebProxy resolution (what Invoke-WebRequest actually uses):"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0e6be99a1c64ed77')
         try {
             Write-Output ("  Type: " + [System.Net.WebRequest]::DefaultWebProxy.GetType().FullName)
         } catch {
-            Write-Output "  (DefaultWebProxy unavailable: $($_.Exception.Message))"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8d7e028bfdaf5af6' -Arguments @{ message = "$($_.Exception.Message)" })
         }
         foreach ($u in $ProbeUrls) {
             try {
                 $uri = [System.Uri]::new($u)
                 $resolved = [System.Net.WebRequest]::DefaultWebProxy.GetProxy($uri)
                 $bypassed = [System.Net.WebRequest]::DefaultWebProxy.IsBypassed($uri)
-                Write-Output ("  GetProxy('$u') = $resolved (bypassed=$bypassed)")
+                Write-Output ((Format-YurunaOperatorMessage -Key 'host.operator_106fbf5a8e4ad2b9' -Arguments @{ u = "$u"; resolved = "$resolved"; bypassed = "$bypassed" }))
             } catch {
-                Write-Output ("  GetProxy('$u') failed: $($_.Exception.Message)")
+                Write-Output ((Format-YurunaOperatorMessage -Key 'host.operator_ea4f8575bd4350f7' -Arguments @{ u = "$u"; message = "$($_.Exception.Message)" }))
             }
         }
     }
@@ -231,17 +232,17 @@ function Resolve-UbuntuServerImage {
     )
     $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
     if ($PreferDaily) {
-        Write-Information "Resolving daily build from $($url.DailyBaseUrl) ..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_92959818bd3cbd06' -Arguments @{ dailyBaseUrl = "$($url.DailyBaseUrl)" }) -InformationAction Continue
         $resolved = Resolve-UbuntuServerDailyImage -DailyBaseUrl $url.DailyBaseUrl -IsoFileName $url.DailyIsoFileName
         if (-not $resolved) {
-            Write-Warning "Daily build unavailable; falling back to stable build at $($url.StableReleaseUrl) ..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_836ce08aa7c8918a' -Arguments @{ stableReleaseUrl = "$($url.StableReleaseUrl)" })
             $resolved = Resolve-UbuntuServerStableImage -ReleaseBaseUrl $url.StableReleaseUrl -IsoPattern $url.StableIsoPattern
         }
     } else {
-        Write-Information "Resolving stable build from $($url.StableReleaseUrl) ..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c689a85719965f3f' -Arguments @{ stableReleaseUrl = "$($url.StableReleaseUrl)" }) -InformationAction Continue
         $resolved = Resolve-UbuntuServerStableImage -ReleaseBaseUrl $url.StableReleaseUrl -IsoPattern $url.StableIsoPattern
         if (-not $resolved) {
-            Write-Warning "Stable build unavailable; falling back to daily build at $($url.DailyBaseUrl) ..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_27a71e3ba4d8a962' -Arguments @{ dailyBaseUrl = "$($url.DailyBaseUrl)" })
             $resolved = Resolve-UbuntuServerDailyImage -DailyBaseUrl $url.DailyBaseUrl -IsoFileName $url.DailyIsoFileName
         }
     }
@@ -274,7 +275,7 @@ function Test-UbuntuServerImageChecksum {
         [Parameter(Mandatory)][string]$IsoFileName,
         [Parameter(Mandatory)][string]$DownloadFile
     )
-    Write-Information "Verifying download integrity..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_07fe5b3f6f64fc10') -InformationAction Continue
     # SHA256SUMS fetch: bounded retries absorb transient mirror failures so they
     # are not conflated with "mirror publishes no checksums". A definitive HTTP
     # 403/404/410 means the checksum file genuinely is not published -> soft
@@ -310,7 +311,7 @@ function Test-UbuntuServerImageChecksum {
         }.GetNewClosure()
         $fetchError = $null
         if (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
-            $attempted = Invoke-WithYurunaRetry -Label 'SHA256SUMS fetch' -ScriptBlock $fetch `
+            $attempted = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'host.operator_41482ec4b9e3d550') -ScriptBlock $fetch `
                 -MaxAttempts 4 -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
                 -ShouldRetry {
                     param($info)
@@ -329,15 +330,15 @@ function Test-UbuntuServerImageChecksum {
         if (-not $checksumContent) {
             $status = Get-UbuntuImageHttpStatus -ErrorRecord $fetchError
             if ($status -in 403, 404, 410) {
-                Write-Warning "Checksum file not published at $ChecksumUrl (HTTP $status); skipping verification."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_135befd0132343f2' -Arguments @{ checksumUrl = "$ChecksumUrl"; status = "$status" })
                 return $true
             }
             Write-Warning ('=' * 72)
-            Write-Warning "  CHECKSUM FILE FETCH FAILED"
-            Write-Warning "  Source   : $ChecksumUrl"
-            Write-Warning "  Error    : $(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })"
-            Write-Warning "  Transient fetch failure persisted through retries; the download"
-            Write-Warning "  cannot be verified and is NOT treated as checksum-less."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ffa509d9c8227161')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2316bbbe70c189' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e96b79d3e29d27c5' -Arguments @{ returned = "$(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b144a3f615f5cc3d')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_89fba45b13464342')
             Write-Warning ('=' * 72)
             return $false
         }
@@ -358,13 +359,13 @@ function Test-UbuntuServerImageChecksum {
         }
         if ($sigVerifier) {
             switch (& $sigVerifier -ChecksumUrl $ChecksumUrl -ChecksumFilePath $sumsFile) {
-                'good'       { Write-Information "Checksum signature OK (pinned Ubuntu key)." -InformationAction Continue }
-                'unverified' { Write-Warning "SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
+                'good'       { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_16b618147c03a190') -InformationAction Continue }
+                'unverified' { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_891e818fe6ad2659') }
                 'bad'        {
                     Write-Warning ('=' * 72)
-                    Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
-                    Write-Warning "  Source   : $ChecksumUrl"
-                    Write-Warning "  Failed verification against the pinned Ubuntu signing keys."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ad8085714f2d476d')
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2316bbbe70c189' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_72ff259bdf314467')
                     Write-Warning ('=' * 72)
                     return $false
                 }
@@ -383,7 +384,7 @@ function Test-UbuntuServerImageChecksum {
     $rx = [regex]::new(('^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($IsoFileName) + '\s*$'), 'Multiline')
     $checksumLine = $rx.Match($checksumContent)
     if (-not $checksumLine.Success) {
-        Write-Warning "Could not find checksum for $IsoFileName at $ChecksumUrl. Skipping verification."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1dfbd537872c61ec' -Arguments @{ isoFileName = "$IsoFileName"; checksumUrl = "$ChecksumUrl" })
         return $true
     }
     $expectedHash = $checksumLine.Groups[1].Value
@@ -394,15 +395,15 @@ function Test-UbuntuServerImageChecksum {
         # we surface the mismatch loud enough to spot in scrollback but
         # leave the abort/continue policy to the caller.
         Write-Warning ('=' * 72)
-        Write-Warning "  IMAGE CHECKSUM MISMATCH"
-        Write-Warning "  File     : $IsoFileName"
-        Write-Warning "  Expected : $expectedHash"
-        Write-Warning "  Actual   : $actualHash"
-        Write-Warning "  Source   : $ChecksumUrl"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ae9e0059c4835bf')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c209cdb5554afd71' -Arguments @{ isoFileName = "$IsoFileName" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e110fb938283f7b1' -Arguments @{ expectedHash = "$expectedHash" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_705af9e21ab944c5' -Arguments @{ actualHash = "$actualHash" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2316bbbe70c189' -Arguments @{ checksumUrl = "$ChecksumUrl" })
         Write-Warning ('=' * 72)
         return $false
     }
-    Write-Information "Checksum verified successfully." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f019bbe34971680c') -InformationAction Continue
     return $true
 }
 
@@ -541,7 +542,7 @@ function Save-UbuntuServerImage {
                 Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
                 $agentResult = Request-DownloadAgentImage @agentArgs
             } catch {
-                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
             }
             if ($agentResult -and $agentResult.outcome -eq 'skipped') {
@@ -554,10 +555,10 @@ function Save-UbuntuServerImage {
                 $sourceUrl         = [string]$agentResult.sourceUrl
                 $agentLastModified = [string]$agentResult.lastModified
                 $downloadedSize    = (Get-Item -LiteralPath $downloadFile).Length
-                Write-Information "Download agent at $agentBaseUrl served verified $isoFileName ($downloadedSize bytes) to $downloadFile" -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_fcfb9dfaf41b6f33' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; isoFileName = "$isoFileName"; downloadedSize = "$downloadedSize"; downloadFile = "$downloadFile" }) -InformationAction Continue
             } elseif ($agentResult) {
                 $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
             }
         }
     }
@@ -578,7 +579,7 @@ function Save-UbuntuServerImage {
         $isoFileName = $resolved.IsoFileName
         $sourceUrl   = $resolved.SourceUrl
         $checksumUrl = $resolved.ChecksumUrl
-        Write-Information "Selected $($resolved.Variant) ISO: $isoFileName" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2e4bf1ca08afac07' -Arguments @{ variant = "$($resolved.Variant)"; isoFileName = "$isoFileName" }) -InformationAction Continue
 
         New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
@@ -601,7 +602,7 @@ function Save-UbuntuServerImage {
 
         # --- REGION: Download the image
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-        Write-Information "Downloading $sourceUrl to $downloadFile" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_db76a809c970c1de' -Arguments @{ sourceUrl = "$sourceUrl"; downloadFile = "$downloadFile" }) -InformationAction Continue
         try {
             if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
                 Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
@@ -609,7 +610,7 @@ function Save-UbuntuServerImage {
                 Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
             }
         } catch {
-            throw "Download failed: $($_.Exception.Message)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_78d93fd740dd1ed5' -Arguments @{ message = "$($_.Exception.Message)" })
         }
         $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
@@ -622,7 +623,7 @@ function Save-UbuntuServerImage {
             # no line for this ISO) is a soft pass, and that returns $true from
             # Test-UbuntuServerImageChecksum and never reaches here.
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-            throw "Image checksum verification failed for $isoFileName (see banner above): mismatch or unverifiable download. Deleted the download and aborted; re-run once the publisher checksum is reachable."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9bbc5dc302229fc3' -Arguments @{ isoFileName = "$isoFileName" })
         }
     }
 
@@ -631,7 +632,7 @@ function Save-UbuntuServerImage {
     Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $baseImageFile) {
         Move-Item -Path $baseImageFile -Destination $previousFile
-        Write-Information "Previous image preserved as: $previousFile" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3484688671544ee8' -Arguments @{ previousFile = "$previousFile" }) -InformationAction Continue
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile
 
@@ -655,8 +656,8 @@ function Save-UbuntuServerImage {
     } else {
         Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
     }
-    Write-Information "Recorded source filename, URL, and byte count to: $baseImageOrigin" -InformationAction Continue
-    Write-Information "Download complete: $baseImageFile" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c0d4de13cd8a131d' -Arguments @{ baseImageOrigin = "$baseImageOrigin" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f8db1971afed42d8' -Arguments @{ baseImageFile = "$baseImageFile" }) -InformationAction Continue
     return 'downloaded'
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42398c5e-c859-4bdc-9114-f9b19317cd8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,8 @@ param(
     [string]$Cores = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -63,12 +65,12 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cd82e39650ead9bb' -Arguments @{ hostname = "$Hostname" })
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
@@ -86,7 +88,7 @@ $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 $macosVersion = & sw_vers -productVersion 2>$null
 $macosMajor = [int]($macosVersion -split '\.')[0]
 if ($macosMajor -lt 12) {
-    Write-Error "macOS 12 Monterey or later is required (found macOS $macosVersion)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_f51ff9819bafacb5' -Arguments @{ macosVersion = "$macosVersion" })
     exit 1
 }
 Write-Verbose "macOS version: $macosVersion (OK)"
@@ -94,11 +96,11 @@ Write-Verbose "macOS version: $macosVersion (OK)"
 # Check Apple Silicon chip (any generation works under QEMU+HVF)
 $chipName = (& system_profiler SPHardwareDataType 2>$null | Select-String "Chip" | ForEach-Object { $_ -replace '.*Chip:\s*', '' }).Trim()
 if (-not $chipName) {
-    Write-Error "Could not detect Apple Silicon chip. This script requires Apple Silicon."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_c748b36dc0a02031')
     exit 1
 }
 if ($chipName -notmatch 'Apple M\d') {
-    Write-Error "Apple Silicon is required (found: $chipName)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7e08260225888b2c' -Arguments @{ chipName = "$chipName" })
     exit 1
 }
 Write-Verbose "Chip: $chipName (OK)"
@@ -106,7 +108,7 @@ Write-Verbose "Chip: $chipName (OK)"
 # Check UTM version (requires v4.0.0 or later for ConfigurationVersion 4 / QEMU backend)
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
-    Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
     exit 1
 }
 $utmVersion = (& /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $utmPlist 2>$null)
@@ -114,13 +116,13 @@ if ($utmVersion) {
     $utmParts = $utmVersion -split '\.'
     $utmMajor = [int]$utmParts[0]
     if ($utmMajor -lt 4) {
-        Write-Error "UTM v4.0.0 or later is required (found v$utmVersion)."
-        Write-Error "Update with: brew upgrade --cask utm"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce8e82f0d1b545c8' -Arguments @{ utmVersion = "$utmVersion" })
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9c80476fdd14c462')
         exit 1
     }
     Write-Verbose "UTM version: $utmVersion (OK)"
 } else {
-    Write-Warning "Could not determine UTM version. Ensure UTM v4.0.0 or later is installed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fa7ca00859916941')
 }
 
 Write-Verbose "All requirements met."
@@ -140,9 +142,9 @@ $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $S
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $Password = Get-LocalOsPassword -Username $Username
-if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Autoinstall password hash
 # See https://yuruna.link/429f3d06-0017
@@ -151,7 +153,7 @@ Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Forc
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
-    Write-Error "Password hashing failed: $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a22129b198b9c117' -Arguments @{ message = "$($_.Exception.Message)" })
     exit 1
 }
 
@@ -169,7 +171,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.ps
 
 # --- REGION: Remove existing VM
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 # --- REGION: Create copies and files for VM
@@ -189,11 +191,10 @@ $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Creating 64GB disk image (qcow2 format for QEMU backend)..."
 & qemu-img create -f qcow2 "$DiskImage" 64G 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img failed. Install QEMU tools with: brew install qemu"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_15c7a852ad128a63')
     exit 1
 }
 
-# Generate autoinstall seed ISO
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -207,7 +208,7 @@ $BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
 $OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.utm.overlay.yml'
 $MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
 foreach ($p in @($BaseUserData, $OverlayUserData)) {
-    if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
+    if (-not (Test-Path -LiteralPath $p)) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fcf4372c1612b691' -Arguments @{ p = "$p" }); exit 1 }
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
@@ -217,7 +218,7 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Detect the caching-proxy service
 # See https://yuruna.link/4220a755-0017
@@ -296,16 +297,16 @@ To intentionally skip the cache:
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 } elseif ($squidStatus) {
-    Write-Warning "  yuruna-caching-proxy-service VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: test/service/Start-CachingProxyServiceVM.ps1"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b8e47643acd55dfa' -Arguments @{ squidStatus = "$squidStatus" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_852eb7f6f45f8c86')
 } else {
     if (-not $utmctl) {
-        Write-Warning "  utmctl not found -- can't query UTM directly, and nothing answers on the LAN /24 either."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ed6f405da50b5ea4')
     } else {
-        Write-Warning "  No yuruna-caching-proxy-service VM registered with UTM and nothing answers on the LAN /24."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9a5f74f11757033e')
     }
-    Write-Warning "  Guest will download directly -- expect 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: test/service/Start-CachingProxyServiceVM.ps1"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d02a5e01de3815cb')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_13283fba83b986c8')
 }
 }
 
@@ -342,11 +343,11 @@ if ($CachingProxyServiceUrl -and $cacheVmIp) {
     $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://${cacheVmHost}/yuruna-squid-ca.crt" -CacheHost $cacheVmIp
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
-        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status service at update time. HTTP caching via :3128 unaffected."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
     }
 } elseif ($CachingProxyServiceUrl) {
     # No cache IP resolved: surface it rather than skipping silently.
-    Write-Warning "  Caching-proxy service '$CachingProxyServiceUrl' is set but no cache IP resolved; guest boots CA-less and will rely on the host status-service CA self-heal."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3116a0bcc76026cb' -Arguments @{ cachingProxyServiceUrl = "$CachingProxyServiceUrl" })
 }
 
 # --- REGION: Render user-data / meta-data
@@ -384,7 +385,7 @@ $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create seed.iso with hdiutil."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
     exit 1
 }
 
@@ -392,7 +393,7 @@ if ($LASTEXITCODE -ne 0) {
 # Generate UTM config.plist from template (QEMU backend, with -vnc 127.0.0.1:N AdditionalArgument)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -416,7 +417,7 @@ $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -424,11 +425,11 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 if ($Cores) {
     $coresInt = 0
     if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
-        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0e7d8993e0f54ff9' -Arguments @{ cores = "$Cores" })
         exit 1
     }
     if ($coresInt -gt $hostCores) {
-        Write-Warning "Requested -Cores $coresInt exceeds host physical cores ($hostCores); clamping to $hostCores."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fb77dad01082953b' -Arguments @{ coresInt = "$coresInt"; hostCores = "$hostCores" })
         $coresInt = $hostCores
     }
     $vmCores = $coresInt
@@ -457,8 +458,8 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4287fe47-ee43-47e6-b67f-e2fb5baf90c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,17 +96,18 @@ param(
     [string]$BackupPath
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot  = Resolve-Path (Join-Path -Path $ScriptDir -ChildPath '..' -AdditionalChildPath '..')
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 
 if (-not $IsMacOS) {
-    Write-Error "This is the macOS lease store (bootpd). Nothing to do on this platform."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_808c686d372a1e15')
     exit 1
 }
 if (-not (Test-Path -LiteralPath $LeasePath)) {
-    Write-Output "No lease file at '$LeasePath' -- nothing to prune."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_46325258731730bf' -Arguments @{ leasePath = "$LeasePath" })
     exit 0
 }
 
@@ -167,32 +168,32 @@ $stale = @($candidates)
 
 if ($vetoed.Count -gt 0) {
     Write-Output ""
-    Write-Output "Kept despite a newer block of the same name (still answering):"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f30d82476a4c72f2')
     foreach ($v in $vetoed) { Write-Output "  $($v.Name): $($v.IpAddress)" }
 }
 if ($stale.Count -eq 0) {
-    Write-Output "No superseded lease blocks to remove in '$LeasePath'."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e6c7788318dbd530' -Arguments @{ leasePath = "$LeasePath" })
     if ($Name.Count -gt 0) { Write-Output "  (scope: $($Name -join ', '))" }
     exit 0
 }
 
 Write-Output ""
-Write-Output "Superseded lease blocks in '$LeasePath':"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8cc02f27922fb519' -Arguments @{ leasePath = "$LeasePath" })
 foreach ($group in ($stale | Group-Object -Property Name | Sort-Object Name)) {
     $addresses = @($group.Group | Sort-Object -Property LeaseExpiry -Descending |
         ForEach-Object { "$($_.IpAddress) (expires $([DateTimeOffset]::FromUnixTimeSeconds($_.LeaseExpiry).LocalDateTime.ToString('MM-dd HH:mm')))" })
     Write-Output "  $($group.Name): $($addresses -join ', ')"
 }
 Write-Output ""
-Write-Output "  $($stale.Count) block(s) to remove. The live block of each name is kept."
-if (-not $SkipReachabilityCheck) { Write-Output "  Addresses that answered ARP or ping were already excluded." }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5fad151840eb109b' -Arguments @{ count = "$($stale.Count)" })
+if (-not $SkipReachabilityCheck) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7df037e616faba5f') }
 Write-Output ""
 
-if (-not $PSCmdlet.ShouldProcess($LeasePath, "Remove $($stale.Count) superseded lease block(s)")) { exit 0 }
+if (-not $PSCmdlet.ShouldProcess($LeasePath, (Format-YurunaOperatorMessage -Key 'host.operator_52d8339a86ba49b9' -Arguments @{ count = "$($stale.Count)" }))) { exit 0 }
 
 $newText = Remove-DhcpLeaseBlockText -LeaseText $leaseText -Block $stale
 if ($newText -eq $leaseText) {
-    Write-Warning "Nothing changed -- the selected blocks were not found in the text that was read."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4b47d943d3446221')
     exit 0
 }
 
@@ -210,24 +211,24 @@ Write-Output "  Backup: $BackupPath"
 # probes ran would otherwise be erased by writing back text that predates it.
 $after = Get-Item -LiteralPath $LeasePath
 if ($after.Length -ne $before.Length -or $after.LastWriteTimeUtc -ne $before.LastWriteTimeUtc) {
-    Write-Warning "'$LeasePath' changed while this ran (the DHCP server issued or renewed a lease). Nothing was written -- re-run to prune against the current file."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e8c93cc811535ed2' -Arguments @{ leasePath = "$LeasePath" })
     exit 1
 }
 
 $result = Invoke-YurunaSudo -Argument @('tee', $LeasePath) -InputText $newText -TolerateBlocked
 if ($result.Blocked) {
-    Write-Warning "sudo refused, so '$LeasePath' was not modified: $($result.Output.Trim())"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5f275b9c5959dddd' -Arguments @{ leasePath = "$LeasePath"; trim = "$($result.Output.Trim())" })
     exit 1
 }
 if ($result.ExitCode -ne 0) {
-    Write-Error "Writing '$LeasePath' failed (exit $($result.ExitCode)): $($result.Output.Trim())"
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_29ec111859986081' -Arguments @{ leasePath = "$LeasePath"; exitCode = "$($result.ExitCode)"; trim = "$($result.Output.Trim())" })
     exit 1
 }
 
 $remaining = @(Select-StaleDhcpLeaseBlock -LeaseText (Get-Content -Raw -LiteralPath $LeasePath) -Name $Name -InUseVerdict { 'unknown' })
 Write-Output ""
-Write-Output "Removed $($stale.Count) superseded lease block(s)."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_04e3cb54d8a3671c' -Arguments @{ count = "$($stale.Count)" })
 if ($remaining.Count -gt 0) {
-    Write-Warning "$($remaining.Count) superseded block(s) still present -- they were kept because their address answered, or the file moved under the write."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4901e25ce48280cc' -Arguments @{ count = "$($remaining.Count)" })
 }
 Write-Output ""

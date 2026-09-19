@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421a9ea0-8a3a-4785-ba40-4c509bf9d976
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,12 +17,9 @@
 #requires -version 7
 
 # Variable substitution for sequence step text: ${var} placeholders and
-# ${ext:area.Method(args)} extension expressions. Kept outside the engine so
-# the engine's by-name calls AND the verb Handlers -- which receive
-# Expand-Variable as the ${function:Expand-Variable} scriptblock ref through the
-# step Context -- share one definition. Test.Extension is imported lazily inside
-# Invoke-ExtensionExpression, so it travels with the function; no top-level
-# import is needed here.
+# ${ext:area.Method(args)} extension expressions. See
+# ../../docs/test-sequences.md#variable-substitution-rules for the rules and
+# why this is kept outside the engine. -- Test.SequenceVariable.psm1
 # Private-use Unicode codepoint used as the placeholder for `$` after the
 # $$ -> sentinel pre-pass and before the sentinel -> $ post-pass. The
 # Unicode private-use area (U+E000-U+F8FF) is reserved for application-
@@ -154,7 +151,6 @@ function Expand-Variable {
     # inside their args see the current Variables table.
     $result = Expand-ExtensionExpression -Text $result -Variables $Variables
     $result = Expand-VarPlaceholder -Text $result -Variables $Variables
-    # Restore $$ escapes.
     return $result.Replace($script:DollarSentinel, '$')
 }
 

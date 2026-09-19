@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42311ffa-42b0-4315-961e-121394721d42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,7 @@ param (
 )
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
@@ -106,12 +107,12 @@ switch -Exact ($operation)
     'components' { $result = Publish-ComponentList $project_root $config_subfolder }
     'workloads' { $result = Publish-WorkloadList $project_root $config_subfolder }
     Default {
-        Write-Output "yuruna requirements`n    Check if machine has all requirements.";
-        Write-Output "yuruna clear [project_root] [config_subfolder]`n    Clear resources for given configuration.";
-        Write-Output "yuruna validate [project_root] [config_subfolder]`n    Validate configuration files.";
-        Write-Output "yuruna resources [project_root] [config_subfolder]`n    Deploys resources using OpenTofu as helper.";
-        Write-Output "yuruna components [project_root] [config_subfolder]`n    Build and push components to registry.";
-        Write-Output "yuruna workloads [project_root] [config_subfolder]`n    Deploy workloads using Helm as helper.";
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f4f81454232e5a55');
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_26f9c3d0c529d327');
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bb12775978dc7d56');
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5b2ea4673a88ff6f');
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e0765f1e2dfb2c75');
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8cc3b54d17ecd066');
     }
 }
 

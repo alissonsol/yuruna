@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c24ab4-c6de-46b2-84f3-6852dccf9a66
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,11 @@
 
 #requires -version 7
 
-# VNC connection provider registry + recovery primitive.
-#
-# Today Test.Transport caches a single VNC handle ($script:CachedVnc,
-# $script:CachedVncVM) and reuses it across steps. The cache is fast
-# (saves ~200 ms per Send-Key VNC call on macOS UTM) but BRITTLE: a
-# guest reboot, network partition, or VNC server restart leaves the
-# handle in a closed state, and the next Send-TextVNC silently drops
-# every keystroke until the cache is invalidated.
-#
-# This registry's recovery primitive Repair-VncConnection forces the
-# next call to re-handshake. Invoked from Wait-ForText's bounded no-text
-# self-heal (several consecutive polls with no OCR text is a likely sign
-# the cached handle is feeding frozen frames) and available to any
-# host_io_blocked recovery path.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+# VNC connection provider registry + recovery primitive. See
+# ../../docs/host-io.md#backends-today for the caching/recovery design. -- Test.VncProvider.psm1
 #
 # --- REGION: https://yuruna.link/4222e5f2-0009
 # Storage: shared Test.Registry primitive; the $global:YurunaVncProviders
@@ -110,7 +101,7 @@ function Repair-VncConnection {
         [Parameter(Mandatory)][string]$VMName,
         [string]$HostType
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Repair-VncConnection (clear cached handle, force re-handshake)')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_1cbf528eda6cfdb7'))) { return $true }
     if (Get-Command Disconnect-VNC -ErrorAction SilentlyContinue) {
         try { Disconnect-VNC -VMName $VMName } catch { Write-Verbose "Disconnect-VNC threw: $($_.Exception.Message)" }
     }
@@ -150,7 +141,7 @@ function Clear-VncProvider {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.VncProvider registry', 'Clear all providers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_eb9b3983cb632707'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
         & $script:Reg.Clear
     }
 }

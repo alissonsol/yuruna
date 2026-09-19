@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # OTHER consumer reads the arrays here. Leaf module: imports nothing, so it is
 # safe to load first in any module set.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:FailureClassEnum = @(
     'ocr_timeout', 'console_flooded', 'network_timeout', 'credential_expired',
     'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
@@ -82,11 +83,11 @@ function Assert-FailureTaxonomyInSync {
     )
     $ok = $true
     if ((@($FailureClass) -join '|') -ne (@($script:FailureClassEnum) -join '|')) {
-        Write-Warning "$Source FailureClass list drifted from Test.FailureTaxonomy canonical set."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3794baf0dc7bb765' -Arguments @{ source = "$Source" })
         $ok = $false
     }
     if ((@($Severity) -join '|') -ne (@($script:SeverityEnum) -join '|')) {
-        Write-Warning "$Source Severity list drifted from Test.FailureTaxonomy canonical set."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3910eebedaccd757' -Arguments @{ source = "$Source" })
         $ok = $false
     }
     return $ok

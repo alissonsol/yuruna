@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,18 @@ BeforeAll {
     $script:FixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-host-provision-' + [guid]::NewGuid())
     $null = New-Item -ItemType Directory -Path $script:FixtureRoot
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 
     function Invoke-ProvisionFixture {
         param([string]$Body, [string[]]$Argument = @())
         $fixture = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString() + '.ps1')
+        # Extracted branches retain their production renderer dependency. Put
+        # the import after any parameter block so child argument binding stays
+        # identical to the original fixture.
+        $ast = [Management.Automation.Language.Parser]::ParseInput($Body, [ref]$null, [ref]$null)
+        $offset = if ($ast.ParamBlock) { $ast.ParamBlock.Extent.EndOffset } else { 0 }
+        $adapter = (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1').Replace("'", "''")
+        $Body = $Body.Insert($offset, "`nImport-Module '$adapter' -DisableNameChecking`n")
         Set-Content -LiteralPath $fixture -Value $Body -Encoding utf8
         $output = @(& $script:Pwsh -NoLogo -NoProfile -File $fixture @Argument 2>&1)
         return @{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
@@ -170,7 +178,17 @@ Describe 'Amazon Linux origin-listing boundary' {
         foreach ($hostName in @('macos.utm', 'ubuntu.kvm')) {
             $relativePath = "host/$hostName/guest.amazon.linux.2023/Get-Image.ps1"
             $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $relativePath) -Raw
-            Assert-Match '(?ms)\$qcow2Link\s*=.*?\r?\n\s*if\s*\(-not\s+\$qcow2Link\)\s*\{\s*Write-Error\s+"No \.qcow2 listed at \$sourceUrl"\s*exit 1\s*\}' $text "$relativePath must fail before composing a URL from an absent qcow2 link"
+            $ast = Get-ProvisionAst (Join-Path $script:RepoRoot $relativePath)
+            $missing = $ast.Find({ param($node)
+                    $node -is [Management.Automation.Language.IfStatementAst] -and
+                    $node.Clauses[0].Item1.Extent.Text -match '^\s*-not\s+\$qcow2Link\s*$'
+                }, $true)
+            Assert-NotNull $missing "$relativePath must reject an absent qcow2 link"
+            $body = '$qcow2Link = $null; $sourceUrl = "fixture://origin/"' + "`n" + $missing.Extent.Text + "`nWrite-Output 'AFTER_ORIGIN_GATE'"
+            $result = Invoke-ProvisionFixture $body
+            Assert-True ($result.ExitCode -ne 0) "$relativePath must fail before composing an absent qcow2 URL"
+            Assert-False ($result.Output.Contains('AFTER_ORIGIN_GATE')) "$relativePath continued after an absent qcow2 link"
+            Assert-True ($result.Output.Contains('No .qcow2 listed at fixture://origin/')) "$relativePath must name the missing image and origin"
         }
     }
 }

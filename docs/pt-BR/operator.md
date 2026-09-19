@@ -914,7 +914,7 @@ provisionadas, e os logins de console delas parariam de funcionar
 silenciosamente.
 
 O painel do serviço download-agent protege suas ações mutantes com o
-**Token do laboratório** rotativo de 6 caracteres do painel de hospedeiros do Yuruna --
+**Lab token** rotativo de 6 caracteres do painel de hospedeiros do Yuruna --
 verificado com o agregador de grupo, nunca armazenado no cofre; nada
 para cunhar ou rotacionar à mão
 ([download-agent.md](../download-agent.md#unlocking-the-actions)). Uma
@@ -942,6 +942,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.13
+Última revisão: 2026.09.18
 
 Voltar para [Yuruna](../../README.md)

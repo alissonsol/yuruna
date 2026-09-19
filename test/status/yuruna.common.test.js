@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.13
+  Version: 2026.09.18
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -63,6 +63,12 @@ var sandbox = {
   setInterval: function () { return 0; }, clearInterval: function () {}
 };
 sandbox.globalThis = sandbox;
+Object.keys(windowShim).forEach(function (key) {
+  if (!Object.prototype.hasOwnProperty.call(sandbox, key)) sandbox[key] = windowShim[key];
+});
+// Classic browser scripts register catalogs on the global object (`this`),
+// which is the same object as window in a real page.
+sandbox.window = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: 'yuruna.common.js' });
 
@@ -234,4 +240,83 @@ assert.ok(/function loadResolvedPlan\(\)\s*\{[\s\S]{0,200}runtime\/status\.json/
 assert.ok(/loadGuestFolders\(\),\s*\r?\n\s*loadResolvedPlan\(\)/.test(src),
   'the plan must load with the config, or the note renders before it arrives');
 
-console.log('PASS: yuruna.common.js -- 35 assertions');
+// Config numbers remain typed data while the keyboard owns an unfinished edit.
+var numericSource = src.match(/function buildNumberInput\(value, parent, key\)[\s\S]*?\n    \}/);
+assert.ok(numericSource, 'numeric editor is present');
+var buildNumber = new Function('document', numericSource[0] + '\nreturn buildNumberInput;')({
+  createElement: function () {
+    return { value: '', attributes: {}, setAttribute: function (name, value) { this.attributes[name] = value; } };
+  }
+});
+var config = { count: 12 };
+var numeric = buildNumber(12, config, 'count');
+['', '-', '+', '1.', '1e', '1,5', '1,234', 'NaN', 'Infinity', '0x10', '1 000'].forEach(function (raw) {
+  numeric.value = raw;
+  numeric.onchange();
+  assert.strictEqual(config.count, 12, 'incomplete/ambiguous number must not replace config: ' + raw);
+  assert.strictEqual(numeric.attributes['aria-invalid'], 'true');
+});
+numeric.value = '23';
+numeric.oncompositionstart();
+numeric.onchange();
+numeric.onkeydown({ key: 'Enter', preventDefault: function () {} });
+assert.strictEqual(config.count, 12, 'composition cannot commit its intermediate value');
+numeric.oncompositionend();
+assert.strictEqual(config.count, 12, 'composition ending alone is not an explicit commit');
+numeric.onchange();
+assert.strictEqual(config.count, 23);
+numeric.value = '-0.25';
+numeric.onblur();
+assert.strictEqual(config.count, -0.25, 'valid blur commits a typed decimal');
+numeric.value = '99';
+numeric.onkeydown({ key: 'Escape', preventDefault: function () {} });
+assert.strictEqual(config.count, -0.25, 'cancel preserves last committed number');
+assert.strictEqual(numeric.value, '-0.25');
+numeric.value = '6.02e2';
+numeric.onkeydown({ key: 'Enter', preventDefault: function () {} });
+assert.strictEqual(config.count, 602);
+assert.strictEqual(numeric.attributes['aria-invalid'], 'false');
+
+
+// Exercise the actual combobox with legacy key codes and no Pointer Events.
+var selectSource = src.match(/function buildCustomSelect\(opts\)[\s\S]*?\n    \}/);
+assert.ok(selectSource, 'custom select implementation is present');
+function selectElement() {
+  var el = {children: [], attributes: {}, className: '', hidden: false, offsetTop: 0, offsetHeight: 20, scrollTop: 0, clientHeight: 100,
+    appendChild: function (child) { this.children.push(child); },
+    setAttribute: function (name, value) { this.attributes[name] = value; },
+    removeAttribute: function (name) { delete this.attributes[name]; },
+    addEventListener: function () {}, contains: function (node) { return this === node || this.children.indexOf(node) >= 0; }};
+  el.classList = {add: function (name) { if (el.className.split(' ').indexOf(name) < 0) el.className += ' ' + name; },
+    remove: function (name) { el.className = el.className.split(' ').filter(function (part) { return part !== name; }).join(' '); },
+    toggle: function (name, selected) { if (selected) this.add(name); else this.remove(name); }};
+  return el;
+}
+var selectDocument = {createElement: selectElement, addEventListener: function () {}, removeEventListener: function () {}, activeElement: null};
+var buildSelect = new Function('window', 'document', 'var configKeyUid = 0;\n' + selectSource[0] + '\nreturn buildCustomSelect;')({}, selectDocument);
+var choices = [];
+var combo = buildSelect({value:'a', options:[{value:'a',label:'Alpha'},{value:'disabled',label:'Unavailable',disabled:true},{value:'b',label:'Beta'}], onChange:function (value) { choices.push(value); }});
+var stopped = 0;
+function selectKey(code) { combo.onkeydown({keyCode:code,preventDefault:function(){},stopPropagation:function(){stopped++;}}); }
+selectKey(40);
+assert.strictEqual(combo.attributes['aria-expanded'], 'true');
+selectKey(40);
+assert.strictEqual(combo.attributes['aria-activedescendant'], combo.children[2].children[2].id, 'arrows skip disabled values');
+selectKey(27);
+assert.strictEqual(stopped, 1, 'Escape cannot discard the surrounding config edit');
+assert.deepStrictEqual(choices, [], 'navigation and cancellation do not commit values');
+selectKey(40); selectKey(40); selectKey(13);
+assert.deepStrictEqual(choices, ['b']);
+assert.strictEqual(combo.children[2].children[2].attributes['aria-selected'], 'true');
+assert.strictEqual(combo.attributes['aria-expanded'], 'false');
+
+// Functional query/path bytes cannot become translator-owned messages.
+var querySource = fs.readFileSync(path.join(__dirname, '../extension/download-agent-service/server/internal/httpsrv/web/assets/images.js'),'utf8').match(/function query\(img\)[\s\S]*?\n  \}/)[0];
+var query = new Function(querySource + '\nreturn query;')();
+assert.strictEqual(query({arch:'a&b',variant:'x y'}), '?arch=a%26b&variant=x%20y');
+var logSource = src.match(/function logFileUrl\(cycleStartUtc, hostKey, gitCommit, cycleFolderUrl\)[\s\S]*?\n    \}/)[0];
+var logFile = new Function(logSource + '\nreturn logFileUrl;')();
+assert.strictEqual(logFile('', '', '', 'log/000001.date.host.incomplete/'), 'log/000001.date.host.incomplete/000001.date.host.html');
+assert.strictEqual(logFile('2026-09-18T12:00:00Z', 'host', 'abc', ''), 'log/2026-09-18T12-00-00Z.host.abc.html');
+
+console.log('PASS: yuruna.common.js');

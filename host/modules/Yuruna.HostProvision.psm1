@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,7 @@
 # Shared per-guest provisioning helpers for the host drivers. Scope split,
 # the CommandInfo/scriptblock injection rule, and why this module owns its own
 # imports: docs/guest-image-setup.md#per-guest-provisioning-yurunahostprovisionpsm1
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1')       -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxyService.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
@@ -26,7 +27,7 @@ Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxyService
 # instead of on the one caching-proxy-service probe per cycle (where it looks like a cache outage).
 foreach ($dep in @('Get-CachingProxyServicePort', 'Test-IpAddress', 'Format-IpUrlHost', 'Read-CachingProxyServiceState')) {
     if (-not (Get-Command -Name $dep -ErrorAction SilentlyContinue)) {
-        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Yuruna.Common / Test.CachingProxyService -- the caching-proxy-service probe will fail. Verify those modules loaded correctly."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_47be3d3b74bd68b2' -Arguments @{ dep = "$dep" })
     }
 }
 
@@ -75,7 +76,7 @@ function Invoke-PerGuestNewVm {
         # under the same declare-or-drop rule as -Username.
         [string]$ExposeVirtualizationExtensions
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_3b43e71b8125bf95' -Arguments @{ guestKey = "$GuestKey" }))) { return @{ success = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'New-VM.ps1'))
     if (-not (Test-Path $scriptPath)) {
         return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
@@ -365,7 +366,7 @@ function Invoke-GetImage {
         $WriteLine
     )
     $writer = if ($WriteLine) { $WriteLine } else { Get-Command Write-GetImageLine }
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, 'Download / refresh base image')) { return @{ success = $false; skipped = $false; errorMessage = 'WhatIf' } }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'host.operator_5745d88e0f9ad1e5'))) { return @{ success = $false; skipped = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'Get-Image.ps1'))
     if (-not (Test-Path $scriptPath)) {
         return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 not found at: $scriptPath" }

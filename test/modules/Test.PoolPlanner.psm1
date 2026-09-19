@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b8932c-aa15-4760-a06d-b3037804847c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,19 +17,14 @@
 #requires -version 7
 
 # Pool planner: turn a pool's assigned test-sets into a cycle plan THIS
-# host can run. Decentralized -- there is no central dispatch: each runner
-# autonomously keeps only the guests it can run (folder present + capability
-# supported + guest<->hypervisor compatible) and skips the rest, trusting another
-# pool host to cover them. Strictly additive + best-effort: any missing/malformed
-# input degrades to $null so the inner runner falls back to its single-host
-# test.runner.yml plan (it never throws or halts the loop). cycleStrategy=all and
-# provisioning.betweenSets=none are the runtime-active values; other enum values
-# are validated then run as all/none with a warning (not yet implemented).
+# host can run. See ../../docs/pool-admin.md#what-a-pool-is for the
+# decentralized, best-effort planning model. -- Test.PoolPlanner.psm1
 
 # Map a host type to its hypervisor token (host.windows.hyper-v -> hyper-v,
 # host.ubuntu.kvm -> kvm, host.macos.utm -> utm) -- the same derivation the host
 # registration record uses, so guests.compatibility.yml rules and the registration
 # agree on the token.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-PoolHostHypervisor {
     <#
     .SYNOPSIS
@@ -169,7 +164,7 @@ function Read-YurunaGuestCompatibility {
     try {
         $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered
         if ($doc -is [System.Collections.IDictionary]) { return $doc }
-    } catch { Write-Warning "pool: guests.compatibility.yml parse failed ($($_.Exception.Message)); treating compatibility as permissive." }
+    } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bbfd1d495162fdc3' -Arguments @{ message = "$($_.Exception.Message)" }) }
     return $null
 }
 
@@ -186,12 +181,12 @@ function Read-YurunaTestSetManifest {
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Name)
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return $null }
     $path = Join-Path (Join-Path (Get-PoolProjectTestDir -RepoRoot $RepoRoot) 'test-sets') ("$Name.yml")
-    if (-not (Test-Path -LiteralPath $path)) { Write-Warning "pool: test-set manifest not found: $path"; return $null }
+    if (-not (Test-Path -LiteralPath $path)) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_09419d31a82de2e4' -Arguments @{ path = "$path" }); return $null }
     try {
         $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered
-    } catch { Write-Warning "pool: test-set '$Name' parse failed ($($_.Exception.Message)); skipping it."; return $null }
+    } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c83a08264595d72a' -Arguments @{ name = "$Name"; message = "$($_.Exception.Message)" }); return $null }
     if (-not ($doc -is [System.Collections.IDictionary])) { return $null }
-    if ([int]$doc['schemaVersion'] -ne 1) { Write-Warning "pool: test-set '$Name' schemaVersion is not 1; skipping it."; return $null }
+    if ([int]$doc['schemaVersion'] -ne 1) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_93083a11a290abbd' -Arguments @{ name = "$Name" }); return $null }
     return $doc
 }
 
@@ -227,16 +222,16 @@ function Resolve-PoolCyclePlan {
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
         $strategy = if ($ts.Contains('cycleStrategy')) { [string]$ts['cycleStrategy'] } else { 'all' }
         if ($strategy -and $strategy -ne 'all') {
-            Write-Warning "pool: test-set '$name' cycleStrategy='$strategy' not yet implemented; running 'all'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_764eb138496adb9a' -Arguments @{ name = "$name"; strategy = "$strategy" })
         }
         $body = Read-YurunaTestSetManifest -RepoRoot $RepoRoot -Name $name
         if (-not $body) { continue }   # missing/malformed -> skip this set
         $between = if (($body['provisioning'] -is [System.Collections.IDictionary]) -and $body['provisioning'].Contains('betweenSets')) { [string]$body['provisioning']['betweenSets'] } else { 'none' }
         if ($between -and $between -ne 'none') {
-            Write-Warning "pool: test-set '$name' provisioning.betweenSets='$between' not yet implemented; treating as 'none'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1d0a3ac35890db97' -Arguments @{ name = "$name"; between = "$between" })
         }
         $seqs = [string[]]@($body['sequences'])
-        if ($seqs.Count -eq 0) { Write-Warning "pool: test-set '$name' has no sequences; skipping."; continue }
+        if ($seqs.Count -eq 0) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_05b0d534849b3a19' -Arguments @{ name = "$name" }); continue }
         # Assignment (NOT @(...)) -- Resolve-TestSetCyclePlan returns ,@(...); wrapping
         # the call in @() would nest the entries one level deep.
         $setPlan = Resolve-TestSetCyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType `
@@ -260,7 +255,7 @@ function Resolve-PoolCyclePlan {
         }
         $runnable = Select-RunnableGuestList -CandidateGuests $candidates -FolderPresent $folderOk -CapabilitySupported $capOk -Compatibility $compat -HostType $HostType
         if ($runnable.Count -eq 0) {
-            Write-Warning "pool: no runnable guest for test-set '$name' on this host ($HostType); skipping it."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d164f2ba2a2136ac' -Arguments @{ name = "$name"; hostType = "$HostType" })
             continue
         }
         foreach ($e in $setPlan) {

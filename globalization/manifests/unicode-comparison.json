@@ -1,0 +1,16 @@
+{
+  "schema": "yuruna.unicode-comparison/v1",
+  "owner": "test/extension/stash-service/server/internal/meta/comparison.go",
+  "module": "golang.org/x/text",
+  "version": "v0.40.0",
+  "source": "https://go.googlesource.com/text",
+  "commit": "724af9c35838492dcaacc1ac51a8a0187c994c54",
+  "moduleChecksum": "h1:Ub2Z6/xjgF1WrYQz2nuITOEegKFtiIy+rieRJ5lHZKs=",
+  "license": "BSD-3-Clause",
+  "licensePath": "test/extension/stash-service/server/licenses/golang.org-x-text.txt",
+  "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+  "unicodeVersion": "15.0.0",
+  "policy": "NFC, Unicode default full case folding, NFC; accent-sensitive binary ordering of resulting UTF-8 keys",
+  "storage": "Original filenames and artifact IDs are unchanged. Comparison keys are transient. Equivalent names remain separate records under distinct IDs; no overwrite, merge or persisted index migration. Existing ID-collision errors remain authoritative.",
+  "offlineBuild": "Use the checksum-verified module cache also required for the existing Go dependencies. No runtime network lookup or table download. TestUnicodeComparisonPolicy rejects a toolchain change selecting different Unicode tables."
+}

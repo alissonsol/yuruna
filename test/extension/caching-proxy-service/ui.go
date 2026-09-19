@@ -4,7 +4,6 @@
 package main
 
 import (
-	"io"
 	"net/http"
 	"strings"
 )
@@ -31,7 +30,7 @@ import (
 const indexHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Caching proxy service</title>
+<title data-i18n="cache.caching_proxy_service">Caching proxy service</title>
 <style>
   /* The same dark surface and banding the parser page on this VM uses, so the
      two services on one machine read as one product. */
@@ -70,7 +69,7 @@ const indexHTML = `<!doctype html>
   a { color: #93c5fd; }
 </style>
 </head><body>
-<h1>Caching proxy service</h1>
+<h1 data-i18n="cache.caching_proxy_service">Caching proxy service</h1>
 <!-- The refresh timestamp is rewritten on every tick, so it sits beside the
      heading rather than inside it: a document whose h1 changes six times a
      minute has no stable name to navigate to. -->
@@ -81,19 +80,19 @@ const indexHTML = `<!doctype html>
      thing worth interrupting for is the data going stale, which is what fills
      this. -->
 <p id="err" role="alert"></p>
-<p id="controls"><button type="button" id="pause" aria-pressed="false">Pause auto-refresh</button></p>
+<p id="controls"><button type="button" id="pause" aria-pressed="false" data-i18n="cache.pause_auto_refresh">Pause auto-refresh</button></p>
 
 <h2>Squid</h2>
 <table><tbody id="squid"></tbody></table>
 
-<h2>Switches</h2>
+<h2 data-i18n="cache.switches">Switches</h2>
 <table><tbody id="switches"></tbody></table>
 
-<h2>Registry</h2>
+<h2 data-i18n="cache.registry">Registry</h2>
 <table><tbody id="registry"></tbody></table>
 
 <footer>
-  Read-only. JSON: <a href="/api/status">/api/status</a>,
+  <span data-i18n="cache.read_only_json">Read-only. JSON:</span> <a href="/api/status">/api/status</a>,
   <a href="/api/switches">/api/switches</a>,
   <a href="/api/hostinfo">/api/hostinfo</a>,
   <a href="/healthz">/healthz</a>.
@@ -120,68 +119,73 @@ function refresh() {
   // settles would leave the table showing a state the proxy left minutes ago
   // with nothing to say it is stale.
   yurunaRequest('/api/status', 8000).then(function (s) {
+return window.YurunaFirstUsable.measure("cache/index", 'data', function () {
     var sq = clear('squid');
     if (s.squid && s.squid.reachable) {
-      row(sq, 'reachable', 'yes', 'ok');
-      row(sq, 'version', s.squid.version);
-      row(sq, 'uptime (s)', s.squid.uptimeSeconds);
-      row(sq, 'requests', s.squid.requestsTotal);
-      row(sq, 'hit ratio (5min %)', s.squid.hitRatioPct);
-      row(sq, 'cache size (KB)', s.squid.cacheSizeKB);
-      row(sq, 'file descriptors', s.squid.fileDescriptorsInUse);
+      row(sq, window.YurunaI18n.t("cache.reachable"), window.YurunaI18n.t("cache.yes"), 'ok');
+      row(sq, window.YurunaI18n.t("cache.version"), s.squid.version);
+      row(sq, window.YurunaI18n.t("cache.uptime_s"), s.squid.uptimeSeconds);
+      row(sq, window.YurunaI18n.t("cache.requests"), s.squid.requestsTotal);
+      row(sq, window.YurunaI18n.t("cache.hit_ratio_5min"), s.squid.hitRatioPct);
+      row(sq, window.YurunaI18n.t("cache.cache_size_kb"), s.squid.cacheSizeKB);
+      row(sq, window.YurunaI18n.t("cache.file_descriptors"), s.squid.fileDescriptorsInUse);
     } else {
-      row(sq, 'reachable', 'no', 'red');
-      row(sq, 'error', s.squid ? s.squid.error : '', 'red');
+      row(sq, window.YurunaI18n.t("cache.reachable"), window.YurunaI18n.t("cache.no"), 'red');
+      row(sq, window.YurunaI18n.t("cache.error"), s.squid ? s.squid.error : '', 'red');
     }
 
     var sw = clear('switches');
     if (s.switches) {
       // offline_mode suppresses revalidation, not fetching -- amber, because it
       // is a deliberate state worth noticing rather than a fault.
-      row(sw, 'offline mode', s.switches.offline ? 'on' : 'off',
+      row(sw, window.YurunaI18n.t("cache.offline_mode"), s.switches.offline ? window.YurunaI18n.t("cache.on") : window.YurunaI18n.t("cache.off"),
           s.switches.offline ? 'warn' : 'gray');
-      row(sw, 'no upstream', s.switches.noUpstream ? 'on' : 'off',
+      row(sw, window.YurunaI18n.t("cache.no_upstream"), s.switches.noUpstream ? window.YurunaI18n.t("cache.on") : window.YurunaI18n.t("cache.off"),
           s.switches.noUpstream ? 'warn' : 'gray');
-      row(sw, 'read from', s.switches.source, 'gray');
-      if (s.switches.detail) { row(sw, 'note', s.switches.detail, 'gray'); }
+      row(sw, window.YurunaI18n.t("cache.read_from"), s.switches.source, 'gray');
+      if (s.switches.detail) { row(sw, window.YurunaI18n.t("cache.note"), s.switches.detail, 'gray'); }
     }
 
     var rg = clear('registry');
     if (s.registry && s.registry.reachable) {
-      row(rg, 'reachable', 'yes', 'ok');
-      row(rg, 'repositories', s.registry.repositories);
-      row(rg, 'canary', s.registry.canaryOk ? 'ok' : 'not ok',
+      row(rg, window.YurunaI18n.t("cache.reachable"), window.YurunaI18n.t("cache.yes"), 'ok');
+      row(rg, window.YurunaI18n.t("cache.repositories"), s.registry.repositories);
+      row(rg, window.YurunaI18n.t("cache.canary"), s.registry.canaryOk ? window.YurunaI18n.t("cache.ok") : window.YurunaI18n.t("cache.not_ok"),
           s.registry.canaryOk ? 'ok' : 'red');
-      row(rg, 'canary latency (s)', s.registry.canaryLatencySeconds);
-      row(rg, 'prewarm last run', s.registry.prewarmLastRun);
+      row(rg, window.YurunaI18n.t("cache.canary_latency_s"), s.registry.canaryLatencySeconds);
+      row(rg, window.YurunaI18n.t("cache.prewarm_last_run"), s.registry.prewarmLastRun);
       if (s.registry.prewarmTotal) {
-        row(rg, 'prewarm held', s.registry.prewarmHeld + ' / ' + s.registry.prewarmTotal);
+        row(rg, window.YurunaI18n.t("cache.prewarm_held"), ("" + (s.registry.prewarmHeld) + " / " + (s.registry.prewarmTotal) + ""));
       }
     } else {
-      row(rg, 'reachable', 'no', 'red');
-      row(rg, 'error', s.registry ? s.registry.error : '', 'red');
+      row(rg, window.YurunaI18n.t("cache.reachable"), window.YurunaI18n.t("cache.no"), 'red');
+      row(rg, window.YurunaI18n.t("cache.error"), s.registry ? s.registry.error : '', 'red');
     }
 
     document.getElementById('meta').textContent =
-      '(' + s.mode + ' mode, v' + s.version + ', refreshed ' + yurunaLocalTime(new Date()) + ')';
+      window.YurunaI18n.t("cache.value1_mode_v_value2_refreshed_value3", {value1: (s.mode), value2: (s.version), value3: (yurunaLocalTime(new Date()))});
 
     // Remote mode cannot apply a switch at all; say so rather than offering a
     // command that would answer 501.
     var help = clear('switchhelp');
     var line = document.createElement('div');
     if (s.mode === 'remote') {
-      line.textContent = 'Remote mode: the switches are readable here but can only be applied by the daemon on the proxy VM itself.';
+      line.textContent = window.YurunaI18n.t("cache.remote_mode_the_switches_are_readable_here_but_can_only_be_applie");
     } else {
-      line.textContent = 'Flip a switch: POST /api/switches/offline {"on":true} with the internal authentication key as a bearer.';
+      line.textContent = window.YurunaI18n.t("cache.flip_a_switch_post_api_switches_offline_on_true_with_the_internal");
     }
     help.appendChild(line);
     document.getElementById('err').textContent = '';
-  }).catch(function () {
-    document.getElementById('meta').textContent = '(refresh failed)';
+    window.YurunaFirstUsable.mark('cache/index', 'data');
+
+});
+}).catch(function () {
+    document.getElementById('meta').textContent = window.YurunaI18n.t("cache.refresh_failed");
     // A sighted reader sees the header change; without this the values below
     // simply stop moving, which looks identical to a quiet lab.
     document.getElementById('err').textContent =
-      'Refresh failed. The values below are from the last successful read.';
+      window.YurunaI18n.t("cache.refresh_failed_the_values_below_are_from_the_last_successful_read");
+    window.YurunaFirstUsable.mark('cache/index', 'error');
   });
 }
 // The handle is kept so the control above has something to clear. Discarding
@@ -194,12 +198,12 @@ function stopPolling() { if (timer !== null) { clearInterval(timer); timer = nul
 pause.addEventListener('click', function () {
   if (pause.getAttribute('aria-pressed') === 'true') {
     pause.setAttribute('aria-pressed', 'false');
-    pause.textContent = 'Pause auto-refresh';
+    pause.textContent = window.YurunaI18n.t("cache.pause_auto_refresh");
     startPolling();
     refresh();
   } else {
     pause.setAttribute('aria-pressed', 'true');
-    pause.textContent = 'Resume auto-refresh';
+    pause.textContent = window.YurunaI18n.t("cache.resume_auto_refresh");
     stopPolling();
   }
 });
@@ -241,5 +245,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
 			"connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-	_, _ = io.WriteString(w, indexPage)
+	if !localizedPages().Serve(w, r, "index.html") {
+		http.NotFound(w, r)
+	}
 }

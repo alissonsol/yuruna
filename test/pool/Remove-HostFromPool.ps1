@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e5b8b9-d9cd-4ae5-92e1-a3fd96227e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -64,7 +65,7 @@ Import-Module powershell-yaml -ErrorAction Stop
 # --- REGION: Validate the arguments
 $canonicalHostId = ConvertTo-YurunaHostId -Value $HostId
 if (-not $canonicalHostId) {
-    Write-Error "HostId '$HostId' is invalid (expected the host's runtime/host.uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)." -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_793bb6d734b490d5' -Arguments @{ hostId = "$HostId" }) -ErrorAction Continue
     exit $ExitFailure
 }
 $HostId = $canonicalHostId
@@ -76,33 +77,33 @@ $shownHostId = Format-YurunaHostId -HostId $HostId
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
-if (-not $pool) { Write-Error "Pool '$PoolId' not found." -ErrorAction Continue; exit $ExitFailure }
+if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_610916ed46dbb06b' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
 
 $members = @($pool['members'])
 if ($members -notcontains $HostId) {
-    Write-Information "Host $shownHostId is not a member of '$PoolId' (no change)." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5938fa2155471b2b' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue
     exit $ExitOk
 }
 $pool['members'] = @($members | Where-Object { $_ -ne $HostId })
 
 # --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: remove $HostId from $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue
     exit $ExitFailure
 }
 
-Write-Information "Removed $shownHostId from pool '$PoolId'." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_49dca05bbccf311f' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue
 exit $ExitOk

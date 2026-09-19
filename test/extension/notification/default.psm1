@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4289a687-9c25-47df-950d-d43149e821f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,9 @@
 
 #requires -version 7
 
-# Default notification extension: dispatches each event to the email-transport
-# subscribers listed in transports.yml, delivered via Resend's REST API. An
-# empty or missing subscriber list is a silent no-op (Verbose only), so
-# first-run users do not get errors before they fill in the config.
-#
-# Runtime config (transports.yml -- it carries the Resend API key) lives under
-# test/status/extension/notification/ with the rest of the harness state that
-# is wiped when cleaning a host. The committed extension code and the
-# .template seed live under test/extension/notification/.
+# Default notification extension. See
+# ../../../docs/extensions-api.md#areas-today for what it dispatches and where
+# its runtime config lives. -- default.psm1
 
 # Module file lives at test/extension/notification/default.psm1; three
 # Split-Path -Parent calls reach the repo root.
@@ -33,6 +27,8 @@ $script:RepoRoot     = Split-Path -Parent (Split-Path -Parent (Split-Path -Paren
 $script:StateDir     = Join-Path -Path $script:RepoRoot -ChildPath 'test' `
                           -AdditionalChildPath 'status', 'extension', 'notification'
 $script:ConfigPath   = Join-Path $script:StateDir 'transports.yml'
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 function Read-NotificationConfig {
     if (-not (Test-Path $script:ConfigPath)) {
@@ -43,7 +39,7 @@ function Read-NotificationConfig {
     try {
         $parsed = Get-Content -Raw $script:ConfigPath | ConvertFrom-Yaml -Ordered
     } catch {
-        Write-Warning "transports.yml parse failed: $($_.Exception.Message). Treating as empty."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'notification.config_parse_failed' -Arguments @{ detail = $_.Exception.Message })
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
     }
     # Normalize the success path to one stable shape so every consumer sees an
@@ -53,7 +49,7 @@ function Read-NotificationConfig {
     # otherwise reach Send-Notification's $cfg.Contains('subscribers') and
     # throw, since a null / non-dictionary has no key-membership contract.
     if ($parsed -isnot [System.Collections.IDictionary]) {
-        Write-Warning "transports.yml did not parse to a mapping; treating as empty."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'notification.config_mapping_required')
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
     }
     if (-not $parsed.Contains('transports') -or $parsed['transports'] -isnot [System.Collections.IDictionary]) {
@@ -73,7 +69,7 @@ function Send-EmailViaResend {
         [Parameter(Mandatory)][string]$BodyText
     )
     if (-not $ResendCfg -or -not $ResendCfg.apiKey -or -not $ResendCfg.fromEmail) {
-        throw "transports.resend.apiKey and transports.resend.fromEmail are required."
+        throw (Format-YurunaOperatorMessage -Key 'notification.resend_config_required')
     }
     $headers = @{
         'Authorization' = "Bearer $($ResendCfg.apiKey)"
@@ -87,12 +83,13 @@ function Send-EmailViaResend {
     # It also states both of its own colors. A fragment that sets neither
     # inherits whatever the client paints behind it, and a dark-mode client
     # renders the default near-black text onto a near-black ground.
+    $locale = Get-YurunaOperatorLocale
     $body = @{
         from    = $ResendCfg.fromEmail
         to      = $ToAddress
         subject = $Subject
         text    = $BodyText
-        html    = "<html lang=`"en`"><body style=`"background:#ffffff;color:#111827`"><pre style=`"white-space:pre-wrap;word-wrap:break-word;color:#111827`">$([System.Net.WebUtility]::HtmlEncode($BodyText))</pre></body></html>"
+        html    = "<html lang=`"$($locale.ResolvedTag)`" dir=`"$($locale.Direction)`"><body style=`"background:#ffffff;color:#111827`"><pre style=`"white-space:pre-wrap;word-wrap:break-word;color:#111827`">$([System.Net.WebUtility]::HtmlEncode($BodyText))</pre></body></html>"
     } | ConvertTo-Json
     # -TimeoutSec bounds the call so a stalled Resend endpoint can't wedge a caller
     # (the file-spool pool notifier runs as an unattended cycle-end hook; an unbounded
@@ -144,15 +141,15 @@ function Send-Notification {
                     Send-EmailViaResend -ResendCfg $cfg.transports.resend `
                         -ToAddress $sub.address -Subject $EventMessage -BodyText $EventNote
                     $delivered++
-                    Write-Information "Notification '$EventCode' delivered to $($sub.address)" -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'notification.delivered' -Arguments @{ eventCode = $EventCode; address = $sub.address }) -InformationAction Continue
                 }
                 default {
-                    Write-Warning "Unknown transport '$($sub.transport)' for event '$EventCode'."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'notification.unknown_transport' -Arguments @{ eventCode = $EventCode; transport = $sub.transport })
                 }
             }
         } catch {
             $lastError = $_.Exception.Message
-            Write-Warning "Notification delivery failed for '$EventCode' -> $($sub.address): $lastError"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'notification.delivery_failed' -Arguments @{ eventCode = $EventCode; address = $sub.address; detail = $lastError })
         }
     }
     # Surface a TOTAL delivery failure to the dispatcher so its delivery ledger
@@ -163,7 +160,7 @@ function Send-Notification {
     # success (>=1 delivered) still counts as delivered; skipped subscribers (no
     # address / unknown transport) are not delivery attempts.
     if ($attempted -gt 0 -and $delivered -eq 0) {
-        throw "Notification '$EventCode': all $attempted delivery attempt(s) failed. Last error: $lastError"
+        throw (Format-YurunaOperatorMessage -Key 'notification.all_delivery_failed' -Arguments @{ eventCode = $EventCode; attempted = $attempted; detail = $lastError })
     }
 }
 

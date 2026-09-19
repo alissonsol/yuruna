@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,6 +82,7 @@ param(
 # parse fail on the first character -- so the one machine-readable mode this
 # script has would emit something no consumer can read. Turning the stream off
 # rather than redirecting it keeps the human mode byte-identical.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $InformationPreference = if ($AsJson) { 'SilentlyContinue' } else { 'Continue' }
 
 function Get-VersionPin {
@@ -95,7 +96,7 @@ function Get-VersionPin {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
-        throw "Version manifest not found: $Path"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_115fdbece1d774ee' -Arguments @{ path = "$Path" })
     }
     $map = @{}
     foreach ($line in (Get-Content -LiteralPath $Path)) {
@@ -156,7 +157,7 @@ function Get-GitHubLatestTag {
     if ($final -match '/releases/tag/v?(?<v>[^/]+)$') {
         return $Matches['v']
     }
-    throw "Could not parse a release tag from redirect target '$final'."
+    throw (Format-YurunaOperatorMessage -Key 'automation.operator_3f717ea683c65c4f' -Arguments @{ final = "$final" })
 }
 
 function Get-NodeLatestLtsVersion {
@@ -173,7 +174,7 @@ function Get-NodeLatestLtsVersion {
     # codename string for LTS lines, so a truthiness filter finds the latest LTS.
     $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -TimeoutSec 20 -ErrorAction Stop
     $lts   = $index | Where-Object { $_.lts } | Select-Object -First 1
-    if (-not $lts) { throw 'No LTS entry found in nodejs.org/dist/index.json.' }
+    if (-not $lts) { throw (Format-YurunaOperatorMessage -Key 'automation.operator_bb0c3d93bfb12851') }
     return ([string]$lts.version) -replace '^v', ''
 }
 
@@ -284,7 +285,7 @@ $hostFloorDeps = @(
 $pins    = Get-VersionPin -Path $VersionsFile
 $results = New-Object System.Collections.Generic.List[pscustomobject]
 
-Write-Information "Pinned dependency versions from $VersionsFile"
+Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_8447eca0c0a9d73f' -Arguments @{ versionsFile = "$VersionsFile" })
 
 foreach ($dep in $pinnedDeps) {
     $pinned = if ($pins.ContainsKey($dep.Key)) { $pins[$dep.Key] } else { $null }
@@ -310,7 +311,7 @@ foreach ($dep in $pinnedDeps) {
         Latest     = if ($errMsg) { '?' } else { $latestCmp }
         Status     = $status
         Source     = $dep.Source
-        Detail     = if ($errMsg) { $errMsg } elseif ($latestFull -ne $latestCmp) { "latest release $latestFull" } else { '' }
+        Detail     = if ($errMsg) { $errMsg } elseif ($latestFull -ne $latestCmp) { (Format-YurunaOperatorMessage -Key 'automation.operator_36a9f2bd83246e41' -Arguments @{ latestFull = "$latestFull" }) } else { '' }
     })
 }
 
@@ -336,7 +337,7 @@ if (-not $PinnedOnly) {
 
     $floors = Get-RequirementFloor -Path $RequirementFile
     if ($floors.Count -gt 0) {
-        Write-Information "Host-tool floors from $RequirementFile"
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_19bdfd5f627c414b' -Arguments @{ requirementFile = "$RequirementFile" })
     }
     foreach ($dep in $hostFloorDeps) {
         $floor = if ($floors.ContainsKey($dep.Tool)) { $floors[$dep.Tool] } else { $null }
@@ -372,16 +373,16 @@ if (-not $PinnedOnly) {
 $updateCount = @($results | Where-Object { $_.Status -eq 'UPDATE AVAILABLE' }).Count
 $failCount   = @($results | Where-Object { $_.Status -eq 'check failed' }).Count
 if ($updateCount -gt 0) {
-    Write-Information "$updateCount pinned dependency(ies) have a newer stable release -- bump them in $VersionsFile."
+    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_18982d04385047ff' -Arguments @{ updateCount = "$updateCount"; versionsFile = "$VersionsFile" })
 } else {
-    Write-Information 'All pinned dependencies are up to date with their upstream stable releases.'
+    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_af1b6f5726980144')
 }
 if ($failCount -gt 0) {
-    Write-Information "$failCount dependency(ies) could not be checked (see the Detail column)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_7cbd86bd81900553' -Arguments @{ failCount = "$failCount" })
 }
 $floorBehind = @($results | Where-Object { $_.Status -eq 'floor behind latest' }).Count
 if ($floorBehind -gt 0) {
-    Write-Information "$floorBehind host-tool floor(s) trail their upstream stable release -- informational; raise them in $RequirementFile when a host is known to carry the newer build."
+    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_c4bb0e59cd2b6b17' -Arguments @{ floorBehind = "$floorBehind"; requirementFile = "$RequirementFile" })
 }
 
 if ($AsJson) {

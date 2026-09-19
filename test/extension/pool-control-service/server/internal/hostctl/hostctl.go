@@ -3,20 +3,10 @@
 
 // Package hostctl drives another host's operator-control routes: the two pause
 // switches behind the status page's "Pause after cycle" and "Pause after step"
-// buttons, plus the read of where a host currently stands.
-//
-// A host accepts a mutating /control/* call only from its own loopback
-// interface or from a caller presenting a control proof -- an HMAC over the
-// pool-wide internal authentication key, carried in X-Yuruna-Control. That format is shared
-// with the pool aggregator (Go) and the host's own verifier (PowerShell), so
-// all three must derive it byte for byte identically; the golden vector in this
-// package's tests is what pins it.
-//
-// The two switches are independent flag files on the host, and its status page
-// drives them from two independent buttons. This package instead speaks in the
-// three states an operator chooses between, and every Apply leaves exactly one
-// switch armed -- which is what lets a pool report a single state for its
-// members rather than a matrix of them.
+// buttons. See
+// ../../../../../../docs/pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once
+// for the three-state model and the control-proof HMAC it shares with the
+// other two implementations. -- hostctl.go
 package hostctl
 
 import (

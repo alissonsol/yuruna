@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,40 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+function New-SequencePlannerException {
+    <# .SYNOPSIS
+        Create a localized planning failure with an invariant control identity.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Constructs an in-memory exception; no external state changes.')]
+    [CmdletBinding()]
+    [OutputType([InvalidOperationException])]
+    param([Parameter(Mandatory)][string]$Key, [hashtable]$Arguments = @{})
+    $message = Format-YurunaOperatorMessage -Key $Key -Arguments $Arguments
+    $exception = [InvalidOperationException]::new('PlannerFatal: ' + $message)
+    $exception.Data['YurunaFailureCode'] = 'sequence.plan_invalid'
+    $exception.Data['YurunaMessageCode'] = $Key
+    return $exception
+}
+
+function Test-SequencePlannerFailure {
+    <# .SYNOPSIS
+        Recognize planning failures through PowerShell and invocation wrappers.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$ErrorObject)
+    $exception = if ($ErrorObject -is [Management.Automation.ErrorRecord]) { $ErrorObject.Exception } else { $ErrorObject }
+    while ($exception -is [Exception]) {
+        if ($exception.Data['YurunaFailureCode'] -ceq 'sequence.plan_invalid') { return $true }
+        $exception = $exception.InnerException
+    }
+    return $false
+}
+
 
 # Sequence-file reading and search-path resolution. Read-SequenceFile parses a
 # YAML sequence into an OrderedDictionary; Resolve-SequencePath /
@@ -49,11 +83,11 @@ function ConvertTo-NormalizedSequence {
     # `baseline:`; an orchestration/host sequence never did, so keying the guest
     # rejection on `baseline` cannot misfire on the untouched shapes.
     if ($Sequence.Contains('baseline')) {
-        throw "Legacy 'baseline:' is no longer supported -- rename it to 'resource:'. See docs/test-sequences.md (resource/component/workload)."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_40552def8b1fec50')
     }
     if (-not $Sequence.Contains('resource')) { return $Sequence }   # orchestration / host-action
     if ($Sequence.Contains('steps')) {
-        throw "A guest sequence must not use top-level 'steps:' -- split its actions into 'component:' and 'workload:'. See docs/test-sequences.md."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_ae41cdc2535f423f')
     }
     $out = [ordered]@{}
     foreach ($k in $Sequence.Keys) { $out[$k] = $Sequence[$k] }
@@ -86,7 +120,7 @@ function Read-SequenceFile {
     )
     if (-not (Get-Module powershell-yaml)) {
         if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-            throw "powershell-yaml is required to read sequence files. Install with: Install-Module -Name powershell-yaml -Scope CurrentUser"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_4ebab78c20241f2d' -Arguments @{ command = 'Install-Module -Name powershell-yaml -Scope CurrentUser' })
         }
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
@@ -119,6 +153,7 @@ function Read-SequenceFile {
         }
         return (Expand-SequenceSnippet -Sequence (ConvertTo-NormalizedSequence $parsed) -Path $Path)
     } catch {
+        if (Test-SequencePlannerFailure -ErrorObject $_) { throw }
         # YamlDotNet's SyntaxErrorException carries Start/End marks with
         # Line/Column, but powershell-yaml wraps it in a generic
         # MethodInvocationException whose message just says "Exception
@@ -138,9 +173,9 @@ function Read-SequenceFile {
         if ($synErr) {
             $line = $synErr.Start.Line
             $col  = $synErr.Start.Column
-            throw "YAML parse error in $Path at line ${line}:${col}: $($synErr.Message)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_fc93013c47f0dff2' -Arguments @{ path = "$Path"; line = "${line}"; col = "${col}"; message = "$($synErr.Message)" })
         }
-        throw "YAML parse error in $Path`: $($err.Message)"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d661d09f953abb27' -Arguments @{ path = "$Path"; message = "$($err.Message)" })
     }
 }
 
@@ -199,7 +234,7 @@ function Find-ProjectFlatSequenceFile {
     )
     if ($hits.Count -gt 1) {
         $list = Format-SequenceSearchList -Item $hits
-        throw "PlannerFatal: $($hits.Count) project sequence files named '$FileName' found under flat test/ folders:`n$list`nKeep only one so the planner can resolve a single sequence file."
+        throw (New-SequencePlannerException -Key 'exceptions.runner_7b768110a092cc93' -Arguments @{ count = "$($hits.Count)"; fileName = "$FileName"; list = "$list" })
     }
     if ($hits.Count -eq 1) { return $hits[0] }
     return $null
@@ -471,7 +506,7 @@ function Get-SnippetMap {
         foreach ($name in $doc.Keys) {
             $key = [string]$name
             if ($doc[$name] -isnot [System.Collections.IEnumerable] -or $doc[$name] -is [string]) {
-                throw "PlannerFatal: snippet '$key' in $f is not a list of steps."
+                throw (New-SequencePlannerException -Key 'exceptions.runner_fc123b0e72bddd90' -Arguments @{ key = "$key"; f = "$f" })
             }
             $map[$key] = @{ Steps = $doc[$name]; File = $f; Tier = 'framework' }
         }
@@ -482,10 +517,10 @@ function Get-SnippetMap {
         foreach ($name in $doc.Keys) {
             $key = [string]$name
             if ($doc[$name] -isnot [System.Collections.IEnumerable] -or $doc[$name] -is [string]) {
-                throw "PlannerFatal: snippet '$key' in $p is not a list of steps."
+                throw (New-SequencePlannerException -Key 'exceptions.runner_21cd8bca74cb4370' -Arguments @{ key = "$key"; p = "$p" })
             }
             if ($map.ContainsKey($key) -and $map[$key].Tier -eq 'project') {
-                throw "PlannerFatal: snippet '$key' is defined in two project libraries:`n    $($map[$key].File)`n    $p`nKeep only one so the reference resolves unambiguously."
+                throw (New-SequencePlannerException -Key 'exceptions.runner_f68eed0750b170ae' -Arguments @{ key = "$key"; file = "$($map[$key].File)"; p = "$p" })
             }
             $map[$key] = @{ Steps = $doc[$name]; File = $p; Tier = 'project' }
         }
@@ -508,7 +543,7 @@ function Expand-StepList {
         [Parameter(Mandatory)][string]$SeqPath,
         [int]$Depth = 0
     )
-    if ($Depth -gt 25) { throw "PlannerFatal: snippet expansion exceeded depth 25 in $SeqPath (cyclic or pathological nesting)." }
+    if ($Depth -gt 25) { throw (New-SequencePlannerException -Key 'exceptions.runner_d6c2daddc3ec9502' -Arguments @{ seqPath = "$SeqPath" }) }
     $out = New-Object System.Collections.Generic.List[object]
     foreach ($step in $Steps) {
         if ($step -is [System.Collections.IDictionary] -and $step.Contains('snippet')) {
@@ -516,10 +551,10 @@ function Expand-StepList {
             if (-not $Map.ContainsKey($name)) {
                 $available = (($Map.Keys | Sort-Object) -join ', ')
                 if (-not $available) { $available = '(no snippet libraries found)' }
-                throw "PlannerFatal: snippet '$name' referenced by $SeqPath was not found. Available snippets: $available."
+                throw (New-SequencePlannerException -Key 'exceptions.runner_a01e6215c9b21e74' -Arguments @{ name = "$name"; seqPath = "$SeqPath"; available = "$available" })
             }
             if ($Visiting.Contains($name)) {
-                throw "PlannerFatal: snippet cycle detected at '$name' (referenced from $SeqPath)."
+                throw (New-SequencePlannerException -Key 'exceptions.runner_870490a8a4454890' -Arguments @{ name = "$name"; seqPath = "$SeqPath" })
             }
             [void]$Visiting.Add($name)
             $inner = @(Expand-StepList -Steps $Map[$name].Steps -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1))
@@ -566,7 +601,7 @@ function Expand-SequenceSnippet {
 
     if (-not (Get-Module powershell-yaml)) {
         if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-            throw "powershell-yaml is required to expand sequence snippets. Install with: Install-Module -Name powershell-yaml -Scope CurrentUser"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_c959d88998b87c80' -Arguments @{ command = 'Install-Module -Name powershell-yaml -Scope CurrentUser' })
         }
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
@@ -605,4 +640,4 @@ function Format-SequenceSearchList {
     return ($Item | ForEach-Object { "    $_" }) -join "`n"
 }
 
-Export-ModuleMember -Function Read-SequenceFile, ConvertTo-NormalizedSequence, Get-StepLeadAction, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList
+Export-ModuleMember -Function New-SequencePlannerException, Test-SequencePlannerFailure, Read-SequenceFile, ConvertTo-NormalizedSequence, Get-StepLeadAction, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList

@@ -7,7 +7,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -163,7 +162,7 @@ func handleJSON(r *ring) http.HandlerFunc {
 const indexHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Squid cache -- recent 100 requests</title>
+<title data-i18n="parser.squid_cache_recent_100_requests">Squid cache -- recent 100 requests</title>
 <style>
   /* Banded rows, the same two values every Yuruna UI bands its tables with.
      Only the dark pair is defined: this page paints a dark surface outright
@@ -215,7 +214,7 @@ const indexHTML = `<!doctype html>
   .gray { color: #9ca3af; }
 </style>
 </head><body>
-<h1>Squid cache -- recent 100 requests</h1>
+<h1 data-i18n="parser.squid_cache_recent_100_requests">Squid cache -- recent 100 requests</h1>
 <!-- The row count and refresh time are rewritten on every tick, so they sit
      beside the heading rather than inside it: a document whose h1 changes
      five times a minute has no stable name to navigate to. -->
@@ -224,11 +223,11 @@ const indexHTML = `<!doctype html>
      is written to be announced reliably. Not on #meta, which carries a row
      count and a timestamp -- announcing that every 5 seconds would be noise. -->
 <p id="err" role="alert"></p>
-<p id="controls"><button type="button" id="pause" aria-pressed="false">Pause auto-refresh</button></p>
+<p id="controls"><button type="button" id="pause" aria-pressed="false" data-i18n="parser.pause_auto_refresh">Pause auto-refresh</button></p>
 <div class="scroller">
 <table id="t"><thead>
-<tr><th>time</th><th>client</th><th>status</th><th>bytes</th>
-<th>method</th><th>url</th><th>user-agent</th></tr>
+<tr><th data-i18n="parser.time">time</th><th data-i18n="parser.client">client</th><th data-i18n="parser.status">status</th><th data-i18n="parser.bytes">bytes</th>
+<th data-i18n="parser.method">method</th><th data-i18n="parser.url">url</th><th data-i18n="parser.user_agent">user-agent</th></tr>
 </thead><tbody></tbody></table>
 </div>
 <script>
@@ -243,6 +242,7 @@ function refresh() {
   // Bounded for the same reason the page refreshes on a timer: a request
   // that never settles leaves a stale table with nothing to say so.
   yurunaRequest('/recent-requests', 8000).then(function(rows){
+return window.YurunaFirstUsable.measure("parser/index", rows.length ? 'data' : 'empty', function () {
     var t = document.querySelector('#t tbody');
     while (t.firstChild) t.removeChild(t.firstChild);
     rows.forEach(function(r){
@@ -265,12 +265,16 @@ function refresh() {
       t.appendChild(tr);
     });
     document.getElementById('meta').textContent =
-      '(' + rows.length + ' rows, refreshed ' + yurunaLocalTime(new Date()) + ')';
+      (window.YurunaI18n.t('parser.refreshed_rows', {count: rows.length, time: yurunaLocalTime(new Date())}));
     document.getElementById('err').textContent = '';
-  }).catch(function(){
-    document.getElementById('meta').textContent = '(refresh failed)';
+    window.YurunaFirstUsable.mark('parser/index', rows.length ? 'data' : 'empty');
+
+});
+}).catch(function(){
+    document.getElementById('meta').textContent = window.YurunaI18n.t("parser.refresh_failed");
     document.getElementById('err').textContent =
-      'Refresh failed. The rows below are from the last successful read.';
+      window.YurunaI18n.t("parser.refresh_failed_the_rows_below_are_from_the_last_successful_read");
+    window.YurunaFirstUsable.mark('parser/index', 'error');
   });
 }
 // The handle is kept so the control above has something to clear. Discarding
@@ -283,12 +287,12 @@ function stopPolling() { if (timer !== null) { clearInterval(timer); timer = nul
 pause.addEventListener('click', function () {
   if (pause.getAttribute('aria-pressed') === 'true') {
     pause.setAttribute('aria-pressed', 'false');
-    pause.textContent = 'Pause auto-refresh';
+    pause.textContent = window.YurunaI18n.t("parser.pause_auto_refresh");
     startPolling();
     refresh();
   } else {
     pause.setAttribute('aria-pressed', 'true');
-    pause.textContent = 'Resume auto-refresh';
+    pause.textContent = window.YurunaI18n.t("parser.resume_auto_refresh");
     stopPolling();
   }
 });
@@ -319,7 +323,10 @@ func handleHTML(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, indexPage)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	if !localizedPages().Serve(w, req, "index.html") {
+		http.NotFound(w, req)
+	}
 }
 
 // handleHealth reports liveness plus the follower's counters and last-

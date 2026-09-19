@@ -7,46 +7,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Stashes &mdash; Yuruna Stash</title>
+  <title data-i18n="stash.stashes_yuruna_stash">Stashes &mdash; Yuruna Stash</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Stash</a></span>
+      <span class="name"><a href="/" data-i18n="stash.yuruna_stash">Yuruna Stash</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="stash.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/" aria-current="page">Stashes</a>
-        <a href="/new">New stash</a>
-        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="stash.pages">
+        <a href="/" aria-current="page" data-i18n="stash.stashes">Stashes</a>
+        <a href="/new" data-i18n="stash.new_stash">New stash</a>
+        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener" data-i18n="stash.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Stashes</h1>
+    <h1 data-i18n="stash.stashes">Stashes</h1>
     <div class="toolbar">
-      <input type="search" id="q" placeholder="Search id, filename, user, path..." autocomplete="off">
-      <select id="class" aria-label="Filter by content type">
-        <option value="">All types</option>
-        <option value="text">Text</option>
-        <option value="image">Image</option>
-        <option value="pdf">PDF</option>
-        <option value="audio">Audio</option>
-        <option value="video">Video</option>
-        <option value="archive">Archive</option>
-        <option value="other">Other</option>
+      <input type="search" id="q" placeholder="Search id, filename, user, path..." autocomplete="off" data-i18n-placeholder="stash.search_id_filename_user_path">
+      <select id="class" aria-label="Filter by content type" data-i18n-aria-label="stash.filter_by_content_type">
+        <option value="" data-i18n="stash.all_types">All types</option>
+        <option value="text" data-i18n="stash.text">Text</option>
+        <option value="image" data-i18n="stash.image">Image</option>
+        <option value="pdf" data-i18n="stash.pdf">PDF</option>
+        <option value="audio" data-i18n="stash.audio">Audio</option>
+        <option value="video" data-i18n="stash.video">Video</option>
+        <option value="archive" data-i18n="stash.archive">Archive</option>
+        <option value="other" data-i18n="stash.other">Other</option>
       </select>
-      <select id="host" aria-label="Filter by host">
-        <option value="">All hosts</option>
+      <select id="host" aria-label="Filter by host" data-i18n-aria-label="stash.filter_by_host">
+        <option value="" data-i18n="stash.all_hosts">All hosts</option>
       </select>
-      <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes">Refresh</button>
+      <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes" data-i18n="stash.refresh" data-i18n-title="stash.rescan_the_stash_share_for_other_hosts_stashes">Refresh</button>
     </div>
     <!-- Lab token prompt. Hidden unless /api/session reports a gate this device
          has not been through; browsing and creating never need it. The field is
@@ -57,31 +57,19 @@
       <form id="login-form" class="row">
         <input id="lab-token" type="text" maxlength="6" size="8"
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
-        <button type="submit" class="btn primary">Unlock actions</button>
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard" data-i18n-aria-label="stash.six_character_lab_token_from_the_dashboard" data-i18n-placeholder="stash.lab_token">
+        <button type="submit" class="btn primary" data-i18n="stash.unlock_actions">Unlock actions</button>
         <span id="login-error" role="alert" class="muted"></span>
       </form>
-      <p class="muted">
-        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
-        tile; upper or lower case both work. Opening this page from that
-        dashboard unlocks it without the code. Needed only to delete.
-      </p>
+      <p class="muted" data-i18n="stash.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti">The 6-character code on the Yuruna hosts dashboard&#x27;s Lab token tile; upper or lower case both work. Opening this page from that dashboard unlocks it without the code. Needed only to delete.</p>
       <!-- The refusal an operator cannot act on without being told what it
            means: the dashboard checks the code, so a code that "could not be
            checked" is a statement about the dashboard, not about the code. Said
            here rather than left to the moment of failure, because the note above
            the table tells them to type a code that cannot work in that state. -->
-      <p class="muted">
-        If unlocking answers that the code <em>could not be checked</em>, the
-        code is not the problem -- the pool aggregator that checks it is
-        unreachable, and you cannot unlock until it is back.
-      </p>
+      <p class="muted" data-i18n="stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_">If unlocking answers that the code could not be checked , the code is not the problem -- the pool aggregator that checks it is unreachable, and you cannot unlock until it is back.</p>
     </section>
-    <p id="gate-unconfigured" class="muted" hidden>
-      No pool aggregator is configured, so no Lab token can be checked and
-      nothing here can be deleted. Set <code>--aggregator-url</code> on the
-      daemon to enable it.
-    </p>
+    <p id="gate-unconfigured" class="muted" hidden data-i18n="stash.no_pool_aggregator_is_configured_so_no_lab_token_can_be_checked_a" data-i18n-args="{&quot;command1&quot;: &quot;--aggregator-url&quot;}">No pool aggregator is configured, so no Lab token can be checked and nothing here can be deleted. Set --aggregator-url on the daemon to enable it.</p>
     <div id="msg" role="alert"></div>
     <!-- Kept apart from #msg, which every load clears and every failure
          replaces: this note states a standing condition of the page, not the
@@ -89,7 +77,7 @@
     <div id="delete-note" role="status"></div>
     <div class="list-head">
       <div id="status" role="status" class="muted"></div>
-      <button class="btn destructive list-action" id="delete-selected" disabled>Delete selected</button>
+      <button class="btn destructive list-action" id="delete-selected" disabled data-i18n="stash.delete_selected">Delete selected</button>
     </div>
     <div class="table-wrap">
     <table class="stashes">
@@ -102,15 +90,15 @@
            any column has been clicked. -->
       <thead>
         <tr>
-          <th class="pick"><label class="pick-all"><input type="checkbox" id="pick-all" disabled><span>All</span></label></th>
-          <th id="th-type" aria-sort="none"><button type="button" class="sort" id="sort-type">Type</button></th>
+          <th class="pick"><label class="pick-all"><input type="checkbox" id="pick-all" disabled><span data-i18n="stash.all">All</span></label></th>
+          <th id="th-type" aria-sort="none"><button type="button" class="sort" id="sort-type" data-i18n="stash.type">Type</button></th>
           <th id="th-id" aria-sort="none"><button type="button" class="sort" id="sort-id">ID</button></th>
-          <th id="th-name" aria-sort="none"><button type="button" class="sort" id="sort-name">Name</button></th>
-          <th id="th-host" aria-sort="none"><button type="button" class="sort" id="sort-host">Host</button></th>
-          <th id="th-user" aria-sort="none"><button type="button" class="sort" id="sort-user">User</button></th>
-          <th id="th-size" class="num" aria-sort="none"><button type="button" class="sort" id="sort-size">Size</button></th>
-          <th id="th-created" aria-sort="descending"><button type="button" class="sort" id="sort-created">Created</button></th>
-          <th id="th-status" aria-sort="none"><button type="button" class="sort" id="sort-status">Status</button></th>
+          <th id="th-name" aria-sort="none"><button type="button" class="sort" id="sort-name" data-i18n="stash.name">Name</button></th>
+          <th id="th-host" aria-sort="none"><button type="button" class="sort" id="sort-host" data-i18n="stash.host">Host</button></th>
+          <th id="th-user" aria-sort="none"><button type="button" class="sort" id="sort-user" data-i18n="stash.user">User</button></th>
+          <th id="th-size" class="num" aria-sort="none"><button type="button" class="sort" id="sort-size" data-i18n="stash.size">Size</button></th>
+          <th id="th-created" aria-sort="descending"><button type="button" class="sort" id="sort-created" data-i18n="stash.created">Created</button></th>
+          <th id="th-status" aria-sort="none"><button type="button" class="sort" id="sort-status" data-i18n="stash.status">Status</button></th>
           <th></th>
         </tr>
       </thead>
@@ -118,13 +106,13 @@
     </table>
     </div>
     <div class="actions">
-      <button class="btn" id="more" style="display:none">Load more</button>
+      <button class="btn" id="more" style="display:none" data-i18n="stash.load_more">Load more</button>
     </div>
   </main>
   <footer class="app" id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="stash.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="stash.loaded">Loaded:</span> <span id="last-loaded">--</span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="stash.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="stash.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

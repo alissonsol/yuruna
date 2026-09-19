@@ -8,9 +8,11 @@ PartOf=squid.service
 
 [Service]
 Type=simple
+Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
+EnvironmentFile=-/etc/yuruna/globalization.env
 User=proxy
 Group=proxy
-ExecStart=/usr/local/bin/caching-proxy-parser-service
+ExecStart=/usr/local/bin/caching-proxy-parser-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 # proxy already owns /var/log/squid/yuruna_access.log (mode 0640) -- the

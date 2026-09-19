@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,9 @@ param(
 # Write-Error nor '#requires -RunAsAdministrator' would do: Remove-TestVMFiles.ps1
 # invokes this in-process under $ErrorActionPreference='Stop', where either would
 # abort the parent teardown instead of returning a graceful exit 1.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Remove-OrphanedVMFiles.ps1 requires elevation (Run as Administrator); nothing was scanned or deleted."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_364385267309aa5b')
     exit 1
 }
 
@@ -72,16 +73,16 @@ Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 # --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
-Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_f3adc201e5fa38f4')
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
-Write-CleanupMessage "  This script deletes files from your Hyper-V storage paths"
-Write-CleanupMessage "  that are NOT associated with any currently listed VM."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_55ad2133fb65eb83')
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_e29eba4500369d0f')
 Write-CleanupMessage ""
-Write-CleanupMessage "  This includes orphaned VHDX disks, ISOs, config files,"
-Write-CleanupMessage "  and any other files left behind by removed VMs."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_39d8e7a5850aacaf')
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_85ac66690dafb784')
 Write-CleanupMessage ""
-Write-CleanupMessage "  THIS CANNOT BE UNDONE."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d506f23d4fcc7fa4')
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
@@ -137,7 +138,7 @@ function Test-IsHyperVSystemPath {
 $scanPaths = @($vhdPath, $vmPath) | Sort-Object -Unique
 foreach ($p in $scanPaths) {
     if (!(Test-Path -Path $p)) {
-        Write-CleanupMessage "Path does not exist: $p"
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_89af27dbbf79e963' -Arguments @{ p = "$p" })
         exit 1
     }
 }
@@ -152,7 +153,7 @@ foreach ($scanPath in $scanPaths) {
 }
 
 if ($allFiles.Count -eq 0) {
-    Write-CleanupMessage "No files found under the Hyper-V storage paths."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3de170cc1071d586')
     exit 0
 }
 
@@ -173,9 +174,9 @@ function Add-ClaimedFilesUnderDir {
 
 # --- REGION: List registered VMs and their associated files
 if ($allVMs.Count -eq 0) {
-    Write-CleanupMessage "No VMs found in Hyper-V Manager."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_924d989240c982fe')
 } else {
-    Write-CleanupMessage "Currently registered VMs and their associated files:"
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_5788f4c3cbc5c5cb')
     Write-CleanupMessage ""
 }
 
@@ -234,7 +235,7 @@ foreach ($vm in $allVMs) {
 
     Write-CleanupMessage "  $($vm.Name) [$($vm.State)]"
     if ($vmFiles.Count -eq 0) {
-        Write-CleanupMessage "    (no files found under scan paths)"
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_78f1a083d6efc936')
     } else {
         foreach ($f in ($vmFiles | Sort-Object)) {
             $fileInfo = Get-Item -Path $f -ErrorAction SilentlyContinue
@@ -242,7 +243,7 @@ foreach ($vm in $allVMs) {
                 $sizeStr = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
                 Write-CleanupMessage "    $f  ($sizeStr)"
             } else {
-                Write-CleanupMessage "    $f  (not on disk)"
+                Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3cc328e8993a6376' -Arguments @{ f = "$f" })
             }
         }
     }
@@ -275,7 +276,7 @@ foreach ($f in $allFiles) {
 
 # --- REGION: List protected base images
 if ($protectedFiles.Count -gt 0) {
-    Write-CleanupMessage "The following base images are KEPT (not associated with any VM, but needed as base images):"
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_54bfa469abe90720')
     Write-CleanupMessage ""
     foreach ($filePath in ($protectedFiles | Sort-Object)) {
         $fileInfo = Get-Item -Path $filePath -ErrorAction SilentlyContinue
@@ -287,7 +288,7 @@ if ($protectedFiles.Count -gt 0) {
         }
         $fileName = [System.IO.Path]::GetFileNameWithoutExtension($filePath)
         $guestName = ($fileName -replace "^$([regex]::Escape($hostFolder))\.", '')
-        Write-CleanupMessage "    Reason: base image for $guestName. Update by rerunning Get-Image.ps1 in $guestName/"
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_91b0a35a1dfecdc4' -Arguments @{ guestName = "$guestName" })
     }
     Write-CleanupMessage ""
 }
@@ -300,20 +301,20 @@ foreach ($filePath in $protectedFiles) {
     try {
         $prunedAce = Remove-OrphanedVMFileAccess -Path $filePath
         if ($prunedAce -gt 0) {
-            Write-CleanupMessage "  Pruned $prunedAce stale per-VM ACE(s) from base image: $filePath"
+            Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_1d352ef4cfa86c55' -Arguments @{ prunedAce = "$prunedAce"; filePath = "$filePath" })
         }
     } catch {
-        Write-Warning "  Could not prune stale ACEs from $filePath - $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a2a687435a04d1fc' -Arguments @{ filePath = "$filePath"; value = "$_" })
     }
 }
 
 # --- REGION: Delete orphaned VM artifacts
 if ($orphanedFiles.Count -eq 0) {
-    Write-CleanupMessage "No orphaned files found. Nothing to clean up."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_516e847dc1888e9f')
     exit 0
 }
 
-Write-CleanupMessage "The following files are NOT associated with any current VM:"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_bda747e61af2936d')
 Write-CleanupMessage ""
 $totalSize = 0
 foreach ($filePath in ($orphanedFiles | Sort-Object)) {
@@ -325,17 +326,17 @@ foreach ($filePath in ($orphanedFiles | Sort-Object)) {
     }
 }
 Write-CleanupMessage ""
-Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3e2337ab67132732' -FormatValues (($totalSize / 1GB)) -FormatBindings @{ gB = '0:N2' })
 Write-CleanupMessage ""
-Write-CleanupMessage "Empty subfolders will also be removed after file deletion."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d4cd1463d5f4d184')
 Write-CleanupMessage ""
 
 if ($Force) {
-    Write-CleanupMessage "Force mode enabled -- skipping confirmation."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_7fe1c2acfba18375')
 } else {
-    $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
+    $confirmation = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_67b2df91dc3bcc59')
     if ($confirmation -ne "YES") {
-        Write-CleanupMessage "Operation canceled. No files were deleted."
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_ac15f0cb601d9a5f')
         exit 0
     }
 }
@@ -346,7 +347,7 @@ foreach ($filePath in $orphanedFiles) {
         Remove-Item -Path $filePath -Force
         Write-CleanupMessage "  Deleted: $filePath"
     } catch {
-        Write-Warning "  Failed to delete: $filePath - $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a77fd89b921c3ab7' -Arguments @{ filePath = "$filePath"; value = "$_" })
         $errors++
     }
 }
@@ -366,9 +367,9 @@ foreach ($scanPath in $scanPaths) {
         if ($null -eq $remaining -or $remaining.Count -eq 0) {
             try {
                 Remove-Item -Path $dir.FullName -Force
-                Write-CleanupMessage "  Removed empty folder: $($dir.FullName)"
+                Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3a3fdfb4b32c1839' -Arguments @{ fullName = "$($dir.FullName)" })
             } catch {
-                Write-Warning "  Failed to remove folder: $($dir.FullName) - $_"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2823da5e63119e42' -Arguments @{ fullName = "$($dir.FullName)"; value = "$_" })
                 $errors++
             }
         }
@@ -378,7 +379,7 @@ foreach ($scanPath in $scanPaths) {
 # --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-CleanupMessage "Cleanup complete. All orphaned files deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_a0a6b2ff7f34905f')
 } else {
-    Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }

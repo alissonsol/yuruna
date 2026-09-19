@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427765c1-3491-491c-8ca6-00baf0708bec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.ProductGlobalization.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -416,3 +417,34 @@ function ok(a) { return a / 2; }
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'product globalization acceptance' {
+    It 'globalization acceptance: every generated page locale and state' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/globalization-pages.test.js' -Argument @('generated')
+    }
+    It 'globalization acceptance: generated page headers cache and CSP' {
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/caching-proxy-service'
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/caching-proxy-parser-service'
+    }
+}
+
+
+Describe 'static provisioned pages use the deployment language' {
+    It 'renders the real Squid page for each enabled locale without changing its URL macro' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force -DisableNameChecking
+        $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
+            (Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
+        $source = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data'))
+        Assert-True ($source.Contains('data-yuruna-static-locale')) 'the shipped seed has no registered static page'
+        $macroCount = [regex]::Matches($source, '%U').Count
+        Assert-True ($macroCount -gt 0) 'the shipped Squid page has no original URL macro'
+        foreach ($tag in @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -in @('supported', 'pseudo') })) {
+            $html = ConvertTo-ProvisionedCatalogHtml -Content $source -RepoRoot $script:RepoRoot -Language $tag -AllowPseudoLocale
+            Assert-True ($html.Contains('<html lang="' + $tag + '" dir="' + $manifest.locales[$tag].direction + '">')) "$tag was not applied at provisioning"
+            Assert-False ($html.Contains('data-yuruna-static-locale')) 'the untranslated static marker survived provisioning'
+            Assert-Equal $macroCount ([regex]::Matches($html, '%U').Count) 'localization changed the Squid URL macro'
+        }
+        $closed = ConvertTo-ProvisionedCatalogHtml -Content $source -RepoRoot $script:RepoRoot -Language 'qps-Plocm'
+        Assert-True ($closed.Contains('<html lang="en-US" dir="ltr">')) 'a normal deployment enabled a pseudo locale'
+    }
+}

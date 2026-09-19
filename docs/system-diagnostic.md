@@ -199,6 +199,21 @@ the raw string for human readability.
 
 Related: the `bsd_ps_args_truncation` trap class.
 
+<a id="423ef7f5-0013"></a>
+
+#### Process subtree walk (breadth-first, bounded)
+
+`Get-ProcessDescendantPid` walks a process subtree breadth-first -- the
+root, then every descendant, in discovery order. The process a Linux
+package manager is blocked on is generally not the one whose name matched:
+`apt-get` forks `sh -c`, which forks the tool that actually owns the
+blocking read, so a capture that stops at direct children names the shell
+and never the leaf holding the file descriptor -- and that leaf is the
+whole point of the capture. The walk is bounded two ways so a fork-storm
+cannot turn one section into an unbounded `ps` walk: `MaxPids` caps the
+total processes visited, and only pids reached through the walk's own
+queue are visited, so a cycle in a doctored ppid chain still terminates.
+
 <a id="423ef7f5-000b"></a>
 
 ### 11b. INSTALL & EARLY-BOOT TIMELINE (Linux)
@@ -341,6 +356,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

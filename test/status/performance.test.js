@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.13
+  Version: 2026.09.18
   Exercise the performance page's actual rendering functions with a minimal DOM.
   Optional argument: aggregate JSON produced by the generated status handler.
 */
@@ -26,7 +26,12 @@ const scope = {
   Yuruna: { populateHeader() {} }, startBannerPolling() {},
   safeUrl(value) { return value; }, t(value) { return value; }
 };
+scope.window = scope;
 vm.createContext(scope);
+const catalogStart = source.indexOf('// >>> yuruna-i18n embedded block');
+const catalogEnd = source.indexOf('// <<< yuruna-i18n embedded block');
+vm.runInContext(source.slice(catalogStart, catalogEnd), scope);
+scope.t = function (key, args) { return scope.YurunaI18n.t(key, args); };
 vm.runInContext(source.slice(start, end) + '\nthis.render = buildSeqCard; this.flame = buildFlame;', scope);
 const payload = process.argv[2] ? JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) : {
   sequences: { startup: Array.from({ length: 4 }, (_, i) => ({

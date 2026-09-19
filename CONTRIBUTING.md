@@ -12,6 +12,8 @@ Looking for something to work on? Pick from
 Use the [public](https://yuruna.com) repository for test labs and learning. For access to the [development](https://yuruna.dev)
 repository, contact [contrib@yuruna.dev](mailto:contrib@yuruna.dev).
 
+See [Languages and localization](docs/globalization.md) when changing displayed text.
+
 ## Private repository bootstrap
 
 Once your account has access to the private `yurunadev` repository,
@@ -374,6 +376,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](README.md)

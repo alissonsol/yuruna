@@ -1,0 +1,1266 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "remediation",
+  "locale": "en-US",
+  "messages": {
+    "remediation.operator_00fd2209b1a993b2": {
+      "message": "inspect last_failure.json manually",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_01b3c9512f168859": {
+      "message": "console_flooded on {vmName}: the wait ran its full budget against a screen whose content had not changed for {staticSecs}s -- a wall of text that scrolled by earlier, not a console still filling. A guest printing nothing is a guest waiting for something, and a prompt it printed once before this wait began would look exactly like this.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        },
+        "staticSecs": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${staticSecs}"
+        }
+      }
+    },
+    "remediation.operator_03c7dac9d2e3c13f": {
+      "message": "If it persists, check that this host publishes its address to the pool directory and that the guest can reach that directory",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_092d2a9134cdc6f6": {
+      "message": "lsof -sTCP:LISTEN returned no pids, but lsof (any state) found pid(s) {join}; treating as holder",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($anyPids -join ',')"
+        }
+      }
+    },
+    "remediation.operator_0ddb7073d12e8400": {
+      "message": "ocr_timeout on {vmName}: the screen never reached the expected state. Most often the workload diverged from the recorded path; replay from a clean snapshot rather than guessing how to recover in place.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_0e19ba1c8c8b7f7b": {
+      "message": "Confirm the seed carried the pin: network-config on the cidata seed must reach the guest, since a pin applied after boot is a lease too late",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_0f0d8db138f68e01": {
+      "message": "Restore the binding the verdict points at -- Set-VMSwitch -Name <switch> -NetAdapterName <nic> for a lost uplink, or -AllowManagementOS $true for a missing management vNIC -- knowing it briefly interrupts the host's own network",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_126f4cf4415d01de": {
+      "message": "Check what else shares the volume: the guest-image download pool under images/ is usually the largest tenant",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_12710b3d54a09d23": {
+      "message": "If the pin is present and the address still moves, the server is not keying on client-id: give this guest a reservation, or shorten the lease so the waste recycles",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_12936401977348b5": {
+      "message": "If it stalls at the same URL every cycle, treat it as an upstream mirror outage rather than a guest fault",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_14bd8c7afa68b453": {
+      "message": "Re-run the sequence from the failing step",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_14e6c2ed2ffe7e89": {
+      "message": "A service that moved rather than died needs nothing here -- discovery re-asks every attempt, so the next cycle finds the new address on its own",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_16b7173fb133ad34": {
+      "message": "Where the log also shows the GitHub fallback returning 404: that leg cannot serve a private repository without a token, so the host is the only working source and its reachability is the whole problem",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_17b1fce158581db3": {
+      "message": "  The holder is owned by another user (its socket is hidden from lsof/netsh without elevation).",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_19c29f3d7af84089": {
+      "message": "Reset the guest's password (or rotate the vault entry) before retrying",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_1fcd1c46f3e49adb": {
+      "message": "wait_timeout on {vmName}: waitForSeconds elapsed without an observable change. The wait is independent of guest state; an immediate retry is safe.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_20e82ed313adaba2": {
+      "message": "even a root-level lsof found no holder that may be stopped for this port",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_229beccf1c8615fb": {
+      "message": "Register built-in recovery handlers",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_25ef3aa3a8d0b7fb": {
+      "message": "Address that underlying failure",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_26c6f6da9a72b538": {
+      "message": "Review last_failure.json + manifest.json + cycle.events.ndjson",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_26e79b3ecf42c48e": {
+      "message": "Disconnect-VNC for the affected VM",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2ad54514c8ca7909": {
+      "message": "Test.Remediation registry",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2aed02135c2ad75f": {
+      "message": "Check the NETWORK section of the guest diagnostic for stalled or slow package-mirror origins",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2b9a82d1d78b3138": {
+      "message": "project_access_denied on {vmName}: the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host's OWN project failed to clone: here the fix belongs to whoever assigned the pool's test-set.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_2be2a7b55fde9058": {
+      "message": "Reconcile the repo, then re-run the cycle",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2d28084c0bea1d81": {
+      "message": "Fix the underlying script",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2e1e64b6924ab3ed": {
+      "message": "Confirm the named snapshot exists and is consistent",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_2fa001ad26748ebc": {
+      "message": "Wait 5-30 s with jitter (see Get-PollDelay)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_31b3d0d03fc33e59": {
+      "message": "the recorded verdict",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_3264b63693a7f3a4": {
+      "message": "Read causeDetail.consoleFlood in last_failure.json for the dominant line and its share of the screen",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_328d54082fe46c95": {
+      "message": "or fall through to 'unknown' which currently has no handler either",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_331d83be3f8e49ab": {
+      "message": "Stop orphan pwsh holder",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_36573af397a13ade": {
+      "message": "Repair-ScreenshotRing restores capture; a repeat is idempotent",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_377f2e3910815162": {
+      "message": "Grant this host's GH_TOKEN read access to the assigned projectUrl",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_38a152014944599f": {
+      "message": "Inspect test/status/extension/authentication/vault.yml for the affected guest",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_3b44f5cc88984d87": {
+      "message": "Invoke-Remediation: {lastFailurePath} not present; nothing to do.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "lastFailurePath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LastFailurePath"
+        }
+      }
+    },
+    "remediation.operator_3d90ab28ad1f16f9": {
+      "message": "If it persists, confirm the guest booted and its NIC is attached to the expected network",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_3f388f3f584a1034": {
+      "message": "Invoke-Remediation: no YURUNA_LOG_DIR and no -LastFailurePath; nothing to do.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_3f8475af2fbbaf26": {
+      "message": "Retire dead hosts with test/pool/Remove-PoolHost.ps1, which also removes their archive root (including any pre-unification one)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_4046c1f6949f7aad": {
+      "message": "a transport stall, not a wrong answer",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_4155d913c9defc45": {
+      "message": "Read causeDetail.consoleStaticSeconds and consoleFlood in last_failure.json -- a long static run with a repeating dominant line is a parked guest, not a live flood",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_424dd8ef292c44da": {
+      "message": "  Resolve by ONE of:\n    - stop the other owner's status service (it may belong to another user account); or\n    - give this checkout its own port in test/test.config.yml (statusService.port) and rerun.",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_4398282a54e50a13": {
+      "message": "pool_storage_full: the pool share has no room left for this host's cycle results, so the cycle's output could not be archived. Nothing the runner can do changes that -- it has no archives of its own to delete, and the next cycle only produces more to store. In move mode the share holds the ONLY copy of a cycle's results, so archiving is not optional and cycles stay paused until there is room.{detail}",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$detail"
+        }
+      }
+    },
+    "remediation.operator_442f164764fa5ba8": {
+      "message": "last_failure.json could not be parsed: {message}",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "remediation.operator_443019dfa8dbce7c": {
+      "message": "Open the cycle folder's last-fetch-and-execute.log",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_4fccd2ceaaf44c3a": {
+      "message": "Inspect project/test/test.runner.yml for duplicate or malformed entries",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_54b0e080b8e528c6": {
+      "message": "plan_invalid on {vmName}: the cycle plan is ambiguous or unsatisfiable (duplicate sequence, a backend the host lacks, or a missing host/<host>/<guest> folder). A config error, not auto-remediable.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_5a4aff635afbeff4": {
+      "message": "Re-launch test/Start-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_5c64242438df86ec": {
+      "message": "A Yuruna status service is already answering on port {port}{suffix} -- started by another checkout or user.",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        },
+        "suffix": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$suffix"
+        }
+      }
+    },
+    "remediation.operator_5d3d876075d1100d": {
+      "message": " An operator hold of {heldSecs}s ended just before this step: the guest kept running through it, so anything it printed and does not reprint is off the screen the step then had to read.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "heldSecs": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${heldSecs}"
+        }
+      }
+    },
+    "remediation.operator_5db26636a6ed4019": {
+      "message": "lsof stderr: {trimErr}",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "trimErr": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$trimErr"
+        }
+      }
+    },
+    "remediation.operator_6097b95aeee20519": {
+      "message": "On the host console, inspect {switchText} ({verdictText}): Get-VMSwitch, then Get-NetAdapter for the description it names",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "switchText": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$switchText"
+        },
+        "verdictText": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$verdictText"
+        }
+      }
+    },
+    "remediation.operator_644fe260c47d5bf9": {
+      "message": "wait_timeout on {vmName}: the fetchAndExecute completion marker never appeared, so the guest script was still running (or wedged) at the deadline -- most often blocked on a slow or stalled package mirror. No failure tag was printed, so this is not a script-reported error; a backoff commonly clears it.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_663bef65292f201c": {
+      "message": "Start the named service where it belongs: test/service/Start-<Service>VM.ps1 on its host, and confirm /healthz answers from there",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_676a299116f4813d": {
+      "message": "No handler registered for failureClass '{failureClass}' and no 'unknown' fallback present.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "failureClass": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$failureClass"
+        }
+      }
+    },
+    "remediation.operator_6856d456910a252e": {
+      "message": "Stop port {port} holder",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.operator_688a7e15ea7edf9c": {
+      "message": "Force the next Send-* to re-handshake",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6957eec58bdf4cad": {
+      "message": " It moved {prev} -> {cur}.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "prev": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$prev"
+        },
+        "cur": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$cur"
+        }
+      }
+    },
+    "remediation.operator_6a7069cdf541164d": {
+      "message": "Re-run the failing wait step.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6a9db7b61b4925ae": {
+      "message": "Where the step is a waitForAndEnter, blindAfterSeconds lets it answer that prompt itself on the next run",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6c024e2aae3f4e0b": {
+      "message": "Identify the failing extension area (authentication, notification, etc.)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6cc507ac627ec13c": {
+      "message": "  Elevated takeover was tried too and did not free it: {detail}",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($takeover.Detail)"
+        }
+      }
+    },
+    "remediation.operator_6cf224bfd1008ecc": {
+      "message": "Verify the git remote credentials / token are still valid",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6ece8bcef4b26107": {
+      "message": "If retries exhaust, fall through to operator_intervention_required",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_6fd79eb4d8f46b60": {
+      "message": "Open the cycle folder's last-fetch-and-execute.log and check where it stops -- a log with no '# exit code:' trailer means the script never returned",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_70fab6da39ee36e1": {
+      "message": "Repair-VncConnection reconnects the console; reconnecting twice is harmless",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_713fbd665e5da4bf": {
+      "message": "The pool-control board flags the pool and lists the blocked hosts",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_730dca21ad9eda73": {
+      "message": "Invoke-Remediation: could not write last_remediation.json: {message}",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "remediation.operator_787985aef3c53e0a": {
+      "message": "the guest had no lease YET; a later cycle usually finds one",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_7933966c333f63c7": {
+      "message": "Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_7a0e1aa474da9a62": {
+      "message": "payload_unavailable on {vmName}: the guest ran the fetch wrapper and no source served the script, so nothing executed -- there is no script here to debug, and no guest state to distrust. The usual cause is a host that renumbered under DHCP while this guest still held the old address; the guest re-asks the pool directory and normally recovers within seconds.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_7c1a5d17f86d77d0": {
+      "message": "pattern_matched_failure on {vmName}: fetchAndExecute saw the failure-end-tag. The wrapper script itself reported a failure; auto-retry would just re-trigger it.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_7d87024301324c31": {
+      "message": "the holder is out of this account's reach and elevation was unavailable -- sudo has no live authorization and this run cannot ask for one (run 'sudo -v', then re-run)",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_7db5a2977e4790b2": {
+      "message": "Fix the extension and re-run the cycle",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_7fb881306771c597": {
+      "message": "  Refusing to start: a second status service cannot bind the same port, and running the\n  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state).",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_807e58f44f8a5743": {
+      "message": "Re-attempt the failing instrumentation step.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_82a3c5762fc4648e": {
+      "message": "Diagnose the underlying script error",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_85eda07f90b4d887": {
+      "message": "Fix what is repeating rather than re-running the wait -- a longer timeout cannot make a self-overwriting surface readable",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_86936d1d16cfffed": {
+      "message": "Check the server's lease table for this guest's MAC -- two live leases on one MAC means it is keying on a client-id the guest is still varying",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_88121b1e52c84006": {
+      "message": "  Refusing to commandeer a listener this harness does not own.",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_892877bc74922cba": {
+      "message": "extension_error on {vmName}: a callExtension invocation threw. Auto-retry risks looping on the same extension bug or burning credentials.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_8f308f9f27537f47": {
+      "message": "Open the guest console and answer what it is waiting on; a prompt that is off screen is still live and still reading input",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_8f9d21c7feb1fbde": {
+      "message": "Resume manually after the root cause is fixed",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_90d007dd21de718a": {
+      "message": "lab_dependency_down: a lab service this host had been reaching stopped answering, and the cycle already held for it -- re-probing on backoff for up to sixteen hours -- before recording this. So an automated retry has provably been tried at the only scale that could have worked, and the next cycle would spend the same hours to reach the same answer. The service also need not live on this host: under a pool it is normally a VM somebody else owns, which is why this is not a host fault and not a guest fault.{detail}",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$detail"
+        }
+      }
+    },
+    "remediation.operator_9151cc4f3b057b44": {
+      "message": "console_flooded on {vmName}: the wait ran its full budget against a console that was overwriting itself with one repeating line, so the pattern could not be read off it whether or not the guest ever printed it. This is not a guest that failed to reach the expected state -- it is a screen that could not be read, and replaying it floods the same screen again. What is repeating names the cause: a link or DHCP event churning the installer's network model, a service restart loop, or a kernel message storm.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_97b6f714dbde379c": {
+      "message": "The hold is not the cycle budget: an operator who knows the outage is permanent ends it from the status page rather than waiting it out",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_992cf1faa91dc2f9": {
+      "message": "stopped holder(s) {join} with elevation, but the port is still not bindable",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($phase2 -join ', ')"
+        }
+      }
+    },
+    "remediation.operator_9944c15ceb34ec02": {
+      "message": "holder may be owned by another user; retry with: sudo lsof -nP -iTCP:{port}",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.operator_9aa0dd33f9cd273a": {
+      "message": "bootstrap_sync on {vmName}: a git fetch/clone of the framework or project repo failed for a non-network reason (divergence, auth, or a dirty working tree). A pure network blip is classified upstream as network_timeout and retried; this class is the non-transient remainder.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_9ea01d9a6217232e": {
+      "message": "The runner re-checks before each cycle and resumes on its own once there is room; a config edit or a new commit ends the pause immediately",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_9f53aeb17d36bf0e": {
+      "message": "script_error on {vmName}: an SSH-driven command returned non-zero. Auto-retry would loop on the same script bug.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_a3827909e7a01825": {
+      "message": "the host lost its own path; nothing in the cycle can fix it, and it recovers",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_ababc4b189a176eb": {
+      "message": "lsof -nP -iTCP:{port} (any state) -> empty",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.operator_abd632fb4ee5d5b1": {
+      "message": "host_io_blocked on {vmName}: Send-Key / Send-Text / Send-Click could not deliver to the guest. The transport handle (VNC socket, Hyper-V keyboard CIM) likely went stale.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_ae1a107543e2b1da": {
+      "message": "register a handler via Register-RecoveryHandler",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_b0efdbb198fceec5": {
+      "message": "Inspect that area's default.psm1 + .contract.yml",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_b4f9634c3488c4e9": {
+      "message": "Classify the failure mode and consider adding a FailureClass to the verb",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_b51fc0ab27411fec": {
+      "message": "dhcp_identity_unbounded on {vmName}: this guest was rebuilt under the identity it is supposed to keep, and the DHCP server handed it a DIFFERENT address anyway.{move} A guest whose address is not a function of its identity spends one address per build, and every abandoned one stays allocated for the whole lease -- so the pool drains at a rate set by the lease time rather than by how many machines exist, and guests eventually boot with no IPv4 at all. Retrying cannot help: the next build asks the same question and gets another new address, so this never enters the transient retry allow-lists.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        },
+        "move": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$move"
+        }
+      }
+    },
+    "remediation.operator_b8bc2c014057ea71": {
+      "message": "unknown failure on {vmName}: the failing verb did not register a FailureClass. Until classification lands, an operator needs eyes on the cycle artifacts to decide.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_b9a49bf4b1c35603": {
+      "message": "credential_expired on {vmName}: a vault-managed password no longer matches what the guest expects. The vault almost certainly needs to be refreshed before the next cycle can pass.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_b9e5f8c44bec51fc": {
+      "message": "a step exceeded its budget; the next attempt starts from a clean cycle",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_ba08eed1519e3ec9": {
+      "message": "Status-service port {port} is still held after stopping the orphan pwsh holder(s) ({join}).",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        },
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($holderPids -join ', ')"
+        }
+      }
+    },
+    "remediation.operator_bac6cb55b45e16b5": {
+      "message": "Inspect the cycle folder for last-fetch-and-execute.log or sshExec stderr",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_bb02ee25257cba0d": {
+      "message": "host_network_degraded on {vmName}: the guest-network path the HOST provides is broken, not this guest. A virtual switch object outlives its uplink binding across a host reboot, so the switch still exists and every host check still passes while nothing attached to it forwards -- each guest can only report its own symptom. Retrying, on this cycle or a later one, attaches the next guest to the same carrier-less bridge, so this class never enters the transient retry allow-lists and is not counted toward a per-guest quarantine streak.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_bb25c210fa3519d6": {
+      "message": "Re-attempt the failing network probe / Wait-SshReady",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_bb372789b3ee6502": {
+      "message": "Check the host hypervisor service + free disk for the VM store",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_bcb561ae0b2d1afd": {
+      "message": "Only then re-run the sequence from the failing step",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_be21fdfe4bad5cf0": {
+      "message": "verify {lastFailurePath} is valid JSON",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "lastFailurePath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LastFailurePath"
+        }
+      }
+    },
+    "remediation.operator_bf89860e09f2c5b1": {
+      "message": "If missing, take a fresh baseline snapshot and re-run the sequence",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_c00ffc306428603b": {
+      "message": "Retry after a short backoff -- the host is usually reachable again by the next attempt",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_c0a439f9f4207624": {
+      "message": "Confirm the host provides every backend the plan requires, then re-run",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_c706cfbe26bfe98c": {
+      "message": "Handler for '{failureClass}' returned a non-hashtable result.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "failureClass": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$failureClass"
+        }
+      }
+    },
+    "remediation.operator_cbaa17fc6a5150b0": {
+      "message": "Where the flood is installer-phase network churn, confirm the guest is getting a DHCP lease at all",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_cc703ba747623c88": {
+      "message": "instrumentation_failure on {vmName}: takeScreenshot / saveSystemDiagnostic failed transiently. The cycle's observable state is unaffected; one immediate retry typically clears it.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_ce4ee5bda91552ae": {
+      "message": "Inspect the innerFailureClass field in last_failure.json for the deepest cause",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_ce6ff8d514d5658f": {
+      "message": "the host's external switch",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_cf05b7bb4e5371b4": {
+      "message": "lsof not found in PATH",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_d009181b9af99707": {
+      "message": "Clear all handlers",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_d16851977ec6a779": {
+      "message": "provisioning_failure on {vmName}: the host hypervisor could not define / boot / reach-running the VM. Often transient (insufficient-resources right after a prior teardown, KVP/IP late to populate) and clears on the next cycle after a backoff.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_d1f78e9ab1185fe5": {
+      "message": "Retry after a short backoff -- the address usually appears with no operator action",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_d2a8de7e95317e4a": {
+      "message": "  Elevated takeover was tried first and did not free it: {detail}",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($takeover.Detail)"
+        }
+      }
+    },
+    "remediation.operator_d58ebc3333e86c7f": {
+      "message": "retry_exhausted on {vmName}: the retry verb already used up its budget. Auto-retrying more would just keep failing.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_d7f954ed2c939cf9": {
+      "message": "Inspect the framework + project repo working trees for divergence or local edits",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_d9a4a3e89d4a670b": {
+      "message": "If reconnect fails twice, fall through to operator_intervention_required",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_daf1c9bf1f1bad50": {
+      "message": "Delete old cycle archives on the share under hosts/<hostId>/test-cycles/ -- they are immutable folders, so removing whole ones is safe",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_db0130b0bf3d4958": {
+      "message": "Back off, then re-run the failing step (the guest install scripts are idempotent)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_dcc4abf58182f0f3": {
+      "message": "Handler threw: {message}",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "remediation.operator_dd019d34b72feafc": {
+      "message": "Retry the cycle; if it reproduces deterministically, treat as operator_intervention_required",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e038808ca34827c4": {
+      "message": "Re-run the sequence after the vault is consistent",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e058d7d3febce5c7": {
+      "message": "Re-run the sequence from the failing step only after the guest is moving again",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e0d3c0a00e449780": {
+      "message": "last_failure.json parsed to a non-object ({gotType}); expected a JSON object.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "gotType": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$gotType"
+        }
+      }
+    },
+    "remediation.operator_e12111b50564c2b8": {
+      "message": "Status-service port {port} is in use but no owning PID is visible to this user.",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.operator_e15a652575a58f85": {
+      "message": "List snapshots for the VM (Get-VMCheckpoint / virsh snapshot-list / utmctl)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e24252c37930e352": {
+      "message": "Re-run the cycle once the root cause is resolved",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e344b12d616e0f0a": {
+      "message": "elevation_required on {vmName}: a command needed sudo and no operator was present to supply a password. sudo reads the password from /dev/tty, so this cannot be answered by the runner, by a retry, or from a remote session -- and a host in this state would otherwise stall mid-cycle while the dashboard still showed the last cycle green. Fixing it needs console access, exactly like a network fault does.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_e54de45d1485fbb7": {
+      "message": "ip_not_discovered on {vmName}: no host-side probe could name an address for the guest, so the step never reached it. Address discovery rests on caches that age out and daemons that publish late, so the same call usually answers seconds later. Distinct from network_timeout, where an address WAS found and the path to it failed, and from host_network_degraded, which does not clear on its own.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_e54e017fda4a02ac": {
+      "message": "the external switch '{switchName}'",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "switchName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$switchName"
+        }
+      }
+    },
+    "remediation.operator_e59c2d7e4aa9e176": {
+      "message": "Open the cycle folder for the failing run",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_e893941980e9b648": {
+      "message": "Until it is restored, guests keep provisioning on the NAT fallback switch and reach the host only through its port-forwarders",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_ec70b244ad9d80d1": {
+      "message": "snapshot_restore_failed on {vmName}: the snapshot subsystem itself is broken. Auto-recovery cannot proceed without a working restore primitive.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_efc4491d25c27bc3": {
+      "message": "  Refusing to start so the cycle does not run without its status dashboard / breakpoint controls.\n  Resolve by stopping that process (it may belong to another user), or set a different\n  statusService.port in test/test.config.yml and rerun.",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f0a29d5f6e38b4ec": {
+      "message": "To run without it, pin an address with $env:YURUNA_EXTENSION_HOST_<AREA>, or set testCycle.labHealth.enabled to false to stop holding for any service",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f0fd4b357ed63f38": {
+      "message": "Confirm the prior cycle freed host CPU / memory (no orphaned VM holding resources)",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f170c655d3aa9ec7": {
+      "message": "If the failure repeats, capture screen+OCR artifacts under the cycle folder and pause for inspection",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f279084b2eb96f2c": {
+      "message": "Or reassign the pool to a test-set whose project every member can read",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f4ded9a21116febc": {
+      "message": "Confirm the host/<host>/<guest> folder exists for every planned guest",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f65f2f5b0c183dc5": {
+      "message": "Restore the last known-good snapshot for the VM",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_f9f5cd6dabda9dc0": {
+      "message": "Check the host-side lease / neighbor source the driver reads for a stale or missing entry",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_fa9d85ead9be0ad7": {
+      "message": "no elevated takeover on Windows -- run the shell as Administrator, or add a urlacl for this port",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_fbf8a282c16fce06": {
+      "message": "network_timeout on {vmName}: SSH / probe never reached ready. Typically transient -- a brief backoff (5-30 s) clears it without operator action.",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        }
+      }
+    },
+    "remediation.operator_fc7632bc7d328be6": {
+      "message": "Status-service port {port} is FREE, but this process may not reserve http://*:{port}/.\n  That is an HTTP.sys URL reservation: making one needs elevation. Nothing is holding\n  the port -- this is a privilege problem, not a port conflict.\n  Refusing to start: the status service binds the same wildcard prefix (so that guests\n  can reach it on the host's LAN IP, not just localhost) and would fail identically.\n  Resolve by ONE of:\n    - run this shell as Administrator; or\n    - reserve the URL once, then rerun unelevated:",
+      "description": "Recovery guidance from test/modules/Test.PortOwner.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.operator_fe73e80924c46670": {
+      "message": "On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.operator_fe77fdc3a8c79bc8": {
+      "message": "Resume the cycle once the script is correct",
+      "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active"
+    },
+    "remediation.port_diagnostic": {
+      "message": "  Diagnostic: {detail}",
+      "description": "Whole port recovery message. Preserve exact command tokens and configuration field names; values are display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$diag"
+        }
+      }
+    },
+    "remediation.port_holder": {
+      "message": "Status-service port {port} is held by PID {pid} ({process}).",
+      "description": "Whole port recovery message. Preserve exact command tokens and configuration field names; values are display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        },
+        "pid": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$holderPid"
+        },
+        "process": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$proc.ProcessName"
+        }
+      }
+    },
+    "remediation.port_holder_owned": {
+      "message": "Status-service port {port} is held by PID {pid} ({process}) owned by '{owner}'.",
+      "description": "Whole port recovery message. Preserve exact command tokens and configuration field names; values are display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        },
+        "pid": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$holderPid"
+        },
+        "process": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$proc.ProcessName"
+        },
+        "owner": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$owner"
+        }
+      }
+    },
+    "remediation.port_inspect_command": {
+      "message": "        {command}      # names the root-owned holder",
+      "description": "Recovery command with translated explanatory comment; command bytes must remain unchanged.",
+      "placeholders": {
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "sudo lsof -nP -iTCP:8080 -sTCP:LISTEN"
+        }
+      },
+      "lifecycle": "active"
+    },
+    "remediation.port_netsh_empty": {
+      "message": "{command} returned no output",
+      "description": "No data from the external Windows port ownership query; command bytes stay invariant.",
+      "placeholders": {
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "netsh http show servicestate"
+        }
+      },
+      "lifecycle": "active"
+    },
+    "remediation.port_root_listener": {
+      "message": "  Most often this is a status service left running as ROOT by an earlier sudo run of a\n  setup or runner script. Confirm and clear it with:",
+      "description": "Whole port recovery message. Preserve exact command tokens and configuration field names; values are display data.",
+      "lifecycle": "active"
+    },
+    "remediation.port_still_held_help": {
+      "message": "  Refusing to start. Inspect with 'lsof -iTCP:{port} -sTCP:LISTEN' (or 'netsh http show servicestate'),\n  free the port, or set a different statusService.port in test/test.config.yml and rerun.",
+      "description": "Whole port recovery message. Preserve exact command tokens and configuration field names; values are display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Port"
+        }
+      }
+    },
+    "remediation.port_stop_command": {
+      "message": "        {command}       # stops it the way it was started",
+      "description": "Recovery command with translated explanatory comment; command bytes must remain unchanged.",
+      "placeholders": {
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "sudo lsof -nP -iTCP:8080 -sTCP:LISTEN"
+        }
+      },
+      "lifecycle": "active"
+    }
+  }
+}

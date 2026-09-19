@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,8 @@
 param(
     [string]$RepoRoot
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
 
@@ -179,7 +181,7 @@ function Invoke-McpEntryPoint {
     )
     $path = Join-Path $script:AutomationDir $Script
     if (-not (Test-Path -LiteralPath $path)) {
-        return @{ ExitCode = 127; Stdout = ''; Stderr = "no such entry point: $path"; TranscriptPath = '' }
+        return @{ ExitCode = 127; Stdout = ''; Stderr = (Format-YurunaOperatorMessage -Key 'runner.mcp_missing_entry' -Arguments @{ path = $path }); TranscriptPath = '' }
     }
     # Most of these scripts have no [CmdletBinding()], and a script without it
     # absorbs an unknown -Name into $args and runs anyway. So an argument the
@@ -191,7 +193,7 @@ function Invoke-McpEntryPoint {
     $undeclared = @(Get-UnboundParameterName -ScriptPath $path -Argument $ScriptArgument)
     if ($undeclared.Count) {
         return @{ ExitCode = 126; Stdout = ''; TranscriptPath = ''; Refused = $true
-            Stderr = ("$Script declares no parameter named: " + ($undeclared -join ', ')) }
+            Stderr = (Format-YurunaOperatorMessage -Key 'runner.mcp_unbound_parameter' -Arguments @{ script = $Script; parameters = ($undeclared -join ', ') }) }
     }
     $outFile = [IO.Path]::GetTempFileName()
     $errFile = [IO.Path]::GetTempFileName()
@@ -265,25 +267,25 @@ function Get-McpToolTable {
     $noArgs = '{"type":"object","properties":{}}'
     return @(
         @{ Name = 'yuruna_test_configuration'; Script = 'Test-Configuration.ps1'; ReadOnly = $true;  Schema = $noArgs
-           Description = 'Validate the test configuration. Exits non-zero with a transcript when a check fails, and returns a bare False while exiting 0 when the root set will not resolve at all.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_test_configuration') }
         @{ Name = 'yuruna_test_requirement';   Script = 'Test-Requirement.ps1';   ReadOnly = $true;  Schema = $noArgs
-           Description = 'Check that this host meets the requirements a cycle needs. Exits non-zero on a failed requirement.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_test_requirement') }
         @{ Name = 'yuruna_test_runtime';       Script = 'Test-Runtime.ps1';       ReadOnly = $true;  Schema = $noArgs
-           Description = 'Check the runtime. The verdict is a boolean emitted as the last pipeline object; this script has no exit statement, so the exit code says nothing.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_test_runtime') }
         @{ Name = 'yuruna_system_diagnostic';  Script = 'Get-SystemDiagnostic.ps1'; ReadOnly = $true; Schema = $noArgs
-           Description = 'Produce the host diagnostic report. ALWAYS exits 0: exit code 0 means the report was produced, never that nothing is wrong. Read the problems in the output.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_system_diagnostic') }
         @{ Name = 'yuruna_dependency_version'; Script = 'Check-DependencyVersion.ps1'; ReadOnly = $true; Schema = $noArgs
-           Description = 'Report the pinned dependency versions and what is installed. Emits JSON natively.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_dependency_version') }
         @{ Name = 'yuruna_set_component';      Script = 'Set-Component.ps1';      ReadOnly = $false; Schema = $noArgs
-           Description = 'Apply the component definitions. Writes configuration; exits non-zero with a transcript on failure.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_set_component') }
         @{ Name = 'yuruna_set_resource';       Script = 'Set-Resource.ps1';       ReadOnly = $false; Schema = $noArgs
-           Description = 'Apply the resource definitions. Writes configuration; exits non-zero with a transcript on failure.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_set_resource') }
         @{ Name = 'yuruna_set_workload';       Script = 'Set-Workload.ps1';       ReadOnly = $false; Schema = $noArgs
-           Description = 'Apply the workload definitions. Writes configuration; exits non-zero with a transcript on failure.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_set_workload') }
         @{ Name = 'yuruna_set_host_alias';     Script = 'Set-HostAlias.ps1';      ReadOnly = $false; Schema = $noArgs
-           Description = 'Set the host alias. Unlike its siblings it has no exit statement and writes no transcript, so a thrown error is the only failure signal.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_set_host_alias') }
         @{ Name = 'yuruna_invoke_clear';       Script = 'Invoke-Clear.ps1';       ReadOnly = $false; Destructive = $true; Schema = $noArgs
-           Description = 'Clear generated state. DESTRUCTIVE: what it removes is not recoverable by calling it again.' }
+           Description = (Format-YurunaOperatorMessage -Key 'runner.mcp_yuruna_invoke_clear') }
     )
 }
 
@@ -321,7 +323,7 @@ function ConvertTo-McpToolResult {
     # that was refused before it started.
     if ($Run.Refused) {
         return @{ ok = $false; exitCode = $Run.ExitCode; output = $stdout; stderr = $stderr
-                  note = 'the server refused to start this run: the entry point cannot bind an argument it was given' }
+                  note = (Format-YurunaOperatorMessage -Key 'runner.mcp_refused'); noteCode = 'mcp_refused' }
     }
 
     switch ($Tool.Name) {
@@ -331,13 +333,13 @@ function ConvertTo-McpToolResult {
             # success for every run, including a failing one.
             $ok = $verdict -match '^(True|true)$'
             return @{ ok = $ok; verdict = $verdict; output = $stdout; stderr = $stderr
-                      note = 'Test-Runtime has no exit statement; the verdict is its last pipeline object.' }
+                      note = (Format-YurunaOperatorMessage -Key 'runner.mcp_runtime_verdict'); noteCode = 'mcp_runtime_verdict' }
         }
         'yuruna_system_diagnostic' {
             # Always exits 0. Saying "ok" off the exit code would report a host
             # with problems as healthy.
             return @{ ok = $true; output = $stdout; stderr = $stderr
-                      note = 'Get-SystemDiagnostic always exits 0; problems are in the report, not the exit code.' }
+                      note = (Format-YurunaOperatorMessage -Key 'runner.mcp_diagnostic_verdict'); noteCode = 'mcp_diagnostic_verdict' }
         }
         'yuruna_dependency_version' {
             # The one native JSON emitter: passed through rather than re-wrapped,
@@ -351,17 +353,17 @@ function ConvertTo-McpToolResult {
                 # error would make "there are updates" indistinguishable from
                 # "the report could not be produced".
                 return @{ ok = $true; json = $parsed; exitCode = $Run.ExitCode; stderr = $stderr
-                          note = 'exit 1 from this script means a pinned dependency has drifted, not that the report failed' }
+                          note = (Format-YurunaOperatorMessage -Key 'runner.mcp_dependency_drift'); noteCode = 'mcp_dependency_drift' }
             }
             return @{ ok = ($Run.ExitCode -eq 0); output = $stdout; stderr = $stderr
-                      note = 'expected JSON from -AsJson but the output did not parse' }
+                      note = (Format-YurunaOperatorMessage -Key 'runner.mcp_dependency_invalid_json'); noteCode = 'mcp_dependency_invalid_json' }
         }
         'yuruna_set_host_alias' {
             # Neither an exit statement nor a transcript. A thrown error is all
             # there is, and it lands on stderr.
             $ok = ($Run.ExitCode -eq 0) -and -not $stderr.Trim()
             return @{ ok = $ok; output = $stdout; stderr = $stderr
-                      note = 'Set-HostAlias writes no transcript and has no exit statement; a thrown error is the failure signal.' }
+                      note = (Format-YurunaOperatorMessage -Key 'runner.mcp_host_alias_verdict'); noteCode = 'mcp_host_alias_verdict' }
         }
     }
 
@@ -374,7 +376,8 @@ function ConvertTo-McpToolResult {
     if ($boolVerdict -and $verdict -match '^False$') {
         $result['ok'] = $false
         $result['verdict'] = $verdict
-        $result['note'] = 'the script returned False at top level and exited 0; the verdict is the output, not the exit code'
+        $result['note'] = Format-YurunaOperatorMessage -Key 'runner.mcp_false_verdict'
+        $result['noteCode'] = 'mcp_false_verdict'
     }
     # The transcript pointer is a field the run carries, never a line recognized
     # in what it printed. Matching a word in rendered output makes that word a
@@ -429,7 +432,7 @@ function Invoke-McpMethod {
             $name = $Request.params.name
             $tool = @(Get-McpToolTable | Where-Object { $_.Name -eq $name }) | Select-Object -First 1
             if (-not $tool) {
-                return @{ jsonrpc = '2.0'; id = $id; error = @{ code = -32602; message = "unknown tool $name" } }
+                return @{ jsonrpc = '2.0'; id = $id; error = @{ code = -32602; message = (Format-YurunaOperatorMessage -Key 'runner.mcp_unknown_tool' -Arguments @{ name = $name }) } }
             }
             $scriptArgs = @()
             if ($tool.Name -eq 'yuruna_dependency_version') { $scriptArgs += '-AsJson' }
@@ -442,7 +445,7 @@ function Invoke-McpMethod {
             } }
         }
     }
-    return @{ jsonrpc = '2.0'; id = $id; error = @{ code = -32601; message = "unknown method $($Request.method)" } }
+    return @{ jsonrpc = '2.0'; id = $id; error = @{ code = -32601; message = (Format-YurunaOperatorMessage -Key 'runner.mcp_unknown_method' -Arguments @{ method = $Request.method }) } }
 }
 
 <#
@@ -468,7 +471,7 @@ function Invoke-McpLoop {
         try {
             $request = $line | ConvertFrom-Json -ErrorAction Stop
         } catch {
-            $Writer.WriteLine((@{ jsonrpc = '2.0'; error = @{ code = -32700; message = 'request is not JSON' } } | ConvertTo-Json -Compress -Depth 6))
+            $Writer.WriteLine((@{ jsonrpc = '2.0'; error = @{ code = -32700; message = (Format-YurunaOperatorMessage -Key 'runner.mcp_invalid_json') } } | ConvertTo-Json -Compress -Depth 6))
             $Writer.Flush()
             continue
         }

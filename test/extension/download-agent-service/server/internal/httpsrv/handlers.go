@@ -83,23 +83,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{"ok": false, "error": msg})
-}
-
-func writeReason(w http.ResponseWriter, status int, reason, msg string) {
-	writeJSON(w, status, map[string]any{"ok": false, "reason": reason, "error": msg})
-}
-
 // decodeOptional accepts an absent or empty body, which is how a client that
 // holds nothing locally sends ensure.
-func decodeOptional(w http.ResponseWriter, r *http.Request, dst any) bool {
+func (s *Server) decodeOptional(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
 	err := json.NewDecoder(r.Body).Decode(dst)
 	if err == nil || errors.Is(err, io.EOF) {
 		return true
 	}
-	writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+	s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_invalid_json_body_detail", "", map[string]any{"detail": err.Error()})
 	return false
 }
 
@@ -120,20 +112,20 @@ func (s *Server) imageID(w http.ResponseWriter, r *http.Request) (imagestore.Ima
 		Variant:  variant,
 	}
 	if id.Arch == "" {
-		writeErr(w, http.StatusBadRequest, "arch query parameter is required (amd64 or arm64)")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_arch_query_parameter_is_required_amd64_or_arm64", "", nil)
 		return id, false
 	}
 	if err := id.Validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return id, false
 	}
 	return id, true
 }
 
 // available answers 503 when no pool engine is wired up at all.
-func (s *Server) available(w http.ResponseWriter) bool {
+func (s *Server) available(w http.ResponseWriter, r *http.Request) bool {
 	if s.images == nil {
-		writeReason(w, http.StatusServiceUnavailable, imagestore.ReasonPoolUnavailable, "no image store configured")
+		s.writeLocalizedError(w, r, http.StatusServiceUnavailable, "download.api_no_image_store_configured", imagestore.ReasonPoolUnavailable, nil)
 		return false
 	}
 	return true
@@ -189,8 +181,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) handleImages(w http.ResponseWriter, _ *http.Request) {
-	if !s.available(w) {
+func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
+	if !s.available(w, r) {
 		return
 	}
 	now := time.Now()
@@ -205,7 +197,7 @@ func (s *Server) handleImages(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id, ok := s.imageID(w, r)
@@ -229,22 +221,22 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 // directory and the artifact is content-named, so demanding an arch here would
 // 400 every fetch of the query-less fileUrl the catalog and ensure hand out.
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id := imagestore.ImageID{HostType: r.PathValue("hostType"), ImageKey: r.PathValue("imageKey")}
 	if err := imagestore.ValidateLocation(id.HostType, id.ImageKey); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	generation := r.PathValue("generation")
 	if !imagestore.ValidGenerationName(generation) {
-		writeErr(w, http.StatusBadRequest, "invalid generation name")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_invalid_generation_name", "", nil)
 		return
 	}
 	f, fi, err := s.images.OpenGeneration(id, generation)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "generation not found")
+		s.writeLocalizedError(w, r, http.StatusNotFound, "download.api_generation_not_found", "", nil)
 		return
 	}
 	defer f.Close()
@@ -269,7 +261,7 @@ func sanitizeFilename(name string) string {
 }
 
 func (s *Server) handleEnsure(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id, ok := s.imageID(w, r)
@@ -277,7 +269,7 @@ func (s *Server) handleEnsure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fp imagestore.Fingerprint
-	if !decodeOptional(w, r, &fp) {
+	if !s.decodeOptional(w, r, &fp) {
 		return
 	}
 	res := s.images.Ensure(time.Now(), id, fp)
@@ -302,7 +294,7 @@ func (s *Server) handleEnsure(w http.ResponseWriter, r *http.Request) {
 
 // --- REGION: Diagnostics
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -318,19 +310,19 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 // its outcome is the data the caller asked for; error statuses are kept for
 // requests the route refused to run.
 func (s *Server) handleFidoTest(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	arch := r.URL.Query().Get("arch")
 	if arch == "" {
-		writeErr(w, http.StatusBadRequest, "arch query parameter is required (amd64 or arm64)")
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_arch_query_parameter_is_required_amd64_or_arm64", "", nil)
 		return
 	}
 	id := imagestore.ImageID{ImageKey: imagestore.KeyWindows11, Arch: arch}
 	attempt, err := s.images.FidoTest(r.Context(), arch)
 	if err != nil {
 		s.record("fido-test", id, "refused", err.Error())
-		writeErr(w, http.StatusBadRequest, err.Error())
+		s.writeLocalizedError(w, r, http.StatusBadRequest, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	// The minted URL itself stays out of the audit line: it is hundreds of
@@ -374,7 +366,7 @@ func refusalStatus(reason string) int {
 
 // --- REGION: Mutating routes
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id, ok := s.imageID(w, r)
@@ -386,7 +378,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		s.record("refresh", id, "failed", err.Error())
 		reason := refusalReason(err)
 		log.Printf("download-agent-service: refresh %s refused (%s): %v", id, reason, err)
-		writeReason(w, refusalStatus(reason), reason, "refresh refused: "+reason)
+		s.writeLocalizedError(w, r, refusalStatus(reason), "download.api_refresh_refused_reason", reason, map[string]any{"reason": reason})
 		return
 	}
 	s.record("refresh", id, "started", "")
@@ -394,7 +386,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id, ok := s.imageID(w, r)
@@ -403,7 +395,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.images.Delete(id); err != nil {
 		s.record("delete", id, "failed", err.Error())
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	s.record("delete", id, "ok", "")
@@ -411,7 +403,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
-	if !s.available(w) {
+	if !s.available(w, r) {
 		return
 	}
 	id, ok := s.imageID(w, r)
@@ -421,15 +413,15 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	n, err := s.images.PrunePrevious(id)
 	if err != nil {
 		s.record("prune", id, "failed", err.Error())
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
 	s.record("prune", id, "ok", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pruned": n})
 }
 
-func (s *Server) handleRefreshAll(w http.ResponseWriter, _ *http.Request) {
-	if !s.available(w) {
+func (s *Server) handleRefreshAll(w http.ResponseWriter, r *http.Request) {
+	if !s.available(w, r) {
 		return
 	}
 	n, err := s.images.RefreshAll()
@@ -437,7 +429,7 @@ func (s *Server) handleRefreshAll(w http.ResponseWriter, _ *http.Request) {
 		s.record("refresh-all", imagestore.ImageID{}, "failed", err.Error())
 		reason := refusalReason(err)
 		log.Printf("download-agent-service: pool-wide refresh refused (%s): %v", reason, err)
-		writeReason(w, refusalStatus(reason), reason, "pool refresh refused: "+reason)
+		s.writeLocalizedError(w, r, refusalStatus(reason), "download.api_pool_refresh_refused_reason", reason, map[string]any{"reason": reason})
 		return
 	}
 	s.record("refresh-all", imagestore.ImageID{}, "ok", "")
@@ -447,23 +439,21 @@ func (s *Server) handleRefreshAll(w http.ResponseWriter, _ *http.Request) {
 // --- REGION: Page and asset serving
 func (s *Server) servePage(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		b, err := webFS.ReadFile("web/" + name)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// No 'unsafe-inline' anywhere: the page carries no inline <style> and the
 		// script sets the one dynamic dimension (the progress fill) through the
 		// CSSOM, which CSP does not govern -- unlike a style="" attribute, which
 		// this policy blocks.
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'")
-		_, _ = w.Write(b)
+		if !s.pages.Serve(w, r, name) {
+			http.NotFound(w, r)
+		}
 	}
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+	if s.pages.ServeAsset(w, r, strings.TrimPrefix(r.URL.Path, "/assets/")) {
+		return
+	}
 	name := strings.TrimPrefix(r.URL.Path, "/assets/")
 	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+name)), "/")
 	b, err := webFS.ReadFile("web/assets/" + clean)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4208c0a7-cacd-4e3f-a54a-dc38c6dcd0b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 # recognizes only the RUNNING platform's separator -- a Windows-written path
 # would otherwise collapse to nothing when this is evaluated anywhere else
 # (the tests, and a vault copied between machines).
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-LabRootFromPoolPath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -115,7 +116,7 @@ function Get-YurunaLabStorageRoot {
     $roots = @(Select-YurunaLabStorageRoot -PoolPath $poolPaths.ToArray())
     if ($roots.Count -eq 1) { return $roots[0] }
     if ($roots.Count -gt 1) {
-        Write-Warning "Labs on this machine record different storage roots ($($roots -join ', ')); pass -Root to say which one this lab uses."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2848178790453038' -Arguments @{ join = "$($roots -join ', ')" })
     }
     return ''
 }
@@ -133,7 +134,7 @@ function Get-YurunaLabVaultPassword {
     $out = [ordered]@{}
     if (-not (Test-Path -LiteralPath $Path)) { return $out }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
-        Write-Warning "powershell-yaml is not available; cannot read the lab vault at $Path."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1bbc380b4eaed4e' -Arguments @{ path = "$Path" })
         return $out
     }
     try {
@@ -144,7 +145,7 @@ function Get-YurunaLabVaultPassword {
             if ($entry -is [System.Collections.IDictionary]) { $out[[string]$k] = [string]$entry['password'] }
         }
     } catch {
-        Write-Warning "Could not read the lab vault at ${Path}: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d324b8010c447f24' -Arguments @{ path = "${Path}"; message = "$($_.Exception.Message)" })
     }
     return $out
 }

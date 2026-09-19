@@ -151,7 +151,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // checks ARE the payload. Anything else would leave the one page meant to
 // explain an outage unable to render during that outage.
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.collectDiagnostics(r.Context()))
+	locale := i18n.FromRequest(r)
+	if locale.ResolvedTag == "" {
+		locale = s.negotiator().Resolve(r)
+	}
+	i18n.Apply(w.Header(), locale)
+	writeJSON(w, http.StatusOK, s.collectDiagnostics(r.Context(), locale))
 }
 
 // --- REGION: Page and asset serving

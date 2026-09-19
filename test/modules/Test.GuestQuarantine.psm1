@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c5f69b-6d9e-428a-b35d-8794342a81a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
 # unit-testable; leaf module -- the emit/persist dependencies are resolved at
 # call time and Get-Command-guarded. See docs/failure-schema.md.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:GuestQuarantineFileName = 'runner.quarantine.json'
 
 # Failure classes whose cause lives on the HOST, not in any one guest. The
@@ -285,7 +286,7 @@ function Read-GuestQuarantineState {
         }
         return $state
     } catch {
-        Write-Warning "Could not parse $Path (resetting guest-quarantine state): $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a61f2aee9fb5da94' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
         return (New-GuestQuarantineState)
     }
 }
@@ -316,7 +317,7 @@ function Save-GuestQuarantineState {
         [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
         return $true
     } catch {
-        Write-Warning "Could not write $Path`: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_941d097378241f81' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
         return $false
     }
 }

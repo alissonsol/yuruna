@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,7 @@ param(
     [switch]$Force
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -170,9 +171,9 @@ try {
 }
 foreach ($share in @($PoolShare, $StashShare)) {
     if ($served[$share]) {
-        Write-Information "  $share -> $($served[$share]) (published by this machine)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_247d842524300420' -Arguments @{ share = "$share"; share2 = "$($served[$share])" }) -InformationAction Continue
     } else {
-        Write-Information "  $share -> not published here" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_db2bc1a9363cb568' -Arguments @{ share = "$share" }) -InformationAction Continue
     }
 }
 $publishedCount = @($served.Values | Where-Object { $_ }).Count
@@ -192,16 +193,16 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 }
 $reports = @()
 if ([string]::IsNullOrWhiteSpace($Root)) {
-    Write-Information '  No storage root could be derived (this machine publishes no yuruna share).' -InformationAction Continue
-    Write-Information '  Pass -Root <path> to report on a root whose shares are already withdrawn.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2ca8b0421554c457') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_10960fa702effabc') -InformationAction Continue
 } else {
-    Write-Information "  Storage root: $Root" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_102bce84c0fe2170' -Arguments @{ root = "$Root" }) -InformationAction Continue
     $sep = if ($platform -eq 'windows') { '\' } else { '/' }
     foreach ($folder in @($PoolShare, $StashShare)) {
         $report = Get-LocalLabStorageFolderReport -Path "$($Root.TrimEnd('\', '/'))$sep$folder"
         $reports += $report
         if ($report.Exists) {
-            Write-Information ("  {0,-14} {1,10}  ({2:N0} files)" -f $folder, (Format-LocalLabStorageSize -Bytes $report.Bytes), $report.FileCount) -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_26b1fc44a88b868a' -FormatValues ($folder, (Format-LocalLabStorageSize -Bytes $report.Bytes), $report.FileCount) -FormatBindings @{ folder = '0,-14'; bytes = '1,10'; fileCount = '2:N0' }) -InformationAction Continue
         } else {
             Write-Information ("  {0,-14} {1}" -f $folder, 'not present') -InformationAction Continue
         }
@@ -209,13 +210,13 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
     $totalBytes = [long]0
     foreach ($r in $reports) { $totalBytes += $r.Bytes }
     if ($totalBytes -gt 0) {
-        Write-Information "  Total reclaimable: $(Format-LocalLabStorageSize -Bytes $totalBytes)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a37529a49333311d' -Arguments @{ totalBytes = "$(Format-LocalLabStorageSize -Bytes $totalBytes)" }) -InformationAction Continue
     }
 }
 
 if ($ReportOnly) {
     Write-Information '' -InformationAction Continue
-    Write-Information '-ReportOnly: nothing was changed. Re-run without it to withdraw the shares and accounts.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_68995e34c2b39bba') -InformationAction Continue
     exit 0
 }
 
@@ -225,24 +226,24 @@ if ($ReportOnly) {
 # their cycle archives will decline a script that was never going to.
 if (-not $Force -and -not $WhatIfPreference) {
     if (-not (Test-YurunaCanPrompt)) {
-        Write-Error 'This session cannot prompt and -Force was not passed; nothing was changed.'
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c447c852d17ccf2c')
         exit 1
     }
     Write-Information '' -InformationAction Continue
-    Write-Information 'This will stop this machine from SERVING its own pool and stash storage:' -InformationAction Continue
-    Write-Information "  * withdraw the SMB shares '$PoolShare' and '$StashShare'" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0e6b41a9acea21ce') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a08b0dfba775c345' -Arguments @{ poolShare = "$PoolShare"; stashShare = "$StashShare" }) -InformationAction Continue
     if (-not $KeepAccount) {
-        Write-Information "  * delete the local accounts '$PoolAccount' and '$StashAccount'" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_be6b3e41a035805e' -Arguments @{ poolAccount = "$PoolAccount"; stashAccount = "$StashAccount" }) -InformationAction Continue
     }
-    Write-Information "  * drop the loopback aliases '$PoolServer' / '$StashServer' and, on Windows, their NTLM exemption" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a01609a1cf43f19f' -Arguments @{ poolServer = "$PoolServer"; stashServer = "$StashServer" }) -InformationAction Continue
     Write-Information '' -InformationAction Continue
-    Write-Information 'It does NOT delete any data. The cycle archives, stash artifacts, lab vault,' -InformationAction Continue
-    Write-Information 'and pool-intent repository under the storage root are left exactly as they are;' -InformationAction Continue
-    Write-Information 'the command to reclaim that disk is printed at the end for you to run.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_33be063a6dbeb4de') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5a5cc38a18508944') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_53f55e23f4d19657') -InformationAction Continue
     Write-Information '' -InformationAction Continue
     $answer = (Read-Host 'Proceed? [y/N]').Trim()
     if ($answer -notmatch '^(y|yes)$') {
-        Write-Information 'Canceled; nothing was changed.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2b91fa5b6a130260') -InformationAction Continue
         exit 0
     }
 }
@@ -261,8 +262,8 @@ foreach ($name in @($PoolShare, $StashShare)) {
 # --- REGION: Delete the storage accounts
 Write-ClearStep -Number 4 -Title 'Local storage accounts'
 if ($KeepAccount) {
-    Write-Information '  -KeepAccount: left in place.' -InformationAction Continue
-    Write-Information "  Note: the lab's NAS has accounts of the same name, and this host's vault now holds ITS passwords." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5186836962e30a5a') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4a30b7a4236eecee') -InformationAction Continue
 } else {
     foreach ($account in @($PoolAccount, $StashAccount)) {
         $state = Remove-LocalLabStorageAccount -Name $account
@@ -279,7 +280,7 @@ if ($KeepAccount) {
 # someone else's and kept either way.
 Write-ClearStep -Number 5 -Title 'Loopback exemption and hosts aliases'
 $exemption = Remove-LocalLabStorageLoopbackException -Name @($PoolServer, $StashServer)
-Write-Information "  Windows NTLM loopback exemption -> $exemption" -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_763a5e41017336a8' -Arguments @{ exemption = "$exemption" }) -InformationAction Continue
 
 $resolution = @{}
 foreach ($name in @($PoolServer, $StashServer)) {
@@ -307,14 +308,14 @@ Write-ClearStep -Number 6 -Title 'Reclaiming the disk'
 $totalBytes = [long]0
 foreach ($r in $reports) { $totalBytes += $r.Bytes }
 if (-not $Root -or $totalBytes -eq 0) {
-    Write-Information '  Nothing left to reclaim under the storage root.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8704c7292e596735') -InformationAction Continue
 } else {
-    Write-Information "  This machine no longer serves its storage, and $(Format-LocalLabStorageSize -Bytes $totalBytes) of data remains under:" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7d8a4cb8b83d5194' -Arguments @{ totalBytes = "$(Format-LocalLabStorageSize -Bytes $totalBytes)" }) -InformationAction Continue
     Write-Information "    $Root" -InformationAction Continue
     Write-Information '' -InformationAction Continue
-    Write-Information '  Before deleting it, check whether anything there is the only copy --' -InformationAction Continue
-    Write-Information '  finished cycle archives, stash artifacts, the lab vault (lab.*.vault.yml),' -InformationAction Continue
-    Write-Information '  and the pool-intent repository all live under it. When you are satisfied:' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c852b4aa29c7d4e3') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d9c7d7673104508b') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_488c8abbe599cfff') -InformationAction Continue
     Write-Information '' -InformationAction Continue
     foreach ($r in $reports) {
         if (-not $r.Exists -or $r.Bytes -eq 0) { continue }
@@ -329,9 +330,9 @@ if (-not $Root -or $totalBytes -eq 0) {
 
 Write-Information '' -InformationAction Continue
 if ($publishedCount -eq 0) {
-    Write-Information 'This machine was not serving its own storage; nothing needed to come down.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7c4827b6128f6453') -InformationAction Continue
 } else {
-    Write-Information 'Done: this machine no longer serves its own pool and stash storage.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f7abf3e2e6a0aa21') -InformationAction Continue
 }
 exit 0
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420389b6-78fe-457b-a0ce-b1bc197ec2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,19 +16,9 @@
 
 #requires -version 7
 
-# Default download-agent-service extension. The Go daemon (image pool over the
-# pool share, freshness scanner, single-flight downloads, embedded web UI) lives
-# under [server/](server/); operator guide: docs/download-agent.md.
-#
-# Get-DownloadAgentServiceInfo is a status stub returning the uniform hashtable
-# the host-side cmdlet vocabulary uses across the extension areas; host-side
-# status probing (querying a running agent VM) is not wired yet, so the flags
-# stay $false until that lands.
-#
-# Test-DownloadAgentServiceHost is the reachability pre-flight a caller runs
-# BEFORE it commits to an agent address, so an unreachable agent surfaces
-# before any long-running work depends on it rather than in the middle of a
-# multi-gigabyte fetch.
+# Default download-agent-service extension. See
+# ../../../docs/download-agent.md#what-it-is for the daemon, the pool, and
+# this module's cmdlet vocabulary. -- default.psm1
 
 function Get-DownloadAgentServiceInfo {
     <#

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,11 +39,13 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
+Import-Module (Join-Path $here 'Test.ProductGlobalization.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module PSScriptAnalyzer -ErrorAction SilentlyContinue
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:PowerShell = (Get-Process -Id $PID).Path
+$script:EnabledProductMatrixPassed = $false
 $script:RegistryPath = Join-Path $script:RepoRoot 'globalization/manifests/browser-sources.json'
 $script:Registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($script:RegistryPath))
 $script:CrossRepoPath = Join-Path $script:RepoRoot 'tools/Invoke-CrossRepoGate.ps1'
@@ -82,6 +84,38 @@ function Get-LintFunction {
     return $function.Extent.Text
 }
 
+function Get-InlineScriptBody {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Source, [switch]$GoSource)
+    $candidates = [Collections.Generic.List[string]]::new()
+    if ($GoSource) {
+        # Go source is not one HTML document. Keep distinct literals separate;
+        # concatenate only adjacent literal operands of the same expression.
+        $tokens = [regex]::Matches($Source, '(?s)//[^\r\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|`[^`]*`|''(?:\\.|[^''\\])*''')
+        $lastEnd = -1
+        foreach ($token in $tokens) {
+            $value = $token.Value
+            if ($value.StartsWith('//') -or $value.StartsWith('/*') -or $value.StartsWith("'")) { continue }
+            $literal = $value.Substring(1, $value.Length - 2)
+            if ($value.StartsWith('"')) {
+                try { $literal = [regex]::Unescape($literal) } catch { $literal = $value.Substring(1, $value.Length - 2) }
+            }
+            $between = if ($lastEnd -ge 0) { $Source.Substring($lastEnd, $token.Index - $lastEnd) } else { '' }
+            $between = [regex]::Replace($between, '(?s)//[^\r\n]*|/\*.*?\*/', '')
+            if ($candidates.Count -gt 0 -and $between -match '^\s*\+\s*$') {
+                $candidates[$candidates.Count - 1] += $literal
+            } else { $candidates.Add($literal) }
+            $lastEnd = $token.Index + $token.Length
+        }
+    } else { $candidates.Add($Source) }
+    foreach ($candidate in $candidates) {
+        foreach ($block in [regex]::Matches($candidate, '(?s)<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>')) {
+            if ($block.Groups[1].Value.Trim()) { $block.Groups[1].Value }
+        }
+    }
+}
+
 function Invoke-Gate {
     <#
     .SYNOPSIS
@@ -91,8 +125,81 @@ function Invoke-Gate {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Script, [string[]]$Arguments = @())
     $path = Join-Path $script:RepoRoot $Script
-    $output = & pwsh -NoProfile -File $path @Arguments 2>&1 | Out-String
+    $output = & $script:PowerShell -NoProfile -File $path @Arguments 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Output = $output }
+}
+
+function Get-PrivateNameOrigin {
+    <#
+    .SYNOPSIS
+        Where a generated artifact picked a token up, as a source position.
+    .DESCRIPTION
+        A generator records the position it copied each literal from, so the
+        artifact can name the source line that has to change rather than only
+        the file that repeated it. An artifact that is not a record of
+        positions, or whose matching record carries none, still has to report
+        something actionable, so its own line number is the fallback.
+    .OUTPUTS
+        [string[]]
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][string]$Token
+    )
+
+    $origin = [Collections.Generic.List[string]]::new()
+    try {
+        $stack = [Collections.Generic.Stack[object]]::new()
+        $stack.Push((ConvertFrom-Json -InputObject $Text))
+        while ($stack.Count -gt 0) {
+            $node = $stack.Pop()
+            if ($null -eq $node -or $node -is [string] -or $node -is [ValueType]) { continue }
+            if ($node -is [Collections.IEnumerable]) {
+                foreach ($item in $node) { $stack.Push($item) }
+                continue
+            }
+            $carries = $false
+            foreach ($property in $node.PSObject.Properties) {
+                $value = $property.Value
+                if ($value -is [string] -and $value.Contains($Token)) { $carries = $true }
+                else { $stack.Push($value) }
+            }
+            if (-not $carries -or -not $node.file) { continue }
+            $where = [string]$node.file
+            if ($node.line) { $where += ":$($node.line)" }
+            $origin.Add($where)
+        }
+    } catch {
+        # Not JSON, or a shape the walk cannot read. Either way the artifact
+        # holds no position this can trust, so a partial answer is discarded
+        # and the fallback below reports the token's own line.
+        $origin.Clear()
+    }
+    if ($origin.Count -eq 0) {
+        $line = @($Text -split "`n")
+        for ($i = 0; $i -lt $line.Count; $i++) {
+            if ($line[$i].Contains($Token)) { $origin.Add("its own line $($i + 1)"); break }
+        }
+    }
+    return [string[]]@($origin | Select-Object -Unique)
+}
+
+function Invoke-EnabledProductMatrix {
+    [CmdletBinding()]
+    param()
+    if ($script:EnabledProductMatrixPassed) { return }
+    foreach ($path in @('test/status', 'test/extension')) {
+        $result = Invoke-Gate -Script 'tools/Invoke-JsTest.ps1' -Arguments @('-Path', $path, '-Quiet')
+        Assert-Equal 0 $result.Code $result.Output
+    }
+    Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension'
+    foreach ($path in @('test/modules/Test.CultureMatrix.Tests.ps1',
+            'test/modules/Test.StatusServiceLocale.Tests.ps1', 'test/modules/Test.ProjectLocaleMap.Tests.ps1')) {
+        Invoke-ProductGlobalizationCheck -Kind Pester -Path $path
+    }
+    $script:EnabledProductMatrixPassed = $true
 }
 
 function New-PerfFixture {
@@ -270,6 +377,16 @@ Describe 'one registry names every browser source' {
         Assert-NoFinding $findings 'a file the floor has to render is outside the palette-fallback tools'
     }
 
+    It 'recognizes Go script bodies without joining unrelated HTML literals' {
+        $assembler = 'text = strings.Replace(text, "<script>", "<script>\n"+bundle, 1); marker := `<script src="/assets/common.js"></script>`'
+        Assert-Equal 0 @(Get-InlineScriptBody -Source $assembler -GoSource).Count 'a variable assembler was mistaken for an authored script body'
+        $inline = 'const page = "<script>" + "window.answer = 42;" + "</script>"'
+        $found = @(Get-InlineScriptBody -Source $inline -GoSource)
+        Assert-Equal 1 $found.Count 'adjacent authored script literals escaped registration'
+        Assert-True ($found[0].Contains('window.answer = 42;')) 'the actual browser body was not retained'
+        Assert-Equal 1 @(Get-InlineScriptBody -Source 'const page = `<script>var raw = true;</script>`' -GoSource).Count 'raw Go HTML escaped registration'
+    }
+
     It 'claims every file that carries browser code inside something else' {
         # A page whose script lives in a Go string literal or an HTML block is
         # shipped JavaScript that a sweep for *.js never sees. Left undeclared
@@ -289,10 +406,8 @@ Describe 'one registry names every browser source' {
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
             $text = [IO.File]::ReadAllText($full)
             # A block naming a src is a reference to a file already checked.
-            $blocks = [regex]::Matches($text, '(?s)<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>')
-            $hasBody = $false
-            foreach ($b in $blocks) { if ($b.Groups[1].Value.Trim()) { $hasBody = $true; break } }
-            if (-not $hasBody) { continue }
+            $blocks = @(Get-InlineScriptBody -Source $text -GoSource:($relative.EndsWith('.go')))
+            if ($blocks.Count -eq 0) { continue }
             if ($declared -notcontains $relative) {
                 $findings += "$relative carries an inline script and is not a declared producer"
             }
@@ -395,8 +510,8 @@ Describe 'one registry names every browser source' {
                 continue
             }
             $html = [IO.File]::ReadAllText($page)
-            foreach ($required in @('<!doctype html>', '<html lang="', '<meta charset="utf-8">', '<title>', '<h1>')) {
-                if (-not $html.Contains($required)) {
+            foreach ($required in @('<!doctype html>', '<html lang="', '<meta charset="utf-8">', '<title\b[^>]*>', '<h1\b[^>]*>')) {
+                if (($required -like '*\b*' -and $html -notmatch $required) -or ($required -notlike '*\b*' -and -not $html.Contains($required))) {
                     $findings += "$($producer.page): the emitted document has no '$required'"
                 }
             }
@@ -404,8 +519,8 @@ Describe 'one registry names every browser source' {
             # shape would accept an exporter that had stopped reading the seed
             # and started writing a page of its own.
             $seedText = ($seed -replace "`r`n", "`n")
-            $sample = @($html -split "`n" | Where-Object { $_ -match '<(h1|title)>' } |
-                ForEach-Object { ($_ -replace '<[^>]+>', '').Trim() } | Where-Object { $_ })
+            $sample = @([regex]::Matches($html, '(?s)<(?:h1|title)\b[^>]*>(.*?)</(?:h1|title)>') |
+                ForEach-Object { [Net.WebUtility]::HtmlDecode(($_.Groups[1].Value -replace '<[^>]+>', '')).Trim() } | Where-Object { $_ })
             if ($sample.Count -eq 0) {
                 $findings += "$($producer.page): the emitted document carries no heading to trace to its seed"
             }
@@ -768,7 +883,7 @@ Describe 'the publisher validates the artifacts it is about to publish' {
             'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
             'suite-baseline', 'config-locale-seed',
             'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
-            'globalization-authority', 'terminology', 'es5-floor', 'palette-fallback',
+            'globalization-authority', 'locale-support', 'terminology', 'es5-floor', 'palette-fallback',
             'perf-baseline', 'js-test', 'go-build', 'accessibility',
             'doc-reachability', 'code-registry-contract', 'reference-slice-matrix',
             'status-slice-matrix', 'pool-slice-matrix'
@@ -879,7 +994,7 @@ Describe 'the generated artifacts match their sources' {
             "run tools/Invoke-CatalogEmbed.ps1:`n$($result.Output)"
     }
 
-    It 'reports the translated documents as undrifted' {
+    It 'globalization acceptance: all translated documents source current and reachable' {
         # This gate had no automated caller: the project's own gate table listed
         # it while nothing ran it, so a commit that edited an English source
         # left every check green and the drift was caught only when a person
@@ -933,6 +1048,37 @@ Describe 'the generated artifacts match their sources' {
         $result = Invoke-Gate -Script 'tools/Invoke-Es5Check.ps1' -Arguments @('-Quiet')
         Assert-Equal -Expected 0 -Actual $result.Code `
             "a shipped browser source is outside the floor:`n$($result.Output)"
+    }
+
+    It 'keeps the private development repository out of every generated artifact' {
+        # These artifacts are written by a generator that copies shipped text
+        # verbatim, so a sentence naming the private repository arrives in one
+        # of them without anybody typing it there. Unlike a document or an
+        # installer it cannot earn a reviewed exception either: the publisher's
+        # allowlist names source paths that point at the private source on
+        # purpose, and a generated file is never one of them. The result is a
+        # published artifact sending a reader to a repository they cannot clone,
+        # reported against the generated file at release time rather than
+        # against the source line that has to change. Failing here names that
+        # line instead. The repair is to interpolate the name at the call site
+        # rather than write it into the sentence.
+        $private = 'yurunadev'
+        $offender = [Collections.Generic.List[string]]::new()
+        foreach ($dir in @('globalization/manifests', 'globalization/catalogs', 'globalization/generated')) {
+            $full = Join-Path $script:RepoRoot $dir
+            if (-not (Test-Path -LiteralPath $full -PathType Container)) { continue }
+            foreach ($file in [IO.Directory]::EnumerateFiles($full, '*', [IO.SearchOption]::AllDirectories)) {
+                $text = [IO.File]::ReadAllText($file)
+                if (-not $text.Contains($private)) { continue }
+                $relative = [IO.Path]::GetRelativePath($script:RepoRoot, $file) -replace '\\', '/'
+                foreach ($origin in @(Get-PrivateNameOrigin -Text $text -Token $private)) {
+                    $offender.Add("$relative carries it from $origin")
+                }
+            }
+        }
+        Assert-Equal -Expected 0 -Actual $offender.Count `
+            ("a generated artifact names the private development repository:`n  " +
+            (@($offender) -join "`n  "))
     }
 }
 
@@ -1080,7 +1226,12 @@ Describe 'the Go services carry what the catalog compiled' {
     It 'gives every Go consumer a module-local copy' {
         # Go cannot import across a module boundary the service does not own, so
         # a service that has no copy beside it has no catalog at all.
-        $consumers = @('test/extension/pool-control-service/server/internal/catalog')
+        $consumers = @('test/extension/pool-control-service/server/internal/catalog',
+            'test/extension/stash-service/server/internal/catalog',
+            'test/extension/download-agent-service/server/internal/catalog',
+            'test/extension/caching-proxy-service/internal/catalog',
+            'test/extension/caching-proxy-parser-service/internal/catalog',
+            'test/extension/pool-aggregator-service/internal/catalog')
         $findings = @()
         foreach ($dir in $consumers) {
             $full = Join-Path $script:RepoRoot $dir
@@ -1107,6 +1258,44 @@ Describe 'the Go services carry what the catalog compiled' {
         $text = [IO.File]::ReadAllText($path)
         foreach ($symbol in @('generatedLocaleData', 'generatedSupported', 'generatedPseudo', 'generatedAliases')) {
             Assert-True ($text -match [regex]::Escape($symbol)) "the generated locale table has no $symbol"
+        }
+    }
+}
+
+
+Describe 'enabled production locales use the complete product matrix' {
+    It 'globalization acceptance: full converted domain and matrix coverage' {
+        foreach ($tool in @('tools/Invoke-CatalogCompile.ps1', 'tools/Invoke-CatalogEmbed.ps1')) {
+            $result = Invoke-Gate -Script $tool -Arguments @('-Check', '-Quiet')
+            Assert-Equal 0 $result.Code $result.Output
+        }
+        Invoke-EnabledProductMatrix
+    }
+
+    It 'globalization acceptance: all locales cultures runtimes states and pairing rows' {
+        # The manifest selects the locales in the production PS, JS and Go
+        # fixtures. Enabling another complete catalog adds its rows directly.
+        # Native PowerShell and Safari observations have separate producers.
+        Invoke-EnabledProductMatrix
+    }
+
+    It 'globalization acceptance: pt-BR zero fallback immutable bytes bounded caches and budgets' {
+        # The same checks run before and after Portuguese enablement. Catalog
+        # completion and approval are separately required before it is served.
+        $generatedRoot = Join-Path $script:RepoRoot 'globalization/generated'
+        $before = @{}
+        foreach ($file in (Get-ChildItem -LiteralPath $generatedRoot -File -Recurse)) {
+            $before[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        }
+        Assert-True ($before.Count -gt 0) 'there are no generated production catalog bytes'
+        Invoke-EnabledProductMatrix
+        foreach ($file in $before.Keys) {
+            Assert-StringEqual $before[$file] (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash `
+                "runtime rendering mutated $file"
+        }
+        foreach ($tool in @('tools/Invoke-PerfBaseline.ps1', 'tools/Test-Utf8Catalog.ps1')) {
+            $result = Invoke-Gate -Script $tool -Arguments @('-Quiet')
+            Assert-Equal 0 $result.Code $result.Output
         }
     }
 }

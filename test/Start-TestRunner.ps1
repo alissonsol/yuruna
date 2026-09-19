@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,7 @@ param(
 # care: the cap is meant to keep a wedged host from burning git/network
 # while still being short enough that a one-off transient (network blip,
 # mirror hiccup) recovers within an hour without manual intervention.
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:FailurePauseMaxSeconds    = 60 * 60   # cap a backoff at 60 min
 $script:FailureCommitPollSeconds  = 5 * 60    # check origin every 5 min
 $script:OuterPullErrorSleepSeconds    = 30        # short pause if outer's own git pull errors
@@ -147,11 +148,11 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # cycles never touch the port map, and a sudo timestamp is long dead by cycle 2.
 if ((Get-HostType) -eq 'host.ubuntu.kvm') {
     Write-Output ""
-    Write-Output "Note: on a NAT-networked caching proxy each cycle installs systemd forwarder units with sudo -- you may be prompted for your password mid-cycle."
-    Write-Output "  Elevation is needed to:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_783976daaabd38c7')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_319b8b8ddbb44d44')
     Write-Output "    * write/remove /etc/systemd/system/yuruna-cacheproxy-p<port>.{socket,service}"
-    Write-Output "    * systemctl daemon-reload + enable/disable those units (Add-PortMap / Remove-PortMap)"
-    Write-Output "  An /etc/sudoers.d drop-in granting those commands NOPASSWD avoids it entirely."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d65393848cb9de2a')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_50e4965e15c28e7c')
 }
 
 # ConfigPath was resolved by Initialize-YurunaEntryPoint above; the
@@ -229,15 +230,15 @@ switch ($priorRunner.status) {
     'OtherRunner' {
         Write-Output ""
         Write-Output "========"
-        Write-Output "  Another Start-TestRunner is running"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9a7da697fb6cf571')
         Write-Output "  PID:    $($priorRunner.pid)"
-        Write-Output "  Action: stopping it + Remove-TestVMFiles.ps1"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3a128bde2c1c8d18')
         Write-Output "========"
         Stop-StaleRunner -ProcessId $priorRunner.pid -TestRoot $TestRoot -Confirm:$false
     }
     'Stale' {
         if ($priorRunner.pid -gt 0) {
-            Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not a Start-TestRunner process. Ignoring."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_544711bfa51696ae' -Arguments @{ pid = "$($priorRunner.pid)" })
         }
     }
     default { } # 'None' / 'Self' -- nothing to do
@@ -251,7 +252,7 @@ Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
 # plain Set-Content and one PID would silently get overwritten.
 $pidWritten = Write-RunnerPidFile -RunnerPidFile $RunnerPidFile -RunnerStartFile $RunnerStartFile -Confirm:$false
 if (-not $pidWritten) {
-    Write-Error "Lost the pidfile race against a concurrent Start-TestRunner. Inspect $RunnerPidFile and retry."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e00026446a75f063' -Arguments @{ runnerPidFile = "$RunnerPidFile" })
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
@@ -289,25 +290,25 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 # the inner emitted output to the console), Write-OuterLog itself is broken
 # (env var, permissions, encoding) -- investigate before trusting outer.log
 # absence as evidence that Start-Process -Wait hung.
-Write-OuterLog "===== outer runner started (PID $PID) ====="
+Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_60c1179c7c8d2b83' -Arguments @{ pID = "$PID" })
 Write-Output ""
 Write-Output "========"
-Write-Output "  Yuruna outer runner"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c38026188af9ed4c')
 Write-Output "  Inner:        $InnerScript"
-Write-Output "  Backoff cap:  $($script:FailurePauseMaxSeconds / 60) min"
-Write-Output "  Commit poll:  $($script:FailureCommitPollSeconds / 60) min"
-Write-Output "  Step timeout: $(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:StepTimeoutSecondsDefault) s (testCycle.stepTimeoutSeconds; default $($script:StepTimeoutSecondsDefault))"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c83f88602397b5a8' -Arguments @{ failurePauseMaxSeconds = "$($script:FailurePauseMaxSeconds / 60)" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_05d9260581fa8254' -Arguments @{ failureCommitPollSeconds = "$($script:FailureCommitPollSeconds / 60)" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0f8092ec9d970028' -Arguments @{ stepTimeoutSecondsDefault = "$(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:StepTimeoutSecondsDefault)"; stepTimeoutSecondsDefault2 = "$($script:StepTimeoutSecondsDefault)" })
 $script:PreambleBanner = Get-OuterPreambleTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:PreambleTimeoutSecondsDefault
-Write-Output "  Preamble:     $(if ($script:PreambleBanner -gt 0) { "$script:PreambleBanner s" } else { 'off (step timeout applies)' }) (testCycle.preambleTimeoutSeconds; default $($script:PreambleTimeoutSecondsDefault))"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_acbe98987ce4b852' -Arguments @{ applies = "$(if ($script:PreambleBanner -gt 0) { "$script:PreambleBanner s" } else { 'off (step timeout applies)' })"; preambleTimeoutSecondsDefault = "$($script:PreambleTimeoutSecondsDefault)" })
 Write-Output "  Stop:         Ctrl+C"
 if ($script:ForwardEnvSnapshot.Count -gt 0) {
-    Write-Output "  Forwarded env to inner:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4575b87368f13304')
     foreach ($n in ($script:ForwardEnvSnapshot.Keys | Sort-Object)) {
         Write-Output "    $n = $($script:ForwardEnvSnapshot[$n])"
     }
 } else {
     $namesList = $script:ForwardEnvNames -join ', '
-    Write-Output "  Forwarded env: (none of $namesList set in launch shell)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0021edc0297e700d' -Arguments @{ namesList = "$namesList" })
 }
 Write-Output "========"
 
@@ -317,7 +318,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
     # exit is a bounded, non-interactive stop; the outer loop must never block
     # on a prompt.
     $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run test/lab/Enable-TestAutomation.ps1)"
-    Write-OuterLog "[outer startup] $yamlMissing"
+    Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_1b2d45fc84aa493b' -Arguments @{ yamlMissing = "$yamlMissing" })
     Write-Warning $yamlMissing
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
@@ -337,7 +338,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 $elevationHostType = Get-HostType
 if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
     if (-not (Assert-RunnerElevation -HostType $elevationHostType)) {
-        Write-OuterLog "[outer startup] refused to start: elevation required on $elevationHostType and no operator present to grant it."
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_71c777325565d43c' -Arguments @{ elevationHostType = "$elevationHostType" })
         exit (Get-EntryPointExitCode -Outcome Failure)
     }
 }
@@ -347,7 +348,7 @@ if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction Sil
 # bypass: docs/runner-outer-loop.md#pre-cycle-config-gate
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
 if (-not $gate.passed) {
-    Write-OuterLog "[outer startup] Test-Config.ps1 exited $($gate.exitCode) -- refusing to start the cycle loop."
+    Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_4bc00ee22cf67a77' -Arguments @{ exitCode = "$($gate.exitCode)" })
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
@@ -376,6 +377,16 @@ Invoke-RunnerOuterLoop -State @{
     ForwardEnvSnapshot        = $script:ForwardEnvSnapshot
     ShutdownState             = $script:ShutdownState
     NoGitPull                 = [bool]$NoGitPull
+    # These four also cross into the per-cycle child process
+    # (Invoke-TestCycleRunner.ps1) via Invoke-OuterCycleDispatch, which is
+    # the only place they were previously lost: that dispatch used to pass
+    # only -Cycle, so a custom config path, -NoStatusService, -NoConfigGate
+    # or a non-default cycle delay/log level silently reverted to that
+    # script's own defaults on every cycle after the first.
+    NoStatusService           = [bool]$NoStatusService
+    NoConfigGate              = [bool]$NoConfigGate
+    CycleDelaySeconds         = $CycleDelaySeconds
+    LogLevel                  = $logLevel
     FailurePauseMaxSeconds    = $script:FailurePauseMaxSeconds
     FailureCommitPollSeconds  = $script:FailureCommitPollSeconds
     OuterPullErrorSleepSeconds    = $script:OuterPullErrorSleepSeconds
@@ -387,7 +398,7 @@ Invoke-RunnerOuterLoop -State @{
 
 # --- REGION: Graceful shutdown
 Write-Output ""
-Write-Output "Shutdown requested. Releasing pidfile and exiting."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_865d99d9b774d3ab')
 Unregister-EntryPointCancelHandler
 try {
     if (Test-Path -LiteralPath $RunnerPidFile) {

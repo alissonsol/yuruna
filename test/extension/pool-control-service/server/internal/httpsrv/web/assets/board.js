@@ -61,23 +61,23 @@
   function cardEl(c) {
     var kids = [
       Y.el('h2', { text: c.displayName }),
-      Y.el('p', { class: 'hosts', text: c.hostsTotal + (c.hostsTotal === 1 ? ' host' : ' hosts') + ' - ' + c.hostsReporting + ' reporting' }),
+      Y.el('p', { class: 'hosts', text: (window.YurunaI18n.t('pool.hosts_reporting', {count: c.hostsTotal, reporting: c.hostsReporting})) }),
       Y.el('div', { class: 'hero ' + heroClass(c.successPct) }, [
         Y.el('span', { class: 'pct', text: fmtPct(c.successPct) }),
-        Y.el('span', { class: 'lbl', text: 'success' })
+        Y.el('span', { class: 'lbl', text: window.YurunaI18n.t("pool.success") })
       ]),
       Y.el('div', { class: 'counts' }, [
-        Y.el('div', {}, [Y.el('span', { class: 'n', text: String(c.total) }), Y.el('span', { class: 'k', text: 'cycles' })]),
-        Y.el('div', {}, [Y.el('span', { class: 'n', text: String(c.failed) }), Y.el('span', { class: 'k', text: 'failed' })])
+        Y.el('div', {}, [Y.el('span', { class: 'n', text: String(c.total) }), Y.el('span', { class: 'k', text: window.YurunaI18n.t("pool.cycles") })]),
+        Y.el('div', {}, [Y.el('span', { class: 'n', text: String(c.failed) }), Y.el('span', { class: 'k', text: window.YurunaI18n.t("pool.failed") })])
       ])
     ];
 
     var assigned = Y.el('p', { class: 'assigned' });
-    assigned.appendChild(document.createTextNode('Running: '));
+    assigned.appendChild(document.createTextNode(window.YurunaI18n.t("pool.running")));
     if (c.testSet) {
       assigned.appendChild(Y.el('strong', { text: Y.bidiIsolate(c.testSetLabel || c.testSet) }));
     } else {
-      assigned.appendChild(Y.el('span', { class: 'none', text: 'the hosts\' own projects' }));
+      assigned.appendChild(Y.el('span', { class: 'none', text: window.YurunaI18n.t("pool.the_hosts_own_projects") }));
     }
     kids.push(assigned);
 
@@ -85,7 +85,7 @@
       var sel = Y.el('select', {
         'aria-label': t('pool.test_set_label', { name: Y.bidiIsolate(c.displayName) })
       });
-      sel.appendChild(Y.el('option', { value: '', text: 'Change test set...' }));
+      sel.appendChild(Y.el('option', { value: '', text: window.YurunaI18n.t("pool.change_test_set") }));
       for (var i = 0; i < state.offers.length; i++) {
         var o = state.offers[i];
         var opt = Y.el('option', { value: o.name, text: offerLabel(o) });
@@ -108,14 +108,20 @@
     if (c.blocked && c.blocked.length) {
       kids.push(Y.el('p', {
         class: 'blocked',
-        text: c.blocked.length + (c.blocked.length === 1 ? ' host cannot' : ' hosts cannot')
-              + ' read the assigned project. Grant its token access, or assign a different test set.'
+        text: (window.YurunaI18n.t('pool.hosts_project_denied', {count: c.blocked.length}))
       }));
     }
     return Y.el('section', { class: 'card' }, kids);
   }
 
   function render() {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/board.html", "data", function () {
+      return renderMeasured();
+    });
+  }
+
+
+  function renderMeasured() {
     var host = $('cards');
     if (Y.holdRepaint(host, render)) { return; }
     host.textContent = '';
@@ -149,13 +155,10 @@
 
   function askConfirm(card, offer, selectEl) {
     pending = { card: card, offer: offer, selectEl: selectEl };
-    $('confirm-title').textContent = 'Assign "' + Y.bidiIsolate(offerLabel(offer)) +
-      '" to ' + Y.bidiIsolate(card.displayName) + '?';
+    $('confirm-title').textContent = window.YurunaI18n.t("pool.assign_value1_to_value2", {value1: (Y.bidiIsolate(offerLabel(offer))), value2: (Y.bidiIsolate(card.displayName))});
     var n = card.hostsTotal;
     $('confirm-body').textContent =
-      n + (n === 1 ? ' host will switch to ' : ' hosts will switch to ') +
-      (offer.projectUrl ? Y.bidiIsolate(offer.projectUrl) : 'the assigned project') +
-      ' on their next cycle.';
+      (offer.projectUrl ? window.YurunaI18n.t('pool.hosts_switch_project', {count: n, project: Y.bidiIsolate(offer.projectUrl)}) : window.YurunaI18n.t('pool.hosts_switch_assigned', {count: n}));
     confirmOpener = document.activeElement;
     $('confirm').hidden = false;
     // Cancel, not Assign: the sheet guards a change the user has not committed
@@ -203,7 +206,7 @@
       return load();
     }, function (e) {
       closeConfirm(true);
-      window.alert('Could not assign: ' + Y.bidiIsolate(e.message));
+      window.alert(window.YurunaI18n.t("pool.could_not_assign_value1", {value1: (Y.bidiIsolate(e.message))}));
     });
   }
 
@@ -232,7 +235,7 @@
       // The empty-state line is an ANSWER ("no pools yet"), so it must not sit
       // under the indicator claiming one before the read has landed.
       $('empty').hidden = true;
-      done = Y.busy($('cards'), 'Loading pools...');
+      done = Y.busy($('cards'), window.YurunaI18n.t("pool.loading_pools"));
     }
     chrome.busy(true);
     var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
@@ -244,7 +247,7 @@
       if (d.statsError) {
         // Numbers gray out; assignment still works, because it goes through the
         // intent CLIs and never touches the aggregator.
-        b.textContent = 'Live numbers unavailable (' + Y.bidiIsolate(d.statsError) + '). Assigning still works.';
+        b.textContent = window.YurunaI18n.t("pool.live_numbers_unavailable_value1_assigning_still_works", {value1: (Y.bidiIsolate(d.statsError))});
         b.hidden = false;
       } else {
         b.hidden = true;
@@ -267,7 +270,7 @@
     host.textContent = '';
     host.appendChild(Y.el('p', {
       class: 'muted load-error',
-      text: 'Could not load the board: ' + Y.bidiIsolate(msg) + '. Retrying on the next refresh.'
+      text: window.YurunaI18n.t("pool.could_not_load_the_board_value1_retrying_on_the_next_refresh", {value1: (Y.bidiIsolate(msg))})
     }));
   }
 

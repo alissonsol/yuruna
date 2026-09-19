@@ -97,6 +97,11 @@
     }
     switch (rule) {
       case 'one-if-1': return count === 1 ? 'one' : 'other';
+      case 'pt-cardinal-cldr46':
+        count = Math.abs(count);
+        if (Math.floor(count) <= 1) { return 'one'; }
+        if (count > 0 && count % 1000000 === 0) { return 'many'; }
+        return 'other';
       default:
         reportOnce('unknown plural rule ' + rule);
         return 'other';

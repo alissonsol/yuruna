@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@ param()
 # Import the extension loader once. Test.Extension imports the active
 # notification module(s) into the global scope; the dispatcher resolves each
 # one's Send-Notification through its module object, never by bare name.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ExtensionLoader = Join-Path $PSScriptRoot 'Test.Extension.psm1'
 if (Test-Path $script:ExtensionLoader) {
     Import-Module $script:ExtensionLoader -Global -Force
@@ -57,7 +58,7 @@ function Initialize-NotificationExtension {
         [void](Import-Extension -Area 'notification')
         $script:NotificationExtensionsLoaded = $true
     } catch {
-        Write-Warning "Notification extension load failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0f598319322bf1e5' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -116,7 +117,7 @@ function Send-YurunaNotification {
                     $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $modPath)
                 } | Select-Object -First 1
             } catch {
-                Write-Warning "Notification extension '$n' re-import threw: $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_373d4bd06afcd25d' -Arguments @{ n = "$n"; message = "$($_.Exception.Message)" })
             }
         }
         $cmd = $null
@@ -126,7 +127,7 @@ function Send-YurunaNotification {
         if (-not $cmd) {
             $loaded = @(Get-Module | Where-Object { $_.Name -eq $n } | ForEach-Object { $_.Path })
             $loadedMsg = if ($loaded.Count -gt 0) { "module loaded from: $($loaded -join ', ')" } else { 'no module named "' + $n + '" is currently loaded' }
-            Write-Warning "Notification extension '$n' does not export Send-Notification (looked for $modPath; $loadedMsg)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_be37f01b23a62cac' -Arguments @{ n = "$n"; modPath = "$modPath"; loadedMsg = "$loadedMsg" })
             continue
         }
         # Forward -EventData only when the extension's Send-Notification
@@ -145,7 +146,7 @@ function Send-YurunaNotification {
                 $delivered = $true
             } catch {
                 $deliveryErr = $_.Exception.Message
-                Write-Warning "Notification extension '$n' threw: $deliveryErr"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f4a565a18825fe9b' -Arguments @{ n = "$n"; deliveryErr = "$deliveryErr" })
             }
             $statusValue = if ($delivered) { 'ok' } else { 'fail' }
             Write-NotificationDelivery -ExtensionName $n -EventCode $EventCode -Status $statusValue -ErrorMessage $deliveryErr -ModeIsAsync $false
@@ -179,7 +180,7 @@ function Send-YurunaNotification {
                     $delivered = $true
                 } catch {
                     $deliveryErr = $_.Exception.Message
-                    Write-Warning "Notification extension '$n' threw: $deliveryErr"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f4a565a18825fe9b' -Arguments @{ n = "$n"; deliveryErr = "$deliveryErr" })
                 }
                 # Re-materialize the delivery-writer in this runspace and
                 # invoke it. The thread job has its own module table; the
@@ -266,18 +267,11 @@ function Format-FailureMessage {
         [string]$GitCommit,
         [hashtable]$EventData = $null
     )
-    $body = @"
-Yuruna Test Failure
+    $body = Format-YurunaOperatorMessage -Key 'notification.failure_body' -Arguments @{
+        host = $HostType; machine = $Hostname; guest = $GuestKey; step = $StepName
+        error = $ErrorMessage; cycleStart = $CycleStartUtc; commit = $GitCommit; time = [datetime]::UtcNow
+    }
 
-Host:     $HostType
-Machine:  $Hostname
-Guest:    $GuestKey
-Step:     $StepName
-Error:    $ErrorMessage
-Cycle start: $CycleStartUtc
-Commit:   $GitCommit
-Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
-"@
     if (-not $EventData) { return $body }
 
     # Quick-scan trailer: surfaces the v2 fields a remediator routes on
@@ -607,7 +601,7 @@ function Send-CycleFailureNotification {
     # is bounded (the Resend extension POSTs with -TimeoutSec 30, per subscriber),
     # so a synchronous send adds a bounded delay, never an unbounded stall.
     Send-YurunaNotification -EventCode    'cycle.failure' `
-                      -EventMessage "Yuruna Test: FAIL on $HostType / $SubjectSuffix" `
+                      -EventMessage (Format-YurunaOperatorMessage -Key 'notification.failure_subject' -Arguments @{ host = $HostType; subject = $SubjectSuffix }) `
                       -EventNote    $body `
                       -EventData    $payload `
                       -Synchronous

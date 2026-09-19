@@ -8,7 +8,7 @@
   <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title>Perf — Yuruna</title>
+  <title data-i18n="status.perf_yuruna">Perf — Yuruna</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
@@ -138,28 +138,28 @@
   <span class="machine" id="header-machine"></span>
   <div class="menu">
     <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
     </button>
-    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-      <a href="index.html">Status</a>
-      <a href="config.html">Config</a>
-      <a href="performance.html" aria-current="page">Performance</a>
-      <a href="diagnostics.html">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener">Guide</a>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" aria-current="page" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
-  <button id="perf-recalc" type="button" title="Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.">Recalculate</button>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+  <button id="perf-recalc" type="button" title="Re-scan test/status/perf/cycles/*.jsonl and refresh every chart." data-i18n="status.recalculate" data-i18n-title="status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart">Recalculate</button>
 </div>
 
 <main>
-  <h1 class="sr-only">Cycle performance</h1>
-  <p class="seq-meta">Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.</p>
-  <div id="perf-message" role="status" class="perf-message">Loading perf aggregates…</div>
+  <h1 class="sr-only" data-i18n="status.cycle_performance">Cycle performance</h1>
+  <p class="seq-meta" data-i18n="status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_">Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.</p>
+  <div id="perf-message" role="status" class="perf-message" data-i18n="status.loading_perf_aggregates">Loading perf aggregates…</div>
   <div id="perf-body"></div>
 </main>
 

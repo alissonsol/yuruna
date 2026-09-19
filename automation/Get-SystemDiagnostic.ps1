@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,6 +139,7 @@ param(
     [ValidateSet('Error','Warning','Information','Verbose','Debug', IgnoreCase = $true)]
     [string]$logLevel = 'Information'
 )
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube skipProjectGaps=$SkipProjectGaps logLevel=$logLevel"
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
@@ -334,9 +335,9 @@ function Write-ProblemJson {
             # BOM-less UTF-8 so a byte-exact JSON parser on any platform reads it
             # cleanly (a BOM trips strict JSON.parse in some runtimes).
             [System.IO.File]::WriteAllText($sidecar, $json, [System.Text.UTF8Encoding]::new($false))
-            Write-Output ("(machine-readable problem list also written to {0})" -f $sidecar)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b02f124a17d21759' -FormatValues ($sidecar) -FormatBindings @{ sidecar = '0' })
         } catch {
-            Write-Output ("(could not write JSON sidecar '{0}': {1})" -f $sidecar, $_.Exception.Message)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_407a4077484dc534' -FormatValues ($sidecar, $_.Exception.Message) -FormatBindings @{ sidecar = '0'; message = '1' })
         }
     }
 }
@@ -351,12 +352,12 @@ function Invoke-DiagnosticSection {
         & $Body
     } catch {
         Write-Output ""
-        Write-Output ("** ERROR in section '{0}': {1}" -f $Title, $_.Exception.Message)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_300c080adc474c41' -FormatValues ($Title, $_.Exception.Message) -FormatBindings @{ title = '0'; message = '1' })
         if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
             $firstPosLine = ($_.InvocationInfo.PositionMessage -split "`r?`n" | Select-Object -First 1)
             if ($firstPosLine) { Write-Output ("   {0}" -f $firstPosLine.Trim()) }
         }
-        Add-Problem ("Section '{0}' aborted: {1}" -f $Title, $_.Exception.Message) -Class 'DIAG.section-aborted'
+        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b89ad48331af1923' -FormatValues ($Title, $_.Exception.Message) -FormatBindings @{ title = '0'; message = '1' }) -Class 'DIAG.section-aborted'
     }
 }
 
@@ -424,7 +425,7 @@ function Get-FileTreeWithDeadline {
     )
     $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList $ArgumentList -ScriptBlock $ScriptBlock -InProcess
     if ($result.TimedOut) {
-        Add-Problem ("DIAG: {0} recursive walk timed out after {1}s; results below may be incomplete." -f $Label, $TimeoutSeconds) -Class 'DIAG.walk-timeout'
+        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_3a6d1507411d1aa5' -FormatValues ($Label, $TimeoutSeconds) -FormatBindings @{ label = '0'; timeoutSeconds = '1' }) -Class 'DIAG.walk-timeout'
         return @{ TimedOut = $true; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @() }
     }
     return @{ TimedOut = $false; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @($result.Output) }
@@ -437,7 +438,7 @@ function Get-FileTreeWithDeadline {
 function Show-FileTreeWalkTimeout {
     param([Parameter(Mandatory)][hashtable]$Walk)
     if ($Walk.TimedOut) {
-        Write-Output ("  ({0} walk timed out after {1}s -- returning partial/empty results)" -f $Walk.Label, $Walk.TimeoutSeconds)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_01cea68c33aef2ca' -FormatValues ($Walk.Label, $Walk.TimeoutSeconds) -FormatBindings @{ label = '0'; timeoutSeconds = '1' })
     }
 }
 
@@ -460,8 +461,8 @@ function Invoke-Tool {
     $resolved = @(Get-Command $Tool -ErrorAction SilentlyContinue) | Select-Object -First 1
     if ($null -eq $resolved -or
         (($resolved.CommandType -eq 'Application') -and -not (Test-ExecutableFile -Path $resolved.Source))) {
-        Write-Output "  ($Tool is not runnable -- missing, a dangling symlink, or not executable)"
-        if ($ProblemTag) { Add-Problem "$($ProblemTag): '$Tool' is not a runnable executable." -Class $ProblemTag }
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_38c78044744306af' -Arguments @{ tool = "$Tool" })
+        if ($ProblemTag) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_9bcfa00b94f40a2a' -Arguments @{ problemTag = "$($ProblemTag)"; tool = "$Tool" }) -Class $ProblemTag }
         return
     }
     try {
@@ -472,8 +473,8 @@ function Invoke-Tool {
                 $LASTEXITCODE
             }
             if ($result.TimedOut) {
-                Write-Output ("  ({0} probe timed out after {1}s -- daemon likely wedged)" -f $Tool, $TimeoutSeconds)
-                if ($ProblemTag) { Add-Problem "$($ProblemTag): probe timeout after ${TimeoutSeconds}s from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag }
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_966e9d1dffe3cee1' -FormatValues ($Tool, $TimeoutSeconds) -FormatBindings @{ tool = '0'; timeoutSeconds = '1' })
+                if ($ProblemTag) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_cd63c049294a2c32' -Arguments @{ problemTag = "$($ProblemTag)"; timeoutSeconds = "${TimeoutSeconds}"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag }
                 return
             }
             $lines = @($result.Output)
@@ -487,13 +488,13 @@ function Invoke-Tool {
             }
             $lines | ForEach-Object { Write-Output ([string]$_) }
             if ($exit -ne 0 -and $ProblemTag) {
-                Add-Problem "$($ProblemTag): exit code $exit from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ba76b3f8b1fdb5b8' -Arguments @{ problemTag = "$($ProblemTag)"; exit = "$exit"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag
             }
             return
         }
         & $Tool @ToolArgs 2>&1 | ForEach-Object { Write-Output ($_.ToString()) }
         if ($LASTEXITCODE -ne 0 -and $ProblemTag) {
-            Add-Problem "$($ProblemTag): exit code $LASTEXITCODE from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_4788a5c9b68d9b0a' -Arguments @{ problemTag = "$($ProblemTag)"; lASTEXITCODE = "$LASTEXITCODE"; tool = "$Tool"; join = "$($ToolArgs -join ' ')" }) -Class $ProblemTag
         }
     } catch {
         if ($ProblemTag) { Add-Problem "$($ProblemTag): $($_.Exception.Message)" -Class $ProblemTag }
@@ -567,21 +568,8 @@ function Test-CommandAvailable {
     return (Test-ExecutableFile -Path $cmd.Source)
 }
 
-# --- REGION: Hyper-V virtual switch uplink fingerprint
-# A Hyper-V vSwitch object outlives its uplink binding across a host reboot, so
-# the switch still being defined is no evidence that it bridges anything. The
-# address and route dumps cannot show the difference either: a host whose
-# management address has moved off the switch onto the bare physical NIC reads
-# as entirely healthy in both. The facts that do separate a working bridge from
-# a dead one are the bound physical NIC's link state, whether the management-OS
-# vNIC exists when the switch says it should, and whether that vNIC holds a
-# usable address -- so they are reported here, next to the addresses they
-# explain, and a degraded switch lands in the problem tally.
-#
-# Fail open at every step: an unevaluable probe reports 'unknown' and raises
-# nothing. This script also runs inside guests, which have no Hyper-V cmdlets
-# at all, and an unelevated run has the cmdlets but no access, so a missing
-# answer is the normal case rather than a finding.
+# See ../docs/host-hyperv.md#a-hyper-v-virtual-switch-that-looks-fine-but-is-not-bridging
+# for what this fingerprint checks and why it fails open. -- Get-SystemDiagnostic.ps1
 function Test-AdapterUp {
     <#
     .SYNOPSIS
@@ -620,18 +608,18 @@ function Write-VirtualSwitchFingerprint {
     [CmdletBinding()]
     param()
     if (-not (Test-CommandAvailable 'Get-VMSwitch')) {
-        Write-Output "(Get-VMSwitch not available -- Hyper-V management tools not installed)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_886762e8e63ddc51')
         return
     }
     $switches = @()
     try {
         $switches = @(Get-VMSwitch -ErrorAction Stop)
     } catch {
-        Write-Output "(Get-VMSwitch failed: $($_.Exception.Message); needs Hyper-V role + elevation)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bd923b6990ccc65e' -Arguments @{ message = "$($_.Exception.Message)" })
         return
     }
     if ($switches.Count -eq 0) {
-        Write-Output "(no virtual switches defined)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f8d085009c4c8200')
         return
     }
     foreach ($sw in $switches) {
@@ -654,8 +642,8 @@ function Write-VirtualSwitchFingerprint {
         }
         $descriptions = @($descriptions | Select-Object -Unique)
         $uplinkText = if ($descriptions.Count -gt 0) { $descriptions -join '; ' } else { '(none bound)' }
-        Write-Output ("  {0}: switchType={1} allowManagementOS={2}" -f $switchName, $sw.SwitchType, $sw.AllowManagementOS)
-        Write-Output ("    uplink: {0}" -f $uplinkText)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f12c03f2812948ec' -FormatValues ($switchName, $sw.SwitchType, $sw.AllowManagementOS) -FormatBindings @{ switchName = '0'; switchType = '1'; allowManagementOS = '2' })
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f7d06707f6830526' -FormatValues ($uplinkText) -FormatBindings @{ uplinkText = '0' })
 
         $bound = @()
         $adapterProbeOk = $false
@@ -667,12 +655,12 @@ function Write-VirtualSwitchFingerprint {
             } catch { $adapterProbeOk = $false }
         }
         foreach ($nic in $bound) {
-            Write-Output ("    bound NIC: {0} status={1} speed={2}" -f $nic.Name, $nic.Status, $nic.LinkSpeed)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_63fd3d91f443af9b' -FormatValues ($nic.Name, $nic.Status, $nic.LinkSpeed) -FormatBindings @{ name = '0'; status = '1'; linkSpeed = '2' })
         }
         if ($adapterProbeOk -and $bound.Count -eq 0) {
-            Write-Output "    bound NIC: (the named adapter is not present on this host)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e342099ae5f2fc9f')
         } elseif (-not $adapterProbeOk -and $descriptions.Count -gt 0) {
-            Write-Output "    bound NIC: (not evaluable)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ad5cd796383abcb2')
         }
 
         # Ask Hyper-V for the management-OS vNIC rather than matching the
@@ -732,19 +720,19 @@ function Write-VirtualSwitchFingerprint {
         }
 
         if (-not $mgmtProbeOk) {
-            Write-Output "    management-OS vNIC: (not evaluable)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_daa53807f586eaba')
         } elseif ($mgmt.Count -eq 0) {
-            Write-Output "    management-OS vNIC: absent"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_04cb0b06ab0deedb')
         } else {
             $ipText = if ($mgmtIps.Count -gt 0) { $mgmtIps -join ', ' } elseif ($mgmtAddrOk) { '(none usable)' } else { '(not evaluable)' }
-            Write-Output ("    management-OS vNIC: present ({0}) ipv4={1}" -f (($mgmt | ForEach-Object { [string]$_.Name }) -join ', '), $ipText)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9a85e0c370a533d9' -FormatValues ((($mgmt | ForEach-Object { [string]$_.Name }) -join ', '), $ipText) -FormatBindings @{ join = '0'; ipText = '1' })
             # Not a fault -- the clone is how Hyper-V builds a management vNIC.
             # It is reported because it is the one host shape where a leftover
             # adapter can answer for the live one, and an operator reading a
             # surprising verdict needs to see the candidates that were weighed.
             if ($mgmtSharedMac.Count -gt 1) {
-                Write-Output ("    shared management MAC on: {0}" -f ($mgmtSharedMac -join ', '))
-                Write-Output "      leftovers from a switch that once bridged the same NIC; the live one is picked by alias"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d6774599c4bb2aa3' -FormatValues (($mgmtSharedMac -join ', ')) -FormatBindings @{ join = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_06926d1d2c8038fd')
             }
         }
 
@@ -788,7 +776,7 @@ function Write-VirtualSwitchFingerprint {
         # The verdict line carries the bare word and nothing else, so a reader
         # scraping this artifact gets the same closed vocabulary for every
         # switch; any explanation goes on its own line underneath.
-        Write-Output ("    verdict: {0}" -f $verdict)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_79fc4de78443f4b1' -FormatValues ($verdict) -FormatBindings @{ verdict = '0' })
         if ($verdictNote) {
             Write-Output ("      {0}" -f $verdictNote)
         }
@@ -883,15 +871,8 @@ fi
     return @{ State=$state; Lines=@($content) }
 }
 
-# --- REGION: Process subtree walk
-# Breadth-first walk of a process subtree: the root, then every descendant, in
-# discovery order. The process a package manager is blocked ON is generally not
-# the one whose name matched: apt-get forks `sh -c`, which forks the tool that
-# owns the blocking read, so a capture that stops at direct children names the
-# shell and never the leaf holding the fd -- and the fd is the whole point of
-# the capture. Two bounds so a fork-storm cannot turn one section into an
-# unbounded ps walk: MaxPids caps the total, and only pids reached through the
-# queue are visited, so a cycle in a doctored ppid chain terminates.
+# See ../docs/system-diagnostic.md#process-subtree-walk-breadth-first-bounded
+# for why this walks breadth-first and how it stays bounded. -- Get-SystemDiagnostic.ps1
 function Get-ProcessDescendantPid {
     [OutputType([int[]])]
     param(
@@ -915,23 +896,8 @@ function Get-ProcessDescendantPid {
     return $ordered.ToArray()
 }
 
-# --- REGION: Journal self-noise
-# Lines this harness writes to the system journal simply by running. Each
-# arrives on a timer while a cycle is in flight -- one apparmor profile reload
-# per console frame captured, one libvirt agent-rung error per guest address
-# lookup on an image that ships no qemu-guest-agent, one compile record per
-# child pwsh -- so on a busy host they ARE the journal window, and every line
-# worth reading has aged out of it before anyone looks. They are dropped from
-# what is printed and from what is counted, and tallied by class instead, so
-# the fact that they happened survives in one line rather than a hundred.
-#
-# apparmor is matched on STATUS only: a profile load is bookkeeping, while a
-# DENIED line is a real fault and must never be filtered. A redacted
-# scriptblock record carries nothing at all -- it is this script being compiled,
-# named and blanked -- so it is dropped rather than printed blank. The IPC
-# listener pair is what a pwsh process logs as it starts and as it is torn
-# down, at error level for the teardown: a harness that forks a child pwsh per
-# step therefore reports a permanent error-rate that no operator can act on.
+# See ../docs/system-diagnostic.md#journal-windows-exclude-this-harnesss-own-polling
+# for what these classes are and why they are tallied instead of printed. -- Get-SystemDiagnostic.ps1
 function Get-JournalSelfNoiseClass {
     [OutputType([string])]
     param([string]$Line)
@@ -1122,7 +1088,7 @@ if ($OutFile) {
         $transcriptStarted = $true
         Start-Transcript -Path $OutFile -Force | Out-Null
     } catch {
-        Write-Warning "Could not start transcript to '$OutFile': $($_.Exception.Message). Continuing without -OutFile."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_10d27b9c79644210' -Arguments @{ outFile = "$OutFile"; message = "$($_.Exception.Message)" })
         $transcriptStarted = $false
     }
 }
@@ -1131,10 +1097,10 @@ try {
 
     # --- REGION: 1. Host
     Invoke-DiagnosticSection "HOST" {
-    Write-Output ("Hostname     : {0}" -f [System.Net.Dns]::GetHostName())
-    Write-Output ("Username     : {0}" -f [Environment]::UserName)
-    Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
-    Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fddd431669f34dca' -FormatValues ([System.Net.Dns]::GetHostName()) -FormatBindings @{ getHostName = '0' })
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3d926ec2c9a14019' -FormatValues ([Environment]::UserName) -FormatBindings @{ userName = '0' })
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_56fa491fa25bce42' -FormatValues ((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -FormatBindings @{ z = '0' })
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13047337e502a109' -FormatValues ((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')) -FormatBindings @{ ssK = '0' })
 
     # --- REGION: https://yuruna.link/423ef7f5-0008
     Write-Sub "Software"
@@ -1152,7 +1118,7 @@ try {
         if ($value -is [array]) { $value = $value | Where-Object { $_ } | Select-Object -First 1 }
         $text = if ($null -ne $value) { ([string]$value).Trim() } else { '' }
         if ([string]::IsNullOrWhiteSpace($text)) {
-            Write-Output ("  {0,-20} : (not installed)" -f $Name)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_caf9b81631b566c3' -FormatValues ($Name) -FormatBindings @{ name = '0,-20' })
         } else {
             Write-Output ("  {0,-20} : {1}" -f $Name, $text)
         }
@@ -1341,10 +1307,10 @@ try {
     if ($IsWindows) {
         $osi = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
         if ($osi) {
-            Write-Output ("OS Version   : {0} (build {1})" -f $osi.Caption, $osi.BuildNumber)
-            Write-Output ("Last boot    : {0}" -f $osi.LastBootUpTime)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a4e0c8c241287bb7' -FormatValues ($osi.Caption, $osi.BuildNumber) -FormatBindings @{ caption = '0'; buildNumber = '1' })
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_30e5a9c36e444264' -FormatValues ($osi.LastBootUpTime) -FormatBindings @{ lastBootUpTime = '0' })
             $up = (Get-Date) - $osi.LastBootUpTime
-            Write-Output ("Uptime       : {0:F1} hours" -f $up.TotalHours)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_890c2539295306b9' -FormatValues ($up.TotalHours) -FormatBindings @{ totalHours = '0:F1' })
         }
     } elseif ($IsMacOS) {
         Write-Sub "uname -a"
@@ -1368,23 +1334,22 @@ try {
     # --- REGION: 1b. BIOS
     Invoke-DiagnosticSection "BIOS" {
     if (-not $IsWindows) {
-        Write-Output '(BIOS information is available through Get-ComputerInfo on Windows only.)'
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_906db62350cd0764')
     } elseif (-not (Get-Command -Name Get-ComputerInfo -ErrorAction SilentlyContinue)) {
-        Write-Output '(BIOS information unavailable: Get-ComputerInfo is not installed.)'
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a3aa7f35af447110')
     } else {
         try {
             # One wildcard query captures PowerShell's complete BIOS surface,
             # including BiosFirmwareType, while the renderer fixes row order.
             $biosInfo = Get-ComputerInfo -Property 'Bios*' -ErrorAction Stop
             if ($null -eq $biosInfo) {
-                Write-Output '(BIOS information unavailable: Get-ComputerInfo returned no data.)'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_49673525d6734038')
             } else {
                 Get-BiosDiagnosticLine -ComputerInfo $biosInfo |
                     ForEach-Object { Write-Output $_ }
             }
         } catch {
-            Write-Output ('(BIOS information unavailable: Get-ComputerInfo failed: {0})' -f
-                $_.Exception.Message)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a8ad0a1fc36b0005' -FormatValues ($_.Exception.Message) -FormatBindings @{ message = '0' })
         }
     }
     }
@@ -1395,10 +1360,10 @@ try {
         $cpus = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
         if ($cpus) {
             foreach ($c in $cpus) {
-                Write-Output ("Model     : {0}" -f $c.Name)
-                Write-Output ("Cores     : {0} physical / {1} logical" -f $c.NumberOfCores, $c.NumberOfLogicalProcessors)
-                Write-Output ("Max clock : {0} MHz" -f $c.MaxClockSpeed)
-                Write-Output ("Load %    : {0}" -f $c.LoadPercentage)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_10822e392d94ddaa' -FormatValues ($c.Name) -FormatBindings @{ name = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2ae3b324855cd5a6' -FormatValues ($c.NumberOfCores, $c.NumberOfLogicalProcessors) -FormatBindings @{ numberOfCores = '0'; numberOfLogicalProcessors = '1' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_87fbc44e5784e7ea' -FormatValues ($c.MaxClockSpeed) -FormatBindings @{ maxClockSpeed = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_99f43b55d16c10d9' -FormatValues ($c.LoadPercentage) -FormatBindings @{ loadPercentage = '0' })
                 Write-Output ""
             }
             # --- REGION: Processor power policy
@@ -1409,8 +1374,7 @@ try {
             $scheme = powercfg /getactivescheme 2>$null |
                 Select-String 'GUID:\s+([0-9a-fA-F-]+)\s+\((.+)\)' | Select-Object -First 1
             if ($scheme) {
-                Write-Output ("Power plan: {0} ({1})" -f
-                    $scheme.Matches[0].Groups[2].Value.Trim(), $scheme.Matches[0].Groups[1].Value)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4c47b23469f21be0' -FormatValues ($scheme.Matches[0].Groups[2].Value.Trim(), $scheme.Matches[0].Groups[1].Value) -FormatBindings @{ trim = '0'; value = '1' })
             }
             $throttleMaxAc = $null
             foreach ($setting in 'PROCTHROTTLEMAX', 'PROCTHROTTLEMIN') {
@@ -1425,23 +1389,23 @@ try {
                     if ($setting -eq 'PROCTHROTTLEMAX') { $throttleMaxAc = $acVal }
                 }
                 if ($dcHit) { $dcText = "$([Convert]::ToInt32($dcHit.Matches[0].Groups[1].Value, 16))%" }
-                Write-Output ("{0,-16}: AC {1} / DC {2}" -f $setting, $acText, $dcText)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_80a91c7136b5ea24' -FormatValues ($setting, $acText, $dcText) -FormatBindings @{ setting = '0,-16'; acText = '1'; dcText = '2' })
             }
             Write-Output ""
             # AC only. A machine with no battery never reaches its DC values, so
             # alarming on those reports a cap that cannot apply.
             if ($null -ne $throttleMaxAc -and $throttleMaxAc -lt 100) {
-                Add-Problem "CPU: maximum processor state capped at $throttleMaxAc% on the active power scheme (AC)." -Class 'CPU.power-limit'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_a0085d33a3129918' -Arguments @{ throttleMaxAc = "$throttleMaxAc" }) -Class 'CPU.power-limit'
             }
 
             $busy = ($cpus | Measure-Object LoadPercentage -Average).Average
-            if ($busy -ge 90) { Add-Problem "CPU: average load $([math]::Round($busy,1))% across all logical processors (>=90)." -Class 'CPU.high-load' }
+            if ($busy -ge 90) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_3d642d2080f94214' -Arguments @{ busy = "$([math]::Round($busy,1))" }) -Class 'CPU.high-load' }
         }
     } elseif ($IsMacOS) {
         Write-Sub "sysctl -n machdep.cpu.brand_string / hw.ncpu"
         Invoke-Tool -Tool '/usr/sbin/sysctl' -ToolArgs @('-n','machdep.cpu.brand_string')
         Invoke-Tool -Tool '/usr/sbin/sysctl' -ToolArgs @('-n','hw.ncpu')
-        Write-Sub "top -l 1 (CPU header)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_99c6f7bd7b0f53a1')
         & '/usr/bin/top' -l 1 -n 0 2>$null | Select-Object -First 12 | ForEach-Object { Write-Output $_ }
     } elseif ($IsLinux) {
         $cores = 0
@@ -1453,15 +1417,15 @@ try {
                 '(unknown -- no "model name" line in /proc/cpuinfo)'
             }
             $cores = @(Get-Content '/proc/cpuinfo' | Where-Object { $_ -match '^processor' }).Count
-            Write-Output "Model : $model"
-            Write-Output "Cores : $cores"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9378f57b64553a05' -Arguments @{ model = "$model" })
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_19207cb68304a0f3' -Arguments @{ cores = "$cores" })
         }
         if (Test-Path '/proc/loadavg') {
             $load = (Get-Content '/proc/loadavg').Trim()
-            Write-Output "Load  : $load"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_43c9133034669a17' -Arguments @{ load = "$load" })
             $load1m = [double](($load -split '\s+')[0])
             if ($cores -gt 0 -and $load1m -gt ($cores * 1.5)) {
-                Add-Problem "CPU: 1-min load $load1m exceeds 1.5x cores ($cores)." -Class 'CPU.high-load'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_d91128cf43fe5efd' -Arguments @{ load1m = "$load1m"; cores = "$cores" }) -Class 'CPU.high-load'
             }
         }
     }
@@ -1477,14 +1441,14 @@ try {
             $used    = ($totalKb - $freeKb) * 1KB
             $total   = $totalKb * 1KB
             $free    = $freeKb * 1KB
-            Write-Output ("Total : {0}" -f (Format-ByteCount $total))
-            Write-Output ("Used  : {0}" -f (Format-ByteCount $used))
-            Write-Output ("Free  : {0}" -f (Format-ByteCount $free))
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9e908d7d9bc23dd3' -FormatValues ((Format-ByteCount $total)) -FormatBindings @{ total = '0' })
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d3ead8947216ae55' -FormatValues ((Format-ByteCount $used)) -FormatBindings @{ used = '0' })
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_842502c243d9b6fe' -FormatValues ((Format-ByteCount $free)) -FormatBindings @{ free = '0' })
             $pct = ($used / $total) * 100
-            Write-Output ("Used%: {0:N1}%" -f $pct)
-            if ($pct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $pct) -Class 'MEMORY.high-usage' }
-            Write-Output ("Page file total : {0}" -f (Format-ByteCount ($os.SizeStoredInPagingFiles * 1KB)))
-            Write-Output ("Page file free  : {0}" -f (Format-ByteCount ($os.FreeSpaceInPagingFiles * 1KB)))
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b192afb689e5cf6d' -FormatValues ($pct) -FormatBindings @{ pct = '0:N1' })
+            if ($pct -ge 90) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_38b2e61abf2a764b' -FormatValues ($pct) -FormatBindings @{ pct = '0:N1' }) -Class 'MEMORY.high-usage' }
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d5339462df16bcf8' -FormatValues ((Format-ByteCount ($os.SizeStoredInPagingFiles * 1KB))) -FormatBindings @{ kB = '0' })
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_befb68c3b5ba5317' -FormatValues ((Format-ByteCount ($os.FreeSpaceInPagingFiles * 1KB))) -FormatBindings @{ kB = '0' })
         }
     } elseif ($IsMacOS) {
         Write-Sub "vm_stat"
@@ -1503,8 +1467,8 @@ try {
             }
             if ($totalKb -gt 0) {
                 $usedPct = (1 - ($availKb / $totalKb)) * 100
-                Write-Output ("Available%: {0:N1}% used (1 - MemAvailable/MemTotal)" -f $usedPct)
-                if ($usedPct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $usedPct) -Class 'MEMORY.high-usage' }
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6036ef007d775983' -FormatValues ($usedPct) -FormatBindings @{ usedPct = '0:N1' })
+                if ($usedPct -ge 90) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_3e92708420fcba11' -FormatValues ($usedPct) -FormatBindings @{ usedPct = '0:N1' }) -Class 'MEMORY.high-usage' }
             }
         }
     }
@@ -1520,13 +1484,12 @@ try {
                 $fre = [double]$_.FreeSpace
                 $used = $tot - $fre
                 $pct = if ($tot -gt 0) { ($used / $tot) * 100 } else { 0 }
-                Write-Output ("{0}  size={1}  free={2}  used={3:N1}%  fs={4}" -f `
-                    $_.DeviceID, (Format-ByteCount $tot), (Format-ByteCount $fre), $pct, $_.FileSystem)
-                if ($pct -ge 90) { Add-Problem ("DISK: {0} is {1:N1}% full." -f $_.DeviceID, $pct) -Class 'DISK.high-usage' }
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bd3dcda0a121faa1' -FormatValues ($_.DeviceID, (Format-ByteCount $tot), (Format-ByteCount $fre), $pct, $_.FileSystem) -FormatBindings @{ deviceID = '0'; tot = '1'; fre = '2'; pct = '3:N1'; fileSystem = '4' })
+                if ($pct -ge 90) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_f4bc7d8c9f330da6' -FormatValues ($_.DeviceID, $pct) -FormatBindings @{ deviceID = '0'; pct = '1:N1' }) -Class 'DISK.high-usage' }
             }
         }
     } else {
-        Write-Sub "df -P (local filesystems, POSIX 1K-block format)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_5fda31960d8c149a')
         # One df snapshot serves both the rendered table and the >=90%-full
         # parse: invoking df twice would compare a figure the reader never sees
         # against a table from a different, non-atomic snapshot.
@@ -1545,7 +1508,7 @@ try {
             if ($cols.Count -ge 6) {
                 $usePct = $cols[4] -replace '%',''
                 if ($usePct -as [int] -and [int]$usePct -ge 90) {
-                    Add-Problem ("DISK: {0} is {1}% full (mounted at {2})." -f $cols[0], $usePct, $cols[5]) -Class 'DISK.high-usage'
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_392f4d20e6624910' -FormatValues ($cols[0], $usePct, $cols[5]) -FormatBindings @{ cols = '0'; usePct = '1'; cols2 = '2' }) -Class 'DISK.high-usage'
                 }
             }
         }
@@ -1558,19 +1521,19 @@ try {
         Write-Sub "nvidia-smi"
         Invoke-Tool -Tool 'nvidia-smi' -ToolArgs @('--query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu', '--format=csv')
     } else {
-        Write-Output "(nvidia-smi not present; using platform fallback)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6d8cf5a6c9945be5')
         if ($IsWindows) {
             $vc = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
             if ($vc) {
                 $vc | ForEach-Object {
-                    Write-Output ("GPU       : {0}" -f $_.Name)
-                    Write-Output ("Driver    : {0}" -f $_.DriverVersion)
-                    Write-Output ("VRAM      : {0}" -f (Format-ByteCount ([double]$_.AdapterRAM)))
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5af1f9a8e9d365d6' -FormatValues ($_.Name) -FormatBindings @{ name = '0' })
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_0322fcdddd1a1ac9' -FormatValues ($_.DriverVersion) -FormatBindings @{ driverVersion = '0' })
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fa51b7fe133151e7' -FormatValues ((Format-ByteCount ([double]$_.AdapterRAM))) -FormatBindings @{ adapterRAM = '0' })
                     Write-Output ""
                 }
             }
         } elseif ($IsMacOS) {
-            Write-Sub "system_profiler SPDisplaysDataType (truncated)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_86af45ab06fb8dac')
             $out = & '/usr/sbin/system_profiler' SPDisplaysDataType 2>$null
             $out | Select-Object -First 40 | ForEach-Object { Write-Output $_ }
         } elseif ($IsLinux) {
@@ -1581,7 +1544,7 @@ try {
                         ForEach-Object { Write-Output $_ }
                 }
             } else {
-                Write-Output "(lspci not installed; install pciutils for GPU detail)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_af3b08b6cf7fc2be')
             }
         }
     }
@@ -1595,20 +1558,20 @@ try {
             Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } |
             Select-Object IPAddress, InterfaceAlias, PrefixLength, AddressState |
             Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_ }
-        Write-Sub "Default route"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d9b96add0edcb040')
         Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
             Sort-Object RouteMetric, InterfaceMetric |
             Select-Object -First 1 | Format-List | Out-String | ForEach-Object { Write-Output $_ }
-        Write-Sub "Hyper-V virtual switches"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_7cf438f650a43df4')
         Write-VirtualSwitchFingerprint
     } else {
-        Write-Sub "ifconfig (interfaces with IPv4)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_622708460ec0912c')
         if ($IsMacOS) {
             & /sbin/ifconfig 2>$null | Out-String | ForEach-Object { Write-Output $_ }
         } else {
             Invoke-Tool -Tool 'ip' -ToolArgs @('-brief','addr')
         }
-        Write-Sub "Default route"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d9b96add0edcb040')
         if ($IsMacOS) {
             Invoke-Tool -Tool '/sbin/route' -ToolArgs @('-n','get','default')
         } else {
@@ -1626,11 +1589,11 @@ try {
     # process and turns a silent gap into a fix the operator can make before it
     # is needed.
     if ($IsLinux) {
-        Write-Sub "DHCP wire capture (tcpdump CAP_NET_RAW)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_bd1f98629ef68eb5')
         $tcpdumpCmd = Get-Command 'tcpdump' -ErrorAction SilentlyContinue
         if (-not $tcpdumpCmd) {
-            Write-Output "  tcpdump is not installed -- guest DHCP failures capture no wire evidence."
-            Add-Problem "NETWORK: tcpdump is not installed; a guest that fails to get a DHCP lease will leave no wire evidence. Install tcpdump and grant it: sudo setcap cap_net_raw,cap_net_admin=eip `$(command -v tcpdump)" -Class 'NETWORK.dhcp-capture-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5240a16c69305911')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_f7d6f1dda37c2a27') -Class 'NETWORK.dhcp-capture-unavailable'
         } else {
             # getcap ships in /usr/sbin, which is off the PATH of an ordinary
             # login on several distributions. Resolving it by name alone would
@@ -1646,25 +1609,25 @@ try {
                 } catch { $capText = '' }
             }
             if ($capText -match 'cap_net_raw') {
-                Write-Output ("  granted: {0}" -f $capText)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_11a394b95b2cb142' -FormatValues ($capText) -FormatBindings @{ capText = '0' })
             } elseif (-not $getcapPath) {
                 # No getcap means no verdict, not a failing one. Saying so
                 # keeps a host with libcap absent from reading as a host that
                 # was checked and found wanting.
-                Write-Output "  getcap is not installed -- capability state of $($tcpdumpCmd.Source) is unknown."
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1bc33fa48746dd65' -Arguments @{ source = "$($tcpdumpCmd.Source)" })
             } else {
-                Write-Output "  NOT granted on $($tcpdumpCmd.Source) -- guest DHCP failures capture no wire evidence."
-                Add-Problem "NETWORK: tcpdump lacks CAP_NET_RAW, so a guest that fails to get a DHCP lease leaves no wire evidence. Grant it: sudo setcap cap_net_raw,cap_net_admin=eip `$(command -v tcpdump)" -Class 'NETWORK.dhcp-capture-ungranted'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_601b6a8a371d20bf' -Arguments @{ source = "$($tcpdumpCmd.Source)" })
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_72e2cb646e4c4115') -Class 'NETWORK.dhcp-capture-ungranted'
             }
         }
     }
-    Write-Sub "DNS resolution probe (one.one.one.one)"
+    Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_4fbb64b5bef0972c')
     try {
         $r = [System.Net.Dns]::GetHostAddresses('one.one.one.one')
         if ($r) { $r | ForEach-Object { Write-Output ("  {0}" -f $_.IPAddressToString) } }
     } catch {
         Write-Output "  FAILED: $($_.Exception.Message)"
-        Add-Problem "NETWORK: DNS resolution of 'one.one.one.one' failed -- check resolver configuration." -Class 'NETWORK.dns-unavailable'
+        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_77bedab7a23f0549') -Class 'NETWORK.dns-unavailable'
     }
 
     Write-Sub "Connectivity"
@@ -1717,14 +1680,14 @@ try {
 
     if (-not $gateOk) {
         if ($proxyUrl) {
-            Write-Output "(egress proxy ${proxyHost}:${proxyPort} unreachable: $gateMsg -- skipping endpoint probes)"
-            Add-Problem "NETWORK: egress proxy ${proxyHost}:${proxyPort} unreachable ($gateMsg)." -Class 'NETWORK.egress-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6e7a5d7d1bd2a516' -Arguments @{ proxyHost = "${proxyHost}"; proxyPort = "${proxyPort}"; gateMsg = "$gateMsg" })
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_8b61ddee871d0168' -Arguments @{ proxyHost = "${proxyHost}"; proxyPort = "${proxyPort}"; gateMsg = "$gateMsg" }) -Class 'NETWORK.egress-unavailable'
         } elseif ($gateRejected) {
-            Write-Output "(direct TCP/443 to 8.8.8.8 refused by local egress filter; no http(s)_proxy in env -- skipping endpoint probes)"
-            Add-Problem "NETWORK: direct TCP/443 refused by local egress filter and no http(s)_proxy is set." -Class 'NETWORK.egress-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ac0d79bc35b11ca4')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_fdfd8304afedfbc9') -Class 'NETWORK.egress-unavailable'
         } else {
-            Write-Output "(no outbound connectivity to 8.8.8.8:443 within 1500 ms -- skipping endpoint probes)"
-            Add-Problem "NETWORK: no outbound connectivity (gate probe to 8.8.8.8:443 failed: $gateMsg)." -Class 'NETWORK.egress-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3411f56fc66f3ed9')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_16bb848a48f76f9d' -Arguments @{ gateMsg = "$gateMsg" }) -Class 'NETWORK.egress-unavailable'
         }
     } else {
         $connectivityEndpoints = @(
@@ -1762,7 +1725,7 @@ try {
 
         if ($proxyUrl) {
             # --- REGION: https://yuruna.link/423ef7f5-0005
-            Write-Output ("Egress goes through ${proxyHost}:${proxyPort} ({0}); reporting round-trip via HTTP CONNECT." -f $proxyUrl)
+            Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_886f4b1b1e46bc84' -Arguments @{ proxyHost = "${proxyHost}"; proxyPort = "${proxyPort}" } -FormatValues ($proxyUrl) -FormatBindings @{ proxyUrl = '0' }))
             $probeTimeoutMs = 4000
             $probeDeadline  = [System.Environment]::TickCount + $probeTimeoutMs
 
@@ -1860,7 +1823,7 @@ try {
             }
         } else {
             # No env proxy: hit each target directly on TCP/443 in parallel.
-            Write-Output "Probing each target via direct TCP/443 (no http(s)_proxy in env)."
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a352a82ac44d9d01')
             $connectTimeoutMs = 2500
             $connectDeadline = [System.Environment]::TickCount + $connectTimeoutMs
 
@@ -1925,8 +1888,7 @@ try {
 
         $connectFailures = @($connectResults | Where-Object { $null -eq $_.RTT })
         if ($connectFailures.Count -gt 0) {
-            Add-Problem ("NETWORK: {0}/{1} endpoint(s) unreachable: {2}" -f `
-                $connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', ')) -Class 'NETWORK.endpoint-unavailable'
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b6be1dbdabe6cc70' -FormatValues ($connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', ')) -FormatBindings @{ count = '0'; count2 = '1'; join = '2' }) -Class 'NETWORK.endpoint-unavailable'
         }
 
         # --- REGION: https://yuruna.link/423ef7f5-0005
@@ -1952,11 +1914,11 @@ try {
         # evidence is an installer frozen on the console.
         if ($true) {
             if ($plainProxyUrl) {
-                Write-Sub "Package-mirror origins (http_proxy GET/cache route)"
-                Write-Output ("http_proxy is {0}; fetching one small body per package-mirror origin through it (revalidation forced)." -f $plainProxyUrl)
+                Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_8e387ee6ac99f4e6')
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5b61d37259974d2f' -FormatValues ($plainProxyUrl) -FormatBindings @{ plainProxyUrl = '0' })
             } else {
-                Write-Sub "Package-mirror origins (direct -- no http_proxy in env)"
-                Write-Output 'No http_proxy is set, so these go direct. Guests fetch the same objects through the caching proxy; a direct failure here means the origin itself, not the cache.'
+                Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_6f0c94761254ca79')
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7381c2ff7b092be4')
             }
             # Probe the exact objects apt fetches, not a directory index. An
             # index is small, rarely revalidated, and typically answered from
@@ -1997,7 +1959,7 @@ try {
             # assigned value, so the note itself would be added to the target
             # list and then probed as a URL -- reported as a failed origin.
             if (-not $codename) {
-                Write-Output '  (no VERSION_CODENAME found: probing directory indexes, which a cache can answer without reaching the origin)'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e22147108d6ae87f')
             }
             # One SHARED 10s budget across all targets, like the CONNECT
             # matrix's shared deadline above: the diagnostic runs inside a
@@ -2021,7 +1983,7 @@ try {
             foreach ($t in $plainTargets) {
                 $remainMs = $plainDeadline - [System.Environment]::TickCount
                 if ($remainMs -lt 1000) {
-                    Write-Output ("  {0,-64} SKIPPED (shared 10s probe budget exhausted by earlier stalls)" -f $t)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7062ead52be3e83c' -FormatValues ($t) -FormatBindings @{ t = '0,-64' })
                     $plainFailures += $t
                     continue
                 }
@@ -2052,11 +2014,11 @@ try {
                         if ($key) { $cacheNote = " [{0}: {1}]" -f $key, (@($resp.Headers[$key]) -join ','); break }
                     }
                     $slowNote = if ($sw.ElapsedMilliseconds -ge $plainSlowMs) { '  <-- SLOW' } else { '' }
-                    Write-Output ("  {0,-64} HTTP {1}, {2} bytes in {3} ms{4}{5}" -f $t, [int]$resp.StatusCode, $resp.RawContentLength, $sw.ElapsedMilliseconds, $cacheNote, $slowNote)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_dba4f2e3a437938b' -FormatValues ($t, [int]$resp.StatusCode, $resp.RawContentLength, $sw.ElapsedMilliseconds, $cacheNote, $slowNote) -FormatBindings @{ t = '0,-64'; statusCode = '1'; rawContentLength = '2'; elapsedMilliseconds = '3'; cacheNote = '4'; slowNote = '5' })
                     if ($sw.ElapsedMilliseconds -ge $plainSlowMs) { $plainSlow += $t }
                 } catch {
                     $sw.Stop()
-                    Write-Output ("  {0,-64} FAILED after {1} ms: {2}" -f $t, $sw.ElapsedMilliseconds, $_.Exception.Message)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f18af6f34851269c' -FormatValues ($t, $sw.ElapsedMilliseconds, $_.Exception.Message) -FormatBindings @{ t = '0,-64'; elapsedMilliseconds = '1'; message = '2' })
                     $plainFailures += $t
                 }
             }
@@ -2066,39 +2028,23 @@ try {
             # other way to tell which was measured.
             $plainPathLabel = if ($plainProxyUrl) { "the caching proxy at $plainProxyUrl" } else { 'a direct connection (no http_proxy)' }
             if ($plainFailures.Count -gt 0) {
-                Add-Problem ("NETWORK: package-mirror fetch over {0} failed for {1}/{2} origin(s): {3} -- guests install and update over this path, so a failure here breaks OS installs before any guest diagnostic can run." -f `
-                    $plainPathLabel, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', ')) -Class 'NETWORK.package-mirror-unavailable'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b5f48e0638856581' -FormatValues ($plainPathLabel, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', ')) -FormatBindings @{ plainPathLabel = '0'; count = '1'; count2 = '2'; join = '3' }) -Class 'NETWORK.package-mirror-unavailable'
             }
             if ($plainSlow.Count -gt 0) {
-                Add-Problem ("NETWORK: package-mirror fetch over {0} answered but took over {1}s for {2}/{3} origin(s): {4} -- apt blocks on these fetches, so a slow origin exhausts a step's timeout the same way an unreachable one does." -f `
-                    $plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', ')) -Class 'NETWORK.package-mirror-slow'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_d34d1a36cb2cfedc' -FormatValues ($plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', ')) -FormatBindings @{ plainPathLabel = '0'; plainSlowMs = '1'; count = '2'; count2 = '3'; join = '4' }) -Class 'NETWORK.package-mirror-slow'
             }
         }
 
         # --- REGION: https://yuruna.link/423ef7f5-0006
-        # The OCI counterpart of the package-mirror probe above, and for the same
-        # reason: image pulls leave through a different door than apt does, and a
-        # cache can be perfectly healthy on one while unusable on the other.
-        #
-        # What makes this worth its own probe is that the obvious check is blind
-        # here. GET /v2/ is answered out of the registry's own process and comes
-        # back in single-digit milliseconds no matter how badly the pull-through
-        # behind it is stalled; a MANIFEST request is what re-runs the upstream
-        # sync, so it is the only request shaped like the pull it stands in for.
-        # A tag, not a digest: digests are immutable and answered locally, which
-        # is exactly why they stay fast through an outage.
-        #
-        # The cap is deliberately below the patience a container runtime shows.
-        # This capture runs inside a per-command SSH budget during an incident,
-        # so it answers "did the cache answer promptly" and leaves the magnitude
-        # of a stall to the cache's own canary, which has no such constraint.
-        Write-Sub "Container-registry route (OCI pull-through cache)"
+        # See ../docs/caching.md#probing-pull-through-liveness-needs-a-manifest-request-not-get-v2
+        # for why a manifest request (not GET /v2/) is the liveness probe. -- Get-SystemDiagnostic.ps1
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d76c7f8316e11dcf')
         $cacheHost = $null
         if ($plainProxyUrl) {
             try { $cacheHost = ([Uri]$plainProxyUrl).Host } catch { $null = $_ }
         }
         if (-not $cacheHost) {
-            Write-Output 'No http_proxy in env, so there is no cache host to derive -- guests take the registry route from that same variable. Nothing probed.'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d67ba5d3e55b2ade')
         } else {
             $registryBase   = "http://${cacheHost}:5000"
             $canaryRepo     = 'library/registry'
@@ -2123,11 +2069,11 @@ try {
                     -TimeoutSec 10 -ErrorAction Stop
                 $sw.Stop()
                 $livenessMs = $sw.ElapsedMilliseconds
-                Write-Output ("  {0,-52} HTTP 200 in {1} ms" -f "$registryBase/v2/", $livenessMs)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8b1cc72a282b2b00' -FormatValues ("$registryBase/v2/", $livenessMs) -FormatBindings @{ v2 = '0,-52'; livenessMs = '1' })
             } catch {
                 $sw.Stop()
-                Write-Output ("  {0,-52} FAILED after {1} ms: {2}" -f "$registryBase/v2/", $sw.ElapsedMilliseconds, $_.Exception.Message)
-                Add-Problem ("REGISTRY: the pull-through cache at {0} did not answer /v2/ -- guests pull only from it, so every image pull on this machine fails until it is back." -f $registryBase) -Class 'REGISTRY.unavailable'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3d4ee76ddb60efa9' -FormatValues ("$registryBase/v2/", $sw.ElapsedMilliseconds, $_.Exception.Message) -FormatBindings @{ v2 = '0,-52'; elapsedMilliseconds = '1'; message = '2' })
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_9504b598bf631fce' -FormatValues ($registryBase) -FormatBindings @{ registryBase = '0' }) -Class 'REGISTRY.unavailable'
             }
 
             # Prefer the cache's own published reading over measuring here, and
@@ -2184,14 +2130,14 @@ try {
             } catch { $null = $_ }
 
             if ($healthText) {
-                Write-Output "  --- $healthUrl (published by the cache) ---"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6adf8d997a5873b0' -Arguments @{ healthUrl = "$healthUrl" })
                 foreach ($line in ($healthText -split "`r?`n")) { Write-Output "    $line" }
 
                 if (-not $metaText) {
                     # Both documents come from one exporter, so a cache serving
                     # the page and not the metrics is a state worth naming
                     # rather than classifying from the prose anyway.
-                    Add-Problem ("REGISTRY: the cache serves its health page but no metric document at {0}, so its readings cannot be classified. The page above is still readable by eye." -f $metaUrl) `
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_2ef2b00d42a09705' -FormatValues ($metaUrl) -FormatBindings @{ metaUrl = '0' }) `
                         -Class 'REGISTRY.metrics-unavailable'
                 } else {
                     $reading = Get-PrometheusReading -Text $metaText
@@ -2207,11 +2153,10 @@ try {
                     # summary or a reader has no reason to look at it.
                     if ($null -ne $manifestOk -and $manifestOk -eq 0) {
                         if ($null -ne $latency -and $null -ne $probeCap -and $latency -ge $probeCap) {
-                            Add-Problem ("REGISTRY: the cache's own manifest probe got no answer within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $probeCap) `
+                            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_7547f4a3d66ac1fb' -FormatValues ($probeCap) -FormatBindings @{ probeCap = '0' }) `
                                 -Class 'REGISTRY.manifest-unavailable'
                         } else {
-                            Add-Problem ("REGISTRY: the cache's own manifest probe did not succeed{0}. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f `
-                                $(if ($null -ne $latency) { " (answered in ${latency}s)" } else { '' })) `
+                            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_bd5b8edfeeb6c8d5' -FormatValues ($(if ($null -ne $latency) { " (answered in ${latency}s)" } else { '' })) -FormatBindings @{ else = '0' }) `
                                 -Class 'REGISTRY.manifest-unavailable'
                         }
                     } elseif ($null -ne $underPatience -and $underPatience -eq 0) {
@@ -2219,9 +2164,8 @@ try {
                         # arrived, but later than a real pull waits. Deriving it
                         # here from a threshold of our own would be a second
                         # opinion about the cache's own measurement.
-                        Add-Problem ("REGISTRY: the cache's manifest probe answered in {0}s, past the {1}s a client waits for response headers. A container runtime abandons a pull at that point, so a cache in this state fails pulls while passing every liveness check." -f `
-                            $(if ($null -ne $latency) { $latency } else { 'an unrecorded number of' }),
-                            $(if ($null -ne $patience) { $patience } else { 'the client patience' })) `
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_d7dcae6d696a3bf3' -FormatValues ($(if ($null -ne $latency) { $latency } else { 'an unrecorded number of' }),
+                            $(if ($null -ne $patience) { $patience } else { 'the client patience' })) -FormatBindings @{ of = '0'; patience = '1' }) `
                             -Class 'REGISTRY.manifest-slow'
                     }
 
@@ -2232,8 +2176,7 @@ try {
                     # the state in which a provisioning run spends its whole
                     # step budget and then reports a bare timeout.
                     foreach ($short in @(Get-RegistryResidencyShortfall -Reading $reading)) {
-                        Add-Problem ("REGISTRY: the cache holds {0} of {1} images in the {2} set a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green." -f `
-                            $short.Held, $short.Total, $short.Set) -Class 'REGISTRY.image-set-incomplete'
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_5376c9efd7b38f35' -FormatValues ($short.Held, $short.Total, $short.Set) -FormatBindings @{ held = '0'; total = '1'; set = '2' }) -Class 'REGISTRY.image-set-incomplete'
                     }
 
                     # probe_ok separates "the budget is spent" from "we could not
@@ -2245,13 +2188,12 @@ try {
                     $budgetLimit = Get-PrometheusValue -Reading $reading -Name 'yuruna_dockerhub_ratelimit_limit'
                     if ($null -ne $budgetProbeOk -and $budgetProbeOk -eq 1 -and
                         $null -ne $budgetLeft -and $budgetLeft -le 0) {
-                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f `
-                            $(if ($null -ne $budgetLimit) { [int]$budgetLimit } else { 'its limit' })) `
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b882a1d97c6d1e64' -FormatValues ($(if ($null -ne $budgetLimit) { [int]$budgetLimit } else { 'its limit' })) -FormatBindings @{ limit = '0' }) `
                             -Class 'REGISTRY.upstream-budget-exhausted'
                     }
                 }
             } else {
-                Write-Output "  (cache publishes no health page at $healthUrl -- measuring the manifest path directly)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1cdaae68f0f030a5' -Arguments @{ healthUrl = "$healthUrl" })
                 $canaryUrl = "$registryBase/v2/$canaryRepo/manifests/$canaryTag"
                 $sw = [System.Diagnostics.Stopwatch]::StartNew()
                 try {
@@ -2259,16 +2201,14 @@ try {
                         -Headers @{ Accept = $canaryAccept } -TimeoutSec $registryCapSec -ErrorAction Stop
                     $sw.Stop()
                     $slowNote = if ($sw.ElapsedMilliseconds -ge $registrySlowMs) { '  <-- SLOW' } else { '' }
-                    Write-Output ("  {0,-52} HTTP 200 in {1} ms{2}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $slowNote)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e043073e5c3e6d7a' -FormatValues ("manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $slowNote) -FormatBindings @{ canaryTag = '0,-52'; elapsedMilliseconds = '1'; slowNote = '2' })
                     if ($sw.ElapsedMilliseconds -ge $registrySlowMs) {
-                        Add-Problem ("REGISTRY: the cache answered a manifest request in {0} ms (liveness {1} ms). A container runtime gives up on a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
-                            $sw.ElapsedMilliseconds, $(if ($null -ne $livenessMs) { $livenessMs } else { 'n/a' })) -Class 'REGISTRY.manifest-slow'
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_7734067755bb03df' -FormatValues ($sw.ElapsedMilliseconds, $(if ($null -ne $livenessMs) { $livenessMs } else { 'n/a' })) -FormatBindings @{ elapsedMilliseconds = '0'; a = '1' }) -Class 'REGISTRY.manifest-slow'
                     }
                 } catch {
                     $sw.Stop()
-                    Write-Output ("  {0,-52} FAILED after {1} ms (cap {2}s): {3}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $registryCapSec, $_.Exception.Message)
-                    Add-Problem ("REGISTRY: the cache did not serve a manifest within {0}s while /v2/ liveness was {1}. Image pulls resolve manifests first, so they fail here even though the registry is reachable." -f `
-                        $registryCapSec, $(if ($null -ne $livenessMs) { "healthy at $livenessMs ms" } else { 'also failing' })) -Class 'REGISTRY.manifest-unavailable'
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6fc61f0366ccc45e' -FormatValues ("manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $registryCapSec, $_.Exception.Message) -FormatBindings @{ canaryTag = '0,-52'; elapsedMilliseconds = '1'; registryCapSec = '2'; message = '3' })
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_0309d6a5040c85c6' -FormatValues ($registryCapSec, $(if ($null -ne $livenessMs) { "healthy at $livenessMs ms" } else { 'also failing' })) -FormatBindings @{ registryCapSec = '0'; failing = '1' }) -Class 'REGISTRY.manifest-unavailable'
                 }
             }
 
@@ -2288,7 +2228,7 @@ try {
                 } catch { $null = $_ }
             }
             if ($registryConfigFiles.Count -eq 0) {
-                Write-Output '  (no docker/containerd registry configuration found on this machine)'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f6c3acdbc6bb49a8')
             } else {
                 foreach ($cf in $registryConfigFiles) {
                     Write-Output "  --- $cf ---"
@@ -2310,7 +2250,7 @@ try {
         # apt-config reports the MERGED view across /etc/apt/apt.conf.d, which
         # is the only thing that answers "what will apt actually do here".
         if (Get-Command apt-config -ErrorAction SilentlyContinue) {
-            Write-Sub "apt Acquire settings (merged view of /etc/apt/apt.conf.d)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_e7aa118c776ef4a7')
             $aptKeys = @('Acquire::Retries', 'Acquire::http::Timeout', 'Acquire::https::Timeout',
                          'Acquire::http::Proxy', 'Acquire::https::Proxy', 'Acquire::Languages')
             try {
@@ -2324,11 +2264,11 @@ try {
                     if ($hits.Count -gt 0) {
                         foreach ($h in $hits) { Write-Output ("  {0}" -f $h) }
                     } else {
-                        Write-Output ("  {0,-28} (not set -- apt uses its built-in default)" -f $k)
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e6f4dbb4910837d1' -FormatValues ($k) -FormatBindings @{ k = '0,-28' })
                     }
                 }
             } catch {
-                Write-Output "  apt-config dump failed: $($_.Exception.Message)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_92d670bc7925ddf3' -Arguments @{ message = "$($_.Exception.Message)" })
             }
         }
     }
@@ -2336,14 +2276,14 @@ try {
 
     # --- REGION: 7. Top processes
     Invoke-DiagnosticSection "TOP PROCESSES" {
-    Write-Sub "Top 10 by CPU"
+    Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_1a3e3a5fa77346d0')
     Get-Process -ErrorAction SilentlyContinue |
         Where-Object { $_.CPU -ne $null } |
         Sort-Object CPU -Descending |
         Select-Object -First 10 |
         Select-Object @{n='PID';e={$_.Id}}, ProcessName, @{n='CPU(s)';e={[math]::Round($_.CPU,1)}}, @{n='WS(MB)';e={[math]::Round($_.WorkingSet64/1MB,1)}} |
         Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_ }
-    Write-Sub "Top 10 by memory"
+    Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_f2c81ff0219bedfa')
     Get-Process -ErrorAction SilentlyContinue |
         Sort-Object WorkingSet64 -Descending |
         Select-Object -First 10 |
@@ -2354,19 +2294,19 @@ try {
     # --- REGION: 8. Recent events
     Invoke-DiagnosticSection "RECENT SYSTEM EVENTS (errors / warnings)" {
     if ($IsWindows) {
-        Write-Sub "Get-WinEvent System -- Errors in last 1h"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_17c3a371250a4683')
         try {
             $sysErr = Get-WinEvent -FilterHashtable @{ LogName='System'; Level=2; StartTime=(Get-Date).AddHours(-1) } -ErrorAction Stop |
                 Select-Object -First 15
             if ($sysErr) {
                 $sysErr | Select-Object TimeCreated, Id, ProviderName, @{n='Message';e={$_.Message -replace "`r?`n",' '}} |
                     Format-Table -AutoSize -Wrap | Out-String | ForEach-Object { Write-Output $_ }
-                if ($sysErr.Count -ge 5) { Add-Problem "EVENTS: $($sysErr.Count)+ System Error events in the last hour." -Class 'EVENTS.system-errors' }
+                if ($sysErr.Count -ge 5) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_d334c6088d89072e' -Arguments @{ count = "$($sysErr.Count)" }) -Class 'EVENTS.system-errors' }
             } else {
-                Write-Output "(no errors in the last hour)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6f2d0aef178bf1b3')
             }
         } catch {
-            Write-Output "(query failed: $($_.Exception.Message))"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b8d9c8f44a701dc0' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     } elseif ($IsLinux) {
         if (Test-CommandAvailable 'journalctl') {
@@ -2391,10 +2331,10 @@ try {
                 # of it was the harness looking at itself.
                 $suppressed = $entryCount - $realCount
                 if ($suppressed -gt 0) {
-                    Write-Output ("({0} of {1} error entries are this harness's own polling -- not counted as a problem)" -f $suppressed, $entryCount)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7b7b0576c0414d06' -FormatValues ($suppressed, $entryCount) -FormatBindings @{ suppressed = '0'; entryCount = '1' })
                 }
-                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." -Class 'EVENTS.journal-errors' }
-            } else { Write-Output "(no error entries in the last hour)" }
+                if ($realCount -ge 10) { Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_825b1a81c52b4a7a' -Arguments @{ realCount = "$realCount" }) -Class 'EVENTS.journal-errors' }
+            } else { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f06dbaaa4796a8b5') }
         } elseif (Test-Path '/var/log/syslog') {
             Write-Sub "tail /var/log/syslog (last 30 lines)"
             Get-Content '/var/log/syslog' -Tail 30 | ForEach-Object { Write-Output $_ }
@@ -2406,12 +2346,12 @@ try {
                 $dm = & dmesg 2>$null | Select-Object -Last 30
                 $dm | ForEach-Object { Write-Output $_ }
             } catch {
-                Write-Output "(dmesg requires elevation; skipping)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c694f7571769d514')
             }
         }
     }
 
-    Write-Sub "Full *.stderr.log files under yuruna repo root (verbatim, for tofu/helm/kubectl/docker post-mortems)"
+    Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_9a7a2b89b445e955')
     # Per-phase stderr.log + *.rc catalog and the -Force-required dot-dir
     # scan trap: https://yuruna.link/42e568c8
     $yurunaRootCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..'
@@ -2420,12 +2360,12 @@ try {
         $diagScanRoot = (Resolve-Path -LiteralPath $yurunaRootCandidate).Path
     }
     if (-not $diagScanRoot) {
-        Write-Output "(no yuruna repo root at $yurunaRootCandidate -- skipping)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_495dcc6db4d4fc56' -Arguments @{ yurunaRootCandidate = "$yurunaRootCandidate" })
     } else {
         $phaseLogs = @(Get-ChildItem -Path $diagScanRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*.stderr.log' })
         if ($phaseLogs.Count -eq 0) {
-            Write-Output "(no *.stderr.log under $diagScanRoot -- no phase has produced output here)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9cf3996f93916a8c' -Arguments @{ diagScanRoot = "$diagScanRoot" })
         } else {
             foreach ($tl in ($phaseLogs | Sort-Object FullName)) {
                 $sizeNote = ''
@@ -2444,7 +2384,7 @@ try {
                         $content = Get-Content -LiteralPath $tl.FullName -Raw -ErrorAction Stop
                     }
                 } catch {
-                    Write-Output ("{0}: (read failed: {1})" -f $tl.FullName, $_.Exception.Message)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a594feac6339b77c' -FormatValues ($tl.FullName, $_.Exception.Message) -FormatBindings @{ fullName = '0'; message = '1' })
                     continue
                 }
                 # Sidecar exit-code file (helm.stderr.log -> helm.rc, etc.)
@@ -2458,7 +2398,7 @@ try {
                 }
                 $mtime = $tl.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
                 Write-Output ''
-                Write-Output ("--- {0}  ({1} bytes, mtime {2}){3}{4} ---" -f $tl.FullName, $tl.Length, $mtime, $sizeNote, $rcNote)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3a40a1163d5c3772' -FormatValues ($tl.FullName, $tl.Length, $mtime, $sizeNote, $rcNote) -FormatBindings @{ fullName = '0'; length = '1'; mtime = '2'; sizeNote = '3'; rcNote = '4' })
                 if ([string]::IsNullOrWhiteSpace($content)) {
                     Write-Output '(empty)'
                 } else {
@@ -2472,7 +2412,7 @@ try {
     # --- REGION: 9. Docker
     Invoke-DiagnosticSection "DOCKER" {
     if ($SkipDocker) {
-        Write-Output "(skipped via -SkipDocker)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_57e9b1596ecdf272')
     } elseif (-not (Test-CommandAvailable 'docker')) {
         # Absence is reported, not flagged. A host that runs its container
         # workloads inside guests has no reason to carry a container runtime
@@ -2481,7 +2421,7 @@ try {
         # than no entry: it costs the operator the "no problems reported"
         # branch below, which is the line that makes a real finding visible.
         # Other absent tools in this script are already reported this way.
-        Write-Output "docker command not found in PATH (or present but not executable)."
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_92b000bbc8fbfa86')
     } else {
         # --- REGION: https://yuruna.link/423ef7f5-0002
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
@@ -2489,47 +2429,47 @@ try {
             $LASTEXITCODE
         }
         if ($probe.TimedOut) {
-            Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
-            Add-Problem "DOCKER: probe timeout (docker info did not return within 5s; daemon likely wedged)." -Class 'DOCKER.probe-timeout'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_883c24367a7311b4')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_a2f93f5cc132a461') -Class 'DOCKER.probe-timeout'
         } elseif ((@($probe.Output) | Select-Object -Last 1) -ne 0) {
-            Write-Output "Docker CLI present but daemon unreachable."
-            Add-Problem "DOCKER: daemon unreachable (`docker info` failed)." -Class 'DOCKER.daemon-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e288495c99f6fc3b')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_806ec1c40ae4b734') -Class 'DOCKER.daemon-unavailable'
         } else {
-            Write-Sub "docker version (client+server)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c31b9b429279d53c')
             Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format','Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})') -TimeoutSeconds 5
-            Write-Sub "docker info (selected fields)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_bd1e95a93c4cad8e')
             $infoProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
                 & docker info --format '{{json .}}' 2>$null
             }
             $info = $null
             if ($infoProbe.TimedOut) {
-                Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker info --format json did not return within 5s)." -Class 'DOCKER.probe-timeout'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_883c24367a7311b4')
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_8e214cf40db4bf91') -Class 'DOCKER.probe-timeout'
             } else {
                 $info = ($infoProbe.Output -join "`n") | ConvertFrom-Json -ErrorAction SilentlyContinue
             }
             if ($info) {
-                Write-Output ("Containers     : total={0}, running={1}, paused={2}, stopped={3}" -f $info.Containers, $info.ContainersRunning, $info.ContainersPaused, $info.ContainersStopped)
-                Write-Output ("Images         : {0}" -f $info.Images)
-                Write-Output ("Storage driver : {0}" -f $info.Driver)
-                Write-Output ("Server version : {0}" -f $info.ServerVersion)
-                Write-Output ("Cgroup driver  : {0}" -f $info.CgroupDriver)
-                Write-Output ("Kernel version : {0}" -f $info.KernelVersion)
-                Write-Output ("Operating sys  : {0}" -f $info.OperatingSystem)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4d1c48e1fe3d437b' -FormatValues ($info.Containers, $info.ContainersRunning, $info.ContainersPaused, $info.ContainersStopped) -FormatBindings @{ containers = '0'; containersRunning = '1'; containersPaused = '2'; containersStopped = '3' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2a2ce15d34fbba77' -FormatValues ($info.Images) -FormatBindings @{ images = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7756a95f3b0dc2f6' -FormatValues ($info.Driver) -FormatBindings @{ driver = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bbf65c9184e07ba9' -FormatValues ($info.ServerVersion) -FormatBindings @{ serverVersion = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_38b84356d9ef0785' -FormatValues ($info.CgroupDriver) -FormatBindings @{ cgroupDriver = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4da5638570dedd1f' -FormatValues ($info.KernelVersion) -FormatBindings @{ kernelVersion = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_77fd267fe41256a8' -FormatValues ($info.OperatingSystem) -FormatBindings @{ operatingSystem = '0' })
                 if ($info.Warnings -and $info.Warnings.Count -gt 0) {
                     Write-Output "Warnings:"
                     foreach ($w in $info.Warnings) { Write-Output "  - $w"; Add-Problem "DOCKER: warning -- $w" -Class 'DOCKER.warning' }
                 }
             }
-            Write-Sub "docker ps -a (all containers)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d2c774924094e180')
             Invoke-Tool -Tool 'docker' -ToolArgs @('ps','-a','--format','table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}') -TimeoutSeconds 5
             $psProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
                 & docker ps -a --format '{{.Names}}|{{.Status}}' 2>$null
             }
             $rows = @()
             if ($psProbe.TimedOut) {
-                Write-Output "(docker ps probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker ps -a did not return within 5s)." -Class 'DOCKER.probe-timeout'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5ba0dbd55dfbc5f1')
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_078426d92d53cf65') -Class 'DOCKER.probe-timeout'
             } else {
                 $rows = @($psProbe.Output)
             }
@@ -2541,7 +2481,7 @@ try {
                     Add-Problem "DOCKER: container '$name' status: $status" -Class 'DOCKER.container-unhealthy'
                 }
             }
-            Write-Sub "docker images (top 100 by size)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_b191443e06072bac')
             $imgsProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
                 & docker images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedSince}}' 2>&1
                 $LASTEXITCODE
@@ -2549,8 +2489,8 @@ try {
             $imgsRaw = @()
             $imgsExit = 0
             if ($imgsProbe.TimedOut) {
-                Write-Output "(docker images probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker images did not return within 5s)." -Class 'DOCKER.probe-timeout'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bec7da8072d14157')
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_6bb2b40cf71cf7e1') -Class 'DOCKER.probe-timeout'
                 $imgsExit = -1
             } else {
                 $imgsOutput = @($imgsProbe.Output)
@@ -2566,7 +2506,7 @@ try {
             }
             if ($imgsExit -ne 0) {
                 if (-not $imgsProbe.TimedOut) {
-                    Write-Output ("(docker images returned exit {0})" -f $imgsExit)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_27c29d60062fde4f' -FormatValues ($imgsExit) -FormatBindings @{ imgsExit = '0' })
                 }
             } else {
                 $rows = @($imgsRaw | Where-Object { $_ -match '\|' } | ForEach-Object {
@@ -2593,23 +2533,23 @@ try {
                     Write-Output ("{0,-50} {1,-15} {2,-12} {3,10}  {4}" -f $r.Repository, $r.Tag, $r.Id, $r.Size, $r.Created)
                 }
                 if ($rows.Count -gt 100) {
-                    Write-Output ("(... {0} smaller image(s) omitted)" -f ($rows.Count - 100))
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2400619d87db958d' -FormatValues (($rows.Count - 100)) -FormatBindings @{ count = '0' })
                 }
             }
-            Write-Sub "docker stats --no-stream (running containers)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_6a25d0419bde0a78')
             Invoke-Tool -Tool 'docker' -ToolArgs @('stats','--no-stream','--format','table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}') -TimeoutSeconds 5
-            Write-Sub "docker system df"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_a864244a08aca6fd')
             Invoke-Tool -Tool 'docker' -ToolArgs @('system','df') -TimeoutSeconds 5
 
-            Write-Sub "Local registry catalog (probe http://localhost:5000/v2/_catalog)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_3c44577797e2dd05')
             $repos = Get-LocalRegistryCatalog
             if ($null -eq $repos) {
-                Write-Output "(no registry on http://localhost:5000 -- this is normal on hosts that don't use the localhost flow)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b8a3a38bd4c24074')
             } else {
                 Write-Output "Repositories ($($repos.Count)):"
                 foreach ($repo in $repos) { Write-Output ("  {0}" -f $repo) }
                 if ($repos.Count -eq 0) {
-                    Add-Problem "REGISTRY: local registry on :5000 is reachable but its catalog is empty -- no images have been pushed (or the registry's storage was reset)." -Class 'REGISTRY.catalog-empty'
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_f36a3040f1c5e565') -Class 'REGISTRY.catalog-empty'
                 }
             }
         }
@@ -2619,27 +2559,27 @@ try {
     # --- REGION: 10. Kubernetes
     Invoke-DiagnosticSection "KUBERNETES" {
     if ($SkipKube) {
-        Write-Output "(skipped via -SkipKube)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e1a9e5fe4f68be46')
     } elseif (-not (Test-CommandAvailable 'kubectl')) {
         # Reported, not flagged -- same reasoning as the docker probe above:
         # the clusters this fleet exercises live inside guests, and the host
         # is not expected to hold a client for them. HELM below keeps its
         # problem because it is only reached once kubectl HAS answered, where
         # a missing helm really does mean charts could not have deployed.
-        Write-Output "kubectl command not found in PATH (or present but not executable -- e.g. a dangling /usr/local/bin symlink)."
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ebc89a16d6b57e72')
     } else {
-        Write-Sub "kubectl version"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_8f5850e67eb6453e')
         # --- REGION: https://yuruna.link/423ef7f5-0004 (kubectl --request-timeout)
         $kv = & kubectl version --output=json --request-timeout=5s 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($kv) {
-            if ($kv.clientVersion) { Write-Output ("Client : {0}" -f $kv.clientVersion.gitVersion) }
-            if ($kv.serverVersion) { Write-Output ("Server : {0}" -f $kv.serverVersion.gitVersion) }
-            else { Write-Output "Server : (unreachable)" ; Add-Problem "KUBE: server version unavailable -- cluster may be unreachable." -Class 'KUBE.server-unavailable' }
+            if ($kv.clientVersion) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_282dc38f46468a29' -FormatValues ($kv.clientVersion.gitVersion) -FormatBindings @{ gitVersion = '0' }) }
+            if ($kv.serverVersion) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_23355db5f693b7ef' -FormatValues ($kv.serverVersion.gitVersion) -FormatBindings @{ gitVersion = '0' }) }
+            else { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d9c1fd0b30efa8fb') ; Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_75654a06afaa3cf5') -Class 'KUBE.server-unavailable' }
         }
-        Write-Sub "Current context"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_70b856c7f2d86801')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('config','current-context')
 
-        Write-Sub "kubectl get nodes -o wide"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d6e66216138554de')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','nodes','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
         $nodes = & kubectl get nodes --no-headers --request-timeout=5s 2>$null
         foreach ($n in $nodes) {
@@ -2652,7 +2592,7 @@ try {
         Write-Sub "Namespaces"
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ns','--request-timeout=5s') -TimeoutSeconds 5
 
-        Write-Sub "Pods (all namespaces, -o wide)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_1309c3acc622dab5')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pods','-A','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
         $pods = & kubectl get pods -A --no-headers --request-timeout=5s 2>$null
         foreach ($p in $pods) {
@@ -2666,71 +2606,71 @@ try {
             $restartCount = 0
             [int]::TryParse($restarts, [ref]$restartCount) | Out-Null
             if ($status -notin @('Running','Completed','Succeeded')) {
-                Add-Problem "KUBE: pod $ns/$name status: $status (ready $ready)" -Class 'KUBE.pod-unhealthy'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_5b97d4a3f5ce357b' -Arguments @{ ns = "$ns"; name = "$name"; status = "$status"; ready = "$ready" }) -Class 'KUBE.pod-unhealthy'
             } elseif ($restartCount -ge 5) {
-                Add-Problem "KUBE: pod $ns/$name has $restartCount restarts." -Class 'KUBE.pod-restarts'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_69b9722682b44fc4' -Arguments @{ ns = "$ns"; name = "$name"; restartCount = "$restartCount" }) -Class 'KUBE.pod-restarts'
             }
         }
 
-        Write-Sub "Services (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_97598358f835a356')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','svc','-A','--request-timeout=5s')
 
-        Write-Sub "Deployments (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_800be59d158c392f')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','deploy','-A','--request-timeout=5s')
 
-        Write-Sub "DaemonSets (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d1479ec6f1e779bb')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ds','-A','--request-timeout=5s')
 
-        Write-Sub "StatefulSets (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_05b17216b940ff6d')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','sts','-A','--request-timeout=5s')
 
-        Write-Sub "Jobs / CronJobs (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c897ef5902418efd')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','jobs,cronjobs','-A','--request-timeout=5s')
 
-        Write-Sub "Ingresses (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0b45180c32513386')
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ingress','-A','--request-timeout=5s')
 
         Write-Sub "PersistentVolumes / PVCs"
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pv,pvc','-A','--request-timeout=5s')
 
-        Write-Sub "ConfigMaps + Secrets (counts only)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_f61604afb0d83e33')
         $cmCount = (& kubectl get cm  -A --no-headers --request-timeout=5s 2>$null | Measure-Object).Count
         $scCount = (& kubectl get secret -A --no-headers --request-timeout=5s 2>$null | Measure-Object).Count
-        Write-Output ("ConfigMaps : {0}" -f $cmCount)
-        Write-Output ("Secrets    : {0}" -f $scCount)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bbfe9b036024c873' -FormatValues ($cmCount) -FormatBindings @{ cmCount = '0' })
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ee81fd4c1b5a982c' -FormatValues ($scCount) -FormatBindings @{ scCount = '0' })
 
-        Write-Sub "Recent Warning events (last 100 across all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_2a3f562a2200635a')
         $evts = @(& kubectl get events -A --field-selector type=Warning --sort-by .lastTimestamp --request-timeout=5s 2>&1)
         if ($evts.Count -gt 1) {
             Write-Output $evts[0]
             $rows = $evts | Select-Object -Skip 1
             $rows | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
-            if ($rows.Count -gt 100) { Write-Output ("(... {0} older warning(s) omitted)" -f ($rows.Count - 100)) }
+            if ($rows.Count -gt 100) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_098fb3c06a9f2f65' -FormatValues (($rows.Count - 100)) -FormatBindings @{ count = '0' }) }
         } else {
             $evts | ForEach-Object { Write-Output $_ }
         }
         $warnings = & kubectl get events -A --field-selector type=Warning --no-headers --request-timeout=5s 2>$null
         if ($warnings -and $warnings.Count -gt 0) {
-            Add-Problem "KUBE: $($warnings.Count) Warning events present (see kubectl get events -A)." -Class 'KUBE.warning-events'
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_9e426b0a65404260' -Arguments @{ count = "$($warnings.Count)" }) -Class 'KUBE.warning-events'
         }
 
-        Write-Sub "helm releases (all namespaces)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_cd9e1527d1f146c7')
         if (Test-CommandAvailable 'helm') {
             Invoke-Tool -Tool 'helm' -ToolArgs @('list','-A')
             $rels = & helm list -A -o json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($rels) {
                 foreach ($r in $rels) {
                     if ($r.status -notin @('deployed','superseded')) {
-                        Add-Problem ("HELM: release '{0}' (ns: {1}) status: {2}" -f $r.name, $r.namespace, $r.status) -Class 'HELM.release-unhealthy'
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_a0594e5a22e6ed90' -FormatValues ($r.name, $r.namespace, $r.status) -FormatBindings @{ name = '0'; namespace = '1'; status = '2' }) -Class 'HELM.release-unhealthy'
                     }
                 }
             }
         } else {
-            Write-Output "(helm not in PATH -- chart-based workloads will not have been deployed)"
-            Add-Problem "HELM: helm not installed (or not in PATH / not executable)." -Class 'HELM.command-unavailable'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_726f2fd533779220')
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_3c1dd62a526940d8') -Class 'HELM.command-unavailable'
         }
 
-        Write-Sub "Namespaces that exist but have no Pods/Deployments"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0a78863ef3d20c87')
         $nsBuiltin = @('default','kube-system','kube-public','kube-node-lease','kube-flannel')
         $nsAll = @(& kubectl get ns --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
         $nsWithPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
@@ -2739,19 +2679,19 @@ try {
         if ($emptyNs.Count -gt 0) {
             foreach ($n in $emptyNs) {
                 Write-Output ("  $n")
-                Add-Problem "KUBE: namespace '$n' exists but has no Pods or Deployments -- a workload (helm/kubectl) for this namespace likely failed to land." -Class 'KUBE.namespace-empty'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_4f49b26ecda1d965' -Arguments @{ n = "$n" }) -Class 'KUBE.namespace-empty'
             }
         } else {
             Write-Output "(none)"
         }
 
-        Write-Sub "kubectl port-forward processes (host scan)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_6b1227d43bb8ae6b')
         if ($IsWindows) {
             $procs = Get-CimInstance Win32_Process -Filter "Name='kubectl.exe'" -ErrorAction SilentlyContinue |
                 Where-Object { $_.CommandLine -match 'port-forward' }
             if ($procs) {
                 $procs | ForEach-Object {
-                    Write-Output ("  PID={0}  CMD={1}" -f $_.ProcessId, $_.CommandLine)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_19ca036c78f36c2b' -FormatValues ($_.ProcessId, $_.CommandLine) -FormatBindings @{ processId = '0'; commandLine = '1' })
                 }
             } else { Write-Output "(none)" }
         } elseif ($IsMacOS -or $IsLinux) {
@@ -2768,7 +2708,7 @@ try {
     Invoke-DiagnosticSection "HOST DETAIL" {
 
         # --- REGION: Runner process tree (all platforms)
-        Write-Sub "Yuruna runner process tree (descendants of inner.pid / runner.pid)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_69ccbdc3edf66706')
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if (-not $runtimeDir) {
             # Common default when Get-SystemDiagnostic is invoked outside
@@ -2787,11 +2727,11 @@ try {
             }
         }
         if ($rootPid -le 0) {
-            Write-Output "(no inner.pid or runner.pid under $runtimeDir -- runner not active or runtime dir undiscoverable)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1b5c604fd0694be7' -Arguments @{ runtimeDir = "$runtimeDir" })
         } elseif (-not (Get-Process -Id $rootPid -ErrorAction SilentlyContinue)) {
-            Write-Output "(pid $rootPid (from $rootSource) is not currently running -- runner has exited)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fa511b523f557f63' -Arguments @{ rootPid = "$rootPid"; rootSource = "$rootSource" })
         } else {
-            Write-Output "Root pid: $rootPid (from $rootSource)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_37ab2c9f0d8d6336' -Arguments @{ rootPid = "$rootPid"; rootSource = "$rootSource" })
             # Build (pid -> {ppid, etime, pcpu, cmd}) map per platform.
             $procMap = @{}
             if ($IsWindows) {
@@ -2813,7 +2753,7 @@ try {
                         }
                     }
                 } catch {
-                    Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_71e456ef5ba1bbde' -Arguments @{ message = "$($_.Exception.Message)" })
                 }
             } elseif ($IsLinux -or $IsMacOS) {
                 # --- REGION: https://yuruna.link/423ef7f5-000a
@@ -2833,7 +2773,7 @@ try {
                         }
                     }
                 } catch {
-                    Write-Output "(ps -axo failed: $($_.Exception.Message))"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_dde796c9dd1d2e34' -Arguments @{ message = "$($_.Exception.Message)" })
                 }
             }
             if ($procMap.Count -gt 0 -and $procMap.ContainsKey($rootPid)) {
@@ -2848,7 +2788,7 @@ try {
                 $stack   = [System.Collections.Generic.Stack[object]]::new()
                 $stack.Push(@{ pid = $rootPid; depth = 0 })
                 $visited = [System.Collections.Generic.HashSet[int]]::new()
-                Write-Output ("{0,-6} {1,-6} {2,-12} {3,-6}  CMD" -f 'PID','PPID','ETIME','CPU')
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a3928565043bd38e' -FormatValues ('PID','PPID','ETIME','CPU') -FormatBindings @{ pID = '0,-6'; pPID = '1,-6'; eTIME = '2,-12'; cPU = '3,-6' })
                 while ($stack.Count -gt 0) {
                     $cur = $stack.Pop()
                     $cpid = [int]$cur.pid
@@ -2870,59 +2810,59 @@ try {
                     }
                 }
             } else {
-                Write-Output "(no process info collected -- runner pid $rootPid likely exited between probe and walk)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_40a0bcb292b4974b' -Arguments @{ rootPid = "$rootPid" })
             }
         }
 
         if (-not ($IsLinux -or $IsMacOS -or $IsWindows)) {
             Write-Output ""
-            Write-Output "(skipped per-platform detail: unknown OS)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bf1c637eb978cee4')
             return
         }
 
         if ($IsWindows) {
             # --- REGION: Windows-specific facts
-            Write-Sub "Hyper-V VMs (if present)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_60bde44af83103ca')
             if (Test-CommandAvailable 'Get-VM') {
                 try {
                     $vms = Get-VM -ErrorAction Stop | Select-Object Name, State, CPUUsage, MemoryAssigned, Uptime
                     if ($vms) {
                         $vms | Format-Table -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Output $_.TrimEnd() }
                     } else {
-                        Write-Output "(no VMs registered with Hyper-V)"
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_27627383486fd63c')
                     }
                 } catch {
-                    Write-Output "(Get-VM failed: $($_.Exception.Message); needs Hyper-V role + elevation)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c08c4959cc86f9f1' -Arguments @{ message = "$($_.Exception.Message)" })
                 }
             } else {
-                Write-Output "(Get-VM not available -- Hyper-V management tools not installed)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d97c4ddb2e78c92c')
             }
 
-            Write-Sub "Listening sockets (Get-NetTCPConnection -State Listen, first 40)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_4c41c3b887d1d8d9')
             try {
                 $listen = Get-NetTCPConnection -State Listen -ErrorAction Stop |
                     Select-Object LocalAddress, LocalPort, OwningProcess |
                     Sort-Object LocalPort
                 if ($listen) {
                     $listen | Select-Object -First 40 | Format-Table -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Output $_.TrimEnd() }
-                    if (@($listen).Count -gt 40) { Write-Output ("(... {0} more entries omitted)" -f (@($listen).Count - 40)) }
+                    if (@($listen).Count -gt 40) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_96ad56a16e901bb7' -FormatValues ((@($listen).Count - 40)) -FormatBindings @{ count = '0' }) }
                 } else {
-                    Write-Output "(no listening sockets reported)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e06cc5e640fcddaf')
                 }
             } catch {
-                Write-Output "(Get-NetTCPConnection failed: $($_.Exception.Message))"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3205971a3ab9d377' -Arguments @{ message = "$($_.Exception.Message)" })
             }
 
-            Write-Sub "Windows firewall profiles"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_31d987c65f45d002')
             try {
                 Get-NetFirewallProfile -ErrorAction Stop |
                     Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction |
                     Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_.TrimEnd() }
             } catch {
-                Write-Output "(Get-NetFirewallProfile failed: $($_.Exception.Message))"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_502e7583e46dd166' -Arguments @{ message = "$($_.Exception.Message)" })
             }
 
-            Write-Sub "Recent System log errors (last 1h, 25 most recent)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_4e5c913a3ad57e31')
             try {
                 $sinceStart = (Get-Date).AddHours(-1)
                 $evts = Get-WinEvent -FilterHashtable @{ LogName='System'; Level=@(1,2); StartTime=$sinceStart } -MaxEvents 25 -ErrorAction Stop
@@ -2930,17 +2870,17 @@ try {
                     $evts | Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
                         Format-Table -AutoSize -Wrap | Out-String -Width 240 | ForEach-Object { Write-Output $_.TrimEnd() }
                 } else {
-                    Write-Output "(no System log critical/error entries in the last 1h)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_231522de7ad0c540')
                 }
             } catch {
-                Write-Output "(Get-WinEvent System failed: $($_.Exception.Message))"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fcbd291003607027' -Arguments @{ message = "$($_.Exception.Message)" })
             }
             return
         }
 
         if ($IsMacOS) {
             # --- REGION: macOS-specific facts
-            Write-Sub "Default route + interfaces (netstat -nr | head; ifconfig brief)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_a8f43a580cdc14d3')
             if (Test-CommandAvailable 'netstat') {
                 & netstat -nrf inet 2>$null | Select-Object -First 12 | ForEach-Object { Write-Output $_ }
             }
@@ -2952,22 +2892,22 @@ try {
             if (Test-CommandAvailable 'scutil') {
                 & scutil --dns 2>$null | Select-Object -First 40 | ForEach-Object { Write-Output $_ }
             } else {
-                Write-Output "(scutil not in PATH)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e13171542462cc83')
             }
 
-            Write-Sub "Listening sockets (lsof -nP -iTCP -sTCP:LISTEN | head -40)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d57d57d8e669f184')
             if (Test-CommandAvailable 'lsof') {
                 & lsof -nP -iTCP -sTCP:LISTEN 2>$null | Select-Object -First 40 | ForEach-Object { Write-Output $_ }
             } else {
-                Write-Output "(lsof not in PATH)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_aa4ec3163ff01d87')
             }
 
-            Write-Sub "Virtualization stack (UTM/QEMU/utmctl)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_e36c08286c075185')
             foreach ($cmd in @('utmctl','qemu-img','virsh')) {
                 if (Test-CommandAvailable $cmd) {
                     Write-Output ("  {0}: $(& which $cmd 2>$null)" -f $cmd)
                 } else {
-                    Write-Output ("  {0}: (not in PATH)" -f $cmd)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a4bbdffc9ba74919' -FormatValues ($cmd) -FormatBindings @{ cmd = '0' })
                 }
             }
             if (Test-CommandAvailable 'utmctl') {
@@ -2981,20 +2921,20 @@ try {
             # emits ocr_vision_slowpath and OCR drops to the interpreter or
             # tesseract. Reproduce the compile here so this report carries the
             # actual compiler error next to the toolchain facts needed to fix it.
-            Write-Sub "Swift toolchain (Vision OCR fast path)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_a024c74dba6acc59')
             foreach ($cmd in @('swiftc','swift','xcode-select','xcrun')) {
                 if (Test-CommandAvailable $cmd) {
                     Write-Output ("  {0}: $(& which $cmd 2>$null)" -f $cmd)
                 } else {
-                    Write-Output ("  {0}: (not runnable -- missing, dangling symlink, or not executable)" -f $cmd)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_cc08dcc24c89ccb5' -FormatValues ($cmd) -FormatBindings @{ cmd = '0' })
                 }
             }
             if (Test-CommandAvailable 'xcode-select') {
-                Write-Output ("  active developer dir: " + (@(& xcode-select -p 2>&1 | ForEach-Object { $_.ToString() }) -join ' '))
+                Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_b2bc1409342474de' -Arguments @{ join = [string]((@(& xcode-select -p 2>&1 | ForEach-Object { $_.ToString() }) -join ' ')) }))
             }
             if (Test-CommandAvailable 'swiftc') {
                 Invoke-Tool -Tool 'swiftc' -ToolArgs @('--version') -TimeoutSeconds 30 -ProblemTag 'SWIFT'
-                Write-Output "  compile probe:"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6ddddbd8ec8625e1')
                 $probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-swiftc-probe-" + [guid]::NewGuid().ToString('N'))
                 try {
                     New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
@@ -3003,19 +2943,19 @@ try {
                     Set-Content -LiteralPath $probeSrc -Value 'print("swiftc-probe-ok")'
                     Invoke-Tool -Tool 'swiftc' -ToolArgs @($probeSrc, '-o', $probeBin) -TimeoutSeconds 60 -ProblemTag 'SWIFT'
                     if (Test-Path -LiteralPath $probeBin) {
-                        Write-Output "  compile probe: OK (binary produced; Vision OCR fast path can build)"
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3ae794313d668573')
                     } else {
-                        Write-Output "  compile probe: FAILED (no binary produced)"
-                        Add-Problem "SWIFT: swiftc cannot produce a binary -- the Vision OCR fast path is down (ocr_vision_slowpath). Usual fix: reinstall the Command Line Tools (xcode-select --install) or repoint them (sudo xcode-select -s <developer dir>)." -Class 'SWIFT.compiler-unavailable'
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_38e06e9b805aee27')
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_8aa84a9f7af375bd') -Class 'SWIFT.compiler-unavailable'
                     }
                 } finally {
                     Remove-Item -LiteralPath $probeDir -Recurse -Force -ErrorAction SilentlyContinue
                 }
             } else {
-                Write-Output "  (swiftc not runnable -- Vision OCR fast path unavailable; OCR uses the interpreter/tesseract fallback)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5462f41e8c0e63b5')
             }
 
-            Write-Sub "Kernel ring buffer (dmesg -- needs root; otherwise sudo log show)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_7fcfb4c365b13187')
             if (Test-CommandAvailable 'log') {
                 # macOS unified log: pull errors/warnings from the last hour.
                 & log show --last 1h --predicate 'eventMessage contains[c] "error" OR eventMessage contains[c] "fail"' --info --debug 2>$null |
@@ -3025,10 +2965,10 @@ try {
         }
 
         # --- REGION: Linux-specific facts
-        Write-Sub "Netplan config (/etc/netplan/*.yaml)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0708e3afbc3562b5')
         $netplanFiles = @(Get-ChildItem -Path '/etc/netplan' -Filter '*.yaml' -File -ErrorAction SilentlyContinue)
         if ($netplanFiles.Count -eq 0) {
-            Write-Output "(no /etc/netplan/*.yaml -- distro likely uses NetworkManager or ifupdown)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b78f57491832bdf1')
         } else {
             foreach ($f in $netplanFiles) {
                 Write-Output "# $($f.FullName)"
@@ -3041,12 +2981,12 @@ try {
         if (Test-Path '/etc/resolv.conf') {
             $resolvItem = Get-Item -LiteralPath '/etc/resolv.conf' -Force -ErrorAction SilentlyContinue
             if ($resolvItem -and $resolvItem.LinkType) {
-                Write-Output ("(symlink -> {0})" -f ($resolvItem.Target -join ', '))
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5bca1de1ae2456e7' -FormatValues (($resolvItem.Target -join ', ')) -FormatBindings @{ join = '0' })
             }
             Get-Content -LiteralPath '/etc/resolv.conf' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
         } else {
             Write-Output "(missing)"
-            Add-Problem "LINUX: /etc/resolv.conf is missing -- name resolution will fail." -Class 'LINUX.resolver-missing'
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ac4b5b8a5b1fb746') -Class 'LINUX.resolver-missing'
         }
 
         Write-Sub "/etc/hosts"
@@ -3056,26 +2996,26 @@ try {
             Write-Output "(missing)"
         }
 
-        Write-Sub "DNS resolver status"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_48a01e8836cadcfb')
         if (Test-CommandAvailable 'resolvectl') {
             Invoke-Tool -Tool 'resolvectl' -ToolArgs @('status')
         } elseif (Test-CommandAvailable 'systemd-resolve') {
             Invoke-Tool -Tool 'systemd-resolve' -ToolArgs @('--status')
         } else {
-            Write-Output "(neither resolvectl nor systemd-resolve found -- systemd-resolved likely not in use)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2259884669944bfb')
         }
 
-        Write-Sub "ip route (full table)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_3fceb1a4b1db4faa')
         Invoke-Tool -Tool 'ip' -ToolArgs @('route')
 
-        Write-Sub "Listening sockets (ss -tulpn)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_02f5964499aac6c9')
         if (Test-CommandAvailable 'ss') {
             Invoke-Tool -Tool 'ss' -ToolArgs @('-tulpn')
         } else {
-            Write-Output "(ss not available -- install iproute2)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_96f6823edc565c32')
         }
 
-        Write-Sub "Established TCP sockets with timers (ss -tnpo)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_fc543d57e6ae8eda')
         if (Test-CommandAvailable 'ss') {
             # Listening sockets alone cannot show a transfer wedged mid-body:
             # the evidence lives in the ESTABLISHED socket -- its send/recv
@@ -3088,7 +3028,7 @@ try {
             Invoke-Tool -Tool 'ss' -ToolArgs @('-tnpo') -Privileged
         }
 
-        Write-Sub "Package-manager processes (state, wchan, descendants, fds)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_3b6105a4e3726e67')
         # A package manager blocked at end-of-transaction looks healthy in
         # every aggregate view above (top-N shows it idle, ss shows no
         # sockets). The discriminating evidence is WHICH fd it is blocked
@@ -3112,7 +3052,7 @@ try {
         }
         $pkgPids = @($pkgPids | Sort-Object -Unique)
         if ($pkgPids.Count -eq 0) {
-            Write-Output "(no package-manager processes running)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c1eddd578c2a9c04')
         } else {
             $treeCap = 40
             # A matched pid that already appeared inside an earlier root's
@@ -3124,36 +3064,36 @@ try {
                 if ($covered.Contains($pkgPid)) { continue }
                 $tree = @(Get-ProcessDescendantPid -RootPid $pkgPid -MaxPids $treeCap)
                 foreach ($t in $tree) { $null = $covered.Add($t) }
-                Write-Output ("-- pid {0} and all descendants ({1} process(es)) --" -f $pkgPid, $tree.Count)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d38b56750f65cb96' -FormatValues ($pkgPid, $tree.Count) -FormatBindings @{ pkgPid = '0'; count = '1' })
                 Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-o','pid,ppid,pgid,stat,wchan:30,etime,args','--pid',($tree -join ',')) |
                     ForEach-Object { Write-Output $_ }
                 if ($tree.Count -ge $treeCap) {
-                    Write-Output ("   (descendant walk capped at {0} process(es); deeper children not shown)" -f $treeCap)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9afc6dc3fd49c033' -FormatValues ($treeCap) -FormatBindings @{ treeCap = '0' })
                 }
                 foreach ($t in $tree) {
-                    Write-Output ("   -- pid {0} fds --" -f $t)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_09a44e349e64e4a2' -FormatValues ($t) -FormatBindings @{ t = '0' })
                     $fdLines = Invoke-PrivProbe -Tool 'ls' -ToolArgs @('-l',"/proc/$t/fd")
                     $fdLines | Select-Object -First 50 | ForEach-Object { Write-Output ("   " + $_) }
-                    if ($fdLines.Count -gt 50) { Write-Output ("   (... {0} more fd lines omitted)" -f ($fdLines.Count - 50)) }
+                    if ($fdLines.Count -gt 50) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_daf5c05adf2266a4' -FormatValues (($fdLines.Count - 50)) -FormatBindings @{ count = '0' }) }
                 }
             }
             Write-Output ""
-            Write-Output "-- full process forest (first 250 lines) --"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ad4c01d36493a583')
             $forest = Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-ef','--forest')
             $forest | Select-Object -First 250 | ForEach-Object { Write-Output $_ }
-            if ($forest.Count -gt 250) { Write-Output ("(... {0} more lines omitted)" -f ($forest.Count - 250)) }
+            if ($forest.Count -gt 250) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3e3c06d4edff4846' -FormatValues (($forest.Count - 250)) -FormatBindings @{ count = '0' }) }
         }
 
-        Write-Sub "Connectivity probe (ping -c 3 -W 2 1.1.1.1)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_485fb74637bada2f')
         if (Test-CommandAvailable 'ping') {
             $pingOut = & ping -c 3 -W 2 1.1.1.1 2>&1
             $pingExit = $LASTEXITCODE
             $pingOut | ForEach-Object { Write-Output $_ }
             if ($pingExit -ne 0) {
-                Add-Problem "LINUX: ping to 1.1.1.1 failed (exit $pingExit) -- check default route, NAT, or upstream connectivity." -Class 'LINUX.network-unavailable'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_40089ed3a3e8b270' -Arguments @{ pingExit = "$pingExit" }) -Class 'LINUX.network-unavailable'
             }
         } else {
-            Write-Output "(ping not installed)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c7337ea5e2763690')
         }
 
         # Elevated, through the same prefix the process and journal probes use.
@@ -3169,51 +3109,51 @@ try {
             if (Test-CommandAvailable 'iptables') {
                 $ipt = @(Invoke-PrivProbe -Tool 'iptables' -ToolArgs @('-t', $iptTable, '-S') -KeepStderr)
                 if (-not $ipt.Count) {
-                    Write-Output "(no rules reported, and no error text either)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_87bad0326d09536b')
                 } elseif ($ipt[0] -match 'Permission denied|must be root|not permitted') {
                     Write-Output ("({0})" -f $ipt[0])
                 } else {
                     $ipt | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
-                    if ($ipt.Count -gt 200) { Write-Output ("(... {0} more lines omitted)" -f ($ipt.Count - 200)) }
+                    if ($ipt.Count -gt 200) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_144a57b43107ed4c' -FormatValues (($ipt.Count - 200)) -FormatBindings @{ count = '0' }) }
                 }
             } else {
-                Write-Output "(iptables not in PATH)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_94449206290537fc')
             }
         }
         if (Test-CommandAvailable 'ss') {
-            Write-Sub "Listening sockets (ss -tuln, first 200 lines)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_71acf9bf9963db93')
             $ssOut = & ss -tuln 2>&1
             $ssExit = $LASTEXITCODE
             if ($ssExit -ne 0) {
-                Write-Output ("(ss returned exit {0}: {1})" -f $ssExit, (($ssOut | Select-Object -First 1) -join ' '))
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_530e430042eaa997' -FormatValues ($ssExit, (($ssOut | Select-Object -First 1) -join ' ')) -FormatBindings @{ ssExit = '0'; join = '1' })
             } else {
                 $ssOut | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
-                if ($ssOut.Count -gt 200) { Write-Output ("(... {0} more lines omitted)" -f ($ssOut.Count - 200)) }
+                if ($ssOut.Count -gt 200) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e3804b3eb9e6aaab' -FormatValues (($ssOut.Count - 200)) -FormatBindings @{ count = '0' }) }
             }
         }
 
-        Write-Sub "dmesg -T (last 100 lines, with OOM scan)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c05e152dacede6aa')
         if (Test-CommandAvailable 'dmesg') {
             $dmesgOut = Invoke-PrivProbe -Tool 'dmesg' -ToolArgs @('-T') -KeepStderr
             $dmesgExit = $LASTEXITCODE
             if ($dmesgExit -ne 0) {
-                Write-Output ("(dmesg returned exit {0}; kernel.dmesg_restrict may be 1 -- rerun as root for kernel ring buffer)" -f $dmesgExit)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_719107a91a9041cd' -FormatValues ($dmesgExit) -FormatBindings @{ dmesgExit = '0' })
             } else {
                 $dmesgOut | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
                 $oomHits = @($dmesgOut | Where-Object { $_ -match 'Out of memory|oom-kill|killed process' })
                 if ($oomHits.Count -gt 0) {
-                    Add-Problem ("LINUX: dmesg shows {0} OOM-killer event(s) -- memory pressure has killed a process. Review dmesg for details." -f $oomHits.Count) -Class 'LINUX.oom-events'
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_5f4da68a8a0470cb' -FormatValues ($oomHits.Count) -FormatBindings @{ count = '0' }) -Class 'LINUX.oom-events'
                 }
                 $hwHits = @($dmesgOut | Where-Object { $_ -match 'I/O error|Hardware Error|MCE:|EDAC' })
                 if ($hwHits.Count -gt 0) {
-                    Add-Problem ("LINUX: dmesg shows {0} hardware/driver error line(s) (I/O error, MCE, EDAC, etc.)." -f $hwHits.Count) -Class 'LINUX.hardware-errors'
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_0052f7d7f687e07e' -FormatValues ($hwHits.Count) -FormatBindings @{ count = '0' }) -Class 'LINUX.hardware-errors'
                 }
             }
         } else {
-            Write-Output "(dmesg not in PATH)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_dce38997155da39d')
         }
 
-        Write-Sub "Virtualization kernel modules (lsmod, filtered)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_ec0ef9d3e6ca9f44')
         if (Test-CommandAvailable 'lsmod') {
             $lsmodOut = @(& lsmod 2>$null)
             $virt = $lsmodOut | Where-Object { $_ -match '^(kvm|virtio|hv_|hyperv|vmw|vbox|xen)' }
@@ -3221,10 +3161,10 @@ try {
                 if ($lsmodOut.Count -gt 0) { Write-Output $lsmodOut[0] }
                 $virt | ForEach-Object { Write-Output $_ }
             } else {
-                Write-Output "(no virtualization-related modules loaded -- bare metal or unrecognized hypervisor)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4330a0cd21a835c5')
             }
         } else {
-            Write-Output "(lsmod not in PATH)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b5ed33d7f546a531')
         }
 
         # An address a caller dialed can be one the guest has already left: the
@@ -3237,47 +3177,47 @@ try {
         # from one that never reached the bridge. Both tables are host-local and
         # both are gone minutes after the domain is undefined, so they belong
         # here beside the lease table a reader correlates them against.
-        Write-Sub "IPv4 neighbor table (ip -4 neigh show)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c7e1634dbc149906')
         if (Test-CommandAvailable 'ip') {
             $neighLine = @(& ip -4 neigh show 2>&1 | ForEach-Object { "$_" })
             if ($LASTEXITCODE -ne 0) {
-                Write-Output ("(ip -4 neigh show returned exit {0}: {1})" -f $LASTEXITCODE, (($neighLine | Select-Object -First 1) -join ' '))
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_634f2762ed20d183' -FormatValues ($LASTEXITCODE, (($neighLine | Select-Object -First 1) -join ' ')) -FormatBindings @{ lASTEXITCODE = '0'; join = '1' })
             } elseif ($neighLine.Count -eq 0) {
-                Write-Output "(neighbor table is empty -- nothing has been resolved recently on any interface)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c0d772dace958bda')
             } else {
                 $neighLine | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
-                if ($neighLine.Count -gt 200) { Write-Output ("(... {0} more line(s) omitted)" -f ($neighLine.Count - 200)) }
+                if ($neighLine.Count -gt 200) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1d5a674e638004e7' -FormatValues (($neighLine.Count - 200)) -FormatBindings @{ count = '0' }) }
             }
         } else {
-            Write-Output "(ip not in PATH -- install iproute2)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_382787bb31d0ed63')
         }
 
         # Every bridge rather than a fixed name: libvirt numbers its NAT bridges
         # per network, and a host bridged onto the LAN carries its guests on an
         # operator-named device instead.
-        Write-Sub "Bridge forwarding database (bridge fdb show br <bridge>)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0086f1b5b2c1a09c')
         if (-not (Test-CommandAvailable 'bridge')) {
-            Write-Output "(bridge not in PATH -- iproute2's bridge utility is absent, or /usr/sbin is off this account's PATH)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9afcda1ae598ab10')
         } elseif (-not (Test-CommandAvailable 'ip')) {
-            Write-Output "(ip not in PATH -- cannot enumerate bridge devices)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ac19e0a29d150ada')
         } else {
             $bridgeName = @()
             foreach ($linkLine in @(& ip -o link show type bridge 2>$null)) {
                 if ("$linkLine" -match '^\s*\d+:\s+([^:@\s]+)') { $bridgeName += $Matches[1] }
             }
             if (-not $bridgeName.Count) {
-                Write-Output "(no bridge devices on this host)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d7469332f7ce8f65')
             } else {
                 foreach ($br in $bridgeName) {
                     Write-Output "--- $br ---"
                     $fdbLine = @(& bridge fdb show br $br 2>&1 | ForEach-Object { "$_" })
                     if ($LASTEXITCODE -ne 0) {
-                        Write-Output ("(bridge fdb show br {0} returned exit {1}: {2})" -f $br, $LASTEXITCODE, (($fdbLine | Select-Object -First 1) -join ' '))
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1dbf1398dbcee3d7' -FormatValues ($br, $LASTEXITCODE, (($fdbLine | Select-Object -First 1) -join ' ')) -FormatBindings @{ br = '0'; lASTEXITCODE = '1'; join = '2' })
                     } elseif (-not $fdbLine.Count) {
-                        Write-Output "(no entries -- no guest MAC has been seen on this bridge)"
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2bc578a9fce34264')
                     } else {
                         $fdbLine | Select-Object -First 60 | ForEach-Object { Write-Output $_ }
-                        if ($fdbLine.Count -gt 60) { Write-Output ("(... {0} more entry(ies) omitted)" -f ($fdbLine.Count - 60)) }
+                        if ($fdbLine.Count -gt 60) { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e7055db124290299' -FormatValues (($fdbLine.Count - 60)) -FormatBindings @{ count = '0' }) }
                     }
                 }
             }
@@ -3293,7 +3233,7 @@ try {
         # dnsmasq window below are the only copies of what the server saw.
         #
         # Read-only throughout: nothing here defines, starts or edits anything.
-        Write-Sub "libvirt guest networks (leases, bridges, dnsmasq)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_74de2e28a089729b')
         if (Test-CommandAvailable 'virsh') {
             # qemu:///system needs libvirt group membership. Where the account
             # running this does not have it, the same question is asked again
@@ -3310,7 +3250,7 @@ try {
             }
             $domainLine = @(& $virshRead @('list', '--all'))
             if ($domainLine.Count -eq 0) {
-                Write-Output "(virsh is present but answered nothing -- no reachable qemu:///system)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2bd5e3cda8731457')
             } else {
                 $domainLine | ForEach-Object { Write-Output $_ }
                 # MAC and bridge per running domain. Both are what a reader
@@ -3318,7 +3258,7 @@ try {
                 # the domain is undefined -- which the failure path does within
                 # minutes of this capture.
                 foreach ($dom in @(& $virshRead @('list', '--name') | Where-Object { $_ -and $_.Trim() })) {
-                    Write-Output "## interfaces of $dom"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5b83af96edec0999' -Arguments @{ dom = "$dom" })
                     & $virshRead @('domiflist', $dom.Trim()) | ForEach-Object { Write-Output $_ }
                 }
                 foreach ($net in @(& $virshRead @('net-list', '--name') | Where-Object { $_ -and $_.Trim() })) {
@@ -3336,7 +3276,7 @@ try {
                 }
             }
         } else {
-            Write-Output "(virsh not in PATH -- libvirt does not run the guest network here)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b2baf090b729cd3c')
         }
 
         # The server's own account of every transaction: which MAC asked, under
@@ -3344,20 +3284,20 @@ try {
         # half of a lease failure a guest can never see, and it separates "the
         # client never asked" from "the client asked and was not answered" --
         # which indict different machines.
-        Write-Sub "dnsmasq DHCP transactions (last 30 min)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d4587f70644914bd')
         if ((Test-CommandAvailable 'journalctl') -and (Test-CommandAvailable 'virsh')) {
             $dnsmasqLine = @(Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @(
                 '-t', 'dnsmasq-dhcp', '-t', 'dnsmasq', '--since', '30 min ago', '-n', '60', '--no-pager'))
             if ($dnsmasqLine.Count -gt 0 -and -not (($dnsmasqLine -join "`n") -match 'No entries')) {
                 $dnsmasqLine | ForEach-Object { Write-Output $_ }
             } else {
-                Write-Output "(no dnsmasq entries in the window -- no guest asked for a lease, dnsmasq does not log here, or this account cannot read the system journal)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_af544eaa07446367')
             }
         } else {
-            Write-Output "(skipped: needs journalctl and a libvirt host)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f72a73ef3f898934')
         }
 
-        Write-Sub "journalctl -xe (last 100 lines after this harness's own polling is removed)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_1f97f627af7c6621')
         if (Test-CommandAvailable 'journalctl') {
             # Four times the window that gets printed is read, because the
             # suppressed classes arrive on a timer: on a host mid-cycle a
@@ -3387,44 +3327,44 @@ try {
                 }
                 $kept | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
                 if ($kept.Count -eq 0) {
-                    Write-Output "(the whole window is this harness's own polling -- nothing else was logged)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4ba3081aa0af2a76')
                 }
                 $note = Format-JournalSelfNoiseNote -Tally $noiseTally
                 if ($note) { Write-Output $note }
             }
         } else {
-            Write-Output "(journalctl not available)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_88570e5c6483f2df')
         }
 
-        Write-Sub "Container runtime journals (last 100 warning+ entries, since 6h ago)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_a474a4f862597d0d')
         if (Test-CommandAvailable 'journalctl') {
             foreach ($svc in @('docker','containerd','kubelet')) {
                 Write-Output "## $svc"
                 $jOut = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-u',$svc,'--since','6 hours ago','-p','warning','-n','100','--no-pager') -KeepStderr
                 if (-not $jOut -or (($jOut -join "`n") -match 'No entries')) {
-                    Write-Output "(no warning+ entries in the last 6 hours, or unit not present)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bdb8150b986b7b72')
                 } else {
                     $jOut | ForEach-Object { Write-Output $_ }
                 }
             }
         } else {
-            Write-Output "(journalctl not available)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_88570e5c6483f2df')
         }
 
-        Write-Sub "CNI plugins (/opt/cni/bin/)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c9b26da18f4d0f59')
         if (Test-Path '/opt/cni/bin') {
             $cniBin = @(Get-ChildItem -Path '/opt/cni/bin' -File -ErrorAction SilentlyContinue | Sort-Object Name)
             if ($cniBin.Count -gt 0) {
                 $cniBin | ForEach-Object { Write-Output ("  {0}" -f $_.Name) }
             } else {
-                Write-Output "(/opt/cni/bin/ exists but is empty)"
-                Add-Problem "LINUX: /opt/cni/bin/ is empty -- no CNI plugins installed; pods cannot get network." -Class 'LINUX.cni-binaries-missing'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_77a6787d5a9b9be1')
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_3ce1f61bd83a82f5') -Class 'LINUX.cni-binaries-missing'
             }
         } else {
-            Write-Output "(no /opt/cni/bin -- Kubernetes node or CNI not installed here)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_18152037a24112b7')
         }
 
-        Write-Sub "CNI config (/etc/cni/net.d/)"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_801a366c249222a2')
         if (Test-Path '/etc/cni/net.d') {
             $cniNet = @(Get-ChildItem -Path '/etc/cni/net.d' -File -ErrorAction SilentlyContinue | Sort-Object Name)
             if ($cniNet.Count -gt 0) {
@@ -3434,11 +3374,11 @@ try {
                     Write-Output ""
                 }
             } else {
-                Write-Output "(/etc/cni/net.d/ exists but is empty)"
-                Add-Problem "LINUX: /etc/cni/net.d/ is empty -- kubelet will fail to set up pod networks." -Class 'LINUX.cni-config-missing'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f374af33972ebb69')
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_0a5f2ba73289b02b') -Class 'LINUX.cni-config-missing'
             }
         } else {
-            Write-Output "(no /etc/cni/net.d -- Kubernetes not configured here)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8c7476793d8974ca')
         }
     }
 
@@ -3446,30 +3386,30 @@ try {
     # See https://yuruna.link/423ef7f5-000b
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
-            Write-Sub "/var/log/installer/ (privileged directory listing)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_0e79617cabbe97da')
             $installerListing = @(Invoke-PrivProbe -Tool 'find' -ToolArgs @('/var/log/installer','-maxdepth','1','-type','f','-printf','%f\t%s bytes\n') -KeepStderr)
             $installerListing | ForEach-Object { Write-Output $_ }
             $installerNames = @($installerListing | ForEach-Object { ($_ -split "`t",2)[0] })
 
-            Write-Sub "/var/log/installer/autoinstall-user-data (metadata only; seed credentials omitted)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_5f419145bd02451c')
             $data = Read-LinuxDiagnosticFile -Path '/var/log/installer/autoinstall-user-data' -MetadataOnly
-            Write-Output "(read state: $($data.State))"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bc9fc9dd34fb6538' -Arguments @{ state = "$($data.State)" })
             $data.Lines | ForEach-Object { Write-Output $_ }
 
             Write-Sub "/var/log/installer/subiquity-server-debug.log (scan + tail 100)"
             $data = Read-LinuxDiagnosticFile -Path '/var/log/installer/subiquity-server-debug.log'
-            Write-Output "(read state: $($data.State))"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bc9fc9dd34fb6538' -Arguments @{ state = "$($data.State)" })
             if ($data.State -eq 'read') {
                 $sub = $data.Lines
                 $sendUpdate = @($sub | Where-Object { $_ -match '_send_update' })
                 $changeIfaces = @($sub | Where-Object { $_ -match 'CHANGE\s+(eth0|enp0s1|ens3|en0)' })
-                Write-Output ("_send_update lines in bounded capture: {0}" -f $sendUpdate.Count)
-                Write-Output ("CHANGE <iface>                     : {0}" -f $changeIfaces.Count)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_db2c708f71117181' -FormatValues ($sendUpdate.Count) -FormatBindings @{ count = '0' })
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8ea0ca42f7ecc9f7' -FormatValues ($changeIfaces.Count) -FormatBindings @{ count = '0' })
                 if ($sendUpdate.Count -ge 200) {
-                    Add-Problem ("INSTALL: subiquity _send_update fired at least {0} times -- network model is being re-emitted (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count) -Class 'INSTALL.subiquity-change-loop'
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_9e80c4507aa91ce1' -FormatValues ($sendUpdate.Count) -FormatBindings @{ count = '0' }) -Class 'INSTALL.subiquity-change-loop'
                 }
                 $sub | Where-Object { $_ -match 'Retrying|mirror.*retry|elect.*mirror|geoip' } | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
-                Write-Output 'Tail (last 100 lines):'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_034d601f7f7cdb2e')
                 $sub | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
             }
 
@@ -3478,73 +3418,73 @@ try {
             foreach ($curtinName in $curtinNames) {
                 Write-Sub "/var/log/installer/$curtinName (scan + tail 80)"
                 $data = Read-LinuxDiagnosticFile -Path "/var/log/installer/$curtinName"
-                Write-Output "(read state: $($data.State))"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bc9fc9dd34fb6538' -Arguments @{ state = "$($data.State)" })
                 if ($data.State -eq 'read') {
                     $curtin = $data.Lines
                     $retries = @($curtin | Where-Object { $_ -match 'Retrying|retry|TimeoutError|ConnectionError|temporary failure' })
-                    Write-Output ("Retry/Timeout/Connection-error lines in bounded capture: {0}" -f $retries.Count)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_428373fe65b0a16b' -FormatValues ($retries.Count) -FormatBindings @{ count = '0' })
                     if ($retries.Count -ge 5) {
-                        Add-Problem ("INSTALL: curtin saw at least {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count) -Class 'INSTALL.curtin-retries'
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_92e7c51c10f09b59' -FormatValues ($retries.Count) -FormatBindings @{ count = '0' }) -Class 'INSTALL.curtin-retries'
                         $retries | Select-Object -First 10 | ForEach-Object { Write-Output $_ }
                     }
-                    Write-Output 'Tail (last 80 lines):'
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a09a0f237d2b144a')
                     $curtin | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
                 }
             }
 
-            Write-Sub "cloud-init status --long"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_be35048de6a6280c')
             if (Test-CommandAvailable 'cloud-init') {
                 Invoke-Tool -Tool 'cloud-init' -ToolArgs @('status','--long')
             } else {
-                Write-Output "(cloud-init not in PATH)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_189417db054e12ad')
             }
 
-            Write-Sub "cloud-init analyze blame (top 25)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_f779d2d738d724fe')
             if (Test-CommandAvailable 'cloud-init') {
                 $analyzeOut = & cloud-init analyze blame 2>&1
                 if ($LASTEXITCODE -eq 0) {
                     $analyzeOut | Select-Object -First 25 | ForEach-Object { Write-Output $_ }
                 } else {
-                    Write-Output ("(cloud-init analyze blame exit {0})" -f $LASTEXITCODE)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b34ace96616eb2ca' -FormatValues ($LASTEXITCODE) -FormatBindings @{ lASTEXITCODE = '0' })
                 }
             }
 
             foreach ($cloudPath in @('/run/cloud-init/result.json','/run/cloud-init/status.json','/var/log/cloud-init.log','/var/log/cloud-init-output.log')) {
-                Write-Sub "$cloudPath (bounded read, tail 200)"
+                Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_9928c4ddab42f536' -Arguments @{ cloudPath = "$cloudPath" })
                 $data = Read-LinuxDiagnosticFile -Path $cloudPath
-                Write-Output "(read state: $($data.State))"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bc9fc9dd34fb6538' -Arguments @{ state = "$($data.State)" })
                 $data.Lines | Select-Object -Last 200 | ForEach-Object { Write-Output $_ }
             }
 
-            Write-Sub "systemd-analyze time"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_691593f6f5a4fa03')
             if (Test-CommandAvailable 'systemd-analyze') {
                 Invoke-Tool -Tool 'systemd-analyze' -ToolArgs @('time')
                 Write-Output ""
-                Write-Output "Blame (top 20):"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e2efc72fae64b6d2')
                 $blame = & systemd-analyze blame 2>$null
                 $blame | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
             } else {
-                Write-Output "(systemd-analyze not in PATH)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8e9c512867ac6ba2')
             }
 
             Write-Sub "journalctl --list-boots"
             if (Test-CommandAvailable 'journalctl') {
                 Invoke-Tool -Tool 'journalctl' -ToolArgs @('--list-boots','--no-pager') -Privileged
-            } else { Write-Output "(journalctl not available)" }
+            } else { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_88570e5c6483f2df') }
 
-            Write-Sub "journalctl -b -1 -p warning --no-pager (PREVIOUS boot -- usually the install boot; head 60 + tail 60)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_fd2a582c09e3d15d')
             if (Test-CommandAvailable 'journalctl') {
                 $prev = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-b','-1','-p','warning','--no-pager')
                 if ($prev) {
                     $prev | Select-Object -First 60 | ForEach-Object { Write-Output $_ }
                     if ($prev.Count -gt 120) {
-                        Write-Output ("... ({0} middle lines omitted) ..." -f ($prev.Count - 120))
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_80b291736892294d' -FormatValues (($prev.Count - 120)) -FormatBindings @{ count = '0' })
                         $prev | Select-Object -Last 60 | ForEach-Object { Write-Output $_ }
                     } elseif ($prev.Count -gt 60) {
                         $prev | Select-Object -Skip 60 | ForEach-Object { Write-Output $_ }
                     }
                 } else {
-                    Write-Output "(no previous boot, or no warning+ entries)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ac55f29eb491874d')
                 }
             }
 
@@ -3554,34 +3494,34 @@ try {
                 if ($nw) {
                     $nw | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
                 } else {
-                    Write-Output "(no systemd-networkd entries this boot)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_06a1feb4b6be0aba')
                 }
             }
 
-            Write-Sub "networkctl status --all"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_91db0522b1d981fb')
             if (Test-CommandAvailable 'networkctl') {
                 Invoke-Tool -Tool 'networkctl' -ToolArgs @('status','--all','--no-pager') -Privileged
-            } else { Write-Output "(networkctl not in PATH)" }
+            } else { Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_beb381d52a393ad5') }
 
-            Write-Sub "ip -br link / ip -br addr"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_4a34878c962422f2')
             if (Test-CommandAvailable 'ip') {
                 Invoke-Tool -Tool 'ip' -ToolArgs @('-br','link')
                 Write-Output ""
                 Invoke-Tool -Tool 'ip' -ToolArgs @('-br','addr')
             }
 
-            Write-Sub "dmesg | grep -iE 'eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' (last 80 matches)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_abe933a8d836ad06')
             if (Test-CommandAvailable 'dmesg') {
                 $dm = Invoke-PrivProbe -Tool 'dmesg' -ToolArgs @('-T')
                 if ($LASTEXITCODE -eq 0) {
                     $hits = @($dm | Where-Object { $_ -match '(?i)eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' })
                     if ($hits.Count -eq 0) {
-                        Write-Output "(no eth0/netvsc/carrier/RA lines in kernel ring buffer)"
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2e15c2e53d3f7ff5')
                     } else {
                         $hits | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
                     }
                 } else {
-                    Write-Output "(dmesg restricted -- rerun as root for kernel ring buffer)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_641722ebda2acafc')
                 }
             }
         }
@@ -3591,11 +3531,11 @@ try {
     # See https://yuruna.link/42fa6f45-0013 (section 11c)
     if ($IsLinux) {
         Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
-            Write-Sub "/var/log/yuruna/ (dir listing)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_d2b8e5f19799eb58')
             if (Test-Path '/var/log/yuruna') {
                 $items = @(Get-ChildItem -Path '/var/log/yuruna' -Force -ErrorAction SilentlyContinue | Sort-Object Name)
                 if ($items.Count -eq 0) {
-                    Write-Output "(directory exists but empty -- no pwsh_retry actions have run yet)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9911832dfc6a1a02')
                 } else {
                     foreach ($it in $items) {
                         $size = if ($it.PSIsContainer) { '<DIR>' } else { ("{0,10}" -f $it.Length) }
@@ -3603,18 +3543,18 @@ try {
                     }
                 }
             } else {
-                Write-Output "(no /var/log/yuruna -- guest update.sh has not run, or its pwsh_retry wrapper was bypassed)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_94793b409f5adbb8')
             }
 
-            Write-Sub "/var/log/yuruna/*.log (full contents)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_bc13de7101298f4c')
             if (Test-Path '/var/log/yuruna') {
                 $logs = @(Get-ChildItem -Path '/var/log/yuruna' -Filter '*.log' -File -ErrorAction SilentlyContinue | Sort-Object Name)
                 if ($logs.Count -eq 0) {
-                    Write-Output "(no *.log files)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6ba42815e2c0ef04')
                 } else {
                     foreach ($log in $logs) {
                         Write-Output ""
-                        Write-Output ("===== {0} ({1} bytes) =====" -f $log.Name, $log.Length)
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_43adba726850fef5' -FormatValues ($log.Name, $log.Length) -FormatBindings @{ name = '0'; length = '1' })
                         Get-Content -LiteralPath $log.FullName -ErrorAction SilentlyContinue |
                             ForEach-Object { Write-Output $_ }
                         # The verdict is the record the wrapper wrote, not a
@@ -3631,12 +3571,10 @@ try {
                             if (-not $record -or [string]$record.event -cne 'outcome') { continue }
                             switch ([string]$record.outcome) {
                                 'exhausted' {
-                                    Add-Problem ("PROVISIONING: {0} records {1} exhausted {2} attempt(s) (rc={3}) -- the wrapped action failed every retry, cycle aborted." -f
-                                        $log.Name, $record.label, $record.maxAttempts, $record.rc) -Class 'PROVISIONING.retry-exhausted'
+                                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_fb806fabc4ba34ba' -FormatValues ($log.Name, $record.label, $record.maxAttempts, $record.rc) -FormatBindings @{ name = '0'; label = '1'; maxAttempts = '2'; rc = '3' }) -Class 'PROVISIONING.retry-exhausted'
                                 }
                                 'permanent' {
-                                    Add-Problem ("PROVISIONING: {0} records {1} stopping on a permanent failure at attempt {2} of {3} (rc={4}) -- the cause was classified as not retryable." -f
-                                        $log.Name, $record.label, $record.attempt, $record.maxAttempts, $record.rc) -Class 'PROVISIONING.retry-permanent'
+                                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_6122beada92e6164' -FormatValues ($log.Name, $record.label, $record.attempt, $record.maxAttempts, $record.rc) -FormatBindings @{ name = '0'; label = '1'; attempt = '2'; maxAttempts = '3'; rc = '4' }) -Class 'PROVISIONING.retry-permanent'
                                 }
                             }
                         }
@@ -3644,26 +3582,26 @@ try {
                 }
             }
 
-            Write-Sub "journalctl -u systemd-resolved --since '15 min ago' (DNS slice)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_f92f81ef8113846a')
             if (Test-CommandAvailable 'journalctl') {
                 $r = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-u','systemd-resolved','--since','15 min ago','--no-pager')
                 if ($r) {
                     $r | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
                 } else {
-                    Write-Output "(no systemd-resolved entries in the last 15 min)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_07fabc30d24cd858')
                 }
             } else {
-                Write-Output "(journalctl not available)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_88570e5c6483f2df')
             }
 
-            Write-Sub "PSRepository / PackageProvider / module state (current snapshot)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_c2d1de94ff3d2321')
             try {
                 Get-PSRepository -ErrorAction Stop |
                     Format-List Name,SourceLocation,InstallationPolicy,Trusted | Out-String |
                     ForEach-Object { Write-Output $_ }
             } catch {
-                Write-Output ("Get-PSRepository ERROR: {0}" -f $_.Exception.Message)
-                Add-Problem "PROVISIONING: Get-PSRepository threw -- PSGallery registration is unhealthy; Install-Module will fail with 'No match was found'." -Class 'PROVISIONING.repository-unavailable'
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_29759c8a58f5d70a' -FormatValues ($_.Exception.Message) -FormatBindings @{ message = '0' })
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_29e3b381e78aec31') -Class 'PROVISIONING.repository-unavailable'
             }
             Write-Output "--- PackageProvider -ListAvailable ---"
             try {
@@ -3671,7 +3609,7 @@ try {
                     Select-Object Name,Version | Format-Table -AutoSize | Out-String |
                     ForEach-Object { Write-Output $_ }
             } catch {
-                Write-Output ("Get-PackageProvider ERROR: {0}" -f $_.Exception.Message)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_c954ba96bb4cba77' -FormatValues ($_.Exception.Message) -FormatBindings @{ message = '0' })
             }
             Write-Output "--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---"
             try {
@@ -3679,7 +3617,7 @@ try {
                     Select-Object Name,Version | Format-Table -AutoSize | Out-String |
                     ForEach-Object { Write-Output $_ }
             } catch {
-                Write-Output ("Get-Module ERROR: {0}" -f $_.Exception.Message)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_1228b31b1ce78688' -FormatValues ($_.Exception.Message) -FormatBindings @{ message = '0' })
             }
         }
     }
@@ -3687,7 +3625,7 @@ try {
     # --- REGION: 12. Yuruna project
     Invoke-DiagnosticSection "YURUNA PROJECT" {
         if ($SkipProjectGaps) {
-            Write-Output "(skipped via -SkipProjectGaps)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_0c0b6c2779c42621')
             return
         }
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
@@ -3696,7 +3634,7 @@ try {
             $projectRoot = (Resolve-Path -LiteralPath $candidate).Path
         }
         if (-not $projectRoot) {
-            Write-Output "(no project directory at $candidate -- run this script from a yuruna checkout to populate this section)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_aa6b37528c8d7be2' -Arguments @{ candidate = "$candidate" })
             return
         }
         $yurunaRoot     = (Split-Path -Parent $PSScriptRoot)
@@ -3733,14 +3671,14 @@ try {
             if ($null -ne $firstLine) { $yurunaVersion = ([string]$firstLine).Trim() }
         }
         if ([string]::IsNullOrWhiteSpace($yurunaVersion)) {
-            Write-Output "Yuruna version: (not found at $yurunaVerFile)"
-            Add-Problem "YURUNA: VERSION file missing or empty at $yurunaVerFile" -Class 'YURUNA.version-missing'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_90d269f47f52341e' -Arguments @{ yurunaVerFile = "$yurunaVerFile" })
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ea67c1a52bd67b37' -Arguments @{ yurunaVerFile = "$yurunaVerFile" }) -Class 'YURUNA.version-missing'
         } else {
             $yurunaOrigin = Get-RemoteOriginUrl -RepoPath $yurunaRoot
             if ([string]::IsNullOrWhiteSpace($yurunaOrigin)) {
-                Write-Output "Yuruna version: $yurunaVersion"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_54bb3bd3dc906778' -Arguments @{ yurunaVersion = "$yurunaVersion" })
             } else {
-                Write-Output "Yuruna version: $yurunaVersion - $yurunaOrigin"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_75f1073141152b04' -Arguments @{ yurunaVersion = "$yurunaVersion"; yurunaOrigin = "$yurunaOrigin" })
             }
         }
         $projectVersion = $null
@@ -3749,17 +3687,17 @@ try {
             if ($null -ne $firstLine) { $projectVersion = ([string]$firstLine).Trim() }
         }
         if ([string]::IsNullOrWhiteSpace($projectVersion)) {
-            Write-Output "Project version: (not found at $projectVerFile)"
-            Add-Problem "YURUNA: project VERSION file missing or empty at $projectVerFile" -Class 'YURUNA.project-version-missing'
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_76bd42e13cff8e8c' -Arguments @{ projectVerFile = "$projectVerFile" })
+            Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_b67daf1100c845ef' -Arguments @{ projectVerFile = "$projectVerFile" }) -Class 'YURUNA.project-version-missing'
         } else {
             $projectOrigin = Get-RemoteOriginUrl -RepoPath $projectRoot
             if ([string]::IsNullOrWhiteSpace($projectOrigin)) {
-                Write-Output "Project version: $projectVersion"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f623437c4d70cbb4' -Arguments @{ projectVersion = "$projectVersion" })
             } else {
-                Write-Output "Project version: $projectVersion - $projectOrigin"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f4880cadf6480c92' -Arguments @{ projectVersion = "$projectVersion"; projectOrigin = "$projectOrigin" })
             }
         }
-        Write-Output "Project root: $projectRoot"
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b4aa23b7a1644d14' -Arguments @{ projectRoot = "$projectRoot" })
 
         $outputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -3769,7 +3707,7 @@ try {
         $outputFiles = @($outputWalk.Items)
         if ($outputFiles.Count -eq 0) {
             Write-Sub "resources.output.yml"
-            Write-Output "(none under $projectRoot -- 'yuruna resources' has not been run for any project, or its output file was cleared)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b97395da00cd6199' -Arguments @{ projectRoot = "$projectRoot" })
         } else {
             foreach ($of in $outputFiles) {
                 Write-Sub $of.FullName
@@ -3777,12 +3715,12 @@ try {
                 try {
                     $content = Get-Content -LiteralPath $of.FullName -Raw -ErrorAction Stop
                 } catch {
-                    Write-Output "  (could not read: $($_.Exception.Message))"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e89fa5be525e6ab3' -Arguments @{ message = "$($_.Exception.Message)" })
                     continue
                 }
                 if ([string]::IsNullOrWhiteSpace($content)) {
-                    Write-Output "  (file is empty)"
-                    Add-Problem ("YURUNA: {0} is empty" -f $of.FullName) -Class 'YURUNA.output-empty'
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9dcd9b109c2d9e64')
+                    Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_add466496962fbf6' -FormatValues ($of.FullName) -FormatBindings @{ fullName = '0' }) -Class 'YURUNA.output-empty'
                     continue
                 }
                 Write-Output $content
@@ -3825,16 +3763,16 @@ try {
 
                 if ($issues.Count -gt 0) {
                     Write-Output ""
-                    Write-Output "  Detected issues:"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a5f5181e50794260')
                     foreach ($iss in $issues) {
                         Write-Output ("    * {0}" -f $iss)
-                        Add-Problem ("YURUNA: {0} -- {1}" -f $of.FullName, $iss) -Class 'YURUNA.output-problem'
+                        Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_d700912928a3d5ac' -FormatValues ($of.FullName, $iss) -FormatBindings @{ fullName = '0'; iss = '1' }) -Class 'YURUNA.output-problem'
                     }
                 }
             }
         }
 
-        Write-Sub "Errors, failures and warnings"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_dff7d59ece61e081')
         $yurunaWalk = Get-FileTreeWithDeadline -Label '.yuruna/ directory scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
             Get-ChildItem -Path $root -Recurse -Directory -Force -ErrorAction SilentlyContinue |
@@ -3843,7 +3781,7 @@ try {
         Show-FileTreeWalkTimeout -Walk $yurunaWalk
         $yurunaDirs = @($yurunaWalk.Items)
         if ($yurunaDirs.Count -eq 0) {
-            Write-Output "(no .yuruna/ working folders under $projectRoot -- no project has been deployed via the yuruna framework here yet)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_6647068482edb16a' -Arguments @{ projectRoot = "$projectRoot" })
         } else {
             $skipPathFragments = @(
                 [IO.Path]::DirectorySeparatorChar + '.terraform' + [IO.Path]::DirectorySeparatorChar + 'providers' + [IO.Path]::DirectorySeparatorChar
@@ -3914,12 +3852,12 @@ try {
                 }
             }
             Write-Output ""
-            Write-Output ("(scanned $filesScanned files, skipped $filesSkipped, $totalMatches lines matched, $linesFiltered filtered by denylist)")
+            Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_8833009c9a699b81' -Arguments @{ filesScanned = "$filesScanned"; filesSkipped = "$filesSkipped"; totalMatches = "$totalMatches"; linesFiltered = "$linesFiltered" }))
             if ($totalMatches -gt 0) {
-                Add-Problem ("YURUNA: {0} error/fail/warning lines across .yuruna/ working folders (see YURUNA PROJECT section above)" -f $totalMatches) -Class 'YURUNA.project-problems'
+                Add-Problem (Format-YurunaOperatorMessage -Key 'automation.operator_ac1256277a04aa2e' -FormatValues ($totalMatches) -FormatBindings @{ totalMatches = '0' }) -Class 'YURUNA.project-problems'
             }
 
-            Write-Sub "Most recently modified files under .yuruna/ (top 100 by mtime)"
+            Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_55c150c8e52ed5c6')
             $allFiles = New-Object System.Collections.Generic.List[object]
             foreach ($yd in $yurunaDirs) {
                 $mtimeWalk = Get-FileTreeWithDeadline -Label ("mtime scan of {0}" -f $yd.FullName) -ArgumentList @($yd.FullName) -ScriptBlock {
@@ -3930,18 +3868,18 @@ try {
                 foreach ($f in @($mtimeWalk.Items)) { $allFiles.Add($f) }
             }
             if ($allFiles.Count -eq 0) {
-                Write-Output "(no files)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a96e14d3e499c9a0')
             } else {
                 $recent = $allFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 100
                 foreach ($f in $recent) {
                     $rel = $f.FullName
                     if ($rel.StartsWith($projectRoot)) { $rel = $rel.Substring($projectRoot.Length).TrimStart('\','/') }
-                    Write-Output ("  {0:yyyy-MM-dd HH:mm:ss}  {1,10}  {2}" -f $f.LastWriteTime, $f.Length, $rel)
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_97aa0bbd89aefd9a' -FormatValues ($f.LastWriteTime, $f.Length, $rel) -FormatBindings @{ lastWriteTime = '0:yyyy-MM-dd HH:mm:ss'; length = '1,10'; rel = '2' })
                 }
                 $newest = $recent | Select-Object -First 1
                 $ageMinutes = [int]((Get-Date) - $newest.LastWriteTime).TotalMinutes
                 Write-Output ""
-                Write-Output ("Last .yuruna/ write : $($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')) ({0} min ago)" -f $ageMinutes)
+                Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_bfcbf1a3d4f19f5d' -Arguments @{ ss = "$($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss'))" } -FormatValues ($ageMinutes) -FormatBindings @{ ageMinutes = '0' }))
             }
         }
     }
@@ -3950,7 +3888,7 @@ try {
     # See https://yuruna.link/423ef7f5-000e
     Invoke-DiagnosticSection "GAP HEURISTICS" {
         if ($SkipProjectGaps) {
-            Write-Output "(skipped via -SkipProjectGaps)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_0c0b6c2779c42621')
             return
         }
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
@@ -3959,7 +3897,7 @@ try {
             $projectRoot = (Resolve-Path -LiteralPath $candidate).Path
         }
         if (-not $projectRoot) {
-            Write-Output "(no project directory at $candidate -- skipping gap heuristics)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_7d384e5a632109dd' -Arguments @{ candidate = "$candidate" })
             return
         }
 
@@ -3968,7 +3906,7 @@ try {
 
         # --- REGION: Heuristic 1: tofu.tfstate exists but helm has zero releases
         # See https://yuruna.link/423ef7f5-000f
-        Write-Sub "Heuristic 1: tofu state without helm releases"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_5e0cc0356ca62c91')
         $tfStateWalk = Get-FileTreeWithDeadline -Label 'tofu.tfstate scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
             Get-ChildItem -Path $root -Recurse -Filter 'tofu.tfstate' -File -ErrorAction SilentlyContinue
@@ -3977,9 +3915,9 @@ try {
         $tfStateFiles = @($tfStateWalk.Items)
         $tfStateCount = $tfStateFiles.Count
         if ($tfStateCount -eq 0) {
-            Write-Output "(no tofu.tfstate files under $projectRoot -- Set-Resource has not run; skipping)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4221b57b738104bc' -Arguments @{ projectRoot = "$projectRoot" })
         } elseif (-not $helmReady) {
-            Write-Output "($tfStateCount tofu.tfstate file(s) present but helm not in PATH; cannot check)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_39b5280c08d21d32' -Arguments @{ tfStateCount = "$tfStateCount" })
         } else {
             $helmCount = 0
             try {
@@ -3991,15 +3929,15 @@ try {
             } catch {
                 Write-Verbose ("helm list failed: {0}" -f $_.Exception.Message)
             }
-            Write-Output ("tofu.tfstate files: {0}; helm releases (all namespaces): {1}" -f $tfStateCount, $helmCount)
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3263dfddfd59f8af' -FormatValues ($tfStateCount, $helmCount) -FormatBindings @{ tfStateCount = '0'; helmCount = '1' })
             if ($helmCount -eq 0) {
-                Add-Problem -Class 'GAP.tofu-state-without-helm-releases' -Message ("GAP: $tfStateCount tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.")
+                Add-Problem -Class 'GAP.tofu-state-without-helm-releases' -Message ((Format-YurunaOperatorMessage -Key 'automation.operator_72c1075973a89231' -Arguments @{ tfStateCount = "$tfStateCount" }))
             }
         }
 
         # --- REGION: Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster
         # See https://yuruna.link/423ef7f5-0010
-        Write-Sub "Heuristic 2: declared namespaces missing from cluster"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_4272d9bd74626ac9')
         $nsOutputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
             Get-ChildItem -Path $root -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue
@@ -4007,9 +3945,9 @@ try {
         Show-FileTreeWalkTimeout -Walk $nsOutputWalk
         $outputFiles = @($nsOutputWalk.Items)
         if ($outputFiles.Count -eq 0) {
-            Write-Output "(no resources.output.yml under $projectRoot -- skipping)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f95d3804292ed206' -Arguments @{ projectRoot = "$projectRoot" })
         } elseif (-not $kubectlReady) {
-            Write-Output "($($outputFiles.Count) resources.output.yml file(s) present but kubectl not in PATH; cannot check)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d27a1042e1f11ccd' -Arguments @{ count = "$($outputFiles.Count)" })
         } else {
             $declaredNs = New-Object System.Collections.Generic.List[object]
             foreach ($of in $outputFiles) {
@@ -4027,15 +3965,15 @@ try {
                 }
             }
             if ($declaredNs.Count -eq 0) {
-                Write-Output "(no globalVariables.namespace declarations found in any resources.output.yml)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_007dba8c891ef14e')
             } else {
                 $clusterNs = @(& kubectl get ns -o name --request-timeout=5s 2>$null | ForEach-Object { ($_ -replace '^namespace/','').Trim() } | Where-Object { $_ })
                 foreach ($d in $declaredNs) {
                     if ($clusterNs -contains $d.Name) {
-                        Write-Output ("  namespace '{0}' declared in {1} -- present in cluster" -f $d.Name, $d.File)
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13444d1232596727' -FormatValues ($d.Name, $d.File) -FormatBindings @{ name = '0'; file = '1' })
                     } else {
-                        Write-Output ("  namespace '{0}' declared in {1} -- MISSING from cluster" -f $d.Name, $d.File)
-                        Add-Problem -Class 'GAP.declared-namespace-missing' -Message ("GAP: namespace '$($d.Name)' declared in $($d.File) but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).")
+                        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_ea04ff3f63fe8b95' -FormatValues ($d.Name, $d.File) -FormatBindings @{ name = '0'; file = '1' })
+                        Add-Problem -Class 'GAP.declared-namespace-missing' -Message ((Format-YurunaOperatorMessage -Key 'automation.operator_6026e7f1ae4f2ef0' -Arguments @{ name = "$($d.Name)"; file = "$($d.File)" }))
                     }
                 }
             }
@@ -4043,14 +3981,14 @@ try {
 
         # --- REGION: Heuristic 3: nodes Ready but zero user-namespace pods
         # See https://yuruna.link/423ef7f5-0011
-        Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_94cff3770e209f03')
         if (-not $kubectlReady) {
-            Write-Output "(kubectl not in PATH; cannot check)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a393cb03dba55e4a')
         } else {
             $readyNodes = @(& kubectl get nodes --no-headers --request-timeout=5s 2>$null |
                 Where-Object { ($_ -split '\s+')[1] -match '^Ready' })
             if ($readyNodes.Count -eq 0) {
-                Write-Output "(no Ready nodes -- cluster is not up; not a deploy gap, see KUBE section)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_47229a44b80ae93b')
             } else {
                 $systemNs = @('default','kube-system','kube-public','kube-node-lease','kube-flannel','kube-proxy')
                 $userPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null |
@@ -4058,23 +3996,23 @@ try {
                         $cols = $_ -split '\s+'
                         if ($cols.Count -ge 2 -and $systemNs -notcontains $cols[0]) { $_ }
                     })
-                Write-Output ("Ready nodes: {0}; user-namespace pods: {1}" -f $readyNodes.Count, $userPods.Count)
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e6aeb3342245f36c' -FormatValues ($readyNodes.Count, $userPods.Count) -FormatBindings @{ count = '0'; count2 = '1' })
                 if ($userPods.Count -eq 0) {
-                    Add-Problem -Class 'GAP.cluster-ready-but-no-user-pods' -Message ("GAP: cluster has $($readyNodes.Count) Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).")
+                    Add-Problem -Class 'GAP.cluster-ready-but-no-user-pods' -Message ((Format-YurunaOperatorMessage -Key 'automation.operator_b2e83136c96ad810' -Arguments @{ count = "$($readyNodes.Count)" }))
                 }
             }
         }
 
         # --- REGION: Heuristic 4: image in local registry but no pod references it
         # See https://yuruna.link/423ef7f5-0012
-        Write-Sub "Heuristic 4: local registry image not referenced by any pod"
+        Write-Sub (Format-YurunaOperatorMessage -Key 'automation.operator_45ac4b861def17e9')
         if (-not $kubectlReady) {
-            Write-Output "(kubectl not in PATH; cannot check)"
+            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a393cb03dba55e4a')
         } else {
             $registryRepos = Get-LocalRegistryCatalog
             if ($null -eq $registryRepos) { $registryRepos = @() }
             if ($registryRepos.Count -eq 0) {
-                Write-Output "(no local registry at :5000 or its catalog is empty; nothing to cross-check)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b78019a8c5b4d334')
             } else {
                 # Containers + initContainers + ephemeralContainers, all namespaces.
                 #
@@ -4099,7 +4037,7 @@ try {
                     # A probe that failed is not evidence of an orphan. Say the
                     # cross-check could not run and stop, rather than reporting
                     # the empty result as a finding.
-                    Write-Output "(kubectl could not list pod images; cannot cross-check the registry catalog)"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_78d2e6388bf62f89')
                     $allImages = $null
                 } else {
                     $allImages = @($imagesRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -4112,13 +4050,13 @@ try {
                         $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
                         if ($matched.Count -eq 0) {
                             $orphans += $repo
-                            Write-Output ("  registry repo '{0}' -- NO pod references it" -f $repo)
+                            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e06453a569393d9a' -FormatValues ($repo) -FormatBindings @{ repo = '0' })
                         } else {
-                            Write-Output ("  registry repo '{0}' -- referenced by {1} container(s)" -f $repo, $matched.Count)
+                            Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_892002ebf63081aa' -FormatValues ($repo, $matched.Count) -FormatBindings @{ repo = '0'; count = '1' })
                         }
                     }
                     if ($orphans.Count -gt 0) {
-                        Add-Problem -Class 'GAP.registry-image-not-referenced' -Message ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image that only ever serves as a build stage is expected here and is not itself a deploy gap.")
+                        Add-Problem -Class 'GAP.registry-image-not-referenced' -Message ((Format-YurunaOperatorMessage -Key 'automation.operator_4b5000e2da8b0a45' -Arguments @{ count = "$($orphans.Count)"; join = "$($orphans -join ', ')" }))
                     }
                 }
             }
@@ -4126,11 +4064,11 @@ try {
     }
 
     # --- REGION: 14. Summary
-    Write-Section "PROBLEMS DETECTED"
+    Write-Section (Format-YurunaOperatorMessage -Key 'automation.operator_d06b949771ace46b')
     if ($script:Problems.Count -eq 0) {
         Write-Output "(none)"
     } else {
-        Write-Output ("{0} problem(s) flagged:" -f $script:Problems.Count)
+        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2c1747899df468d4' -FormatValues ($script:Problems.Count) -FormatBindings @{ count = '0' })
         $i = 0
         foreach ($p in $script:Problems) {
             $i++
@@ -4144,7 +4082,7 @@ try {
     Write-ProblemJson -SidecarBasePath $OutFile
 
     Write-Output ""
-    Write-Output "Diagnostics complete."
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_926bc2ef75b29511')
 
 } finally {
     if ($transcriptStarted) {

@@ -184,6 +184,17 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "poolId and action are required")
 		return
 	}
+	// Checked independently of hostctl.KnownAction, and ahead of it: a per-host
+	// refresh action belongs to a single explicitly authorized host, never to
+	// this pool-wide fan-out, so this refusal must hold even after "refresh"
+	// becomes a KnownAction for that separate, individually authorized path.
+	// This handler also backs the MCP pool-control tool (same func, no
+	// separate input-schema enforcement at dispatch time), so both entry
+	// points are covered by the one check.
+	if strings.EqualFold(body.Action, "refresh") {
+		writeErr(w, http.StatusBadRequest, "action 'refresh' is not available through pool-wide control")
+		return
+	}
 	if !hostctl.KnownAction(body.Action) {
 		writeErr(w, http.StatusBadRequest, "action must be one of continue, pause-after-cycle, pause-after-step")
 		return

@@ -1,6 +1,6 @@
 {
   "schema": "yuruna.affected-slice-authority/v1",
-  "description": "Authoritative Wave-1 batch-C boundary ownership. Stable-code edges and undeclared exact source literals are reverse-discovered from code-registry.json; the signatures below cover bounded correctness fixes and display-only census rows that do not yet have stable codes. Generic same-word literals outside a protocol require an exact code/path/count/reason classification. Rows classify discoveries, never waive them.",
+  "description": "Authoritative Wave-1 batch-C boundary ownership. Stable-code edges and undeclared exact source literals are reverse-discovered from code-registry.json; the signatures below cover bounded correctness fixes and display-only census rows that do not yet have stable codes. Generic same-word literals outside a protocol require an exact code/path/count/reason classification. Rows classify discoveries, never waive them. Implemented catalog boundaries name their G2 owner and verification suite separately from the original Wave-1 blockers; they do not certify native, translation, or performance acceptance.",
   "seededSlices": [
     {
       "id": "status-pause-generated",
@@ -26,7 +26,7 @@
     {
       "wireCode": "repository_access.denied",
       "path": "test/modules/Test.HostCondition.Mac.psm1",
-      "matchCount": 2,
+      "matchCount": 4,
       "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
     },
     {
@@ -206,7 +206,7 @@
     {
       "id": "signature:p05-download-state-census",
       "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js",
-      "pattern": "class: 'badge ' \\+ state, text: state",
+      "pattern": "class: 'badge ' \\+ state, text: Y\\.displayState\\(state\\)",
       "minimumMatches": 1,
       "maximumMatches": 1
     },
@@ -220,7 +220,7 @@
     {
       "id": "signature:p06-download-error-detail-census",
       "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
-      "pattern": "writeErr\\(w, http\\.StatusInternalServerError, err\\.Error\\(\\)\\)",
+      "pattern": "s\\.writeLocalizedError\\(w, r, http\\.StatusInternalServerError, \"download\\.api_detail\"",
       "minimumMatches": 1
     },
     {
@@ -280,31 +280,48 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:b07-independent-timeout"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:b07-independent-timeout"
+      ]
     },
     {
       "id": "L-03-REMAINDER",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:l03-residual-external-parser-census"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:l03-residual-external-parser-census"
+      ]
     },
     {
       "id": "L-04-REMAINDER",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:l04-ssh-prose-classifier-census"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:l04-ssh-prose-classifier-census"
+      ]
     },
     {
       "id": "M-02",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated"],
+      "slices": [
+        "status-pause-generated"
+      ],
       "consumers": [
         "signature:m02-diagnostic-explicit-class",
         "signature:m02-diagnostic-schema-consumer"
@@ -315,47 +332,74 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-07",
-      "slices": ["status-pause-generated"],
-      "consumers": ["signature:m03-visual-heading-census"]
+      "slices": [
+        "status-pause-generated"
+      ],
+      "consumers": [
+        "signature:m03-visual-heading-census"
+      ]
     },
     {
       "id": "M-04",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-06",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:m04-prose-assertion-census"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:m04-prose-assertion-census"
+      ]
     },
     {
       "id": "REGISTRY-METRICS",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:registry-metrics-producer", "signature:registry-metrics-consumer"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:registry-metrics-producer",
+        "signature:registry-metrics-consumer"
+      ]
     },
     {
       "id": "RETRY-OUTCOME",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated"],
-      "consumers": ["signature:retry-outcome-producer", "signature:retry-outcome-consumer"]
+      "slices": [
+        "status-pause-generated"
+      ],
+      "consumers": [
+        "signature:retry-outcome-producer",
+        "signature:retry-outcome-consumer"
+      ]
     },
     {
       "id": "MCP-TRANSCRIPT",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated"],
-      "consumers": ["signature:mcp-transcript-producer", "signature:mcp-transcript-consumer"]
+      "slices": [
+        "status-pause-generated"
+      ],
+      "consumers": [
+        "signature:mcp-transcript-producer",
+        "signature:mcp-transcript-consumer"
+      ]
     },
     {
       "id": "P-01",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated"],
+      "slices": [
+        "status-pause-generated"
+      ],
       "consumers": [
         "code:sequence.sequence_paused_waiting_resume:producer:test/modules/Test.SequenceEngine.psm1",
         "code:sequence.sequence_paused_waiting_resume:consumer:test/extension/pool-aggregator-service/main.go",
@@ -367,7 +411,9 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["pool-repository-project"],
+      "slices": [
+        "pool-repository-project"
+      ],
       "consumers": [
         "code:repository_access.denied:producer:test/modules/Test.HostGit.psm1",
         "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
@@ -384,7 +430,9 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["pool-repository-project"],
+      "slices": [
+        "pool-repository-project"
+      ],
       "consumers": [
         "code:auth.lab_token_unavailable:producer:test/extension/extension-sdk/labgate/labgate.go",
         "code:auth.lab_token_unavailable:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
@@ -401,7 +449,10 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
       "consumers": [
         "signature:p04-legacy-reader-deletion-date",
         "signature:p04-preflight-sidecar-consumer",
@@ -414,16 +465,24 @@
       "status": "deferred",
       "owner": "G2-03",
       "slices": [],
-      "domains": ["download-agent"],
-      "consumers": ["signature:p05-download-state-census"]
+      "domains": [
+        "download-agent"
+      ],
+      "consumers": [
+        "signature:p05-download-state-census"
+      ]
     },
     {
       "id": "P-05-STATUS",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-01",
-      "slices": ["status-pause-generated"],
-      "consumers": ["signature:p05-status-state-census"]
+      "slices": [
+        "status-pause-generated"
+      ],
+      "consumers": [
+        "signature:p05-status-state-census"
+      ]
     },
     {
       "id": "P-06-DOWNLOAD",
@@ -431,47 +490,73 @@
       "status": "deferred",
       "owner": "G2-03",
       "slices": [],
-      "domains": ["download-agent"],
-      "consumers": ["signature:p06-download-error-detail-census"]
+      "domains": [
+        "download-agent"
+      ],
+      "consumers": [
+        "signature:p06-download-error-detail-census"
+      ]
     },
     {
       "id": "P-06-POOL",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-02",
-      "slices": ["pool-repository-project"],
-      "consumers": ["signature:p06-pool-error-detail-census"]
+      "slices": [
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:p06-pool-error-detail-census"
+      ]
     },
     {
       "id": "T-01-T-07",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:l03-kvm-locale-neutral-tool-output"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:l03-kvm-locale-neutral-tool-output"
+      ]
     },
     {
       "id": "T-02",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:t02-sid-acl"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:t02-sid-acl"
+      ]
     },
     {
       "id": "T-03",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:t03-hyperv-numeric-status"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:t03-hyperv-numeric-status"
+      ]
     },
     {
       "id": "T-04",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
       "consumers": [
         "signature:t04-config-invariant-float",
         "signature:t04-prometheus-invariant-float"
@@ -482,23 +567,35 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:t05-machine-timestamp-census"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:t05-machine-timestamp-census"
+      ]
     },
     {
       "id": "T-06-REMAINDER",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-06",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:t06-sort-census"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:t06-sort-census"
+      ]
     },
     {
       "id": "TRANSCRIPT-EVENTS",
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated"],
+      "slices": [
+        "status-pause-generated"
+      ],
       "consumers": [
         "code:step.end:producer:test/modules/Test.Orchestrator.psm1",
         "code:step.start:producer:test/modules/Test.Orchestrator.psm1"
@@ -509,8 +606,271 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
-      "slices": ["status-pause-generated", "pool-repository-project"],
-      "consumers": ["signature:windows-bootstrap-numeric-edition"]
+      "slices": [
+        "status-pause-generated",
+        "pool-repository-project"
+      ],
+      "consumers": [
+        "signature:windows-bootstrap-numeric-edition"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-aggregator",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "slices": [],
+      "domains": [
+        "pool-aggregator"
+      ],
+      "verification": "test/modules/Test.PoolGlobalizationSlice.Tests.ps1",
+      "consumers": [
+        "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-download",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": [
+        "download-agent"
+      ],
+      "verification": "test/modules/Test.ExtensionUiChrome.Tests.ps1",
+      "consumers": [
+        "code:download.api_arch_query_parameter_is_required_amd64_or_arm64:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_generation_not_found:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_invalid_generation_name:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_invalid_json_body_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_no_image_store_configured:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_pool_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-mcp",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-06",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "verification": "test/modules/Test.McpServer.Tests.ps1",
+      "consumers": [
+        "code:mcp.mcp_dependency_drift:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_dependency_invalid_json:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_diagnostic_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_false_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_host_alias_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_refused:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_runtime_verdict:producer:test/service/Start-McpServer.ps1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-sequence",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-07",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "verification": "test/modules/Test.SequenceEngine.Tests.ps1",
+      "consumers": [
+        "code:sequence.sequence_completed:producer:test/modules/Test.SequenceEngine.psm1",
+        "code:sequence.sequence_restart_requested:producer:test/modules/Test.SequenceEngine.psm1",
+        "code:sequence.sequence_step_active:producer:test/modules/Test.SequenceEngine.psm1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-stash",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": [
+        "stash"
+      ],
+      "verification": "test/modules/Test.ExtensionUiChrome.Tests.ps1",
+      "consumers": [
+        "code:stash.api_could_not_parse_form:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_create_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_host:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_json_body:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_stash_path:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_no_stashes_given:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_not_an_archive:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_nothing_to_store_provide_text_or_files:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_archive_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_uploads:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_search_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_stash_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_stat_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_too_many_files_in_one_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_too_many_stashes_in_one_request:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-auth",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "slices": [],
+      "domains": [
+        "extension-sdk"
+      ],
+      "verification": "test/extension/extension-sdk/labgate/localization_test.go",
+      "consumers": [
+        "code:auth.attempts_throttled:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.bearer_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.malformed_request:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.proof_expired:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.proof_shape:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.session_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.token_incorrect:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.token_shape:producer:test/extension/extension-sdk/labgate/labgate.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-pool",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "slices": [],
+      "domains": [
+        "pool-control"
+      ],
+      "verification": "test/extension/pool-control-service/server/internal/httpsrv/board_test.go",
+      "consumers": [
+        "code:pool.unsupported_range:producer:test/extension/pool-control-service/server/internal/httpsrv/board.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-status",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-01",
+      "slices": [],
+      "domains": [
+        "status-service"
+      ],
+      "verification": "test/modules/Test.StatusServiceLocale.Tests.ps1",
+      "consumers": [
+        "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_authentication_extension_unavailable_2ece9896:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_body_must_be_a_json_object_831ab327:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_could_not_pack_folder_detail_268ee848:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_could_not_read_body_aa31dc00:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_detail_caf3c2c2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_diagnostic_failed:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_expected_diagnostics_folder_filename_5f581c78:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_filename_must_match_system_diagnostic_id_txt_ec048334:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_78342a09:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_deny_list_1c7d1cfa:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_directory_listing_disabled_5d107f5b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_invalid_json_detail_c907dfc3:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_be4fb6a2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_post_the_dump_body_fa73866b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_break_active_bc29bdab:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_caching_proxy_service_ca_resolvable_f924b0aa:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_cycle_results_folder_folder_on_this_host_51798923:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_lab_hold_is_active_49dd8185:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_not_a_cycle_results_archive_name_395b9777:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_path_escapes_log_dir_355b2034:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_path_escapes_log_root_13754cf8:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_1_mb_350b49df:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_256_kb_ad49d5cd:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_4_mb_3455f869:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_5_mb_ab90ca52:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_post_required_663cc07c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_project_repo_not_present_on_host_885e6338:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_put_or_post_required_1f919659:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_sidecar_write_failed_0ce361a9:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_config_yml_not_found_3b38d785:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_write_failed_detail_c07681e1:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-planner",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-07",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "verification": "test/modules/Test.SequenceResolve.Tests.ps1",
+      "consumers": [
+        "code:sequence.plan_invalid:producer:test/modules/Test.SequenceResolve.psm1",
+        "code:sequence.plan_invalid:consumer:test/modules/Test.SequenceResolve.psm1"
+      ]
     }
   ]
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,7 @@ param(
     [string]$logLevel
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
 $TestRoot    = $paths.TestRoot
@@ -214,12 +215,12 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
 
 Write-Output ''
 Write-Output '========'
-Write-Output '  Invoke-TestProject (single test cycle)'
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c785c19a8a938b31')
 Write-Output "  Config:     $ConfigPath"
 Write-Output "  ProjectUrl: $projectUrl"
 Write-Output "  RepoRoot:   $RepoRoot"
 Write-Output "  Inner:      $InnerScript"
-Write-Output "  Stop:       Ctrl+C (or completes when the inner exits)"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9b5f387caf6f42bd')
 Write-Output '========'
 
 # --- REGION: Pre-cycle config gate (mirrors Start-TestRunner + Debug-TestSequence)
@@ -243,7 +244,7 @@ if (-not $gate.passed) {
 # Test.HostContract was imported by Initialize-YurunaEntryPointModuleSet above.
 
 Write-Output ''
-Write-Output "[Invoke-TestProject] Step 1+2: wipe and re-clone <RepoRoot>/project from $projectUrl"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4fb40cac594a7bbc' -Arguments @{ projectUrl = "$projectUrl" })
 $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projectUrl -Confirm:$false
 if (-not $cloneRes.success) {
     Stop-WithReason -Code $ExitFailure -Step 'Step 1+2 (wipe + clone)' `
@@ -266,7 +267,7 @@ Write-Output '[Invoke-TestProject] Step 1+2: complete.'
 #   * -NoGitPull -- Invoke-TestProject is a project test, not a framework test;
 #     a mid-test framework update would conflate signals
 Write-Output ''
-Write-Output '[Invoke-TestProject] Step 3: spawning Invoke-TestRunnerInnerLoop for one test cycle.'
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_554a120b73560a96')
 
 # Test.InnerSpawn was imported by Initialize-YurunaEntryPointModuleSet above.
 $pwshExe = Get-PwshExePath
@@ -304,7 +305,7 @@ try {
 }
 
 Write-Output ''
-Write-Output "[Invoke-TestProject] Step 3: inner cycle exited with code $innerExit."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d8c8c432b7e3764d' -Arguments @{ innerExit = "$innerExit" })
 
 # --- REGION: Step 4: stop
 # Not a repeated process. Surface the inner's exit code so a CI step or
@@ -314,9 +315,9 @@ Write-Output ''
 Write-Output '========'
 Write-Output "  Invoke-TestProject: STOP (exit $innerExit)"
 if ($innerExit -eq $ExitOk) {
-    Write-Output '  Cycle PASSED.'
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4573c62ccdadf85e')
 } else {
-    Write-Output "  Cycle FAILED. See $env:YURUNA_LOG_DIR for the per-cycle log."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3d14a370bf8bc861' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 }
 Write-Output '========'
 

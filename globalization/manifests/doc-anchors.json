@@ -137,6 +137,11 @@
         },
         {
           "id": "42e568c8-000d",
+          "heading": "Service VM memory budget",
+          "slug": "service-vm-memory-budget"
+        },
+        {
+          "id": "42e568c8-000e",
           "heading": "License",
           "slug": "license"
         }
@@ -495,6 +500,11 @@
           "id": "42f6b05f-001f",
           "heading": "Registry routing, glob syntax, and retry budgets",
           "slug": "registry-routing-glob-syntax-and-retry-budgets"
+        },
+        {
+          "id": "42f6b05f-0055",
+          "heading": "Probing pull-through liveness needs a manifest request, not `GET /v2/`",
+          "slug": "probing-pull-through-liveness-needs-a-manifest-request-not-get-v2"
         },
         {
           "id": "42f6b05f-0020",
@@ -1604,6 +1614,39 @@
       ]
     },
     {
+      "id": "420b66d2",
+      "repo": "yuruna",
+      "source": "docs/globalization.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "420b66d2-0001",
+          "heading": "Languages and localization",
+          "slug": "languages-and-localization"
+        },
+        {
+          "id": "420b66d2-0002",
+          "heading": "Choosing a language",
+          "slug": "choosing-a-language"
+        },
+        {
+          "id": "420b66d2-0003",
+          "heading": "Adding or changing messages",
+          "slug": "adding-or-changing-messages"
+        },
+        {
+          "id": "420b66d2-0004",
+          "heading": "Translating a source revision",
+          "slug": "translating-a-source-revision"
+        },
+        {
+          "id": "420b66d2-0005",
+          "heading": "Checking a change",
+          "slug": "checking-a-change"
+        }
+      ]
+    },
+    {
       "id": "42ec97cd",
       "repo": "yuruna",
       "source": "docs/guest-image-setup.md",
@@ -1831,6 +1874,11 @@
           "id": "42dc5bb9-0010",
           "heading": "Host metrics and the commit limit",
           "slug": "host-metrics-and-the-commit-limit"
+        },
+        {
+          "id": "42dc5bb9-0011",
+          "heading": "A Hyper-V virtual switch that looks fine but is not bridging",
+          "slug": "a-hyper-v-virtual-switch-that-looks-fine-but-is-not-bridging"
         }
       ]
     },
@@ -1912,6 +1960,11 @@
           "id": "42885ada-0002",
           "heading": "Packages, PATH, and Homebrew issues",
           "slug": "packages-path-and-homebrew-issues"
+        },
+        {
+          "id": "42885ada-0012",
+          "heading": "After a macOS major upgrade",
+          "slug": "after-a-macos-major-upgrade"
         },
         {
           "id": "42885ada-0003",
@@ -3477,6 +3530,11 @@
           "id": "42607283-0008",
           "heading": "Adding a new provider",
           "slug": "adding-a-new-provider"
+        },
+        {
+          "id": "42607283-0009",
+          "heading": "Detecting a corrupted console echo",
+          "slug": "detecting-a-corrupted-console-echo"
         }
       ]
     },
@@ -4519,6 +4577,11 @@
           "id": "423ef7f5-000a",
           "heading": "`ps -ww` is mandatory on macOS / Linux",
           "slug": "ps--ww-is-mandatory-on-macos--linux"
+        },
+        {
+          "id": "423ef7f5-0013",
+          "heading": "Process subtree walk (breadth-first, bounded)",
+          "slug": "process-subtree-walk-breadth-first-bounded"
         },
         {
           "id": "423ef7f5-000b",

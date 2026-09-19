@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c11373-6ab6-4218-89d7-d152de3a1e3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $modulesDir = $here
 Import-Module (Join-Path $here 'Test.Assert.psm1')   -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.OcrPath.psm1')  -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Catalog.psm1') -Force -DisableNameChecking
 
 $script:tesseractPath = Join-Path $modulesDir 'Test.Tesseract.psm1'
 $script:ocrEnginePath = Join-Path $modulesDir 'Test.OcrEngine.psm1'
@@ -209,9 +210,33 @@ Describe 'the WinRT one-shot cannot report a failed read as an empty screen' {
         # powershell.exe -File exits 0 even when the script it ran threw, so the
         # exit code alone leaves a dead reader looking like a blank console.
         $fn = Get-FunctionAst -RootAst $script:engineAst -FunctionName 'Invoke-WinRtOcr'
-        $throws = $fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }, $true)
-        $matched = @($throws | Where-Object { $_.Extent.Text -match 'errText' -and $_.Extent.Text -match 'no text' })
-        Assert-True ($matched.Count -ge 1) `
-            'a text-less read that carried stderr must throw so the provider failure is warned and evented, not returned as empty text'
+        $guards = @($fn.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+                $node.Clauses[0].Item1.Extent.Text -ceq '-not $text -and $errText'
+        }, $true))
+        Assert-Equal 1 $guards.Count 'the failed empty-read branch must remain in the actual OCR provider'
+        $harness = [scriptblock]::Create(@'
+param($text, $errText, $catalogLocale)
+function Format-YurunaOperatorMessage {
+    param($Key, $Arguments)
+    Format-CatalogMessage -Key $Key -Arguments $Arguments -Locale $catalogLocale
+}
+try {
+    __GUARD__
+    @{ Threw = $false; Message = '' }
+} catch { @{ Threw = $true; Message = $_.Exception.Message } }
+'@.Replace('__GUARD__', $guards[0].Extent.Text))
+        $detail = 'helper <diagnostic> "quoted" ' + [char]0x8336 + [char]0x202e
+        $failed = & $harness '' $detail 'en-US'
+        Assert-True $failed.Threw 'stderr from a text-less successful-exit helper must fail the OCR read'
+        Assert-Equal ('WinRT OCR read no text and reported: ' + $detail) $failed.Message `
+            'the English diagnostic or external detail changed'
+        $localized = & $harness '' $detail 'qps-Ploc'
+        Assert-True $localized.Threw 'localized prose must preserve the failed-read classification'
+        Assert-True ($localized.Message.Contains($detail)) 'localization altered the external diagnostic'
+        Assert-False ($localized.Message -ceq $failed.Message) 'the actual exception bypassed the selected catalog'
+        Assert-False (& $harness '' '' 'en-US').Threw 'a blank screen without a diagnostic is a successful empty read'
+        Assert-False (& $harness 'recognized text' $detail 'en-US').Threw 'the empty-read guard rejected real OCR text'
     }
 }

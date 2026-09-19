@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,7 @@ param(
     [switch]$ExpectStorageConfigured
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $TestRoot = $PSScriptRoot
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test.config.yml" }
 $TemplatePath         = Join-Path $TestRoot "test.config.yml.template"
@@ -179,36 +180,36 @@ function ConvertTo-YurunaBool {
 }
 
 # --- REGION: Section 1: Config file
-Write-Section "Config file"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_b705515c07a5e9a8')
 
 if (-not (Test-Path $ConfigPath)) {
     if (Test-Path $TemplatePath) {
         try {
             Copy-Item -LiteralPath $TemplatePath -Destination $ConfigPath -Force
-            Write-Pass "Config file bootstrapped from template: $TemplatePath -> $ConfigPath"
-            Write-Info "Defaults applied. Edit $ConfigPath later to customize notification, repositories, etc."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_d13d6f9c4e2630f3' -Arguments @{ templatePath = "$TemplatePath"; configPath = "$ConfigPath" })
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_af63e61533afab65' -Arguments @{ configPath = "$ConfigPath" })
         } catch {
-            Write-Fail "Config file not found and template copy failed ($TemplatePath -> ${ConfigPath}): $($_.Exception.Message)" -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_9a0f4180f6bc4690' -Arguments @{ templatePath = "$TemplatePath"; configPath = "${ConfigPath}"; message = "$($_.Exception.Message)" }) -FullPath $ConfigPath
             Exit-WithSummary 1
         }
     } else {
-        Write-Fail "Config file not found: $ConfigPath" -FullPath $ConfigPath
-        Write-Info "Template not found either ($TemplatePath). Check your repository."
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_9a19efa0e81d08cd' -Arguments @{ configPath = "$ConfigPath" }) -FullPath $ConfigPath
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_181168cad549912c' -Arguments @{ templatePath = "$TemplatePath" })
         Exit-WithSummary 1
     }
 } else {
-    Write-Pass "Config file found: $ConfigPath"
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f9451eb8ca95adac' -Arguments @{ configPath = "$ConfigPath" })
 }
 
 # --- REGION: Section 2: YAML parsing
-Write-Section "YAML structure"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_616e3566ba5ee01a')
 
 try {
     $Config = Read-TestConfig -Path $ConfigPath -ThrowOnError
-    Write-Pass "YAML is valid and parsed successfully."
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0a36a817624fdfc8')
 } catch {
-    Write-Fail "YAML parse error in ${ConfigPath}: $_" -FullPath $ConfigPath
-    Write-Info "Open test.config.yml and fix the syntax error above."
+    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_c57debb1f06af38a' -Arguments @{ configPath = "${ConfigPath}"; value = "$_" }) -FullPath $ConfigPath
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_1365c99cb0e8efff')
     Exit-WithSummary 1
 }
 
@@ -219,23 +220,23 @@ try {
 # would look honored and be ignored. Each failure line names the replacement,
 # and the whole file converts in one command.
 
-Write-Section "Config key names"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_72e8483f6f8d909a')
 
 $configNamingMod = Join-Path $script:ModulesDir 'Test.ConfigNaming.psm1'
 if (-not (Test-Path $configNamingMod)) {
-    Write-Info "Test.ConfigNaming.psm1 not found at ${configNamingMod}; retired-key check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_45634295eef1edce' -Arguments @{ configNamingMod = "${configNamingMod}" })
 } else {
     Import-Module $configNamingMod -Global -Force
     $rawConfigText = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction SilentlyContinue
     $retired = @(Get-RetiredConfigKeyPresent -Text ([string]$rawConfigText))
     if ($retired.Count -eq 0) {
-        Write-Pass "No retired config keys."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_bada71e7f386bac2')
     } else {
         foreach ($r in $retired) {
             $unit = if ($r.Factor -ne 1) { " (value converts: old x $($r.Factor))" } else { "" }
-            Write-Fail "'$($r.Old)' is retired -- use '$($r.New)'$unit." -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5701bff77c2c62cc' -Arguments @{ old = "$($r.Old)"; new = "$($r.New)"; unit = "$unit" }) -FullPath $ConfigPath
         }
-        Write-Info "Convert the whole file in one step: pwsh tools/Update-TestConfigNaming.ps1"
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_5366e41cd6eece52')
     }
 }
 
@@ -246,13 +247,13 @@ if (-not (Test-Path $configNamingMod)) {
 # runner does the same via Update-TestConfigFromTemplate.
 # See docs/test-config.md (Template reconciliation).
 
-Write-Section "Config schema vs template"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0cbff397669c09e4')
 
 $configSyncMod = Join-Path $script:ModulesDir 'Test.ConfigSync.psm1'
 if (-not (Test-Path $TemplatePath)) {
-    Write-Warn "Template not found ($TemplatePath) -- cannot compare schema; the runner will load test.config.yml as-is."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c9343e3d94183a5f' -Arguments @{ templatePath = "$TemplatePath" })
 } elseif (-not (Test-Path $configSyncMod)) {
-    Write-Info "Test.ConfigSync.psm1 not found at ${configSyncMod}; schema-vs-template check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_6b771250445f1e80' -Arguments @{ configSyncMod = "${configSyncMod}" })
 } else {
     Import-Module $configSyncMod -Global -Force
     try {
@@ -270,9 +271,9 @@ if (-not (Test-Path $TemplatePath)) {
             if ((Test-Path $preludeMod) -and -not (Get-Command Get-EntryPointExitCode -ErrorAction SilentlyContinue)) {
                 Import-Module $preludeMod -Global -Force
             }
-            Write-Info "Applying config migration (backup -> template -> carry matching values forward)..."
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_b1f8d0c2e7161b4e')
             $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
-            Write-Pass "Config migrated to the template schema; previous file backed up to $backupPath. Re-run Test-Config to validate the migrated file."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_3ea856621a49f7a4' -Arguments @{ backupPath = "$backupPath" })
         } else {
             # Default: reconcile the file to the template -- add missing fields,
             # drop keys the template no longer defines (backing up first when a
@@ -286,15 +287,15 @@ if (-not (Test-Path $TemplatePath)) {
                 if ($res.Added.Count   -gt 0) { [void]$summary.Add("added $($res.Added.Count) missing field(s)") }
                 if ($res.Removed.Count -gt 0) { [void]$summary.Add("removed $($res.Removed.Count) key(s) not in the schema") }
                 [void]$summary.Add("sorted to alphabetical order")
-                Write-Pass "test.config.yml reconciled to the template: $($summary -join '; ')."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f1c4363daf483d7c' -Arguments @{ join = "$($summary -join '; ')" })
                 if ($res.Added.Count -gt 0) {
                     $addedList = ($res.Added | ForEach-Object { "          - $_" }) -join "`n"
-                    Write-Info "New fields written with empty/default values -- fill these in:`n$addedList"
+                    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_9f261d271fd76a51' -Arguments @{ addedList = "$addedList" })
                 }
             } elseif ($shapeMatches) {
-                Write-Pass "test.config.yml matches the template's nested schema."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_1b4678701df4b2f4')
             } else {
-                Write-Info "test.config.yml already carries every current-schema field in canonical order; nothing to change."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_9d70cd3adcc52aa8')
             }
 
             if ($res.Removed.Count -gt 0) {
@@ -308,7 +309,7 @@ if (-not (Test-Path $TemplatePath)) {
             }
         }
     } catch {
-        Write-Fail "Schema-vs-template comparison failed: $($_.Exception.Message)" -FullPath $ConfigPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_588f793a5bce2c4e' -Arguments @{ message = "$($_.Exception.Message)" }) -FullPath $ConfigPath
     }
 }
 
@@ -321,25 +322,25 @@ if (-not (Test-Path $TemplatePath)) {
 # is suppressed here because THIS script IS the deeper check it would
 # otherwise advertise.
 
-Write-Section "Host requirements (quick)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0eaac625cae7caa8')
 
 $ModulesDir  = Join-Path $TestRoot "modules"
 $hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
 $HostType    = $null
 if (-not (Test-Path $hostModPath)) {
-    Write-Fail "Test.HostContract.psm1 not found at: $hostModPath"
+    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_c9a0622a7c0cf589' -Arguments @{ hostModPath = "$hostModPath" })
 } else {
     Import-Module -Name $hostModPath -Force -Global
     $HostType = Get-HostType
     if (-not $HostType) {
-        Write-Fail "Could not detect host type (unsupported platform)."
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_cf973fdec9d6f1dd')
     } else {
         # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this
         # shell's group set is stale. Most of Test-Config's later probes
         # (libvirt VM listing, host-feature checks) need libvirt-socket
         # access. No-op on other hosts / fresh shells.
         Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
-        Write-Pass "Host type detected: $HostType"
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_7ad9a8cd1a9709db' -Arguments @{ hostType = "$HostType" })
         # Capture Test-HostRequirement's Write-Warning lines via -WarningVariable
         # and re-emit them through Write-Warn so they land under the current
         # section in Test.Output's state. Without this, those warnings reach
@@ -350,9 +351,9 @@ if (-not (Test-Path $hostModPath)) {
         $reqOk = Test-HostRequirement -HostType $HostType -InformationAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable reqWarns
         foreach ($w in $reqWarns) { Write-Warn "$w" }
         if ($reqOk) {
-            Write-Pass "Host requirements quick check passed."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_7d1e9cbc4ff500f6')
         } else {
-            Write-Fail "Host requirements quick check failed -- see the [WARN] line(s) in this section."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_ad0f9b65a3b27ef4')
         }
     }
 }
@@ -381,7 +382,7 @@ function Invoke-HostClockSyncOffer {
     param([Parameter(Mandatory)][string]$HostType)
     if (-not (Get-Command Sync-HostClock -ErrorAction SilentlyContinue)) { return $false }
     if (-not (Test-YurunaCanPrompt)) { return $false }
-    $ans = Read-Host "Host clock: resynchronize it against NTP now (needs Administrator / sudo)? [y/N]"
+    $ans = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_b911fd964c58192d')
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
     # Prime the sudo credential cache first. Every platform's sync calls
     # `sudo -n` so it can never hang a caller on a hidden prompt -- which on
@@ -390,7 +391,7 @@ function Invoke-HostClockSyncOffer {
     # the calls that follow. No-op on Windows and when already root.
     if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
         if (-not (Initialize-SudoCache -Reasons @('resynchronize the host clock against NTP'))) {
-            Write-Info "  Clock sync skipped: no sudo credential."
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_e5f6d0ead5f8eede')
             return $false
         }
     }
@@ -399,38 +400,79 @@ function Invoke-HostClockSyncOffer {
         Write-Info "  $($result.Message)"
         return $true
     }
-    Write-Info "  Clock sync did not complete: $($result.Message)"
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_e4d6767baee05dac' -Arguments @{ message = "$($result.Message)" })
     return $false
 }
 
-Write-Section "Host clock"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_fc2930c1a5a1aa8e')
 
 if (-not $HostType) {
-    Write-Warn "Host type unknown -- host clock not checked."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_4f34d35ef3aa3f62')
 } elseif (-not (Get-Command Get-HostClockSkew -ErrorAction SilentlyContinue)) {
-    Write-Warn "Get-HostClockSkew not available -- host clock not checked."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_d26654091a43fd36')
 } else {
     $skewLimit = Get-HostClockSkewLimit
     $skew      = Get-HostClockSkew
     if ($null -eq $skew) {
         # Unmeasured is not the same as bad: an isolated lab has no route to
         # a time server and still runs.
-        Write-Info "No time server answered -- host clock skew not measured (expected on an isolated host)."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_7a9e854f1db429d5')
     } elseif ([math]::Abs($skew) -le $skewLimit) {
-        Write-Pass "Host clock is $([math]::Round($skew, 1))s from real time (limit ${skewLimit}s)."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_2cd575ec280d67bf' -Arguments @{ skew = "$([math]::Round($skew, 1))"; skewLimit = "${skewLimit}" })
     } else {
         $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
-        Write-Warn "Host clock is $([math]::Round([math]::Abs($skew), 1))s $direction real time (limit ${skewLimit}s). Guests inherit this clock at power-on and get stepped to real time mid-boot; a Kubernetes guest then comes up with pods Running but never Ready and every NodePort refusing."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_3208bd90808538c6' -Arguments @{ skew = "$([math]::Round([math]::Abs($skew), 1))"; direction = "$direction"; skewLimit = "${skewLimit}" })
         if (Invoke-HostClockSyncOffer -HostType $HostType) {
             $skew = Get-HostClockSkew
             if ($null -ne $skew -and [math]::Abs($skew) -le $skewLimit) {
-                Write-Pass "Host clock resynchronized -- now $([math]::Round($skew, 1))s from real time."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_68c1fa0e68b90635' -Arguments @{ skew = "$([math]::Round($skew, 1))" })
             } else {
-                Write-Warn "Host clock still off after the sync attempt. Check the host's time source before starting a cycle."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_ec7e0200dab2628f')
             }
         } else {
-            Write-Info "  Fix with: pwsh test/lab/Enable-TestAutomation.ps1  (elevated / with sudo)"
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_e63b1a967d2939be')
         }
+    }
+}
+
+# --- REGION: Section 3c: Host setup freshness
+# The settings Enable-TestAutomation applies survive a reboot, but not reliably
+# a major OS upgrade: app preference domains are rebuilt from their defaults and
+# privacy grants are re-asked. The host then presents as one that was never set
+# up -- several unrelated-looking settings gone at once, each reported in its own
+# section further down, none of them naming the event they share. Said once,
+# here, ahead of the sections that report the consequences, the whole set reads
+# as one thing with one fix.
+#
+# WARN, never FAIL: an upgraded host whose settings all survived still runs, and
+# the ones that did not survive are refused on their own terms below. A second
+# refusal for the same host state would only make the first harder to find.
+
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6b34b3231afbc220')
+
+$hostStateMod = Join-Path $script:ModulesDir 'Test.HostAutomationState.psm1'
+if (-not (Test-Path -LiteralPath $hostStateMod)) {
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_16231ab6576eea45' -Arguments @{ hostStateMod = "$hostStateMod" })
+} else {
+    try {
+        Import-Module $hostStateMod -Global -Force -DisableNameChecking -ErrorAction Stop
+        $hostSetupState = Read-HostAutomationState
+        if (-not $hostSetupState) {
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_1cfaa5f7efe3352b')
+        } elseif (-not $hostSetupState.PSObject.Properties['os']) {
+            # Silence from a capture that never held an opinion is not agreement,
+            # and reporting it as a match would be inventing one.
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_13a64a29700e4dfa')
+        } else {
+            $osDrift = Get-HostAutomationOsDrift -State $hostSetupState
+            if ($osDrift) {
+                Write-Warn $osDrift
+            } else {
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_fbe761e4aca4bde7')
+            }
+        }
+    } catch {
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c9576c60463f615c' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -440,7 +482,7 @@ if (-not $HostType) {
 # 4-core thresholds match the "three concurrent 2-vCPU/4 GiB guests + an
 # OCR worker on the host" calibration the cycle is sized for.
 
-Write-Section "Host capacity"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ae9514864e3cfad4')
 
 try {
     $ramGiB     = $null
@@ -465,20 +507,20 @@ try {
     }
     if ($null -ne $ramGiB) {
         if ($ramGiB -lt 16) {
-            Write-Warn "RAM = ${ramGiB} GiB -- below 16 GiB calibration; consider running fewer guests in parallel."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c86a34181a6e7290' -Arguments @{ ramGiB = "${ramGiB}" })
         } else {
             Write-Pass "RAM = ${ramGiB} GiB."
         }
     }
     if ($null -ne $logicalCpu -and $logicalCpu -gt 0) {
         if ($logicalCpu -lt 4) {
-            Write-Warn "Logical CPUs = $logicalCpu -- below 4-core calibration; cycles will be slow."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_eca5cda0ca30d7a8' -Arguments @{ logicalCpu = "$logicalCpu" })
         } else {
-            Write-Pass "Logical CPUs = $logicalCpu ($cpuModel)."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f8b9b097470ee897' -Arguments @{ logicalCpu = "$logicalCpu"; cpuModel = "$cpuModel" })
         }
     }
 } catch {
-    Write-Warn "Could not read host capacity: $($_.Exception.Message)"
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_2ec32a8a3612315f' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: Section 5: Host-specific feature state
@@ -488,7 +530,7 @@ try {
 # installed on macOS. Catches "Hyper-V is half-enabled, reboot pending"
 # (memory: dism_enable_pending_trap) before a cycle hits it.
 
-Write-Section "Host-specific feature state"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9d62f276492b34f0')
 
 switch ($HostType) {
     'host.windows.hyper-v' {
@@ -499,29 +541,29 @@ switch ($HostType) {
             if ($featureLine) {
                 $state = $featureLine.Matches[0].Groups[1].Value.Trim()
                 if ($state -eq 'Enabled') {
-                    Write-Pass "Microsoft-Hyper-V-All feature state = Enabled."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_895abfd57f7672a7')
                 } else {
-                    Write-Fail "Microsoft-Hyper-V-All feature state = $state. Enable from elevated PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All  (then reboot)."
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_c5be34e9077c81b6' -Arguments @{ state = "$state" })
                 }
             } else {
-                Write-Warn "DISM did not return a Hyper-V feature state (DISM.exe needs Administrator to query feature state; the Section 3 quick check above will already have flagged elevation if that's the cause)."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_44963937e5dae96e')
             }
         } catch {
-            Write-Warn "DISM Hyper-V feature query failed: $($_.Exception.Message)"
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_e5e2b6cb5e0446ce' -Arguments @{ message = "$($_.Exception.Message)" })
         }
         $vmms = Get-Service -Name vmms -ErrorAction SilentlyContinue
         if ($vmms -and $vmms.Status -eq 'Running') {
-            Write-Pass "Hyper-V vmms service: Running."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_67bdf7a52b9c83a4')
         } else {
             $vmmsState = if ($vmms) { "$($vmms.Status)" } else { 'not installed' }
-            Write-Fail "Hyper-V vmms service: $vmmsState."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_2351701b37c22396' -Arguments @{ vmmsState = "$vmmsState" })
         }
     }
     'host.ubuntu.kvm' {
         if (Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue) {
-            Write-Pass "qemu-system-x86_64 found on PATH."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_9012bfc1395ad8f0')
         } else {
-            Write-Fail "qemu-system-x86_64 not found -- the QEMU package is not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y qemu-system-x86"
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_ddfdfd1aaf528d2e')
         }
         # Distinguish "the service is stopped" from "the package that provides the
         # service was never installed": 'systemctl start' is useless advice for a
@@ -532,25 +574,25 @@ switch ($HostType) {
         } else {
             $unitFiles = & systemctl list-unit-files libvirtd.service 2>$null
             if ("$unitFiles" -match 'libvirtd\.service') {
-                Write-Fail "libvirtd: $libvirtd. Start with: sudo systemctl enable --now libvirtd"
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_b9c7d8855a1c978a' -Arguments @{ libvirtd = "$libvirtd" })
             } else {
-                Write-Fail "libvirtd: the libvirtd.service unit does not exist -- libvirt-daemon-system is not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y libvirt-daemon-system libvirt-clients"
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_3200a5db7804abee')
             }
         }
         if (Test-Path '/dev/kvm') {
-            Write-Pass "/dev/kvm present."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_29160309e2dd574e')
         } else {
-            Write-Fail "/dev/kvm missing. Enable VT-x/SVM in firmware and load the kvm module."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_858ff13ef34eb20c')
         }
     }
     'host.macos.utm' {
         if (Test-Path '/Applications/UTM.app') {
-            Write-Pass "UTM.app installed."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0c010045ce278885')
         } else {
-            Write-Fail "UTM.app missing -- install it: brew install --cask utm (or https://mac.getutm.app)"
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_1a355714114b86a7')
         }
         if (Get-Command utmctl -ErrorAction SilentlyContinue) {
-            Write-Pass "utmctl reachable on PATH."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_592b951962ee6c49')
         } else {
             # UTM installs correctly and still leaves this failing: the CLI lives
             # inside the app bundle and nothing puts that directory on PATH. Both
@@ -563,7 +605,7 @@ switch ($HostType) {
             } else {
                 'sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacOS/utmctl /usr/local/bin/utmctl'
             }
-            Write-Fail "utmctl missing on PATH -- UTM keeps it inside the app bundle. Fix with either: pwsh test/lab/Enable-TestAutomation.ps1  --  or  --  $utmctlFix"
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_4f4e5a1eb5b7cde5' -Arguments @{ utmctlFix = "$utmctlFix" })
         }
     }
 }
@@ -586,29 +628,29 @@ switch ($HostType) {
 # grant, the exact pane, and the exact application to enable.
 
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -ErrorAction SilentlyContinue)) {
-    Write-Section "macOS permissions (operator grants)"
+    Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6bcdcf9aad9c55be')
 
     $grantSession = Get-MacSessionKind
     $grantSubject = Get-MacTccSubjectName
     if ($grantSession -eq 'Remote') {
-        Write-Warn "This is a remote session, which cannot hold these grants whatever the desktop session was given. The states below describe this session, not the one that runs the harness -- re-run from the desktop to get a real answer."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_7080fa67fbe7d466')
     }
 
     foreach ($grantState in Get-MacOperatorGrantState) {
         $compactFix = (Get-MacOperatorGrantInstruction -Grant $grantState.Grant -Compact)[0]
         switch ($grantState.State) {
             'granted' {
-                Write-Pass "$($grantState.Title): granted to $grantSubject."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f1955d86617ebb46' -Arguments @{ title = "$($grantState.Title)"; grantSubject = "$grantSubject" })
             }
             'overridden' {
-                Write-Warn "$($grantState.Title): reads as not granted, but $($grantState.Grant.SkipEnvVar)=1 forces it through. The cycle will run and may fail on it."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_3158e5a38ea4268f' -Arguments @{ title = "$($grantState.Title)"; skipEnvVar = "$($grantState.Grant.SkipEnvVar)" })
             }
             'unprobed' {
                 # No probe exists that does not itself raise the dialog, and a
                 # gate that pops a modal before every cycle hangs an unattended
                 # host. Listed so the prompt is expected rather than a surprise
                 # mid-cycle; Enable-TestAutomation triggers and confirms it.
-                Write-Info "$($grantState.Title): not testable from here without raising its dialog. $($grantState.Grant.Pane) -- macOS asks $grantSubject once, at the first UTM operation."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_f812696e3639649c' -Arguments @{ title = "$($grantState.Title)"; pane = "$($grantState.Grant.Pane)"; grantSubject = "$grantSubject" })
             }
             default {
                 $stateNote = if ($grantState.State -eq 'unknown') {
@@ -638,15 +680,48 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -
 # gate refuses to start a cycle on.
 
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -ErrorAction SilentlyContinue)) {
-    Write-Section "macOS screen lock / display sleep"
+    Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ff747670f88f9812')
 
     $screenLockIssues = @(Get-MacScreenLockIssue)
     if ($screenLockIssues.Count -eq 0) {
-        Write-Pass "Screen saver, screen lock and sleep settings will not blank the VM display."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_6f4b582f73d5b9a7')
     } else {
-        foreach ($screenLockIssue in $screenLockIssues) { Write-Fail $screenLockIssue }
-        Write-Info "When the display blanks, UTM screen captures return a black image and OCR-based waitForText steps time out."
-        Write-Info "Fix with: pwsh test/lab/Enable-TestAutomation.ps1  (asks for sudo)"
+        # Inside the failure for the same reason the UTM lifetime section below
+        # does it: the FAILURES block carries the message and nothing else.
+        foreach ($screenLockIssue in $screenLockIssues) {
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_67ce0ab8e4cf372e' -Arguments @{ screenLockIssue = "$screenLockIssue" })
+        }
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_9a4d5ce04643bf5f')
+    }
+}
+
+# --- REGION: Section 5a3: UTM app lifetime
+# Its own section rather than a tail on the screen-lock findings above: neither
+# of these settings is a screen setting and neither needs sudo, so filing them
+# under a heading about display sleep -- beside a remedy that announces it will
+# ask for a password -- sends the operator into System Settings looking for a
+# pane that has no such knob. They are read from Get-MacUtmLifetimeIssue, which
+# is also what the per-cycle assertion prints, so the report and the gate cannot
+# describe the same host differently.
+#
+# FAIL, like 5a2: every line it returns is one the gate refuses to start on.
+
+if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -ErrorAction SilentlyContinue)) {
+    Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9849668785458289')
+
+    $utmLifetimeIssues = @(Get-MacUtmLifetimeIssue)
+    if ($utmLifetimeIssues.Count -eq 0) {
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_ec3f20e506fd78d7')
+    } else {
+        # The remedy rides INSIDE the failure. Write-Summary's FAILURES block
+        # re-emits the failure message and nothing else -- an info line that
+        # follows it is not recorded at all -- and that block is the whole of
+        # what an operator reads when a cycle is refused. A fix written beside
+        # the finding reaches only whoever watched the report scroll past.
+        foreach ($utmLifetimeIssue in $utmLifetimeIssues) {
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_545d6bd235331d52' -Arguments @{ utmLifetimeIssue = "$utmLifetimeIssue" })
+        }
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_df9915184f95ea4a')
     }
 }
 
@@ -661,11 +736,11 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -Err
 # the drift has already cost what it was going to cost, and a health report that
 # can fail a run is one operators stop running.
 
-Write-Section "Host address stability"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_31308c32d6152537')
 
 $beaconMod = Join-Path $script:ModulesDir 'Test.HostAddressBeacon.psm1'
 if (-not (Test-Path -LiteralPath $beaconMod)) {
-    Write-Warn "Test.HostAddressBeacon.psm1 not found at '$beaconMod'; skipping the address-stability check."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_1f6dfcebaead2912' -Arguments @{ beaconMod = "$beaconMod" })
 } else {
     try {
         Import-Module $beaconMod -Global -Force -DisableNameChecking -ErrorAction Stop
@@ -688,17 +763,17 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
         if ($stability.identity.backend -eq 'networkmanager' -and $stability.identity.pinned -eq $false) {
             $pin = Set-HostBridgeDhcpIdentity -Confirm:$false
             if ($pin.verified) {
-                Write-Pass "Bridge DHCP identity pinned automatically: $($pin.reason)"
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_57f365ecb6da1349' -Arguments @{ reason = "$($pin.reason)" })
             } elseif ($pin.applied) {
-                Write-Warn "Bridge DHCP identity: $($pin.reason) Apply by hand: $($stability.remedy)"
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_d36520d366e5684b' -Arguments @{ reason = "$($pin.reason)"; remedy = "$($stability.remedy)" })
             } else {
-                Write-Warn "Bridge DHCP identity could not be pinned automatically ($($pin.reason)) Apply by hand: $($stability.remedy)"
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c29d00df1b36fde9' -Arguments @{ reason = "$($pin.reason)"; remedy = "$($stability.remedy)" })
             }
         } elseif ($stability.remedy) {
             Write-Info "  Remedy: $($stability.remedy)"
         }
     } catch {
-        Write-Warn "Host address stability could not be assessed: $($_.Exception.Message)"
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_3b73b0337a497028' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -723,39 +798,39 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
 # would be inventing a gate the harness does not have -- and a health report
 # that can fail a run is one operators stop running.
 
-Write-Section "Display scaling (OCR)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_c4c48bd5e5d1638b')
 
 $scaleReport = $null
 if (-not $HostType) {
-    Write-Info "Host type unknown -- display scaling not checked."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_3f1c5859eb0fc0d7')
 } elseif ($HostType -eq 'host.ubuntu.kvm') {
-    Write-Info "Not applicable on host.ubuntu.kvm: OCR frames come from 'virsh screenshot' against the libvirt framebuffer, and a 'window' request is collapsed to that same read, so host display scaling cannot reach OCR."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_994ef92cd96e4483')
 } elseif ($HostType -eq 'host.windows.hyper-v' -and (Get-Command Get-WindowsDisplayScaleIssue -ErrorAction SilentlyContinue)) {
     $scaleReport = Get-WindowsDisplayScaleIssue
     if ($scaleReport.Status -eq 'Clean') {
-        Write-Pass "Host display and text scaling read 100%, so window captures reach OCR at native resolution."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f1d89780c596a9dc')
     } elseif ($scaleReport.Status -eq 'Issue') {
         foreach ($scaleIssue in @($scaleReport.Issue)) { Write-Warn $scaleIssue }
-        Write-Info "The OCR wait loop reads the guest framebuffer through WMI and is unaffected. Scaling reaches OCR through the vmconnect window, which tapOn always captures and which the frame path falls back to when the WMI read fails."
-        Write-Info "On those paths a step burns its whole timeoutSeconds and reports 'pattern not found' while the saved frame still looks readable."
-        Write-Info "Fix with: Settings > System > Display > Scale set to 100%, then sign out and back in  (a session keeps the scale it started with)."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_5fa4b4be805499ca')
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_5a1fbbd3e27b9097')
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_1395b068573e4406')
     } else {
         Write-Info $scaleReport.Detail
     }
 } elseif ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacDisplayScaleIssue -ErrorAction SilentlyContinue)) {
     $scaleReport = Get-MacDisplayScaleIssue -Json (Get-MacDisplayScaleProfile)
     if ($scaleReport.Status -eq 'Clean') {
-        Write-Pass "The main display renders two pixels per point, so UTM window captures carry the glyph resolution OCR expects."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_35b361a85b3df9f8')
     } elseif ($scaleReport.Status -eq 'Issue') {
         foreach ($scaleIssue in @($scaleReport.Issue)) { Write-Warn $scaleIssue }
-        Write-Info "Guests whose UTM configuration passes -vnc to QEMU are read straight off the guest framebuffer and are unaffected. Scaling reaches OCR through UTM window captures: guests that ship without -vnc, tapOn on any guest, and VNC failures."
-        Write-Info "A scaled 'More Space' mode is not the problem: screencapture reads the backing store before the GPU fits it to the panel, so those captures still carry two pixels per point. What halves them is a main display with no HiDPI mode at all."
-        Write-Info "Fix with: System Settings > Displays, making a Retina display the main one, or move the UTM window onto the built-in panel."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_2a85bda1cd1209c1')
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_bbac623528774da5')
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_605d8136a02536bc')
     } else {
         Write-Info $scaleReport.Detail
     }
 } else {
-    Write-Info "Display scaling is not checked on host type '$HostType'."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_ced3fcccb0541704' -Arguments @{ hostType = "$HostType" })
 }
 
 # --- REGION: Section 5d: Storage filter stack (guest throughput)
@@ -777,25 +852,25 @@ if (-not $HostType) {
 # are Windows constructs, and a KVM or UTM host's qcow2 has nothing
 # equivalent in the path.
 
-Write-Section "Storage filter stack (guest throughput)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_e2f867223580bc4d')
 
 if (-not $HostType) {
-    Write-Info "Host type unknown -- the storage filter stack was not checked."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_eeb6776b5bd64d89')
 } elseif ($HostType -ne 'host.windows.hyper-v') {
-    Write-Info "Not applicable on ${HostType}: filesystem minifilters and volume shadow copies are Windows constructs, and this host's guest disks are not filtered by either."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_72d89cb5c073471b' -Arguments @{ hostType = "${HostType}" })
 } elseif (Get-Command Get-WindowsVhdxFilterProfile -ErrorAction SilentlyContinue) {
     $filterReport = Get-WindowsVhdxFilterIssue -FilterProfile (Get-WindowsVhdxFilterProfile)
     if ($filterReport.Status -eq 'Clean') {
         Write-Pass $filterReport.Detail
     } elseif ($filterReport.Status -eq 'Issue') {
         foreach ($filterIssue in @($filterReport.Issue)) { Write-Warn $filterIssue }
-        Write-Info "This does not fail a cycle. It is reported because it rescales what every step on this host costs, so a budget derived from a filtered run does not transfer to an unfiltered one."
-        Write-Info "To measure without it: exclude the virtual hard disk folder, vmms.exe and vmwp.exe in the scanner that owns real-time protection, and delete the shadow copies on that volume if they are not wanted."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_0f22cab8656d5071')
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_d0f51031b8e3e54e')
     } else {
         Write-Info $filterReport.Detail
     }
 } else {
-    Write-Info "The storage filter stack could not be checked: the Windows host-condition module is not loaded."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_232cfca70f56875f')
 }
 
 # --- REGION: Section 6: Framework / project staleness
@@ -804,7 +879,7 @@ if (-not $HostType) {
 # is older than what landed on main. Repeat for the project clone when
 # one exists under <RepoRoot>/project/ (Update-ProjectClone path).
 
-Write-Section "Framework / project staleness"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_b1165d978837552e')
 
 $RepoRoot = Split-Path -Parent $TestRoot
 
@@ -832,7 +907,7 @@ if (Test-Path (Join-Path $projectClone '.git')) {
     $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
     if ($entries -eq 0) {
         $hint = if (Test-IsSet $projectUrlConfigured) {
-            "Last cycle's Update-ProjectClone removed the previous clone and then 'git clone $projectUrlConfigured' failed, leaving an empty target dir. Status service will 404 /yuruna-project-archive.tar.gz and guests will fall through to their own clone of the same URL. Delete this folder and fix repositories.projectUrl before rerunning."
+            (Format-YurunaOperatorMessage -Key 'runner.operator_e36eb642e8f00a48' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
         } else {
             "<RepoRoot>/project/ is empty AND repositories.projectUrl is unset -- nothing will populate it. Either commit the in-tree project layout under project/, or set repositories.projectUrl."
         }
@@ -858,15 +933,15 @@ if (Test-IsSet $projectUrlConfigured) {
         $localPath = $null
         try { $localPath = ([System.Uri]::new($projectUrlConfigured)).LocalPath } catch { $localPath = $null }
         if (-not $localPath) {
-            Write-Fail "projectUrl='$projectUrlConfigured' is not a parseable file:// URL." -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_862ae0516e939949' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $ConfigPath
         } elseif (-not (Test-Path -LiteralPath $localPath)) {
-            Write-Fail "projectUrl='$projectUrlConfigured' points to '$localPath' which does not exist on this host. Fix repositories.projectUrl in test.config.yml." -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_17689903bb502dcb' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $ConfigPath
         } elseif (-not (Test-Path -LiteralPath (Join-Path $localPath '.git'))) {
-            Write-Fail "projectUrl='$projectUrlConfigured' resolves to '$localPath' which exists but has no .git -- 'git clone' will fail with 'does not appear to be a git repository'." -FullPath $localPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5886f5f135754edf' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $localPath
         } else {
-            Write-Pass "projectUrl resolves to local git repo: $localPath"
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_cfcc5664cd584b70' -Arguments @{ localPath = "$localPath" })
         }
-        Write-Warn "projectUrl is a file:// URL -- only the host can resolve it. Guests that hit the tarball-fallback path (status service 404 on /yuruna-project-archive.tar.gz) will attempt 'git clone $projectUrlConfigured' on their OWN Linux filesystem and fail. Use an HTTPS/SSH URL guests can reach if you rely on the guest fallback."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_1c454b2f57b2a09f' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
     } elseif ($projectUrlConfigured -match '^(?i)(https?|ssh|git)://') {
         # Cheap, no-fetch reachability probe routed through the shared network-git
         # helper: it is prompt-proof (a private/missing repo exits non-zero instead
@@ -876,7 +951,7 @@ if (Test-IsSet $projectUrlConfigured) {
         try {
             $ls  = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $projectUrlConfigured, 'HEAD') -TimeoutSeconds 30
             if ($ls.ExitCode -eq 0) {
-                Write-Pass "projectUrl reachable (git ls-remote HEAD exit 0): $projectUrlConfigured"
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c382467dc6401b1e' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
             } elseif (Test-GitRemoteAuthFailure -Output $ls.Output) {
                 # github.com answered, and it rejected the credential -- so the URL
                 # is very likely fine and the generic causes below are a wrong
@@ -885,25 +960,25 @@ if (Test-IsSet $projectUrlConfigured) {
                 # so anything written outside it never reaches the operator who
                 # is looking at a refused cycle.
                 $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
-                Write-Fail "projectUrl='$projectUrlConfigured': github.com REFUSED this host's GitHub credential (git ls-remote exit $($ls.ExitCode)) -- the URL itself is reachable, so this is a login to refresh, not a typo to hunt. Every credential source this host has was tried. Refresh the login with ONE of, then re-run: $remedy. ls-remote output: $($ls.Output)" -FullPath $ConfigPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_53eb2318a1df9482' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; remedy = "$remedy"; output = "$($ls.Output)" }) -FullPath $ConfigPath
             } else {
-                Write-Fail "projectUrl='$projectUrlConfigured' is not reachable (git ls-remote exit $($ls.ExitCode)). Common causes: typo, private repo without cached credentials, or repo doesn't exist. ls-remote output: $($ls.Output)" -FullPath $ConfigPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_8f1650c0562eb4a1' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; output = "$($ls.Output)" }) -FullPath $ConfigPath
             }
         } catch {
-            Write-Fail "projectUrl='$projectUrlConfigured': ls-remote threw -- $($_.Exception.Message)" -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f4cd25b85f333709' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; message = "$($_.Exception.Message)" }) -FullPath $ConfigPath
         }
     } else {
         # No scheme -- accept a bare local path (rare, but git clone
         # treats it identically to file://). Same host-only caveat.
         if (Test-Path -LiteralPath $projectUrlConfigured) {
             if (Test-Path -LiteralPath (Join-Path $projectUrlConfigured '.git')) {
-                Write-Pass "projectUrl resolves to local git repo (no scheme): $projectUrlConfigured"
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_09fdc948e3ecea79' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
             } else {
-                Write-Fail "projectUrl='$projectUrlConfigured' exists but has no .git." -FullPath $projectUrlConfigured
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_d7415f48e6da1668' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $projectUrlConfigured
             }
-            Write-Warn "projectUrl is a local path -- guests cannot resolve it on their own filesystem. Use an HTTPS/SSH URL if guests need the fallback clone path."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_aeb2c450546713d2')
         } else {
-            Write-Fail "projectUrl='$projectUrlConfigured' has no recognized scheme (http/https/ssh/git/file) and isn't a local path. Update-ProjectClone will fail at cycle start." -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_90e84c1a4288e408' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $ConfigPath
         }
     }
 }
@@ -912,64 +987,64 @@ if (Test-IsSet $projectUrlConfigured) {
 # DNS + TCP probes of github.com:443. Surfaces a bad network state HERE
 # rather than later when Invoke-GitPull retries inside a running cycle.
 
-Write-Section "GitHub connectivity"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_3c765aa340080677')
 
 try {
     $resolved = [System.Net.Dns]::GetHostAddresses("github.com")
-    Write-Pass "DNS resolved 'github.com' -> $($resolved[0].IPAddressToString)"
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_48b1d6d4d9dcda06' -Arguments @{ iPAddressToString = "$($resolved[0].IPAddressToString)" })
     try {
         if (Test-TcpReachable -HostName "github.com" -Port 443 -TimeoutMs 5000) {
-            Write-Pass "TCP connection to github.com:443 succeeded."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_3640b6d07a2b9f5c')
         } else {
-            Write-Fail "TCP connection to github.com:443 timed out -- check firewall / VPN / captive portal."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_6829a064da0c5779')
         }
     } catch {
-        Write-Fail "TCP connection to github.com:443 failed: $($_.Exception.Message)"
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_11876ad9b473f46f' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 } catch {
-    Write-Fail "DNS resolution failed for 'github.com': $($_.Exception.Message)"
+    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_88fcb4dc7bd3cb87' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: Section 8: Top-level fields
-Write-Section "Top-level settings"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_33144fc4aa1c041f')
 
 if ($Config.Contains("notification")) {
-    Write-Pass "'notification' block is present."
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_78b1b85cec599efd')
 } else {
-    Write-Fail "'notification' block is missing."
+    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_e9ad154c8280de71')
 }
 
 if ($Config.vmImage -is [System.Collections.IDictionary] -and $Config.vmImage.Contains("alwaysRedownload")) {
     Write-Pass "'vmImage.alwaysRedownload' = $($Config.vmImage.alwaysRedownload)"
 } else {
-    Write-Warn "'vmImage.alwaysRedownload' not set -- defaults to false."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_46136d6c5cefc867')
 }
 
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains("testVmNamePrefix")) {
     Write-Pass "'vmStart.testVmNamePrefix' = '$($Config.vmStart.testVmNamePrefix)'"
 } else {
-    Write-Warn "'vmStart.testVmNamePrefix' not set -- defaults to 'test-'."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_734940dcb0b577b7')
 }
 
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("recentDisplayCount")) {
     $rdc = [int]$Config.testCycle.recentDisplayCount
     if ($rdc -gt 0) { Write-Pass "'testCycle.recentDisplayCount' = $rdc" }
-    else            { Write-Warn "'testCycle.recentDisplayCount' is $rdc -- should be a positive integer." }
+    else            { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_a565ade81af18324' -Arguments @{ rdc = "$rdc" }) }
 } else {
-    Write-Warn "'testCycle.recentDisplayCount' not set -- defaults to 30."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_b89f268b331febff')
 }
 
 if ($Config.Contains("statusService")) {
     $ss = $Config.statusService
-    Write-Pass "'statusService' block present (enabled=$($ss.enabled), port=$($ss.port))."
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0585c7357ad852f5' -Arguments @{ enabled = "$($ss.enabled)"; port = "$($ss.port)" })
 } else {
-    Write-Warn "'statusService' not set -- status HTTP server will be disabled."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_7769fd67a358d3fe')
 }
 
 if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains("frameworkUrl")) {
     Write-Pass "'repositories.frameworkUrl' = '$($Config.repositories.frameworkUrl)'"
 } else {
-    Write-Warn "'repositories.frameworkUrl' not set -- status page commit links may not work, and the failure-pause break-out trigger that watches the framework repo will be a no-op."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_47d0c2e1e976d3e2')
 }
 
 # Deeper validation (URL reachability, <RepoRoot>/project/ state) lives in
@@ -980,16 +1055,24 @@ if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repos
     if (Test-IsSet $projectUrlVal) {
         Write-Pass "'repositories.projectUrl' = '$projectUrlVal'"
     } else {
-        Write-Warn "'repositories.projectUrl' is empty -- in-tree <RepoRoot>/project/ will be used (no clone)."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_63fc67bee35b878c')
     }
 } else {
-    Write-Warn "'repositories.projectUrl' not set -- in-tree <RepoRoot>/project/ will be used (no clone)."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c3ffd789e9bc70d8')
 }
 
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("stopOnFailure")) {
     Write-Pass "'testCycle.stopOnFailure' = $($Config.testCycle.stopOnFailure)"
 } else {
-    Write-Warn "'testCycle.stopOnFailure' not set -- defaults to false (continues on failure)."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_0c04aa1d42c0413b')
+}
+
+if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("autoRefreshAfterStalls")) {
+    $arasVal = [int]$Config.testCycle.autoRefreshAfterStalls
+    if ($arasVal -ge 0) { Write-Pass "'testCycle.autoRefreshAfterStalls' = $arasVal" }
+    else                { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_fffaa1debcc46863' -Arguments @{ arasVal = "$arasVal" }) }
+} else {
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_677303e3823afe8d')
 }
 
 # Abort here if notification block is missing; nothing more to check.
@@ -999,14 +1082,14 @@ $notif = $Config.notification
 
 # Soft migration: surface legacy keys that have moved to status/extension/notification/transports.yml.
 if ($notif.Contains('toEmailAddress') -and (Test-IsSet $notif.toEmailAddress)) {
-    Write-Warn "notification.toEmailAddress is set in test.config.yml -- this key has moved to test/status/extension/notification/transports.yml (subscribers list). Move it manually before the next cycle."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_591e6636a34d644a')
 }
 if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDictionary] -and $Config.secrets.Contains('resend')) {
-    Write-Warn "secrets.resend is set in test.config.yml -- this block has moved to test/status/extension/notification/transports.yml (transports.resend). Move it manually before the next cycle."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_38846d9c2742bec3')
 }
 
 # --- REGION: Section 9: Extension configs
-Write-Section "Extension configs"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_c22d6962ceef7096')
 
 # Enumerated, not listed: an area is anything under test/extension/ that
 # carries its own <area>.config.yml, which is the same rule the loader
@@ -1024,9 +1107,9 @@ foreach ($AreaDir in (Get-ChildItem -LiteralPath $ExtensionRoot -Directory -Erro
 
 if (-not (Test-Path $NotificationCfgPath)) {
     if (Test-Path $NotificationTmplPath) {
-        Write-Warn "status/extension/notification/transports.yml missing -- until it exists this host sends NO notifications: a failed cycle emails nobody and is visible only in the dashboard and logs. Copy from transports.yml.template and populate before the next cycle: $NotificationTmplPath -> $NotificationCfgPath"
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_026b26a8abe44831' -Arguments @{ notificationTmplPath = "$NotificationTmplPath"; notificationCfgPath = "$NotificationCfgPath" })
     } else {
-        Write-Fail "status/extension/notification/transports.yml missing and no template found at $NotificationTmplPath" -FullPath $NotificationCfgPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_ea6267baeb75b8d8' -Arguments @{ notificationTmplPath = "$NotificationTmplPath" }) -FullPath $NotificationCfgPath
     }
 } else {
     Test-AgainstSchema -Label "transports.yml" `
@@ -1040,14 +1123,14 @@ if (Test-Path $VaultPath) {
         -YamlPath   $VaultPath `
         -SchemaPath (Join-Path $SchemasRoot "vault.schema.yml")
 } else {
-    Write-Info "vault.yml not present (expected; created on cycle start)."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_e378492dce49f390')
 }
 
 # --- REGION: Section 9b: Authentication users mapping (users.yml)
 # users.yml model + strict-mode rules:
 # docs/test-config.md#usersyml--authentication-users-mapping
 
-Write-Section "Authentication users mapping (users.yml)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_fc89ba8b6dd7e701')
 
 $UsersTemplate = Join-Path $ExtensionRoot      "authentication/users.yml.template"
 $UsersPath     = Join-Path $ExtensionStateRoot "authentication/users.yml"
@@ -1055,9 +1138,9 @@ $UsersSchema   = Join-Path $SchemasRoot        "users.schema.yml"
 
 if (-not (Test-Path $UsersPath)) {
     if (Test-Path $UsersTemplate) {
-        Write-Warn "status/extension/authentication/users.yml missing -- will be bootstrapped from template on first cycle. To customize corporate mappings ahead of that, copy: $UsersTemplate -> $UsersPath"
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_b4842fc06ed557e0' -Arguments @{ usersTemplate = "$UsersTemplate"; usersPath = "$UsersPath" })
     } else {
-        Write-Fail "status/extension/authentication/users.yml AND its template are both missing. Restore $UsersTemplate from the repository." -FullPath $UsersTemplate
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_39df6dc9ec54e3b4' -Arguments @{ usersTemplate = "$UsersTemplate" }) -FullPath $UsersTemplate
     }
 }
 
@@ -1090,7 +1173,7 @@ if (Test-Path $UsersPath) {
     try {
         $usersDoc = Read-TestConfig -Path $UsersPath -ThrowOnError
     } catch {
-        Write-Fail "users.yml parse error in ${UsersPath}: $($_.Exception.Message)" -FullPath $UsersPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_a3d2174b6f0894d4' -Arguments @{ usersPath = "${UsersPath}"; message = "$($_.Exception.Message)" }) -FullPath $UsersPath
     }
 
     if ($usersDoc) {
@@ -1100,7 +1183,7 @@ if (Test-Path $UsersPath) {
         if ($usersDoc.Contains('users') -and $usersDoc['users'] -is [System.Collections.IDictionary]) {
             foreach ($k in $usersDoc['users'].Keys) { $declared[$k] = $usersDoc['users'][$k] }
         }
-        Write-Pass ("users.yml: strict=$strict, $($declared.Keys.Count) logical user(s) declared.")
+        Write-Pass ((Format-YurunaOperatorMessage -Key 'runner.operator_1be4d809249b202a' -Arguments @{ strict = "$strict"; count = "$($declared.Keys.Count)" }))
 
         # Per-entry shape: forbid half-populated corporate fields. A
         # `sam` without a matching `domain` is almost always an operator
@@ -1116,13 +1199,13 @@ if (Test-Path $UsersPath) {
                 $s = if ($corp.Contains('sam'))    { [string]$corp['sam']    } else { '' }
                 $u = if ($corp.Contains('upn'))    { [string]$corp['upn']    } else { '' }
                 if ($s -and -not $d -and -not $u) {
-                    Write-Warn "users.yml[$logical]: corporate.sam='$s' is set but corporate.domain is empty and corporate.upn is empty. Provide one of (sam + domain) or (upn) -- bare 'sam' won't render a usable loginUser."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_bddc4f061c193ff1' -Arguments @{ logical = "$logical"; s = "$s" })
                 }
                 if ($d -and -not $s) {
-                    Write-Fail "users.yml[$logical]: corporate.domain='$d' is set but corporate.sam is empty. Provide both or neither." -FullPath $UsersPath
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_10a751722d711129' -Arguments @{ logical = "$logical"; d = "$d" }) -FullPath $UsersPath
                 }
                 if ($u -and ($u -notmatch '@')) {
-                    Write-Warn "users.yml[$logical]: corporate.upn='$u' doesn't contain '@'. UPNs are typically of the form 'user@domain.example'."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_29607e704f43acdc' -Arguments @{ logical = "$logical"; u = "$u" })
                 }
             }
         }
@@ -1143,16 +1226,16 @@ if (Test-Path $UsersPath) {
             if (-not $vk) { continue }
             if (-not $vaultUsers -or -not $vaultUsers.Contains($vk)) {
                 if ($strict) {
-                    Write-Fail "users.yml[$logical]: vaultKey='$vk' has no matching entry in vault.yml ($VaultPath). The vault NEVER auto-generates for an operator-supplied key. Add the corporate password manually: vault.yml -> users.$vk.password." -FullPath $VaultPath
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_a17f41e212009056' -Arguments @{ logical = "$logical"; vk = "$vk"; vaultPath = "$VaultPath" }) -FullPath $VaultPath
                 } else {
-                    Write-Warn "users.yml[$logical]: vaultKey='$vk' has no entry in vault.yml (lenient mode). Cycle will throw at the first Get-Password call against '$logical'."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_177930a4e66ef405' -Arguments @{ logical = "$logical"; vk = "$vk" })
                 }
             } else {
                 $pwEntry = $vaultUsers[$vk]
                 if ($pwEntry -isnot [System.Collections.IDictionary] -or -not "$($pwEntry['password'])".Trim()) {
-                    Write-Fail "users.yml[$logical]: vaultKey='$vk' resolves but its 'password' is empty in ${VaultPath}." -FullPath $VaultPath
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5d9eafcc24be162c' -Arguments @{ logical = "$logical"; vk = "$vk"; vaultPath = "${VaultPath}" }) -FullPath $VaultPath
                 } else {
-                    Write-Pass "users.yml[$logical]: vaultKey='$vk' resolves -> vault entry present."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_ab12b4ffc5b9ba50' -Arguments @{ logical = "$logical"; vk = "$vk" })
                 }
             }
         }
@@ -1205,10 +1288,10 @@ if (Test-Path $UsersPath) {
                     $by = $referencedBy[$_]
                     if ($by) { "$_ (first seen in $by)" } else { $_ }
                 }) -join '; '
-                Write-Fail ("users.yml strict mode: the following logical username(s) are referenced by sequence files but not declared in users.yml ($UsersPath): $details. Add each as a users.yml entry (copy an existing one and adjust localOsUser/corporate fields), or set 'strict: false' in users.yml to skip this check (lenient mode).") -FullPath $UsersPath
+                Write-Fail ((Format-YurunaOperatorMessage -Key 'runner.operator_454f982610b474fe' -Arguments @{ usersPath = "$UsersPath"; details = "$details" })) -FullPath $UsersPath
             } else {
                 $scannedDirs = ($sequencesDirs | ForEach-Object { $_ }) -join ', '
-                Write-Pass "users.yml strict mode: every sequence-referenced logical username is declared (scanned: $scannedDirs)."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_33f3e8bbf91dae40' -Arguments @{ scannedDirs = "$scannedDirs" })
             }
         }
     }
@@ -1223,11 +1306,11 @@ if (Test-Path $UsersPath) {
 # libraries are also shape-checked directly so a broken-but-unreferenced library
 # doesn't hide until first use.
 
-Write-Section "Sequence files (parse + snippets)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6f57742886048a0c')
 
 $seqResolveMod = Join-Path $ModulesDir 'Test.SequenceResolve.psm1'
 if (-not (Test-Path $seqResolveMod)) {
-    Write-Info "Test.SequenceResolve.psm1 not found at ${seqResolveMod}; sequence check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_2aa6c28c09400b29' -Arguments @{ seqResolveMod = "${seqResolveMod}" })
 } else {
     Import-Module $seqResolveMod -Global -Force
     $RepoRoot = Split-Path -Parent $TestRoot
@@ -1253,7 +1336,7 @@ if (-not (Test-Path $seqResolveMod)) {
                     $null = Read-SequenceFile -Path $_.FullName -NoCache
                     $seqOk++
                 } catch {
-                    Write-Fail "Sequence '$($_.Name)' failed to load: $($_.Exception.Message)" -FullPath $_.FullName
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_e77f47f87173b4b2' -Arguments @{ name = "$($_.Name)"; message = "$($_.Exception.Message)" }) -FullPath $_.FullName
                 }
             }
         # Shape-check the snippet library in this dir even when no sequence
@@ -1263,27 +1346,27 @@ if (-not (Test-Path $seqResolveMod)) {
             try {
                 $lib = Read-TestConfig -Path $libPath -ThrowOnError
                 if ($lib -isnot [System.Collections.IDictionary] -or $lib.Keys.Count -eq 0) {
-                    Write-Fail "_snippets.yml is not a non-empty map of snippet name -> steps." -FullPath $libPath
+                    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_84438f498d1117e7') -FullPath $libPath
                 } else {
                     $libBad = $false
                     foreach ($snipName in $lib.Keys) {
                         $val = $lib[$snipName]
                         if ($val -isnot [System.Collections.IEnumerable] -or $val -is [string] -or @($val).Count -eq 0) {
-                            Write-Fail "_snippets.yml snippet '$snipName' is not a non-empty list of steps." -FullPath $libPath
+                            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_ae8d65a75135365d' -Arguments @{ snipName = "$snipName" }) -FullPath $libPath
                             $libBad = $true
                         }
                     }
                     if (-not $libBad) { Write-Pass "_snippets.yml: $($lib.Keys.Count) snippet(s) in $sd." }
                 }
             } catch {
-                Write-Fail "_snippets.yml parse error: $($_.Exception.Message)" -FullPath $libPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_28e8e9b79ddad7c6' -Arguments @{ message = "$($_.Exception.Message)" }) -FullPath $libPath
             }
         }
     }
     if ($seqDirsScanned -eq 0) {
-        Write-Warn "No sequence directories found under $TestRoot/sequences or the project tree."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_b9316184e6e485e7' -Arguments @{ testRoot = "$TestRoot" })
     } else {
-        Write-Pass "Sequence files loaded + snippet-expanded OK: $seqOk file(s) across $seqDirsScanned dir(s)."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_ad68246ca1c72839' -Arguments @{ seqOk = "$seqOk"; seqDirsScanned = "$seqDirsScanned" })
     }
 }
 
@@ -1301,26 +1384,26 @@ if ($IsWindows) {
     $smbMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
     if (Test-Path $smbMod) {
         Import-Module $smbMod -Global -Force
-        Write-Section "networkStorage: stale SMB alias mappings"
+        Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_54ee1bd625685124')
         $stale = @(Get-PoolStorageStaleAliasMount)
         if ($stale.Count -eq 0) {
-            Write-Pass "no stale SMB drive mappings (every mapped server name still resolves)."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_097d3c2b155e207c')
         } else {
             $smbInteractive = Test-YurunaCanPrompt
             foreach ($s in $stale) {
                 $label = if ($s.LocalPath) { "$($s.LocalPath) -> $($s.RemotePath)" } else { $s.RemotePath }
                 $removed = $false
                 if ($smbInteractive) {
-                    $ans = Read-Host "Stale SMB mapping '$label' (server '$($s.ServerName)' no longer resolves) can block NAS mounts. Unmount it now? [y/N]"
+                    $ans = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_a9a23fce8657fc58' -Arguments @{ label = "$label"; serverName = "$($s.ServerName)" })
                     if ($ans.Trim() -match '^(y|yes)$') {
                         $removed = Remove-PoolStorageStaleAliasMount -LocalPath $s.LocalPath -RemotePath $s.RemotePath -Confirm:$false
                     }
                 }
                 if ($removed) {
-                    Write-Pass "stale SMB mapping unmounted: $label (server '$($s.ServerName)' unresolvable)."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_d11a2ae621d88853' -Arguments @{ label = "$label"; serverName = "$($s.ServerName)" })
                 } else {
                     $fix = if ($s.LocalPath) { "net use $($s.LocalPath) /delete" } else { "net use `"$($s.RemotePath)`" /delete" }
-                    Write-Warn "stale SMB mapping '$label': server '$($s.ServerName)' no longer resolves -- this can block a fresh mount of the same NAS under a current alias. Unmount it: $fix"
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_01700f1923eea4fd' -Arguments @{ label = "$label"; serverName = "$($s.ServerName)"; fix = "$fix" })
                 }
             }
         }
@@ -1344,9 +1427,9 @@ function Show-LinuxSudoHintOnce {
     # passwordless sudo is already in effect, say so and name what is left.
     if ((Get-Command Test-PoolStorageSudoReady -ErrorAction SilentlyContinue) -and (Test-PoolStorageSudoReady)) {
         $script:LinuxSudoHintShown = $true
-        Write-Info "Passwordless sudo for mount/mkdir/umount is already in effect for this account -- the /etc/sudoers.d drop-in is NOT the problem. The mount failed for the reason quoted above."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_fd00846b1ca24525')
         if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
-            Write-Info "  Missing package: the mount.cifs helper is not installed. Fix: sudo apt-get install -y cifs-utils"
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8876dbd248f20ffb')
         }
         return
     }
@@ -1370,18 +1453,18 @@ function Invoke-LinuxSudoInstallOffer {
     if (-not $IsLinux) { return $false }
     if (-not (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) { return $false }
     if (-not (Test-YurunaCanPrompt)) { return $false }
-    $ans = Read-Host "networkStorage: install the passwordless-sudo drop-in now so the mount works (sudo will prompt once for your password)? [y/N]"
+    $ans = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_13739a97fa0dd2d6')
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
     try {
         $result = Set-PoolStorageSudoers -Confirm:$false
     } catch {
-        Write-Info "Interactive sudoers install could not run: $($_.Exception.Message) -- use the manual steps below."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8da15c4079305665' -Arguments @{ message = "$($_.Exception.Message)" })
         return $false
     }
     switch ($result.Action) {
-        'installed' { Write-Info "Installed $($result.DropInPath). Retrying the mount pre-flight..."; return $true }
-        'present'   { Write-Info "Passwordless sudo is already configured -- the mount is failing for another reason (share name / credential); see the details below."; return $false }
-        default     { Write-Info "Passwordless-sudo install did not complete ($($result.Action)): $($result.Message)"; return $false }
+        'installed' { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_f604a60885fe8ac0' -Arguments @{ dropInPath = "$($result.DropInPath)" }); return $true }
+        'present'   { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_cd539eb724df3b7b'); return $false }
+        default     { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_89bc789c5a9bf8b6' -Arguments @{ action = "$($result.Action)"; message = "$($result.Message)" }); return $false }
     }
 }
 
@@ -1405,11 +1488,11 @@ function Invoke-PoolStorageVaultCredentialOffer {
     if ([string]::IsNullOrWhiteSpace($who)) { return $false }
     if (-not (Test-YurunaCanPrompt)) { return $false }
     if (-not (Get-Command Set-Password -ErrorAction SilentlyContinue)) {
-        Write-Info "networkStorage pool: the authentication extension is not loaded here, so the password cannot be stored from this run. Store it manually -- see docs/test-config.md."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_6c376ecc3b030b2b')
         return $false
     }
 
-    $ans = Read-Host "networkStorage pool: store the NAS password for '$who' in the vault now? [y/N]"
+    $ans = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_4fedc1c554253c53' -Arguments @{ who = "$who" })
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
 
     # These two reads are the only ones here with no fallback value: every other
@@ -1425,18 +1508,18 @@ function Invoke-PoolStorageVaultCredentialOffer {
     $plain   = ''
     $confirm = ''
     try {
-        $plain   = [System.Net.NetworkCredential]::new('', (Read-Host "  NAS password for '$who'" -AsSecureString)).Password
-        $confirm = [System.Net.NetworkCredential]::new('', (Read-Host '  Re-enter the password' -AsSecureString)).Password
+        $plain   = [System.Net.NetworkCredential]::new('', (Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_8ea75e717f95ddea' -Arguments @{ who = "$who" }) -AsSecureString)).Password
+        $confirm = [System.Net.NetworkCredential]::new('', (Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_479872781526f6ad') -AsSecureString)).Password
     } catch {
-        Write-Info "networkStorage pool: could not read the password ($($_.Exception.Message)); nothing stored."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8c7d39a3f7c000e6' -Arguments @{ message = "$($_.Exception.Message)" })
         return $false
     }
     if ([string]::IsNullOrEmpty($plain)) {
-        Write-Info "networkStorage pool: empty password; nothing stored (the NAS rejects an empty SMB credential)."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_c3ac8715e2a04f7c')
         return $false
     }
     if ($plain -ne $confirm) {
-        Write-Info "networkStorage pool: the two entries do not match; nothing stored. Re-run to try again."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8d6716d9de6b4e1f')
         return $false
     }
 
@@ -1452,28 +1535,28 @@ function Invoke-PoolStorageVaultCredentialOffer {
         if (Get-Command Set-UserVaultKey -ErrorAction SilentlyContinue) {
             try {
                 if (Set-UserVaultKey -LogicalUser $who -VaultKey $vaultKey -Confirm:$false) {
-                    Write-Info "networkStorage pool: mapped '$who' to vault key '$vaultKey' in users.yml."
+                    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_4e969d1c3be24d52' -Arguments @{ who = "$who"; vaultKey = "$vaultKey" })
                 }
             } catch {
-                Write-Info "networkStorage pool: could not map the vaultKey in users.yml ($($_.Exception.Message)); storing under '$vaultKey' anyway."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_37ec87c9e9d924bd' -Arguments @{ message = "$($_.Exception.Message)"; vaultKey = "$vaultKey" })
             }
         }
     }
 
     try { Set-Password -Username $vaultKey -NewPassword $plain }
     catch {
-        Write-Info "networkStorage pool: storing the credential for '$who' failed ($($_.Exception.Message)). Set it manually -- see docs/test-config.md."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_a505fe65d0a4d0bd' -Arguments @{ who = "$who"; message = "$($_.Exception.Message)" })
         return $false
     }
     # This process resolved users.yml before the vaultKey write, so drop the
     # cached parse; the re-check below must read the mapping just written.
     if (Get-Command Reset-UsersConfigCache -ErrorAction SilentlyContinue) { $null = Reset-UsersConfigCache -Confirm:$false }
-    Write-Info "networkStorage pool: stored the NAS password for '$who' under vault key '$vaultKey'."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8e2f7fcb0f42a7f2' -Arguments @{ who = "$who"; vaultKey = "$vaultKey" })
     # A single quote survives the vault fine but unbalances the single-quoted
     # cifs credential/env entries the guest seeds are built from, so the pool
     # share would never mount inside the caching-proxy-service and pool-control-service VMs.
     if ($plain -match "'") {
-        Write-Info "networkStorage pool: the password contains a single quote -- the host mount works, but the guest VM seeds cannot bake it. Change it on the NAS to avoid quotes, backslash, and YAML/shell separators."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_fef8036135271420')
     }
     return $true
 }
@@ -1491,7 +1574,7 @@ function Show-NetworkStorageFieldSwapWarning {
     )
     if ([string]::IsNullOrWhiteSpace($Config.NetworkUser)) { return }
     if ($Config.NetworkUser.Trim() -notmatch '^[A-Za-z]:\\?$') { return }
-    Write-Warn ("networkStorage {0}: {0}NetworkUser is set to a drive letter ('{1}') -- that's a {0}LocalPath value, not an SMB username. {0}NetworkUser and {0}LocalPath are almost certainly swapped in test.config.yml. See docs/test-config.md." -f $Prefix, $Config.NetworkUser.Trim())
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_3e39dac627850b07' -FormatValues ($Prefix, $Config.NetworkUser.Trim()) -FormatBindings @{ prefix = '0'; trim = '1' })
 }
 
 # --- REGION: Section 9c: networkStorage pool (ypool-nas) archiving
@@ -1515,7 +1598,7 @@ Write-Section "networkStorage: pool (ypool-nas) archiving"
 
 $poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
 if (-not (Test-Path $poolMod)) {
-    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; networkStorage check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_c178ba624b770623' -Arguments @{ poolMod = "${poolMod}" })
 } else {
     Import-Module $poolMod -Global -Force
     # An absent or unpopulated pool tier is only "optional" to someone who never
@@ -1529,9 +1612,9 @@ if (-not (Test-Path $poolMod)) {
     $psRaw = if ($Config.Contains('networkStorage')) { $Config['networkStorage'] } else { $null }
     if ($psRaw -isnot [System.Collections.IDictionary]) {
         if ($ExpectStorageConfigured) {
-            Write-Fail "$storageGap -- the networkStorage block is not present, so nothing will mount and the pool has nowhere to replicate to. See docs/test-config.md." -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_821dd1b41692b0f2' -Arguments @{ storageGap = "$storageGap" }) -FullPath $ConfigPath
         } else {
-            Write-Info "networkStorage block not present -- NAS replication is off (optional)."
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_2879ced5085e2e16')
         }
     } else {
         # Deprecated kill switch. It no longer means anything: the three populated
@@ -1540,7 +1623,7 @@ if (-not (Test-Path $poolMod)) {
         # down every host in the field at upgrade, for a value nothing reads.
         if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary] -and
             $Config['pool'].Contains('networkReplicate')) {
-            Write-Warn "pool.networkReplicate is deprecated and IGNORED -- archiving is now ON whenever the three networkStorage poolStorage* paths are set. Delete the key, and set networkStorage.moveLogsToPoolStorage: true if you want finished cycles moved (copied, verified, then deleted locally) instead of copied. See docs/test-config.md."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c3aa027f622ca873')
         }
         # The three paths ARE the opt-in; moveLogsToPoolStorage selects the MODE and
         # therefore the severity here. In move mode a broken share is a FAIL (the
@@ -1554,15 +1637,15 @@ if (-not (Test-Path $poolMod)) {
         if (-not $psCfg) {
             $incomplete = "networkStorage poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath are not all set"
             if ($psMove) {
-                Write-Fail "networkStorage.moveLogsToPoolStorage is true but $incomplete -- archiving stays OFF until all three are populated, and nothing would be moved. See docs/test-config.md." -FullPath $ConfigPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_bb84cf73d6dede95' -Arguments @{ incomplete = "$incomplete" }) -FullPath $ConfigPath
             } elseif ($ExpectStorageConfigured) {
-                Write-Fail "$storageGap -- $incomplete. See docs/test-config.md." -FullPath $ConfigPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_429270c31c75cd44' -Arguments @{ storageGap = "$storageGap"; incomplete = "$incomplete" }) -FullPath $ConfigPath
             } else {
-                Write-Info "$incomplete -- pool archiving is off (optional). Populate all three to archive finished cycles to the share."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_381e378016d0a748' -Arguments @{ incomplete = "$incomplete" })
             }
         } else {
             $psState = if ($psMove) { 'move -- local folders deleted after archiving' } else { 'copy -- local folders kept' }
-            Write-Pass "networkStorage pool [$psState]: '$($psCfg.NetworkPath)' -> '$($psCfg.LocalPath)' as user '$($psCfg.NetworkUser)'."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_9cbd07715695576e' -Arguments @{ psState = "$psState"; networkPath = "$($psCfg.NetworkPath)"; localPath = "$($psCfg.LocalPath)"; networkUser = "$($psCfg.NetworkUser)" })
             Show-NetworkStorageFieldSwapWarning -Config $psCfg -Prefix 'pool'
 
             # Vault credential readiness (read-only loud-fail pre-check). Needs the
@@ -1591,7 +1674,7 @@ if (-not (Test-Path $poolMod)) {
                     $psVaultReady = [bool](Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue)
                 }
                 if ($psVaultReady) {
-                    Write-Pass "networkStorage pool: a vault credential is configured for '$($psCfg.NetworkUser)'."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_ea5ac83c77e1137f' -Arguments @{ networkUser = "$($psCfg.NetworkUser)" })
                 } else {
                     # Naming the command matters: run through a gate or a runner
                     # this check's stdout is captured, so the offer above never
@@ -1600,7 +1683,7 @@ if (-not (Test-Path $poolMod)) {
                     # invocation that can still ask.
                     $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Run 'pwsh test/Test-Config.ps1' directly from a terminal to be prompted for the password, or map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
                     if ($psMove) { Write-Fail $vmsg -FullPath $ConfigPath }
-                    else         { Write-Warn "$vmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
+                    else         { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_d59d71dd492c6417' -Arguments @{ vmsg = "$vmsg" }) }
                 }
             }
 
@@ -1610,10 +1693,10 @@ if (-not (Test-Path $poolMod)) {
                 $poolSrv = Get-PoolStorageServerName -NetworkPath $psCfg.NetworkPath
                 if (Test-PoolStorageServerReachable -Config $psCfg -TimeoutSeconds 5) {
                     $psReachable = $true
-                    Write-Pass "networkStorage pool: SMB server reachable (${poolSrv}:445)."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_3a6055c5ca48a3d6' -Arguments @{ poolSrv = "${poolSrv}" })
                 } else {
                     $tail = 'Archiving will fail-fast and retry next cycle'
-                    Write-Warn "networkStorage pool: SMB server '${poolSrv}:445' is not reachable right now. $tail -- fine if the NAS is intentionally offline; otherwise check networkPath / firewall / VPN."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_74af72f98d8ae98f' -Arguments @{ poolSrv = "${poolSrv}"; tail = "$tail" })
                 }
             }
 
@@ -1626,12 +1709,12 @@ if (-not (Test-Path $poolMod)) {
             # finding for the same cause.
             $psCanMount = $true
             if ($IsLinux) {
-                Write-Info "networkStorage on Linux needs passwordless sudo for 'mount'/'umount' (and 'mkdir' when localPath is under a root-owned dir like /mnt) -- an /etc/sudoers.d drop-in. See docs/pool-storage.md."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_a8133f2805b1809a')
                 if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
                     $psCanMount = $false
                     $cmsg = "networkStorage pool: the mount.cifs helper (package cifs-utils) is not installed, so 'mount -t cifs' cannot mount '$($psCfg.NetworkPath)' at all -- archiving would silently never happen. Fix: sudo apt-get install -y cifs-utils"
                     if ($psMove) { Write-Fail $cmsg -FullPath $ConfigPath }
-                    else         { Write-Warn "$cmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
+                    else         { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_a0fd1e82ea401724' -Arguments @{ cmsg = "$cmsg" }) }
                 }
             }
 
@@ -1655,7 +1738,7 @@ if (-not (Test-Path $poolMod)) {
                     try { $poolHostId = [string](Get-YurunaHostId) } catch { $null = $_ }
                 }
                 if ([string]::IsNullOrWhiteSpace($poolHostId)) {
-                    Write-Warn "networkStorage pool: could not resolve this host's id (runtime/host.uuid) -- skipping the mount + per-host-folder pre-flight. Replication still runs at cycle end; check it has not silently failed."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_dbcd555c3728cb0c')
                 } else {
                     $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
                     # A mount-stage failure on Linux is the passwordless-sudo
@@ -1666,7 +1749,7 @@ if (-not (Test-Path $poolMod)) {
                         $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
                     }
                     if ($poolReady.ok) {
-                        Write-Pass "networkStorage pool: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
+                        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c7ba05194a3bd438' -Arguments @{ folder = "$($poolReady.folder)" })
                         # Free space, checked ONLY behind a succeeded pre-flight. On
                         # Linux/macOS `df` against an existing-but-unmounted localPath
                         # succeeds and reports the PARENT filesystem, so running this
@@ -1686,19 +1769,19 @@ if (-not (Test-Path $poolMod)) {
                             }
                             $psSpace = Test-PoolStorageSpaceSufficient -FreeBytes $psFree -NeedBytes $psProjected
                             if ($psFree -lt 0) {
-                                Write-Warn "networkStorage pool: could not measure free space on '$($psCfg.LocalPath)'. Archiving proceeds and fails loudly if the share is actually full."
+                                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_7bb3da38a5d7e7db' -Arguments @{ localPath = "$($psCfg.LocalPath)" })
                             } elseif ($psSpace.ok) {
-                                Write-Pass "networkStorage pool: $(Format-PoolStorageSize -Bytes $psFree) free (next cycle projected to need $(Format-PoolStorageSize -Bytes ([long]$psSpace.required)))."
+                                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f9bd7402f4afe362' -Arguments @{ psFree = "$(Format-PoolStorageSize -Bytes $psFree)"; required = "$(Format-PoolStorageSize -Bytes ([long]$psSpace.required))" })
                             } else {
                                 $smsg = "networkStorage pool: the share is FULL -- $(Format-PoolStorageSize -Bytes $psFree) free but the next cycle needs $(Format-PoolStorageSize -Bytes ([long]$psSpace.required)) (a $(Format-PoolStorageSize -Bytes ([long]$psSpace.reserve)) reserve plus the projected cycle). Delete old cycle archives under '$($psCfg.LocalPath)/hosts/' to continue."
                                 if ($psMove) { Write-Fail $smsg -FullPath $ConfigPath }
-                                else         { Write-Warn "$smsg (Advisory: copy mode keeps the local folder, so this won't block the cycle.)" }
+                                else         { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_3e0f575b80a127ef' -Arguments @{ smsg = "$smsg" }) }
                             }
                         }
                     } else {
                         $rmsg = "networkStorage pool: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Archiving would silently never happen this way."
                         if ($psMove) { Write-Fail $rmsg -FullPath $ConfigPath }
-                        else         { Write-Warn "$rmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
+                        else         { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_ba1fbebc7e7c674e' -Arguments @{ rmsg = "$rmsg" }) }
                         # Interactive install was declined/unavailable or did not
                         # resolve it; print the exact one-time manual fix (a
                         # folder-stage failure is a share-permission issue, not sudo).
@@ -1714,16 +1797,16 @@ if (-not (Test-Path $poolMod)) {
 # The stash storage is ISOLATED from the pool (its own share + account). It is
 # optional (only the stash service uses it); issues here are advisory WARN, not
 # FAIL -- Start-StashServiceVM hard-fails at build time when it is misconfigured.
-Write-Section "networkStorage: stash (stash service)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_7c3b74aee8065b96')
 
 if (-not (Test-Path $poolMod)) {
-    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; stash storage check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_7802715aece5a427' -Arguments @{ poolMod = "${poolMod}" })
 } else {
     $stashCfg = Get-YurunaStashStorageConfig -Config $Config
     if (-not $stashCfg) {
-        Write-Info "networkStorage stash* not fully set -- the stash service is off (optional). Set stashStorageNetworkPath / stashStorageNetworkUser / stashStorageLocalPath to enable it."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_ffdf0ec57b7c1018')
     } else {
-        Write-Pass "networkStorage stash: '$($stashCfg.NetworkPath)' -> '$($stashCfg.LocalPath)' as user '$($stashCfg.NetworkUser)'."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_9915e940a1da77b3' -Arguments @{ networkPath = "$($stashCfg.NetworkPath)"; localPath = "$($stashCfg.LocalPath)"; networkUser = "$($stashCfg.NetworkUser)" })
         Show-NetworkStorageFieldSwapWarning -Config $stashCfg -Prefix 'stash'
         if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) {
             $extMod = Join-Path $ModulesDir 'Test.Extension.psm1'
@@ -1740,9 +1823,9 @@ if (-not (Test-Path $poolMod)) {
         if (Get-Command Test-PoolStorageStoredCredential -ErrorAction SilentlyContinue) {
             if (Test-PoolStorageStoredCredential -Config $stashCfg) {
                 $stashCredStored = $true
-                Write-Pass "networkStorage stash: a vault credential is stored for '$($stashCfg.NetworkUser)'."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_36a0c0c3f00220da' -Arguments @{ networkUser = "$($stashCfg.NetworkUser)" })
             } else {
-                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash-service VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashServiceVM. See docs/test-config.md."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_049237316d77c7da' -Arguments @{ networkUser = "$($stashCfg.NetworkUser)" })
             }
         }
         $stashReachable = $false
@@ -1750,9 +1833,9 @@ if (-not (Test-Path $poolMod)) {
             $stashSrv = Get-PoolStorageServerName -NetworkPath $stashCfg.NetworkPath
             if (Test-PoolStorageServerReachable -Config $stashCfg -TimeoutSeconds 5) {
                 $stashReachable = $true
-                Write-Pass "networkStorage stash: SMB server reachable (${stashSrv}:445)."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_495de90c02dcebfa' -Arguments @{ stashSrv = "${stashSrv}" })
             } else {
-                Write-Warn "networkStorage stash: SMB server '${stashSrv}:445' is not reachable right now -- fine if the NAS is intentionally offline; otherwise check stashStorageNetworkPath / firewall / VPN."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_5aeee726766bfcc2' -Arguments @{ stashSrv = "${stashSrv}" })
             }
         }
         # ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER
@@ -1768,20 +1851,20 @@ if (-not (Test-Path $poolMod)) {
             $mk = Initialize-PoolStorageTargetFolder -Config $stashCfg -Confirm:$false
             if ($mk.ok) {
                 if ($mk.created) {
-                    Write-Pass "networkStorage stash: created the missing target folder '$($stashCfg.NetworkPath)' on the share."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_2d081dc4f844e0a1' -Arguments @{ networkPath = "$($stashCfg.NetworkPath)" })
                 } else {
-                    Write-Pass "networkStorage stash: target folder '$($stashCfg.NetworkPath)' already present on the share."
+                    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_8c146a9b7bdc38e4' -Arguments @{ networkPath = "$($stashCfg.NetworkPath)" })
                 }
                 if (Get-Command Connect-YurunaPoolStorage -ErrorAction SilentlyContinue) {
                     if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
-                        Write-Pass "networkStorage stash: localPath mounted ('$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)')."
+                        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f269de2ad6ee350e' -Arguments @{ localPath = "$($stashCfg.LocalPath)"; networkPath = "$($stashCfg.NetworkPath)" })
                     } else {
-                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashServiceVM will buffer locally until this is fixed."
+                        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_f333ab0d208b4279' -Arguments @{ localPath = "$($stashCfg.LocalPath)"; networkPath = "$($stashCfg.NetworkPath)"; networkUser = "$($stashCfg.NetworkUser)" })
                         Show-LinuxSudoHintOnce
                     }
                 }
             } else {
-                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashServiceVM will buffer locally until this is fixed."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_f16b33065df96aff' -Arguments @{ networkPath = "$($stashCfg.NetworkPath)"; error = "$($mk.error)" })
                 if ($mk.error -match 'mount') { Show-LinuxSudoHintOnce }
             }
         }
@@ -1805,12 +1888,12 @@ if (-not (Test-Path $poolMod)) {
 # project's business, not the framework's. Visibility is the goal: the operator
 # reads this before a cycle spends its budget discovering the same thing.
 
-Write-Section "Extension services (pool registry)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_396ff2b33b372c04')
 
 $aggregatorMod = Join-Path $ExtensionRoot 'pool-aggregator-service/default.psm1'
 $cachingProxyMod = Join-Path $ModulesDir 'Test.CachingProxyService.psm1'
 if (-not (Test-Path $aggregatorMod)) {
-    Write-Info "pool-aggregator-service extension not found at ${aggregatorMod}; the pool registry check is skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_af99c7ba81671188' -Arguments @{ aggregatorMod = "${aggregatorMod}" })
 } else {
     Import-Module $aggregatorMod -Global -Force -DisableNameChecking
     if (Test-Path $cachingProxyMod) { Import-Module $cachingProxyMod -Global -Force -DisableNameChecking }
@@ -1823,7 +1906,7 @@ if (-not (Test-Path $aggregatorMod)) {
         try { $aggregatorBase = [string](Get-PoolAggregatorServiceSeedUrl) } catch { $aggregatorBase = '' }
     }
     if ([string]::IsNullOrWhiteSpace($aggregatorBase)) {
-        Write-Info "No caching-proxy service address is known, so there is no pool aggregator to ask -- this host resolves extension services locally (or by pin) only."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_7baf67dc0d2b3c7e')
     } else {
         $registry = $null
         try {
@@ -1832,10 +1915,10 @@ if (-not (Test-Path $aggregatorMod)) {
             if ([int]$registryResponse.StatusCode -eq 200) {
                 $registry = $registryResponse.Content | ConvertFrom-Json
             } else {
-                Write-Warn "pool registry: the aggregator at $aggregatorBase answered HTTP $([int]$registryResponse.StatusCode) for /api/v1/extension-hosts -- extension-service discovery is degraded for this host."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_7a587dcfad92db2b' -Arguments @{ aggregatorBase = "$aggregatorBase"; statusCode = "$([int]$registryResponse.StatusCode)" })
             }
         } catch {
-            Write-Warn "pool registry: could not reach the aggregator at $aggregatorBase ($($_.Exception.Message)) -- this host cannot discover a stash service it does not run itself."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_b3bd312c3840b48b' -Arguments @{ aggregatorBase = "$aggregatorBase"; message = "$($_.Exception.Message)" })
         }
         if ($registry) {
             # services carries every (hostId, area) the pool knows, including the
@@ -1846,13 +1929,13 @@ if (-not (Test-Path $aggregatorMod)) {
                 $services = @($registry.services)
             } elseif ($registry.PSObject.Properties.Name -contains 'areas' -and $registry.areas) {
                 $services = @($registry.areas.PSObject.Properties | ForEach-Object { $_.Value })
-                Write-Info "pool registry: this aggregator predates the per-service listing; only the areas it resolves are reported. Rebuild the caching-proxy service VM to see refused registrations here."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_af08cdf0a2ea5eb0')
             }
             $stashServices = @($services | Where-Object { [string]$_.area -eq 'stash-service' })
             if ($stashServices.Count -eq 0) {
-                Write-Info "pool registry: the pool reports no stash service. A cycle that needs one will stop in its warm-up -- start one (Start-StashServiceVM.ps1) or join a pool that runs one."
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_ca2d9cb6ab58a961')
             } else {
-                Write-Info ("pool registry: {0} stash service registration(s) known to the pool at {1}." -f $stashServices.Count, $aggregatorBase)
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_53abe225fc1d2a82' -FormatValues ($stashServices.Count, $aggregatorBase) -FormatBindings @{ count = '0'; aggregatorBase = '1' })
                 $stashReachableCount = 0
                 foreach ($service in $stashServices) {
                     # The pool's own verdict comes first: it refuses an address
@@ -1861,11 +1944,11 @@ if (-not (Test-Path $aggregatorMod)) {
                     if ([string]::IsNullOrWhiteSpace($advertised)) { $advertised = [string]$service.suppressedTarget }
                     $who = "hostId $([string]$service.hostId)"
                     if ([bool]$service.suppressed) {
-                        Write-Warn ("pool registry: the stash service advertised by {0} at '{1}' is REFUSED by the pool -- {2}. It is not handed to any cycle. A private-network address (macOS shared vmnet, Hyper-V Default Switch, libvirt virbr0) is reachable only from its own host: rebuild that stash VM on a bridged interface." -f $who, $advertised, [string]$service.suppressReason)
+                        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_e255a2fa4ebf8560' -FormatValues ($who, $advertised, [string]$service.suppressReason) -FormatBindings @{ who = '0'; advertised = '1'; suppressReason = '2' })
                         continue
                     }
                     if ([string]::IsNullOrWhiteSpace($advertised)) {
-                        Write-Info "pool registry: $who reports a stash service with no address yet (starting, or its host has not resolved the VM's IP)."
+                        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_189c612ee620b50b' -Arguments @{ who = "$who" })
                         continue
                     }
                     # Probe from HERE too: the pool answering for an address only
@@ -1880,7 +1963,7 @@ if (-not (Test-Path $aggregatorMod)) {
                         if ([uri]::TryCreate($advertised, [System.UriKind]::Absolute, [ref]$parsed)) { $stashAddress = $parsed.Host }
                     }
                     if ([string]::IsNullOrWhiteSpace($stashAddress)) {
-                        Write-Warn "pool registry: $who advertises a stash service at '$advertised', which is not an address this host can probe."
+                        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_f2261fdec6afa6d4' -Arguments @{ who = "$who"; advertised = "$advertised" })
                         continue
                     }
                     $stashAnswers = $false
@@ -1891,9 +1974,9 @@ if (-not (Test-Path $aggregatorMod)) {
                     }
                     if ($stashAnswers) {
                         $stashReachableCount++
-                        Write-Pass ("pool registry: stash service at $advertised ($who, via $([string]$service.source)) answers from this host.")
+                        Write-Pass ((Format-YurunaOperatorMessage -Key 'runner.operator_91539d8a51701986' -Arguments @{ advertised = "$advertised"; who = "$who"; source = "$([string]$service.source)" }))
                     } else {
-                        Write-Warn ("pool registry: the stash service at $advertised ($who) does NOT answer /healthz from this host, though the pool still advertises it. A cycle handed this address will stop in its warm-up -- check that stash VM, or this host's route to it.")
+                        Write-Warn ((Format-YurunaOperatorMessage -Key 'runner.operator_ce1a66ba81c93de0' -Arguments @{ advertised = "$advertised"; who = "$who" }))
                     }
                 }
                 if ($stashReachableCount -eq 0) {
@@ -1902,14 +1985,14 @@ if (-not (Test-Path $aggregatorMod)) {
                     # project's business, not the framework's -- so a service on
                     # another machine being down must not wedge a lab that would
                     # otherwise keep cycling and recover on its own.
-                    Write-Warn "pool registry: NO registered stash service answers from this host. A project that uploads build output to the stash has nowhere to put it, and its cycle will stop before the provisioning stages. Start a stash service (Start-StashServiceVM.ps1), fix the one the pool advertises, or pin an address with `$env:YURUNA_STASH_SERVICE_HOST."
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_47513825bfb62345')
                 }
             }
             # Other areas are reported too, but only as a refusal: nothing in a
             # cycle's critical path resolves them, so an unreachable one is
             # information rather than a warning.
             foreach ($service in @($services | Where-Object { [string]$_.area -ne 'stash-service' -and [bool]$_.suppressed })) {
-                Write-Info ("pool registry: the {0} advertised by hostId {1} at '{2}' is refused by the pool -- {3}." -f [string]$service.area, [string]$service.hostId, [string]$service.suppressedTarget, [string]$service.suppressReason)
+                Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_46a6457a7fba0801' -FormatValues ([string]$service.area, [string]$service.hostId, [string]$service.suppressedTarget, [string]$service.suppressReason) -FormatBindings @{ area = '0'; hostId = '1'; suppressedTarget = '2'; suppressReason = '3' })
             }
         }
     }
@@ -1923,46 +2006,46 @@ if (-not (Test-Path $aggregatorMod)) {
 # The intent-store CONTENT (pools.yml shape) is validated by Test-PoolIntent.ps1;
 # this gate only checks the LOCAL config block + reachability.
 
-Write-Section "pool (intent sync)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_cd4a2a8be6258515')
 
 $poolSyncMod = Join-Path $ModulesDir 'Test.PoolSync.psm1'
 if (-not (Test-Path $poolSyncMod)) {
-    Write-Info "Test.PoolSync.psm1 not found at ${poolSyncMod}; pool check skipped."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_e5337260a89228ec' -Arguments @{ poolSyncMod = "${poolSyncMod}" })
 } else {
     Import-Module $poolSyncMod -Global -Force
     $plRaw = if ($Config.Contains('pool')) { $Config['pool'] } else { $null }
     if ($plRaw -isnot [System.Collections.IDictionary]) {
-        Write-Info "pool block not present -- pool intent sync is off (optional)."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_11155c290bdca317')
     } else {
         $plEnabled = ConvertTo-YurunaBool $plRaw['enabled']
         $plUrl     = [string]$plRaw['intentGitUrl']
         if ([string]::IsNullOrWhiteSpace($plUrl)) {
-            if ($plEnabled) { Write-Fail "pool.enabled is true but pool.intentGitUrl is empty -- the runner cannot pull intent. Set the LAN bare-repo URL. See docs/pool-storage.md." -FullPath $ConfigPath }
-            else            { Write-Info "pool.enabled = false and pool.intentGitUrl is empty -- pool intent sync is off (optional). Populate intentGitUrl to pre-validate the store before enabling." }
+            if ($plEnabled) { Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_af0aca34836ac8bb') -FullPath $ConfigPath }
+            else            { Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_93ef9f12e66f06e9') }
         } else {
             $plState = if ($plEnabled) { 'enabled' } else { 'configured (disabled)' }
-            Write-Pass "pool [$plState]: intent store '$plUrl'."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_ccfb3b8777922241' -Arguments @{ plState = "$plState"; plUrl = "$plUrl" })
             # Bounded, credential-prompt-proof reachability probe (read-only).
             $rc = Invoke-PoolSyncGit -ArgumentList @('ls-remote', '--quiet', $plUrl) -TimeoutSeconds 15
             if ($rc -eq 0) {
-                Write-Pass "pool: intent store reachable ($plUrl)."
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_1d0efcf0a84c0f0f' -Arguments @{ plUrl = "$plUrl" })
             } else {
                 $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not available' } else { "git ls-remote exit $rc" }
-                Write-Warn "pool: intent store '$plUrl' not reachable right now ($why) -- fine if the proxy is intentionally offline; the runner degrades to single-host. Otherwise check the URL / apache / network."
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_205f4d4b991b0dd3' -Arguments @{ plUrl = "$plUrl"; why = "$why" })
             }
         }
     }
 }
 
 # --- REGION: Section 10: Resend transport settings
-Write-Section "Resend transport settings"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_aae122a5ae775d3f')
 
 $resend = $null
 if (-not (Test-Path $NotificationCfgPath)) {
     # The missing FILE is already a warning under 'Extension configs', with the
     # consequence and the fix. Warning again that a section is absent from a
     # file that does not exist would be the same fact reported twice.
-    Write-Info "transports.yml not present -- nothing to verify here (reported under 'Extension configs' above)."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_7031f8ba704491cb')
 } else {
     $notifCfgReadable = $true
     try {
@@ -1974,27 +2057,27 @@ if (-not (Test-Path $NotificationCfgPath)) {
         # The parse failure is the finding; a "not configured" warning on top
         # of it would blame the operator's settings for a broken file.
         $notifCfgReadable = $false
-        Write-Fail "transports.yml parse error in ${NotificationCfgPath}: $($_.Exception.Message)" -FullPath $NotificationCfgPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_0aebef8687ba03fa' -Arguments @{ notificationCfgPath = "${NotificationCfgPath}"; message = "$($_.Exception.Message)" }) -FullPath $NotificationCfgPath
     }
     if ($notifCfgReadable -and -not $resend) {
-        Write-Warn "transports.resend is not configured in ${NotificationCfgPath} -- the email transport cannot send, so email subscribers in that file (cycle.failure included) receive nothing until it is populated."
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_8d79f90037a3385d' -Arguments @{ notificationCfgPath = "${NotificationCfgPath}" })
     }
 }
 
 if ($resend) {
     if (Test-IsSet $resend.apiKey) {
-        Write-Pass "transports.resend.apiKey is set (not shown)."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_525e3b2708c8c8c4')
         if (-not "$($resend.apiKey)".StartsWith("re_")) {
-            Write-Warn "transports.resend.apiKey does not start with 're_' -- Resend API keys typically begin with 're_'."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_88f8f80282f86157')
         }
     } else {
-        Write-Fail "transports.resend.apiKey is not set in ${NotificationCfgPath}. Get your API key at https://resend.com/api-keys" -FullPath $NotificationCfgPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_aef2f9a13448261f' -Arguments @{ notificationCfgPath = "${NotificationCfgPath}" }) -FullPath $NotificationCfgPath
     }
 
     if (Test-IsSet $resend.fromEmail) {
         Write-Pass "transports.resend.fromEmail = '$($resend.fromEmail)'"
     } else {
-        Write-Fail "transports.resend.fromEmail is not set in ${NotificationCfgPath}. Example: 'Yuruna <notifications@yourdomain.com>'" -FullPath $NotificationCfgPath
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_139103d928215a34' -Arguments @{ notificationCfgPath = "${NotificationCfgPath}" }) -FullPath $NotificationCfgPath
     }
 }
 
@@ -2003,55 +2086,55 @@ if ($resend) {
 # the transcript -- this is the most common exit path, hit when a
 # config-file or schema check failed early.
 if ((Get-OutputState).FailCount -gt 0) {
-    Write-Output "`nFix the errors above before testing network connectivity."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_aca819dc2a9378d9')
     Exit-WithSummary -Code 1
 }
 
 # --- REGION: Section 11: Resend API connectivity
-Write-Section "Resend API connectivity"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_61a4fe98fbdf2430')
 
 if (-not $resend) {
     # Nothing on this host uses api.resend.com until transports.resend exists,
     # so reachability proves nothing -- and an unreachable endpoint must not be
     # able to stop the gate over a transport that is not in use.
-    Write-Info "Skipped -- transports.resend is not configured, so nothing on this host talks to api.resend.com."
+    Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_371f960ea43e6a08')
 } else {
     try {
         $resolved = [System.Net.Dns]::GetHostAddresses("api.resend.com")
-        Write-Pass "DNS resolved 'api.resend.com' -> $($resolved[0].IPAddressToString)"
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_d2796cb83cb35520' -Arguments @{ iPAddressToString = "$($resolved[0].IPAddressToString)" })
     } catch {
-        Write-Fail "DNS resolution failed for 'api.resend.com': $_"
-        Write-Info "Check that DNS is available and api.resend.com is reachable."
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_597562df237744b4' -Arguments @{ value = "$_" })
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_01c558aec8401b3a')
         Exit-WithSummary 1
     }
 
     try {
         if (Test-TcpReachable -HostName "api.resend.com" -Port 443 -TimeoutMs 5000) {
-            Write-Pass "TCP connection to api.resend.com:443 succeeded."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_fe959a3beaa79700')
         } else {
-            Write-Fail "TCP connection to api.resend.com:443 timed out."
-            Write-Info "Verify that no firewall is blocking outbound HTTPS."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_273c68c1f3b3ad2b')
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_772f1c43a8c05088')
         }
     } catch {
-        Write-Fail "TCP connection to api.resend.com:443 failed: $_"
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_4de0fab94997dc0d' -Arguments @{ value = "$_" })
     }
 }
 
 # --- REGION: Section 12: Live smoke notification
-Write-Section "Live smoke notification (config.smoke)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ed29092b14c4dbed')
 
 if ($SkipSend) {
-    Write-Warn "Skipping live send (-SkipSend was specified)."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_75594d9ffdb15fa0')
 } elseif ((Get-OutputState).FailCount -gt 0) {
-    Write-Warn "Skipping live send because earlier checks failed."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_f0a38f34d7f17a3a')
 } else {
     $notifyMod  = Join-Path $ModulesDir "Test.Notify.psm1"
     if (-not (Test-Path $notifyMod)) {
-        Write-Fail "Cannot find Test.Notify.psm1 at: $notifyMod"
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_7ed5d4468308e1fd' -Arguments @{ notifyMod = "$notifyMod" })
     } else {
         Import-Module -Name $notifyMod -Force
 
-        $message = "Yuruna -- configuration smoke test (config.smoke)"
+        $message = (Format-YurunaOperatorMessage -Key 'runner.operator_92b9603e0796d4fe')
         $note    = @"
 This is a smoke notification fired by Test-Config.ps1 against the
 'config.smoke' event code. If you received it, the active notification
@@ -2064,14 +2147,14 @@ With no subscribers, this run is a verbose no-op (which is fine).
 Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 "@
 
-        Write-Info "Dispatching 'config.smoke' to the active notification extensions..."
+        Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_6c8b0e098ab8cc27')
         try {
             Send-YurunaNotification -EventCode 'config.smoke' -EventMessage $message -EventNote $note
-            Write-Pass "Send-YurunaNotification dispatch completed without error."
-            Write-Info "Empty subscribers list is normal -- check subscribers.config.smoke if you expected delivery."
+            Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_a551655b57821d09')
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_7e6ec0ebf7eb79ee')
         } catch {
-            Write-Fail "Send-YurunaNotification failed: $_"
-            Write-Info "Verify your transports.resend.apiKey and fromEmail in transports.yml"
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_1d07d8486807df5b' -Arguments @{ value = "$_" })
+            Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_0e8ca595acd6197f')
         }
     }
 }
@@ -2084,7 +2167,7 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 # accidental re-encode blocks the cycle here instead of breaking first-install
 # on the guest. See feedback_bootstrap_installer_no_bom.md.
 
-Write-Section "Bootstrap script encoding (ASCII, no BOM)"
+Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_2d5e1292ca5d9fc6')
 
 $asciiGate = Join-Path $RepoRoot "tools/Test-AsciiNoBom.ps1"
 if (-not (Test-Path -LiteralPath $asciiGate)) {
@@ -2100,9 +2183,9 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     # runner in the pool, a blast radius the defect does not warrant.
     $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet -Bootstrap 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Pass "irm|iex installer and guest scripts are BOM-less 7-bit ASCII."
+        Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0ee5a858a1d212de')
     } else {
-        Write-Fail "An irm|iex / first-run guest script is not BOM-less ASCII." -FullPath $asciiGate
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_9211a1599fcfa2a7') -FullPath $asciiGate
         foreach ($asciiLine in $asciiOut) { Write-Info ([string]$asciiLine) }
     }
 }

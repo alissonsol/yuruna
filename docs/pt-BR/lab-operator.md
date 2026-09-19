@@ -92,13 +92,13 @@ pwsh test/lab/New-LocalLabStorage.ps1
 
 Ele pergunta apenas onde o armazenamento deve ficar (sugerindo um padrão
 por sistema operacional), chama `New-Lab` e grava `networkStorage.*` e
-as entradas do vault -- depois pule para o último parágrafo desta etapa.
+as entradas do cofre -- depois pule para o último parágrafo desta etapa.
 Um laboratório posterior na mesma máquina precisa apenas de
 `pwsh test/lab/New-Lab.ps1 -Name <lab-name>` -- ele reaproveita as pastas
 e as contas que já estão aqui.
 
 **Armazenamento em um NAS ou em um servidor de arquivos separado** --
-crie as pastas e o vault do laboratório aqui, depois crie as contas e
+crie as pastas e o cofre do laboratório aqui, depois crie as contas e
 conceda as permissões de compartilhamento **naquele dispositivo**:
 
 ```
@@ -108,7 +108,7 @@ pwsh test/lab/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
 `<lab-name>` é minúsculo (letras, dígitos, hifens); `<storage-root>` é,
 por exemplo, `D:\work` ou `/srv`. Compartilhe as duas pastas que ele
 criou -- uma conta dedicada por compartilhamento, usando as senhas que o
-`New-Lab` acabou de gerar no vault do laboratório:
+`New-Lab` acabou de gerar no cofre do laboratório:
 
 ```powershell
 # On the machine hosting the shares (elevated, Windows example)
@@ -124,7 +124,7 @@ Depois, em cada máquina que você configurar manualmente -- a máquina de
 serviços compartilhados agora e a primeira máquina de ciclos em
 [A.6](#a6-subir-a-primeira-máquina) -- preencha `networkStorage.*` em
 `test/test.config.yml` e guarde as duas senhas de compartilhamento no
-vault do hospedeiro ([Definir as senhas SMB no vault](../test-config.md#setting-the-smb-passwords-in-the-vault)).
+cofre do hospedeiro ([Definir as senhas SMB no cofre](../test-config.md#setting-the-smb-passwords-in-the-vault)).
 Máquinas inscritas em [A.7](#a7-inscrever-cada-máquina-adicional)
 recebem as duas coisas pela sincronização.
 
@@ -388,12 +388,12 @@ As camadas de rede duráveis ([pool-storage.md](../pool-storage.md),
 [stash-guide.md](../stash-guide.md)) são sustentadas por dois
 compartilhamentos SMB3 -- `yuruna.pool` e `yuruna.stash` -- em um NAS
 se você tiver um, senão na máquina que hospeda os serviços
-compartilhados. O `test/lab/New-Lab.ps1` cria as pastas, o vault do
+compartilhados. O `test/lab/New-Lab.ps1` cria as pastas, o cofre do
 laboratório e o repositório semeado de intenção do grupo em uma única
 etapa idempotente, executada onde o armazenamento fica; comandos:
 [A.2](#a2-criar-o-armazenamento-do-laboratório).
 
-Ele gera uma credencial por conta de compartilhamento no vault do
+Ele gera uma credencial por conta de compartilhamento no cofre do
 laboratório -- YAML puro protegido por permissões de sistema de
 arquivos, de modo que ele continua **copiável para as outras máquinas
 do laboratório** (arquivos presos ao DPAPI não seriam
@@ -402,14 +402,14 @@ descriptografados em outro lugar; veja
 sua -- uma conta dedicada por compartilhamento, como no exemplo de A.2;
 qualquer servidor Samba/SMB com os mesmos nomes de compartilhamento e
 contas funciona. Depois, em cada máquina, preencha `networkStorage.*`,
-ponha as senhas de compartilhamento no vault e defina
+ponha as senhas de compartilhamento no cofre e defina
 `networkStorage.moveLogsToPoolStorage:
 true` nos hospedeiros que devem arquivar ciclos
 ([test-config.md](../test-config.md)).
 
 **Quando o armazenamento fica na máquina em que você está, o
 `test/lab/New-LocalLabStorage.ps1` faz a etapa inteira no lugar** -- as
-contas, o servidor SMB, os compartilhamentos, as entradas do vault, as
+contas, o servidor SMB, os compartilhamentos, as entradas do cofre, as
 montagens e as seis chaves `networkStorage.*`, além da chamada a
 `New-Lab`. Idempotente, aceita `-WhatIf`, e `-MoveLogs` para
 `networkStorage.moveLogsToPoolStorage`. Detalhes:
@@ -466,7 +466,7 @@ Um proxy serve o laboratório inteiro. Compila a VM
 3128/3129 (Squid), 3000 (Grafana), 9302 (métricas). Elevado no
 Windows; sem elevação no macOS. Em cada máquina do laboratório, defina
 `vmStart.cachingProxyIp` com o IP deste proxy. A compilação cunha uma
-chave de autenticação interna no vault deste hospedeiro quando não existe
+chave de autenticação interna no cofre deste hospedeiro quando não existe
 nenhuma, e o painel "Yuruna hosts" do Grafana mostra o "Lab token"
 rotativo de 6 caracteres que as etapas seguintes resgatam para
 inscrever hospedeiros. A VM de cache sobrevive a reinstalações do framework.
@@ -525,7 +525,7 @@ primeiro. A interface está na porta 80
 Extension hosts do painel "Yuruna hosts" do Grafana. Inscreva este hospedeiro
 com `test/lab/Set-LabToken.ps1 -LabToken <code>` (o valor do bloco "Lab
 token"); o script busca a chave de autenticação interna compartilhada e
-a coloca no vault do hospedeiro. O `install/setup.ps1` faz isso para o beacon
+a coloca no cofre do hospedeiro. O `install/setup.ps1` faz isso para o beacon
 -- mas **a inscrição automática continua desligada** até que um bloco
 `autoEnrollment` nomeie um grupo de destino no `pools.yml` do
 armazenamento de intenção *e* o daemon rode com `--auto-enroll`; até
@@ -534,7 +534,7 @@ Adicione `-HostSideProof` para rodá-lo diretamente neste hospedeiro
 (interface em `http://<host>:8090/`, precisa de `go` + `pwsh`).
 Detalhes: [Serviço pool-control](../pool-admin.md#pool-control-service).
 
-Cada VM de serviço tem a própria conta de administrador e chave de vault
+Cada VM de serviço tem a própria conta de administrador e chave de cofre
 -- veja
 [Contas de administrador das VMs](../operator.md#vm-administrator-accounts).
 
@@ -588,13 +588,13 @@ credencial do GitHub, leitura do primeiro relatório de validação):
    ```
 
    O `Set-LabToken.ps1` resgata no agregador o código do bloco "Lab
-   token" e guarda a chave de autenticação interna no vault deste
+   token" e guarda a chave de autenticação interna no cofre deste
    hospedeiro. A sincronização então copia o `test.config.yml` do hospedeiro de
    referência convertido para este hospedeiro (caminhos de
    compartilhamento, pontos de montagem, aliases de hospedeiro) e **termina
    executando o Test-Config.ps1**. Se o agregador estiver
    inacessível, pule o `Set-LabToken.ps1` e passe a chave bruta (do
-   vault do hospedeiro de serviços compartilhados) para a sincronização:
+   cofre do hospedeiro de serviços compartilhados) para a sincronização:
    `-InternalAuthKey '<raw-key>' -PersistInternalAuthKey`. Nenhum
    caching-proxy-service local é necessário -- o
    `vmStart.cachingProxyIp` sincronizado aponta para o compartilhado.
@@ -638,7 +638,7 @@ credencial do GitHub, leitura do primeiro relatório de validação):
    exige elevação.
 
    A chave de autenticação interna é **obrigatória** para a conversão.
-   Sem ela, as entradas de vault que esta máquina cunhou para os
+   Sem ela, as entradas de cofre que esta máquina cunhou para os
    compartilhamentos que ela mesma servia sobreviveriam, e o
    armazenamento do laboratório nunca viu essas senhas -- a montagem
    falha mais tarde com um erro de credencial que ninguém liga a esta
@@ -781,7 +781,7 @@ grupo novo e bifurca o histórico de telemetria.
 
 <a id="42383647-0017"></a>
 
-### 3. Dividir os hosts entre eles
+### 3. Dividir os hospedeiros entre eles
 
 Um hospedeiro pertence a **no máximo um grupo**, e é isso que torna a divisão
 significativa. Cada `-HostId` é o `runtime/host.uuid` daquele hospedeiro:
@@ -861,6 +861,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.13
+Última revisão: 2026.09.18
 
 Voltar para [Yuruna](../../README.md)

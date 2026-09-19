@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
     Justification = 'Registry anchor; required to survive -Force re-imports of this facade.')]
 param()
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 
 # Backing store is a New-YurunaRegistry bundle anchored under
@@ -293,15 +294,15 @@ function Write-HostClockDriftWarning {
     $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
     $hostFolder = ($HostType -replace '^host\.', '')
     Write-Warning "========"
-    Write-Warning " Host clock is ${offBy}s $direction real time (limit: ${MaxSkewSeconds}s)."
-    Write-Warning " Guests take this clock from their virtual RTC at power-on, and"
-    Write-Warning " their own NTP client steps them to real time seconds into the"
-    Write-Warning " boot. That step lands mid-startup: a Kubernetes guest comes up"
-    Write-Warning " with its pods Running but never Ready and every NodePort"
-    Write-Warning " refusing, hours before anything blames a clock."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3aad2200f7522cb' -Arguments @{ offBy = "${offBy}"; direction = "$direction"; maxSkewSeconds = "${MaxSkewSeconds}" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fcef8dbc96090ed0')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2624274ccada9260')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d992f9496abac61')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_46842aebe8c0924c')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_59428c9f41167b34')
     Write-Warning ""
-    Write-Warning " This cycle continues. Fix the clock from a console that can"
-    Write-Warning " answer for Administrator / sudo -- run from the repo root:"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_85f5b25c31805a2e')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cbacfa5c4ab203be')
     Write-Warning "   pwsh test/Test-Config.ps1"
     Write-Warning "   pwsh host/$hostFolder/Enable-TestAutomation.ps1"
     Write-Warning "========"
@@ -317,7 +318,7 @@ function Reset-HostClockReport {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('host clock report', 'Re-arm')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c2c0b7df689c0667'), 'Re-arm')) {
         $script:HostClockReported = $false
     }
 }
@@ -354,15 +355,15 @@ function Sync-HostClock {
 
     $provider = Get-HostConditionProvider -HostType $HostType
     if (-not $provider -or -not $provider.ClockSync) {
-        return @{ Attempted = $false; Succeeded = $false; Message = "No clock-sync capability registered for '$HostType'." }
+        return @{ Attempted = $false; Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_75fb42592a454fa3' -Arguments @{ hostType = "$HostType" }) }
     }
-    if (-not $PSCmdlet.ShouldProcess("$HostType clock", 'Resynchronize against NTP')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_853ad81502417c07' -Arguments @{ hostType = "$HostType" }), (Format-YurunaOperatorMessage -Key 'runner.operator_8375949b7591bd50'))) {
         return @{ Attempted = $false; Succeeded = $false; Message = 'Skipped (WhatIf).' }
     }
     try {
         $result = & $provider.ClockSync
         if ($result -isnot [System.Collections.IDictionary]) {
-            return @{ Attempted = $true; Succeeded = $false; Message = "Clock sync for '$HostType' returned no status record." }
+            return @{ Attempted = $true; Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d4d5c819090c7922' -Arguments @{ hostType = "$HostType" }) }
         }
         return @{
             Attempted = $true
@@ -408,7 +409,7 @@ function Clear-HostConditionProvider {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.HostCondition registry', 'Clear all providers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_57a1e401b74cce86'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
         & $script:HostConditionRegistry.Clear
     }
 }
@@ -465,7 +466,7 @@ function script:Register-IfAvailable {
         # Write-Warning (not Write-Verbose) so a torn registration -- a known HostType whose
         # provider module half-loaded -- is visible at default verbosity instead of silently
         # skipped (which later surfaces only as "unknown host type, skipping checks" and passes).
-        Write-Warning "Test.HostCondition: skipping $HostType registration; missing functions: $($missing -join ', ')"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_597096826951b442' -Arguments @{ hostType = "$HostType"; join = "$($missing -join ', ')" })
         return
     }
     $displayBlock = $null
@@ -537,7 +538,7 @@ function Assert-HostConditionSet {
     param([string]$HostType)
     $provider = Get-HostConditionProvider -HostType $HostType
     if (-not $provider) {
-        Write-Warning "Unknown host type '$HostType' -- skipping condition checks."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8e0ac14bdd8e4f82' -Arguments @{ hostType = "$HostType" })
         return $true
     }
     return [bool](& $provider.Assert -HostType $HostType)
@@ -581,7 +582,7 @@ function Test-HostGuestNetworkHealth {
         Degraded = $false
         Path     = 'unknown'
         Verdicts = @()
-        Reason   = "No guest-network probe registered for '$HostType'."
+        Reason   = (Format-YurunaOperatorMessage -Key 'runner.operator_2f49bf98e6a47e09' -Arguments @{ hostType = "$HostType" })
     }
     $provider = Get-HostConditionProvider -HostType $HostType
     if (-not $provider -or -not $provider.NetworkHealth) { return $unevaluated }
@@ -590,11 +591,11 @@ function Test-HostGuestNetworkHealth {
     try {
         $result = & $provider.NetworkHealth -HostType $HostType
     } catch {
-        $unevaluated.Reason = "Guest-network probe for '$HostType' failed: $($_.Exception.Message)"
+        $unevaluated.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_854c41105dadf897' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
         return $unevaluated
     }
     if ($result -isnot [System.Collections.IDictionary]) {
-        $unevaluated.Reason = "Guest-network probe for '$HostType' returned no status record."
+        $unevaluated.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f318cb1504904b80' -Arguments @{ hostType = "$HostType" })
         return $unevaluated
     }
     # Copy field by field over the healthy defaults: a provider that omits a
@@ -631,14 +632,14 @@ function Initialize-HostDisplay {
     try {
         $status = & $provider.Display
         switch ("$status") {
-            'Activated'     { Write-Information "Virtual display attached for '$HostType' -- screen-capture is decoupled from the physical monitor." }
+            'Activated'     { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f9c3345659e997dd' -Arguments @{ hostType = "$HostType" }) }
             'AlreadyActive' { Write-Verbose "Virtual display already active for '$HostType'." }
-            'Failed'        { Write-Warning "Could not ensure a virtual display for '$HostType'; headless screen-capture/OCR may fail. See docs/host-hyperv.md." }
+            'Failed'        { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f36d24ce01d02c0' -Arguments @{ hostType = "$HostType" }) }
             'Disabled'      { Write-Verbose "Virtual display disabled for '$HostType' (YURUNA_VIRTUAL_DISPLAY not set to true)." }
             default         { Write-Verbose "Initialize-HostDisplay ('$HostType'): $status" }
         }
     } catch {
-        Write-Warning "Initialize-HostDisplay ('$HostType') failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1fee4eeedfc3032d' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -696,22 +697,22 @@ function Initialize-HostMetricsExporter {
         $emitted = @(& $provider.MetricsExporter)
         $outcome = if ($emitted.Count -gt 0) { $emitted[-1] } else { $null }
         $status = if ($outcome) { "$($outcome.Status)" } else { '' }
-        $reason = if ($outcome) { "$($outcome.Reason)" } else { 'the provider returned nothing' }
+        $reason = if ($outcome) { "$($outcome.Reason)" } else { (Format-YurunaOperatorMessage -Key 'runner.operator_542a80719b62ad31') }
         switch ($status) {
             'Present' {
                 Write-Verbose "Host metrics exporter already present on '$HostType'."
             }
             'Installed' {
-                Write-Information "Host metrics: exporter installed on '$HostType' -- this host now publishes the memory, CPU and disk numbers a refused VM allocation is decided by." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe5a00f1761237fd' -Arguments @{ hostType = "$HostType" }) -InformationAction Continue
             }
             'Throttled' {
                 Write-Verbose "Host metrics: exporter install on '$HostType' is waiting out the interval a failed attempt bought ($reason)."
             }
             'Unavailable' {
-                Write-Warning "Host metrics: no exporter on '$HostType' and no unattended way to install one ($reason). Nothing here records why a guest was refused; run host/windows.hyper-v/Enable-TestAutomation.ps1 from an elevated console."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b9e2148c39eb8ff7' -Arguments @{ hostType = "$HostType"; reason = "$reason" })
             }
             'Failed' {
-                Write-Warning "Host metrics: exporter convergence did not succeed on '$HostType' ($reason). It is retried on a spaced interval. This is telemetry, not a prerequisite -- the cycle runs regardless."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0318b2a4ceda85be' -Arguments @{ hostType = "$HostType"; reason = "$reason" })
             }
             'Skipped' {
                 Write-Verbose "Host metrics: exporter convergence skipped on '$HostType' ($reason)."
@@ -723,7 +724,7 @@ function Initialize-HostMetricsExporter {
     } catch {
         # Reached only if a provider throws past its own guard. Still a warning:
         # the contract this dispatcher owes the cycle is that it cannot fail it.
-        Write-Warning "Initialize-HostMetricsExporter ('$HostType') failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_25d5ba063fd07cd5' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -746,17 +747,17 @@ function Remove-HostDisplay {
     param([string]$HostType)
     $provider = Get-HostConditionProvider -HostType $HostType
     if (-not $provider -or -not $provider.DisplayTeardown) { return }
-    if (-not $PSCmdlet.ShouldProcess("$HostType display surface", 'Tear down virtual display')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2a1d2326d4df1c6b' -Arguments @{ hostType = "$HostType" }), (Format-YurunaOperatorMessage -Key 'runner.operator_128f4d8dd4b801ba'))) { return }
     try {
         $status = & $provider.DisplayTeardown
         switch ("$status") {
-            'Removed'       { Write-Information "Virtual display removed for '$HostType'." }
+            'Removed'       { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f398e5997a59d4e8' -Arguments @{ hostType = "$HostType" }) }
             'AlreadyAbsent' { Write-Verbose "No virtual display to remove for '$HostType'." }
-            'Failed'        { Write-Warning "Could not fully remove the virtual display for '$HostType'. See docs/host-hyperv.md." }
+            'Failed'        { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c19cd351b2c3776c' -Arguments @{ hostType = "$HostType" }) }
             default         { Write-Verbose "Remove-HostDisplay ('$HostType'): $status" }
         }
     } catch {
-        Write-Warning "Remove-HostDisplay ('$HostType') failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ecd5d1376e4d1d84' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -764,7 +765,7 @@ Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
     Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, Initialize-HostMetricsExporter, `
     Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
-    Assert-ScreenLock, Get-MacScreenLockIssue, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
+    Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, `
     Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, `
     Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `

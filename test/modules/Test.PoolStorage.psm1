@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,28 +16,16 @@
 
 #requires -version 7
 
-# yuruna pool storage (ypool-nas): connect an OPTIONAL SMB3 network share and replicate
-# cycle output to it. Hosts (like guests) are reimageable, so local storage is
-# fast + ephemeral and this NAS-backed share is the durable tier. Everything here
-# is BEST-EFFORT: a missing/unreachable/misconfigured/SLOW share never throws AND
-# never blocks the caller (the unattended test loop must keep running). Every
-# network-touching subprocess is bounded by a wall-clock cap + kill so a wedged
-# NAS can never freeze the loop. Config lives under `networkStorage`
-# (pool* keys; the three populated paths are the opt-in, and
-# moveLogsToPoolStorage selects copy-and-keep vs copy-verify-delete) in
-# test.config.yml; networkUser is also the vault key its password is fetched under.
-#
-# MOVE MODE IS NOT BEST-EFFORT AT THE EDGES. Copying stays best-effort, but once a
-# cycle is committed to the share its local folder is deleted, so the commit order
-# is load-bearing: verify -> sentinel -> ledger -> delete. Every interruption window
-# is recovered by Invoke-PoolStorageDrain's delete-sweep or its committed
-# short-circuit; changing that order re-opens a path that deletes a good archive.
+# yuruna pool storage (ypool-nas). See ../../docs/pool-storage.md#the-model
+# and ../../docs/pool-storage.md#move-mode-the-share-holds-the-only-copy
+# for the best-effort design and the move-mode commit order. -- Test.PoolStorage.psm1
 
 # Wall-clock caps (seconds) for the network-touching operations. These are
 # BACKSTOPS for a wedged/unreachable NAS, not normal-path budgets: a healthy LAN
 # mount + copy finish in well under a second. Copy gets the largest cap because a
 # legitimately large (but progressing) cycle folder must not be killed mid-flight;
 # rsync additionally carries its own --timeout for precise I/O-stall detection.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:PoolStorageMountTimeoutSeconds     = 90
 $script:PoolStorageCopyTimeoutSeconds      = 600
 $script:PoolStorageSmbCmdletTimeoutSeconds = 60
@@ -126,7 +114,7 @@ function Invoke-PoolStorageProcessResult {
     $outTask = $proc.StandardOutput.ReadToEndAsync()
     $errTask = $proc.StandardError.ReadToEndAsync()
     if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-        Write-Warning "poolStorage: '$FilePath' exceeded ${TimeoutSeconds}s; killing the process tree."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c6da6d9c15bcaea6' -Arguments @{ filePath = "$FilePath"; timeoutSeconds = "${TimeoutSeconds}" })
         try { $proc.Kill($true) } catch { $null = $_ }
         try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
         try { $proc.Dispose() } catch { $null = $_ }
@@ -262,7 +250,7 @@ function Invoke-PoolStorageBoundedScript {
     }
     $job = Start-ThreadJob -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
     if (-not (Wait-Job -Job $job -Timeout $TimeoutSeconds)) {
-        Write-Warning "poolStorage: SMB operation exceeded ${TimeoutSeconds}s; abandoning (the redirector releases the orphaned call on its own timeout)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6887723b4475d137' -Arguments @{ timeoutSeconds = "${TimeoutSeconds}" })
         try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch { $null = $_ }
         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
         return @{ TimedOut = $true; Result = $null; Error = "timeout ${TimeoutSeconds}s" }
@@ -611,24 +599,24 @@ function Clear-PoolStorageConflictingMount {
     $found = @(Get-PoolStorageConflictingMount -Config $Config)
     $result = [pscustomobject]@{ Found = $found.Count; Unmounted = 0; Failed = 0; Skipped = 0; Details = @() }
     if ($found.Count -eq 0) {
-        Write-Information "poolStorage: no conflicting mount of '$($Config.NetworkPath)' found." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_49efe278f73e6e94' -Arguments @{ networkPath = "$($Config.NetworkPath)" }) -InformationAction Continue
         return $result
     }
     foreach ($c in $found) {
         $target = "$($c.MountPoint) [$($c.Remote)]"
-        if (-not $PSCmdlet.ShouldProcess($target, 'Unmount conflicting SMB share')) { $result.Skipped++; continue }
+        if (-not $PSCmdlet.ShouldProcess($target, (Format-YurunaOperatorMessage -Key 'runner.operator_4502c8b8b75d19d8'))) { $result.Skipped++; continue }
         if (-not $Force) {
             $hostNote = if ($c.HostMatches) { 'our host' } else { 'a DIFFERENT or stale host alias' }
             $q = "Unmount '$($c.MountPoint)' ($($c.Remote))? It holds the same share '$($Config.NetworkPath)' via $hostNote and blocks the cycle mount with macOS 'File exists'."
-            if (-not $PSCmdlet.ShouldContinue($q, 'Conflicting SMB mount')) { $result.Skipped++; continue }
+            if (-not $PSCmdlet.ShouldContinue($q, (Format-YurunaOperatorMessage -Key 'runner.operator_6f46fd6a0c39a170'))) { $result.Skipped++; continue }
         }
         $ok = Dismount-PoolStoragePoint -MountPoint $c.MountPoint
         if ($ok) {
             $result.Unmounted++
-            Write-Information "poolStorage: unmounted conflicting share at '$($c.MountPoint)'." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3c7f29534e587d02' -Arguments @{ mountPoint = "$($c.MountPoint)" }) -InformationAction Continue
         } else {
             $result.Failed++
-            Write-Warning "poolStorage: failed to unmount '$($c.MountPoint)' ($($c.Remote)); unmount it manually (macOS: diskutil unmount force '$($c.MountPoint)')."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a2482f6efb9708a7' -Arguments @{ mountPoint = "$($c.MountPoint)"; remote = "$($c.Remote)" })
         }
         $result.Details += [pscustomobject]@{ MountPoint = $c.MountPoint; Remote = $c.Remote; Unmounted = $ok }
     }
@@ -939,19 +927,19 @@ function Get-PoolStorageMountOwnership {
     $peer = Get-PoolStorageNormalAddress -Address $PeerAddress
     if ($peer) {
         if (Test-PoolStorageAddressIsLocal -Address $peer -LocalAddress $LocalAddress) {
-            return @{ Verdict = 'local'; Reason = "its SMB session runs to $peer, an address of this machine" }
+            return @{ Verdict = 'local'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_5d98850170297a5b' -Arguments @{ peer = "$peer" }) }
         }
-        return @{ Verdict = 'remote'; Reason = "its SMB session runs to $peer, which is not an address of this machine" }
+        return @{ Verdict = 'remote'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f2dd7af3e997dd23' -Arguments @{ peer = "$peer" }) }
     }
     if ($HostServesShare -eq 'no') {
         return @{ Verdict = 'remote'
-                  Reason  = 'the session peer could not be read, and this machine publishes no such share, so whatever answers for it is not this machine' }
+                  Reason  = (Format-YurunaOperatorMessage -Key 'runner.operator_799930e49caa5a4d') }
     }
     if ($HostServesShare -eq 'yes') {
         return @{ Verdict = 'unknown'
-                  Reason  = 'the session peer could not be read, and this machine does publish the share, so its own copy and another machine''s cannot be told apart from here' }
+                  Reason  = (Format-YurunaOperatorMessage -Key 'runner.operator_9cf9980c90ae1681') }
     }
-    return @{ Verdict = 'unknown'; Reason = 'neither the session peer nor this machine''s share table could be read' }
+    return @{ Verdict = 'unknown'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_0d598771558dab19') }
 }
 
 <#
@@ -992,12 +980,12 @@ function Dismount-PoolStorageShare {
                 return $count
             }
             if (-not $open.TimedOut -and ([int]$open.Result) -gt 0) {
-                return @{ Ok = $false; Busy = $true; Detail = "the SMB client reports $([int]$open.Result) open handle(s) on it" }
+                return @{ Ok = $false; Busy = $true; Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_0a49d84adf649a98' -Arguments @{ result = "$([int]$open.Result)" }) }
             }
             $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($MountPoint) -ScriptBlock {
                 param($point) Remove-SmbMapping -LocalPath $point -Force -ErrorAction Stop
             }
-            if ($r.TimedOut) { return @{ Ok = $false; Busy = $false; Detail = 'the SMB client did not answer in time' } }
+            if ($r.TimedOut) { return @{ Ok = $false; Busy = $false; Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_66aa988d9b33c94c') } }
             if ($r.Error) { return @{ Ok = $false; Busy = [bool]("$($r.Error)" -match '(?i)\b(busy|in use)\b'); Detail = "$($r.Error)" } }
             return @{ Ok = $true; Busy = $false; Detail = '' }
         }
@@ -1108,7 +1096,7 @@ function Get-YurunaPoolStorageConfig {
         [string]::IsNullOrWhiteSpace($networkUser) -or
         [string]::IsNullOrWhiteSpace($localPath)) {
         if ($moveLogs) {
-            Write-Warning "networkStorage.moveLogsToPoolStorage is true but poolStorageNetworkPath/poolStorageNetworkUser/poolStorageLocalPath are not all set; archiving disabled."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2c4a16c1859a7c76')
         }
         return $null
     }
@@ -1315,7 +1303,7 @@ function Connect-YurunaPoolStorage {
         Write-Verbose "poolStorage already mounted at $($Config.LocalPath)"
         return $true
     }
-    if (-not $PSCmdlet.ShouldProcess($Config.LocalPath, "Connect SMB share $($Config.NetworkPath)")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Config.LocalPath, (Format-YurunaOperatorMessage -Key 'runner.operator_704a925b206154f7' -Arguments @{ networkPath = "$($Config.NetworkPath)" }))) { return $false }
 
     # Reaching here with an entry STILL in the mount table means the entry exists
     # but the mount does not answer -- a dead SMB session whose server went away,
@@ -1327,11 +1315,11 @@ function Connect-YurunaPoolStorage {
     # already drops the mapping first) but the call is harmless and keeps the three
     # platforms on one path.
     if (Test-PoolStorageMountEntry -Config $Config) {
-        Write-Information "poolStorage: $($Config.LocalPath) is mounted but not answering; releasing the dead mount before remounting." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_933b194d28de8e2c' -Arguments @{ localPath = "$($Config.LocalPath)" }) -InformationAction Continue
         if (-not (Dismount-PoolStoragePoint -MountPoint $Config.LocalPath)) {
             # Not fatal on its own: the mount attempt below still runs and its own
             # error is more specific than anything that could be said here.
-            Write-Warning "poolStorage: could not release the dead mount at $($Config.LocalPath); the remount below may fail with 'File exists' or 'device is busy'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9b1a2ac24fe5a57d' -Arguments @{ localPath = "$($Config.LocalPath)" })
         }
     }
 
@@ -1341,7 +1329,7 @@ function Connect-YurunaPoolStorage {
     }
     if ([string]::IsNullOrEmpty($password)) {
         $script:PoolStorageLastMountError = "no password is stored in the vault for '$($Config.NetworkUser)'"
-        Write-Warning "poolStorage: no password available for '$($Config.NetworkUser)'; cannot mount the share."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_26dda5a61641423a' -Arguments @{ networkUser = "$($Config.NetworkUser)" })
         return $false
     }
 
@@ -1357,7 +1345,7 @@ function Connect-YurunaPoolStorage {
                 param($local, $rem, $user, $pass)
                 New-SmbMapping -LocalPath $local -RemotePath $rem -UserName $user -Password $pass -Persistent $true -ErrorAction Stop | Out-Null
             }
-            if ($r.TimedOut) { throw "New-SmbMapping timed out after ${script:PoolStorageMountTimeoutSeconds}s" }
+            if ($r.TimedOut) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_9d8762f2b5ff27c7' -Arguments @{ poolStorageMountTimeoutSeconds = "${script:PoolStorageMountTimeoutSeconds}" }) }
             if ($r.Error) { throw $r.Error }
         } elseif ($IsMacOS) {
             $bare = Get-PoolStorageBareShare -Path $Config.NetworkPath
@@ -1374,7 +1362,7 @@ function Connect-YurunaPoolStorage {
             # mounted elsewhere), never the argument -- safe to surface, and the
             # bare rc alone does not distinguish those.
             $sm = Invoke-PoolStorageProcessResult -FilePath 'mount_smbfs' -ArgumentList @('-N', $url, $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
-            if ($sm.ExitCode -ne 0) { throw "mount_smbfs rc=$($sm.ExitCode)$(Get-PoolStorageProcessErrorDetail -StdErr $sm.StdErr)" }
+            if ($sm.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_86e81d4c81406275' -Arguments @{ exitCode = "$($sm.ExitCode)"; stdErr = "$(Get-PoolStorageProcessErrorDetail -StdErr $sm.StdErr)" }) }
         } else {
             $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style unix
             # Establish WHICH precondition is missing before spending a mount
@@ -1383,7 +1371,7 @@ function Connect-YurunaPoolStorage {
             # fixes. Checked first so the operator is never sent to edit sudoers
             # for a missing package.
             if (-not (Test-PoolStorageCifsHelper)) {
-                throw "the mount.cifs helper is not installed, so 'mount -t cifs' cannot work on this host (it fails with `"unknown filesystem type 'cifs'`"). Install it: sudo apt-get install -y cifs-utils"
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3f7ce7bf346e3755' -Arguments @{ command = 'sudo apt-get install -y cifs-utils' })
             }
             if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
                 # Create the mount point. Try unprivileged first -- it succeeds when
@@ -1398,7 +1386,7 @@ function Connect-YurunaPoolStorage {
                 New-Item -ItemType Directory -Force -Path $Config.LocalPath -ErrorAction SilentlyContinue | Out-Null
                 if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
                     $mk = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
-                    if ($mk.ExitCode -ne 0) { throw "could not create mount point '$($Config.LocalPath)' (sudo -n mkdir rc=$($mk.ExitCode); a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount)$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)" }
+                    if ($mk.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_ea88e75707522b67' -Arguments @{ localPath = "$($Config.LocalPath)"; exitCode = "$($mk.ExitCode)"; stdErr = "$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)" }) }
                 }
             }
             $credDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
@@ -1413,7 +1401,7 @@ function Connect-YurunaPoolStorage {
                 # in a world-readable file, not even momentarily.
                 [System.IO.File]::WriteAllText($credFile, '', $utf8)
                 & chmod 600 $credFile 2>$null
-                if ($LASTEXITCODE -ne 0) { throw "chmod 600 on credentials file failed (rc=$LASTEXITCODE)" }
+                if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_7387b2930b7001c9' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }) }
                 $credBody = "username=$($Config.NetworkUser)`npassword=$password`n"
                 [System.IO.File]::WriteAllText($credFile, $credBody, $utf8)
                 $uid = (& id -u).Trim(); $gid = (& id -g).Trim()
@@ -1438,12 +1426,12 @@ function Connect-YurunaPoolStorage {
                     # this moment and the question cannot be answered afterwards.
                     $hint = if (Test-PoolStorageSudoRefusal -StdErr $mnt.StdErr) {
                         if (Test-PoolStorageSudoReady -Commands @((Get-PoolStorageSudoCommandPath).Mount)) {
-                            ' (sudo refused the mount, so the NAS was never contacted -- yet passwordless sudo for mount answers as configured right now, so look for an /etc/sudoers.d rule sorting AFTER the poolStorage drop-in that re-requires a password)'
+                            (Format-YurunaOperatorMessage -Key 'runner.operator_2e2613f652d7e9ff')
                         } else {
-                            ' (sudo refused the mount, so the NAS was never contacted: passwordless sudo for mount is NOT in effect -- see docs/pool-storage.md)'
+                            (Format-YurunaOperatorMessage -Key 'runner.operator_a985eecf3e05691f')
                         }
                     } else { '' }
-                    throw "sudo mount -t cifs rc=$($mnt.ExitCode)$hint$detail"
+                    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_88fa927a70dd9984' -Arguments @{ exitCode = "$($mnt.ExitCode)"; hint = "$hint"; detail = "$detail" })
                 }
             } finally {
                 if ($credFile -and (Test-Path -LiteralPath $credFile)) {
@@ -1457,7 +1445,7 @@ function Connect-YurunaPoolStorage {
         # the one line that says WHY exists only as a warning on the console while
         # the gate's [FAIL] falls back to listing every possible cause.
         $script:PoolStorageLastMountError = "$($_.Exception.Message)"
-        Write-Warning "poolStorage: failed to mount $($Config.NetworkPath) at $($Config.LocalPath): $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e72d4f99a676e7f8' -Arguments @{ networkPath = "$($Config.NetworkPath)"; localPath = "$($Config.LocalPath)"; message = "$($_.Exception.Message)" })
         return $false
     }
     # A mount that succeeded is not yet a mount that can be used. A share mounted
@@ -1469,11 +1457,11 @@ function Connect-YurunaPoolStorage {
     $probe = Test-PoolStorageWriteProbe -Path $Config.LocalPath
     if (-not $probe.Ok) {
         $script:PoolStorageLastMountError = "mounted, but the share is not writable by '$($Config.NetworkUser)': $($probe.Error)"
-        Write-Warning "poolStorage: $($Config.NetworkPath) mounted at $($Config.LocalPath) but is NOT writable by '$($Config.NetworkUser)': $($probe.Error). The mount is left in place; fix the share's permissions for that account."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9b9e7a8e3088e064' -Arguments @{ networkPath = "$($Config.NetworkPath)"; localPath = "$($Config.LocalPath)"; networkUser = "$($Config.NetworkUser)"; error = "$($probe.Error)" })
         return $false
     }
     $script:PoolStorageLastMountError = ''
-    Write-Information "poolStorage: mounted $($Config.NetworkPath) at $($Config.LocalPath)" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_db4097cfaa3c91f0' -Arguments @{ networkPath = "$($Config.NetworkPath)"; localPath = "$($Config.LocalPath)" }) -InformationAction Continue
     return $true
 }
 
@@ -1597,14 +1585,14 @@ function Set-PoolStorageSudoers {
         [switch]$NonInteractive
     )
     if (-not $IsLinux) {
-        return @{ Action = 'unsupported'; DropInPath = ''; Rule = ''; Message = 'passwordless-sudo drop-in applies to Linux only (macOS/Windows mounts need no sudo).' }
+        return @{ Action = 'unsupported'; DropInPath = ''; Rule = ''; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_f5182563134ccc5d') }
     }
     if ([string]::IsNullOrWhiteSpace($User)) {
         try { $User = (& id -un 2>$null | Out-String).Trim() } catch { $User = '' }
         if ([string]::IsNullOrWhiteSpace($User)) { $User = "$($env:USER)".Trim() }
     }
     if ([string]::IsNullOrWhiteSpace($User)) {
-        return @{ Action = 'failed'; DropInPath = ''; Rule = ''; Message = 'could not determine the current user to grant passwordless sudo to.' }
+        return @{ Action = 'failed'; DropInPath = ''; Rule = ''; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_86312bcc38bf3748') }
     }
 
     $paths  = Get-PoolStorageSudoCommandPath
@@ -1615,14 +1603,14 @@ function Set-PoolStorageSudoers {
 
     # Idempotency: is passwordless sudo for every command already in effect?
     if (Test-PoolStorageSudoReady -Commands $spec.Commands) {
-        return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "passwordless sudo for mount/mkdir/umount is already configured for '$User'." }
+        return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_7a2644594a03553e' -Arguments @{ user = "$User" }) }
     }
 
     if ($NonInteractive) {
-        return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "passwordless sudo for the poolStorage mount is not configured and -NonInteractive was set; install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+        return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3f1222f3734c430b' -Arguments @{ join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
     }
-    if (-not $PSCmdlet.ShouldProcess($spec.File, "Install the passwordless-sudo drop-in for poolStorage mounts (grants '$User' NOPASSWD mkdir/mount/umount)")) {
-        return @{ Action = 'whatif'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "would write: $($spec.Rule)" }
+    if (-not $PSCmdlet.ShouldProcess($spec.File, (Format-YurunaOperatorMessage -Key 'runner.operator_5276d666b1441ef9' -Arguments @{ user = "$User" }))) {
+        return @{ Action = 'whatif'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_8fe9554f294d1183' -Arguments @{ rule = "$($spec.Rule)" }) }
     }
 
     # Install interactively. sudo is run so its ONE password prompt reaches the
@@ -1631,12 +1619,12 @@ function Set-PoolStorageSudoers {
     # the chmod/visudo that follow. Piping the rule to `sudo tee` is the same
     # idiom the operator hint documents; PowerShell appends the trailing newline a
     # sudoers file wants.
-    Write-Host "poolStorage: installing $($spec.File) so mounts run without a password (sudo may prompt once)..."
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_db6414f7fa84b289' -Arguments @{ file = "$($spec.File)" })
     try {
         $spec.Rule | & sudo tee $spec.File | Out-Null
         $teeRc = $LASTEXITCODE
         if ($teeRc -ne 0) {
-            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "could not write $($spec.File) (sudo tee exit $teeRc); install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_cf16b3b8b709addd' -Arguments @{ file = "$($spec.File)"; teeRc = "$teeRc"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
         }
         & sudo chmod 0440 $spec.File | Out-Null
         $chmodRc = $LASTEXITCODE
@@ -1646,11 +1634,11 @@ function Set-PoolStorageSudoers {
             # A syntactically invalid drop-in can break sudo for EVERY command, so
             # remove it rather than leave it in place.
             & sudo rm -f $spec.File | Out-Null
-            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "the drop-in failed validation (chmod exit $chmodRc, visudo exit ${visudoRc}: $visudoOut) and was removed; install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_19bf4f38e92c1bb1' -Arguments @{ chmodRc = "$chmodRc"; visudoRc = "${visudoRc}"; visudoOut = "$visudoOut"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
         }
-        return @{ Action = 'installed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "installed $($spec.File): '$User' may now mount/mkdir/umount without a password." }
+        return @{ Action = 'installed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_59aa4c1b646b2e46' -Arguments @{ file = "$($spec.File)"; user = "$User" }) }
     } catch {
-        return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "installing $($spec.File) threw: $($_.Exception.Message). Install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+        return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_6227c4e7e4952085' -Arguments @{ file = "$($spec.File)"; message = "$($_.Exception.Message)"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
     }
 }
 
@@ -1695,7 +1683,7 @@ function Sync-YurunaPoolStorageFolder {
         [Parameter(Mandatory)][string]$DestSubPath
     )
     if (-not (Test-Path -LiteralPath $Source)) {
-        Write-Warning "poolStorage: source '$Source' not found; nothing to replicate."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_501c6379ea2aace7' -Arguments @{ source = "$Source" })
         return $false
     }
     if (-not (Connect-YurunaPoolStorage -Config $Config)) { return $false }
@@ -1718,14 +1706,14 @@ function Sync-YurunaPoolStorageFolder {
             $rc = Invoke-PoolStorageProcess -FilePath 'cp' -ArgumentList @('-a', "$Source/.", $dest) -TimeoutSeconds $script:PoolStorageCopyTimeoutSeconds
             if ($rc -ne 0) { throw "cp rc=$rc" }
         } else {
-            Write-Warning "poolStorage: no bounded copy tool (robocopy/rsync/cp) available; skipping replication of '$Source'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8b070056a493049b' -Arguments @{ source = "$Source" })
             return $false
         }
     } catch {
-        Write-Warning "poolStorage: replication of '$Source' -> '$dest' failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5bf03f38be9705a8' -Arguments @{ source = "$Source"; dest = "$dest"; message = "$($_.Exception.Message)" })
         return $false
     }
-    Write-Information "poolStorage: replicated $Source -> $dest" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7a351e8e05ccfcd0' -Arguments @{ source = "$Source"; dest = "$dest" }) -InformationAction Continue
     return $true
 }
 
@@ -1904,7 +1892,7 @@ function Write-PoolStorageLedger {
     )
     if (-not (Test-Path -LiteralPath $RuntimeDir)) { New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null }
     $path = Join-Path $RuntimeDir 'poolstorage.state.json'
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write poolStorage ledger')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_923da7b559ecd48e'))) { return $false }
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         return (Write-YurunaStateFileJson -Path $path -InputObject $Ledger -Depth 6 -Confirm:$false)
     }
@@ -1996,7 +1984,7 @@ function Test-PoolStorageVaultReady {
     param([Parameter(Mandatory)][pscustomobject]$Config)
     $who = $Config.NetworkUser
     if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) {
-        Write-Warning "poolStorage: authentication extension not loaded; cannot verify the vault credential for '$who'. Skipping replication."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c280cbcfb737891c' -Arguments @{ who = "$who" })
         return $false
     }
     $vaultKey = ''
@@ -2008,7 +1996,7 @@ function Test-PoolStorageVaultReady {
     }
     $ready = Test-PoolStorageVaultDecision -VaultKey $vaultKey -EntryExists $entryExists
     if (-not $ready) {
-        Write-Warning "poolStorage: '$who' has an empty vaultKey and no stored credential, so mounting would auto-generate a junk SMB password. Map a non-empty vaultKey and Set-Password it (docs/test-config.md). Skipping replication."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a971ee42ed80146a' -Arguments @{ who = "$who" })
     }
     return $ready
 }
@@ -2024,7 +2012,7 @@ function Test-PoolStorageStoredCredential {
     $who = $Config.NetworkUser
     if ([string]::IsNullOrWhiteSpace($who)) { return $false }
     if (-not (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
-        Write-Warning "poolStorage: authentication extension not loaded; cannot verify a stored credential for '$who'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_33ed3e2cc8c24f86' -Arguments @{ who = "$who" })
         return $false
     }
     $vaultKey = ''
@@ -2059,7 +2047,7 @@ function Copy-PoolStorageCycle {
         [Parameter(Mandatory)][string]$CycleName,
         [switch]$Verify
     )
-    if (-not $PSCmdlet.ShouldProcess("$HostId/$CycleName", 'Archive cycle to poolStorage')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess("$HostId/$CycleName", (Format-YurunaOperatorMessage -Key 'runner.operator_52e14c6e6ec6fecf'))) { return $false }
     $cycleRoot = Get-PoolStorageCycleRootPath -Config $Config -HostId $HostId
     $destFull  = Join-PoolStoragePath -LocalPath $cycleRoot -SubPath $CycleName
     $destSub   = "hosts/$HostId/test-cycles/$CycleName"
@@ -2071,7 +2059,7 @@ function Copy-PoolStorageCycle {
     if ($Verify) {
         $check = Test-PoolStorageCycleCopy -Source $Source -Destination $destFull
         if (-not $check.ok) {
-            Write-Warning "poolStorage: $CycleName copied but failed verification ($($check.reason)); removing the incomplete destination and keeping the local folder."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35e07aca9edeee21' -Arguments @{ cycleName = "$CycleName"; reason = "$($check.reason)" })
             $null = Remove-PoolStorageTree -Path $destFull -Confirm:$false
             return $false
         }
@@ -2080,7 +2068,7 @@ function Copy-PoolStorageCycle {
         $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") + "`n"
         [System.IO.File]::WriteAllText($sentinel, $stamp, [System.Text.UTF8Encoding]::new($false))
     } catch {
-        Write-Warning "poolStorage: copied $CycleName but the completion sentinel failed: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b65c4a9681a7307e' -Arguments @{ cycleName = "$CycleName"; message = "$($_.Exception.Message)" })
         return $false
     }
     return $true
@@ -2114,11 +2102,11 @@ function Test-PoolStorageCycleCopy {
         return [pscustomobject]@{ Src = (& $tally $src); Dst = (& $tally $dst) }
     }
     if ($r.TimedOut) {
-        $result.reason = "verification timed out after ${script:PoolStorageSmbCmdletTimeoutSeconds}s (the share may be wedged)"
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f850f79a304a72d3' -Arguments @{ poolStorageSmbCmdletTimeoutSeconds = "${script:PoolStorageSmbCmdletTimeoutSeconds}" })
         return $result
     }
     if ($r.Error -or -not $r.Result) {
-        $result.reason = if ($r.Error) { "could not enumerate both trees: $($r.Error)" } else { 'could not enumerate both trees' }
+        $result.reason = if ($r.Error) { (Format-YurunaOperatorMessage -Key 'runner.operator_25cd6465751d78a5' -Arguments @{ error = "$($r.Error)" }) } else { (Format-YurunaOperatorMessage -Key 'runner.operator_94158729db31acff') }
         return $result
     }
     $result.sourceFiles = [int]$r.Result.Src.Count
@@ -2126,11 +2114,11 @@ function Test-PoolStorageCycleCopy {
     $result.sourceBytes = [long]$r.Result.Src.Bytes
     $result.destBytes   = [long]$r.Result.Dst.Bytes
     if ($result.sourceFiles -ne $result.destFiles) {
-        $result.reason = "file count differs: source $($result.sourceFiles), destination $($result.destFiles)"
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_ef4dd40477e237ea' -Arguments @{ sourceFiles = "$($result.sourceFiles)"; destFiles = "$($result.destFiles)" })
         return $result
     }
     if ($result.sourceBytes -ne $result.destBytes) {
-        $result.reason = "total bytes differ: source $($result.sourceBytes), destination $($result.destBytes)"
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b94dffb89e2f2cdb' -Arguments @{ sourceBytes = "$($result.sourceBytes)"; destBytes = "$($result.destBytes)" })
         return $result
     }
     $result.ok = $true
@@ -2346,7 +2334,7 @@ function Exit-PoolStorageDrainLock {
     param([Parameter(Mandatory)][string]$RuntimeDir)
     $lockPath = Join-Path $RuntimeDir 'poolstorage.drain.lock'
     if (-not (Test-Path -LiteralPath $lockPath)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($lockPath, 'Release poolStorage drain lock')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($lockPath, (Format-YurunaOperatorMessage -Key 'runner.operator_b44432b7c8a18687'))) { return $false }
     $owner = 0
     try { $owner = [int](((Get-Content -Raw -LiteralPath $lockPath -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop).pid) } catch { $owner = 0 }
     if ($owner -eq $PID) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
@@ -2578,7 +2566,7 @@ function Invoke-PoolStorageDrain {
                         -Status @{ lastAttemptUtc = $nowUtc; lastConnectOk = $true } -LocalNames $localNames -NowUtc $nowUtc
                     $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $interim -Confirm:$false
                     if (Remove-PoolStorageTree -Path $src -Confirm:$false) { $summary.deleted++ }
-                    else { Write-Warning "poolStorage: archived $name but could not delete the local folder '$src'; the next run sweeps it." }
+                    else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_46b5c72353483bc6' -Arguments @{ name = "$name"; src = "$src" }) }
                 }
                 # 0L, not 0: a bare 0 binds [math]::Max's Int32 overload and every real
                 # free-space figure overflows it.
@@ -2680,7 +2668,7 @@ function Initialize-PoolStorageHostFolder {
     )
     $folder = Get-PoolStorageHostFolderPath -Config $Config -HostId $HostId
     $result = @{ ok = $false; stage = 'mount'; folder = $folder; error = '' }
-    if (-not $PSCmdlet.ShouldProcess($folder, 'Verify poolStorage per-host folder')) {
+    if (-not $PSCmdlet.ShouldProcess($folder, (Format-YurunaOperatorMessage -Key 'runner.operator_980f3d19c6e2b589'))) {
         $result.error = 'skipped (WhatIf)'
         return $result
     }
@@ -2796,7 +2784,7 @@ function Remove-PoolStorageStaleAliasMount {
     )
     if (-not $IsWindows) { return $false }
     $target = if (-not [string]::IsNullOrWhiteSpace($LocalPath)) { $LocalPath } else { $RemotePath }
-    if (-not $PSCmdlet.ShouldProcess($target, 'Remove stale SMB mapping')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($target, (Format-YurunaOperatorMessage -Key 'runner.operator_b8044f428430e5d8'))) { return $false }
     $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($LocalPath, $RemotePath) -ScriptBlock {
         param($local, $remote)
         if (-not [string]::IsNullOrWhiteSpace($local)) {
@@ -2827,7 +2815,7 @@ function Initialize-PoolStorageTargetFolder {
     }
     $parentBare = ($parts[0..1] -join '/')                       # server/share
     $subRel     = ($parts[2..($parts.Count - 1)] -join '/')      # sub[/deeper]
-    if (-not $PSCmdlet.ShouldProcess("$($Config.LocalPath) -> $subRel", 'Ensure target folder on share')) {
+    if (-not $PSCmdlet.ShouldProcess("$($Config.LocalPath) -> $subRel", (Format-YurunaOperatorMessage -Key 'runner.operator_cc627733833e62e3'))) {
         $result.error = 'skipped (WhatIf)'
         return $result
     }
@@ -2994,7 +2982,7 @@ function Get-YurunaStashSeedValue {
     # Refuse a value with a single quote: it would unbalance the guest's
     # single-quoted /etc/yuruna/ystash-nas.env entries.
     if (($netPath -match "'") -or ($user -match "'")) {
-        Write-Warning "poolStorage: networkPath/networkUser contains a single quote; not baking the stash share."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a598b092ac269721')
         return $out
     }
     $netPwd = ''
@@ -3021,9 +3009,9 @@ function Get-YurunaStashSeedValue {
     $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
     if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
     if ($resolved -and $out.NetworkIp) {
-        Write-Information "stash seed: '$server' resolves to $resolved on this host, which no guest can dial; baking $($out.NetworkIp) (this host, as the guest reaches it) instead." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a858d26a381eba4d' -Arguments @{ server = "$server"; resolved = "$resolved"; networkIp = "$($out.NetworkIp)" }) -InformationAction Continue
     } elseif ($resolved) {
-        Write-Warning "stash seed: '$server' resolves to $resolved, which no guest can dial, and no guest-reachable host address was supplied. The stash VM will try to resolve '$server' itself and its mount will fail. See docs/pool-storage.md."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_51c78706304ea43f' -Arguments @{ server = "$server"; resolved = "$resolved" })
     }
     return $out
 }
@@ -3052,7 +3040,7 @@ function Get-YurunaPoolSeedValue {
     # Refuse a value with a single quote: it would unbalance the guest's env
     # entries and the pool-nas.cifs.cred file.
     if (($netPath -match "'") -or ($user -match "'")) {
-        Write-Warning "poolStorage: networkPath/networkUser contains a single quote; not baking the pool NAS."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_93b53fc9b0a7e742')
         return $out
     }
     $netPwd = ''
@@ -3078,9 +3066,9 @@ function Get-YurunaPoolSeedValue {
     $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
     if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
     if ($resolved -and $out.NetworkIp) {
-        Write-Information "pool seed: '$server' resolves to $resolved on this host, which no guest can dial; baking $($out.NetworkIp) (this host, as the guest reaches it) instead." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5be04f6e27fb57bc' -Arguments @{ server = "$server"; resolved = "$resolved"; networkIp = "$($out.NetworkIp)" }) -InformationAction Continue
     } elseif ($resolved) {
-        Write-Warning "pool seed: '$server' resolves to $resolved, which no guest can dial, and no guest-reachable host address was supplied. The pool-control VM will try to resolve '$server' itself and its mount will fail with cifs_mount -111. See docs/pool-storage.md."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_775ac9694d358236' -Arguments @{ server = "$server"; resolved = "$resolved" })
     }
     return $out
 }
@@ -3113,7 +3101,7 @@ function Remove-PoolStorageTree {
         [int]$DelayMilliseconds = 250
     )
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Delete recursively')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_5fe7035d37195fae'))) { return $false }
     $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $BudgetSeconds))
     $lastError   = ''
     while ($true) {
@@ -3125,7 +3113,7 @@ function Remove-PoolStorageTree {
             if (-not (Test-Path -LiteralPath $Path)) { return $true }
         }
         if ([DateTime]::UtcNow.AddMilliseconds($DelayMilliseconds) -ge $deadlineUtc) {
-            Write-Warning "poolStorage: could not fully delete '$Path' within ${BudgetSeconds}s: $lastError"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bcd16e2884ef961a' -Arguments @{ path = "$Path"; budgetSeconds = "${BudgetSeconds}"; lastError = "$lastError" })
             return $false
         }
         Write-Verbose "poolStorage: retrying delete of '$Path' ($lastError)"

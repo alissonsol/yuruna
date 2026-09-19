@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b7a403-f88e-4a99-bea6-e01180846f3b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Yuruna.Host bootstrap: imports the matching host driver
 # (host/<host>/modules/Yuruna.Host.psm1) into the runner's session so
@@ -78,7 +81,7 @@ function Initialize-YurunaHost {
     $hostFolderRel = Get-HostFolder -HostType $HostType
     $modulePath    = Join-Path $RepoRoot (Join-Path $hostFolderRel 'modules/Yuruna.Host.psm1')
     if (-not (Test-Path $modulePath)) {
-        throw "Yuruna.Host.psm1 not found for $HostType (looked at $modulePath). Cannot dispatch host operations."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_62eaa799b46f377c' -Arguments @{ hostType = "$HostType"; modulePath = "$modulePath" })
     }
     Import-Module $modulePath -Force -DisableNameChecking -Global
     # Test.VMUtility.psm1 holds host-agnostic test helpers (Wait-VMRunning,

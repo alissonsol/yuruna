@@ -7,30 +7,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>New stash &mdash; Yuruna Stash</title>
+  <title data-i18n="stash.new_stash_yuruna_stash">New stash &mdash; Yuruna Stash</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Stash</a></span>
+      <span class="name"><a href="/" data-i18n="stash.yuruna_stash">Yuruna Stash</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="stash.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Stashes</a>
-        <a href="/new" aria-current="page">New stash</a>
-        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="stash.pages">
+        <a href="/" data-i18n="stash.stashes">Stashes</a>
+        <a href="/new" aria-current="page" data-i18n="stash.new_stash">New stash</a>
+        <a class="menu-out" href="https://yuruna.link/42f5e921" target="_blank" rel="noopener" data-i18n="stash.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>New stash</h1>
+    <h1 data-i18n="stash.new_stash">New stash</h1>
     <div id="msg" role="alert"></div>
     <!-- Real buttons, not styled divs. The upload form below starts hidden and
          these are the only thing that reveals it, so as <div>s they put one of
@@ -39,30 +39,30 @@
          needed in new.js. -->
     <div class="tabs" role="tablist">
       <button type="button" class="tab active" id="tab-text" role="tab"
-              aria-selected="true" aria-controls="form-text">Paste text</button>
+              aria-selected="true" aria-controls="form-text" data-i18n="stash.paste_text">Paste text</button>
       <button type="button" class="tab" id="tab-files" role="tab"
-              aria-selected="false" aria-controls="form-files">Upload file(s)</button>
+              aria-selected="false" aria-controls="form-files" data-i18n="stash.upload_file_s">Upload file(s)</button>
     </div>
 
     <form class="create" id="form-text" role="tabpanel" aria-labelledby="tab-text">
-      <label for="title">Title / filename (optional)</label>
-      <input type="text" id="title" name="title" placeholder="notes.txt">
-      <label for="author">Author (optional)</label>
-      <input type="text" id="author" name="author" placeholder="web">
-      <label for="text">Content</label>
-      <textarea id="text" name="text" placeholder="Paste content here..."></textarea>
+      <label for="title" data-i18n="stash.title_filename_optional">Title / filename (optional)</label>
+      <input type="text" id="title" name="title" placeholder="notes.txt" data-i18n-placeholder="stash.notes_txt">
+      <label for="author" data-i18n="stash.author_optional">Author (optional)</label>
+      <input type="text" id="author" name="author" placeholder="web" data-i18n-placeholder="stash.web">
+      <label for="text" data-i18n="stash.content">Content</label>
+      <textarea id="text" name="text" placeholder="Paste content here..." data-i18n-placeholder="stash.paste_content_here"></textarea>
       <div class="actions">
-        <button class="btn primary" type="submit">Create stash</button>
+        <button class="btn primary" type="submit" data-i18n="stash.create_stash">Create stash</button>
       </div>
     </form>
 
     <form class="create" id="form-files" role="tabpanel" aria-labelledby="tab-files" style="display:none">
-      <label for="author2">Author (optional)</label>
-      <input type="text" id="author2" name="author" placeholder="web">
-      <label for="files">File(s) -- multiple files are grouped into one ZIP</label>
+      <label for="author2" data-i18n="stash.author_optional">Author (optional)</label>
+      <input type="text" id="author2" name="author" placeholder="web" data-i18n-placeholder="stash.web">
+      <label for="files" data-i18n="stash.file_s_multiple_files_are_grouped_into_one_zip">File(s) -- multiple files are grouped into one ZIP</label>
       <input type="file" id="files" name="files" multiple>
       <div class="actions">
-        <button class="btn primary" type="submit">Upload stash</button>
+        <button class="btn primary" type="submit" data-i18n="stash.upload_stash">Upload stash</button>
       </div>
     </form>
   </main>
@@ -71,8 +71,8 @@
        whatever has been typed into it; no #countdown element means initFooter
        never starts that tick. -->
   <footer class="app" id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="stash.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="stash.loaded">Loaded:</span> <span id="last-loaded">--</span></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

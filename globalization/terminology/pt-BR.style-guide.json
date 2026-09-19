@@ -5,30 +5,30 @@
   "terminologySource": {
     "path": "globalization/terminology/pt-BR.terms.json",
     "hashAlgorithm": "sha256-file-bytes-v1",
-    "sha256": "ecb22c7f07ff6990229e45be47d31df8ec6fa4464289b5ff897e83dbc047d1de"
+    "sha256": "922703a4301500a768a8c1856afb8287f3a07610dc6de5bcdf97210b04d8972e"
   },
   "approvals": {
     "translator": {
       "status": "approved",
       "approvedBy": "Alisson Sol",
-      "approvedAt": "2026-09-13",
+      "approvedAt": "2026-09-14",
       "evidence": {
-        "releaseVersion": "2026.09.13",
+        "releaseVersion": "2026.09.18",
         "approvedContent": {
           "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "b57568728258eb6164353ec6cd5ae44373603380110d990fda15ce222ef53f84"
+          "sha256": "698c46ed52fe36a2924c69a569bf2e613e99c338acfe973d0b2559876bf60b88"
         }
       }
     },
     "independentReviewer": {
       "status": "approved",
       "approvedBy": "Denise Sol",
-      "approvedAt": "2026-09-13",
+      "approvedAt": "2026-09-14",
       "evidence": {
-        "releaseVersion": "2026.09.13",
+        "releaseVersion": "2026.09.18",
         "approvedContent": {
           "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "b57568728258eb6164353ec6cd5ae44373603380110d990fda15ce222ef53f84"
+          "sha256": "698c46ed52fe36a2924c69a569bf2e613e99c338acfe973d0b2559876bf60b88"
         }
       }
     }

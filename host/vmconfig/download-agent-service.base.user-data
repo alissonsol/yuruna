@@ -64,6 +64,13 @@ write_files:
       password=POOL_NAS_PASSWORD_PLACEHOLDER
   # See https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
+  - path: /etc/yuruna/globalization.env
+    owner: root:root
+    permissions: '0644'
+    content: |
+      YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
+      YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
+
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root

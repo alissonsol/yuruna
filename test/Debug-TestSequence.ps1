@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,6 +104,7 @@ param(
 # Cmdline override for three-state resolution further down (after config
 # load). PSBoundParameters is the only reliable source -- `[string]` defaults
 # to '' when omitted.
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel } else { $null }
 
 # --- REGION: Resolve paths
@@ -165,7 +166,7 @@ $global:VerbosePreference = $savedVerbose
 $cycleCtx = Get-CycleContext
 $isNested = [bool]$cycleCtx
 if ($isNested) {
-    Write-Output "Nested run: attaching to cycle $($cycleCtx.cycleStartUtc) (parent node: $($cycleCtx.parentId))."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2ec80e33b40cafb3' -Arguments @{ cycleStartUtc = "$($cycleCtx.cycleStartUtc)"; parentId = "$($cycleCtx.parentId)" })
 }
 
 # --- REGION: logLevel resolution: cmdline > YAML > 'Information'
@@ -195,7 +196,7 @@ if (-not (Assert-Elevation -HostType (Get-HostType))) { exit $ExitFailure }
 
 # --- REGION: Read config
 $Config = Read-TestConfig -Path $ConfigPath
-if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; exit $ExitFailure }
+if (-not $Config) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f62563beddeea65d' -Arguments @{ configPath = "$ConfigPath" }); exit $ExitFailure }
 
 # --- REGION: Pre-cycle config gate
 # Mirror Start-TestRunner: refuse to bring up a VM when test.config.yml /
@@ -237,16 +238,16 @@ if ($Config -is [System.Collections.IDictionary] -and
     $projUrl = [string]$Config.repositories.projectUrl
 }
 if ($NoProjectClone) {
-    Write-Output "Project clone: skipped (-NoProjectClone); reusing existing <RepoRoot>/project."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9d3a2ae3fb5cec6d')
 } else {
     $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
     if (-not $cloneRes.success) {
         Write-Warning ""
         Write-Warning "========"
-        Write-Warning "  Project clone FAILED: $($cloneRes.errorMessage)"
-        Write-Warning "  Debug-TestSequence cannot resolve project-tree sequences without"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_62763311ebf835f2' -Arguments @{ errorMessage = "$($cloneRes.errorMessage)" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_30850c083e8c60e9')
         Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
-        Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a8bdd8fe43f4954f')
         Write-Warning "========"
         exit $ExitFailure
     }
@@ -271,7 +272,7 @@ if (-not $isNested) {
 # autoinstall flow that Hyper-V/UTM autoinstall guests run through.
 $HostType = Get-HostType
 if (-not $HostType) { exit $ExitFailure }
-Write-Output "Host type: $HostType"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_82bcd42076e94095' -Arguments @{ hostType = "$HostType" })
 
 # --- REGION: Resolve sequence file
 # Sequences live flat under test/sequences/ in the framework and
@@ -307,7 +308,7 @@ if (-not $SequencePathOverride -and $SequenceName -match '\.ya?ml$') {
 }
 
 if ($SequencePathOverride) {
-    Write-Output "Sequence path: $SequencePathOverride (basename: $SequenceName)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8bd4b02d5e70403a' -Arguments @{ sequencePathOverride = "$SequencePathOverride"; sequenceName = "$SequenceName" })
     # Heads-up: if a host-variant sibling exists, Resolve-SequencePath
     # would have picked it (the runner does). Path-override skips that
     # tier, so warn loudly -- otherwise the operator thinks Debug-TestSequence
@@ -318,9 +319,9 @@ if ($SequencePathOverride) {
         $overrideExt  = [System.IO.Path]::GetExtension($SequencePathOverride)
         $variantPath  = Join-Path $overrideDir "$SequenceName.$hostShort$overrideExt"
         if (Test-Path -LiteralPath $variantPath) {
-            Write-Warning "Host-variant sibling exists: $variantPath"
-            Write-Warning "  Start-TestRunner would pick the variant on $HostType, but Debug-TestSequence is running the generic file you passed."
-            Write-Warning "  Pass the variant path explicitly to match runner behavior."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9c7e07aeec1e2470' -Arguments @{ variantPath = "$variantPath" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_760f2248c0947561' -Arguments @{ hostType = "$HostType" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9d268a451a73a838')
         }
     }
     $SequencePath = $SequencePathOverride
@@ -332,11 +333,11 @@ if (-not $SequencePath) {
     # enumerates the same tier order so the operator sees the exact set of
     # candidates that were checked, rather than a fake "resolved path".
     $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
-    Write-Error "Sequence file not found: $SequenceName"
-    Write-Output "Searched (no match):"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c8257004f436177e' -Arguments @{ sequenceName = "$SequenceName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b5abb8162943db18')
     foreach ($p in $searched) { Write-Output "  $p" }
     Write-Output ""
-    Write-Output "Available sequences:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b32c788449b89f51')
     $allDirs = @($SequencesDir) + (Get-ProjectFlatTestSearchDir -RepoRoot $RepoRoot)
     $allDirs |
         ForEach-Object { Get-ChildItem -Path $_ -Filter "*.yml" -ErrorAction SilentlyContinue } |
@@ -356,8 +357,8 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 # imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
-Write-Output "Track directory: $env:YURUNA_RUNTIME_DIR"
-Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d0c93f4c1ef556a0' -Arguments @{ dIR = "$env:YURUNA_RUNTIME_DIR" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d86eb14c32191314' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 
 # --- REGION: Single-instance guard
 # Refuse to start when a Start-TestRunner already owns the runtime dir.
@@ -402,7 +403,7 @@ if (-not $isNested -and (Get-Command Clear-StaleControlState -ErrorAction Silent
 
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
-Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_37b6754fe040268f' -Arguments @{ join = "$($activeEngines -join ', ')"; combineMode = "$combineMode" })
 if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
 # --- REGION: Orchestration sequence dispatch (InvokeTestSequence steps)
@@ -414,7 +415,7 @@ if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 # exit code.
 $topLevelDoc = $null
 try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
-    Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_0eb9acf2273e09fd' -Arguments @{ sequencePath = "$SequencePath"; message = "$($_.Exception.Message)" })
     exit $ExitFailure
 }
 if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
@@ -449,12 +450,12 @@ if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
 # (Test.SequencePlanner.psm1) for Start-TestRunner / Invoke-TestProject,
 # kept symmetric so Debug-TestSequence behaves the same standalone.
 if ($GuestKey) {
-    Write-Output "Guest key (override): $GuestKey"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_79690a75cc829126' -Arguments @{ guestKey = "$GuestKey" })
 } else {
     try {
         $topSeq = Read-SequenceFile -Path $SequencePath
     } catch {
-        Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_0eb9acf2273e09fd' -Arguments @{ sequencePath = "$SequencePath"; message = "$($_.Exception.Message)" })
         exit $ExitFailure
     }
     # Read-SequenceFile normalizes `resource:` into the engine-internal `baseline`
@@ -466,23 +467,23 @@ if ($GuestKey) {
         $osKeys = @($topSeq.baseline.Keys)
     }
     if ($osKeys.Count -eq 0) {
-        Write-Error "Sequence '$SequenceName' has no 'resource:' OS key in $SequencePath. Add a 'resource:' block (e.g. 'resource: { amazon.linux.2023: [start.guest.amazon.linux.2023] }') or pass -GuestKey explicitly."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_a8ae8ccf83869008' -Arguments @{ sequenceName = "$SequenceName"; sequencePath = "$SequencePath" })
         exit $ExitFailure
     }
     $osKey = $osKeys[0]
     if ($osKeys.Count -gt 1) {
-        Write-Warning "Sequence '$SequenceName' declares multiple resource OS keys ($($osKeys -join ', ')). Debug-TestSequence will target '$osKey'. Pass -GuestKey to choose explicitly."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ad81569ced59ff6c' -Arguments @{ sequenceName = "$SequenceName"; join = "$($osKeys -join ', ')"; osKey = "$osKey" })
     }
     $GuestKey = "guest.$osKey"
-    Write-Output "Guest key (from baseline): $GuestKey"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3d35ece66aa84b79' -Arguments @{ guestKey = "$GuestKey" })
 }
 
 # Final safety net: even an explicit -GuestKey must point to a real folder.
 if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey)) {
     $folder = Join-Path $RepoRoot (Join-Path (Get-HostFolder $HostType) $GuestKey)
-    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $folder"
-    Write-Output "  Add Get-Image.ps1 + New-VM.ps1 under that path to enable this guest, or"
-    Write-Output "  correct -GuestKey to a guest that exists on this host."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_24819dc9d233e1da' -Arguments @{ guestKey = "$GuestKey"; hostType = "$HostType"; folder = "$folder" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_dfd80a749d4fee8f')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0a7402a9f9613d98')
     exit $ExitFailure
 }
 
@@ -600,14 +601,14 @@ if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServi
 $cachingProxyUrl = Test-CachingProxyServiceAvailable
 $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
 if ($newVmProxy) {
-    Write-Output "Caching-proxy service: $newVmProxy (forwarded to New-VM)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_00d3aca89d9237fa' -Arguments @{ newVmProxy = "$newVmProxy" })
 } else {
-    Write-Output "Caching-proxy service: none -- guest will download directly."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5b5842bc02378c5f')
 }
 
 # --- REGION: Ensure VM exists (reuse or create)
 if ((Get-VMState -VMName $VMName) -ne 'absent') {
-    Write-Output "VM '$VMName' already exists. Reusing."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a1b32a2ad4857b3d' -Arguments @{ vMName = "$VMName" })
     # Reuse skips the entire New-VM path, so the switch selection that runs
     # there never runs: the VM keeps whatever vNIC attachment it was created
     # with, and no host-side network change ever reaches it. A Hyper-V vSwitch
@@ -634,13 +635,13 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
             Write-Verbose "VM '$VMName': switch attachment not evaluable: $($_.Exception.Message)"
         }
         if ($reuseVerdict -notin @('healthy', 'unknown')) {
-            Write-Warning "VM '$VMName' is attached to switch '$reuseSwitchName', which reports '$reuseVerdict'. Guests on this switch come up with no carrier: the host is unreachable from the guest, and the host address baked into this VM's seed may no longer be the one the host answers on. The VM is reused as-is -- delete it so it is provisioned onto a working switch, or restore the switch's uplink binding."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1eeace18e9071c6f' -Arguments @{ vMName = "$VMName"; reuseSwitchName = "$reuseSwitchName"; reuseVerdict = "$reuseVerdict" })
         } else {
             Write-Verbose "VM '$VMName': switch '$reuseSwitchName' uplink verdict '$reuseVerdict'."
         }
     }
 } else {
-    Write-Output "VM '$VMName' not found. Creating..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ad8be36c987288c8' -Arguments @{ vMName = "$VMName" })
     # Forward -Username / -Hostname when the sequence declares them. Mirrors
     # Invoke-TestRunnerInnerLoop's cascade forward (the cascade-walk is not
     # feasible standalone, but the sequence's own variables.username /
@@ -673,7 +674,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     }
     $r = New-VM @newVmArgs -Confirm:$false
     if (-not $r.success) {
-        Write-Error "New-VM failed: $($r.errorMessage)"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7fbc520be847a724' -Arguments @{ errorMessage = "$($r.errorMessage)" })
         exit $ExitFailure
     }
     Write-Output "VM '$VMName' created."
@@ -696,23 +697,23 @@ $VmBootDelaySeconds    = $Config.vmStart.bootDelaySeconds    ? [int]$Config.vmSt
 $firstStepAction = Get-FirstExecutedStepAction -ChainEntries $ChainEntries -StartStep $StartStep
 
 if ($firstStepAction -eq 'loadDiskSnapshot') {
-    Write-Output "VM '$VMName': skipping pre-sequence start -- first step is loadDiskSnapshot (handler will start the VM after the restore)."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_99f490076f106bd0' -Arguments @{ vMName = "$VMName" })
 } elseif ((Get-VMState -VMName $VMName) -eq 'running') {
-    Write-Output "VM '$VMName' is already running."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e254f9313b9ad995' -Arguments @{ vMName = "$VMName" })
 } else {
-    Write-Output "Starting VM '$VMName'..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_44a010f47f51d941' -Arguments @{ vMName = "$VMName" })
     $r = Start-VM -VMName $VMName -Confirm:$false
     if (-not $r.success) {
-        Write-Error "Start-VM failed: $($r.errorMessage)"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_99bf63cc22ad6315' -Arguments @{ errorMessage = "$($r.errorMessage)" })
         exit $ExitFailure
     }
     $ok = Wait-VMRunning -VMName $VMName `
         -TimeoutSeconds $VmStartTimeoutSeconds -BootDelaySeconds $VmBootDelaySeconds
     if (-not $ok) {
-        Write-Error "VM '$VMName' did not reach running state within ${VmStartTimeoutSeconds}s."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f6f4b9dbaaab8f2f' -Arguments @{ vMName = "$VMName"; vmStartTimeoutSeconds = "${VmStartTimeoutSeconds}" })
         exit $ExitFailure
     }
-    Write-Output "VM '$VMName' is running."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_871b3d6f64f4b730' -Arguments @{ vMName = "$VMName" })
 }
 
 # --- REGION: Validate StartStep / StopStep against the chain's TOTAL step count
@@ -723,17 +724,17 @@ if ($firstStepAction -eq 'loadDiskSnapshot') {
 $totalSteps = $ChainTotalSteps
 
 if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
-    Write-Error "StartStep $StartStep is out of range. The chain has $totalSteps steps (1-$totalSteps)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c5e5437853bd6622' -Arguments @{ startStep = "$StartStep"; totalSteps = "$totalSteps" })
     exit $ExitFailure
 }
 
 if ($StopStep -ne 0) {
     if ($StopStep -lt $StartStep) {
-        Write-Warning "StopStep ($StopStep) must be greater than or equal to StartStep ($StartStep). Stopping."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd6bf003a0b8625' -Arguments @{ stopStep = "$StopStep"; startStep = "$StartStep" })
         exit $ExitFailure
     }
     if ($StopStep -gt $totalSteps) {
-        Write-Warning "StopStep $StopStep exceeds total steps ($totalSteps). Clamping to $totalSteps."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a91c5c4b76cc8ff' -Arguments @{ stopStep = "$StopStep"; totalSteps = "$totalSteps" })
         $StopStep = $totalSteps
     }
 }
@@ -776,7 +777,7 @@ if ($isNested) {
     Publish-CycleContext -CycleStartUtc ([string]$cycleCtx.cycleStartUtc) -StatusPath $StatusFile `
         -RootCycleFolder ([string]$cycleCtx.rootCycleFolder) -CycleNumber ([int]$cycleCtx.cycleNumber) `
         -ParentId $nestedNodeId
-    Write-Output "Log file: $LogFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8572ec44a49561c' -Arguments @{ logFile = "$LogFile" })
 } else {
     # --- REGION: OWNER: register + own the cycle (classic standalone path)
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
@@ -809,7 +810,7 @@ if ($isNested) {
 
     $CycleNumber = Get-CycleNumber
     $LogFile    = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $SeqCycleStartUtc -Hostname (hostname) -CycleNumber $CycleNumber -GitCommits $gitCommitsList
-    Write-Output "Log file: $LogFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8572ec44a49561c' -Arguments @{ logFile = "$LogFile" })
 
     # Open the per-step perf log for the cycle this run owns, so a standalone
     # sequence contributes rows on the same terms as a runner cycle. The nested
@@ -821,7 +822,7 @@ if ($isNested) {
             Start-PerfCycle -CycleStartUtc $SeqCycleStartUtc -HostPlatform $HostType -Hostname (hostname) `
                 -HarnessCommit $frameworkCommit -Confirm:$false
         } catch {
-            Write-Warning "Start-PerfCycle failed (non-fatal): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99ba6b1738ddcff9' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
 }
@@ -829,14 +830,14 @@ if ($isNested) {
 Write-Output ""
 Write-Output "========"
 Write-Output "  Sequence: $SequenceName"
-Write-Output "  Chain:    $($ChainPlan.fullChain.Count) sequence(s), $totalSteps total step(s)"
-Write-Output "  Range:    starting at step $StartStep$stopLabel"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2be40d5be45b6d2f' -Arguments @{ count = "$($ChainPlan.fullChain.Count)"; totalSteps = "$totalSteps" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9eecd5d18a0d7c74' -Arguments @{ startStep = "$StartStep"; stopLabel = "$stopLabel" })
 Write-Output "  VM:       $VMName"
 Write-Output "  Guest:    $GuestKey"
 Write-Output "========"
 
 Write-Output ""
-Write-Output "Step list:"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1e85bba01269d1fa')
 $stepIdx = 0
 foreach ($entry in $ChainEntries) {
     $marker = ($ChainPlan.fullChain.Count -gt 1) ? "--- " : ""
@@ -904,12 +905,12 @@ try {
             # Contract Stop-VM returns [bool] (only Start-VM returns the
             # { success; errorMessage } hashtable shape).
             if (Stop-VM -VMName $VMName -Confirm:$false -ErrorAction Stop) {
-                Write-Output "Stopped VM '$VMName' after Ctrl+C (disk retained for inspection)."
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be382a2694862437' -Arguments @{ vMName = "$VMName" })
             } else {
-                Write-Warning "Stop-VM '$VMName' after Ctrl+C did not confirm the stop; the guest may still be running."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28891a03368609b9' -Arguments @{ vMName = "$VMName" })
             }
         } catch {
-            Write-Warning "Could not stop VM '$VMName' after Ctrl+C: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_847b851dc7bf561b' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)" })
         }
     }
     Unregister-EntryPointCancelHandler

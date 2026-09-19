@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b17423-c407-4384-96bd-8aa338c885ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,7 @@ param(
     [Parameter()][int]$TimeoutSeconds = 15
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -99,7 +100,7 @@ function Write-Step {
 
 $code = $LabToken.Trim().ToLowerInvariant()
 if ($code -notmatch '^[a-z0-9]{6}$') {
-    Write-Error "'$LabToken' is not a Lab token: expected the 6-character code (lowercase letters/digits) from the Yuruna hosts dashboard's 'Lab token' tile."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_cfb961598a0d955c' -Arguments @{ labToken = "$LabToken" })
     exit 1
 }
 
@@ -121,7 +122,7 @@ if (-not [string]::IsNullOrWhiteSpace($CachingProxyService)) {
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
     $base = Get-PoolAggregatorServiceSeedUrl -MaxWaitSeconds 30
     if (-not $base) {
-        Write-Error 'No caching-proxy service this host names answered on :9400; pass -CachingProxyService <address>.'
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d451371262f4e3e2')
         exit 1
     }
     Write-Step 'aggregator' "$base (resolved from this host's configuration)"
@@ -137,7 +138,7 @@ try {
         -TimeoutSec $TimeoutSeconds -SkipCertificateCheck -SkipHttpErrorCheck -MaximumRedirection 0 -NoProxy
 } catch {
     Write-Step 'HTTP' "no answer -- $($_.Exception.Message)"
-    Write-Information 'The aggregator did not answer. Check the address and that pool-aggregator-service is running on it.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6cc6790657c7d400') -InformationAction Continue
     exit 1
 }
 $status = [int]$resp.StatusCode
@@ -149,10 +150,10 @@ if ($status -ne 200) {
     # everything else names itself in the body.
     Write-Information '' -InformationAction Continue
     switch ($status) {
-        403 { Write-Information 'The aggregator REFUSED the code: it is unknown or expired. Re-read the tile and retry -- this is the case Set-LabToken''s message is written for.' -InformationAction Continue }
-        429 { Write-Information 'This address burned its failed-attempt budget. Wait for the window to pass rather than retrying.' -InformationAction Continue }
-        503 { Write-Information 'The exchange is disabled on that aggregator: rotation is off, or the proxy holds no internal authentication key to hand out.' -InformationAction Continue }
-        default { Write-Information "Unexpected status $status; the body above is the aggregator's own account." -InformationAction Continue }
+        403 { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_928f54451845a095') -InformationAction Continue }
+        429 { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c99eebdec002d085') -InformationAction Continue }
+        503 { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b8f7937cfa63542e') -InformationAction Continue }
+        default { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ceb9c8d34ff7be5a' -Arguments @{ status = "$status" }) -InformationAction Continue }
     }
     exit 1
 }
@@ -179,7 +180,7 @@ foreach ($field in @('salt', 'nonce', 'ciphertext', 'tag')) {
 }
 if ($missing.Count) {
     Write-Information '' -InformationAction Continue
-    Write-Information "The reply is missing $($missing -join ', '), so the client returns an empty token WITHOUT attempting a decrypt. The aggregator answered 200 and sealed something, so this is a shape mismatch between that daemon's reply and this client -- not a wrong code." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4372d93586546ebc' -Arguments @{ join = "$($missing -join ', ')" }) -InformationAction Continue
     exit 1
 }
 
@@ -212,12 +213,12 @@ try {
     [Array]::Clear($plain, 0, $plain.Length)
     Write-Step 'UNSEAL' "OK -- recovered $length bytes"
     Write-Information '' -InformationAction Continue
-    Write-Information 'The exchange works from this host. If Set-LabToken still fails here, the difference is in what it does AFTER the exchange -- run it with -Verbose and compare.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_76a64f58ea384d2f') -InformationAction Continue
 } catch {
     # The one line the operator never sees otherwise: the module swallows this
     # into a Write-Verbose and returns ''.
     Write-Step 'UNSEAL' "FAILED -- $($_.Exception.GetType().FullName): $($_.Exception.Message)"
     Write-Information '' -InformationAction Continue
-    Write-Information "The aggregator sealed a reply this client cannot open. The code was accepted, so re-reading the tile will not help. Compare the PowerShell and OS line above against a host where the exchange succeeds; a CryptographicException here means the derived key differs, which means the two sides disagree on the code, the iteration count ($EnvelopeIterations) or the label ('$EnvelopeLabel')." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_767a42e435b5f2c7' -Arguments @{ envelopeIterations = "$EnvelopeIterations"; envelopeLabel = "$EnvelopeLabel" }) -InformationAction Continue
     exit 1
 }

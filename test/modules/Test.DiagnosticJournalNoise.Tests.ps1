@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a6b0a3-6ac8-4209-8138-98b813018d22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
     $script:DiagPath = Join-Path $script:RepoRoot 'automation/Get-SystemDiagnostic.ps1'
     $script:DiagText = Get-Content -Raw -LiteralPath $script:DiagPath
 
@@ -145,7 +146,10 @@ Describe 'diagnostic journal: the harness does not report itself as news' {
     It 'still prints every line it was given' {
         # Suppression is for the count and for the window that would otherwise
         # overflow, never for hiding what the journal said in the error section.
-        $eventsBlock = [regex]::Match($script:DiagText, "(?ms)journalctl -p err -n 20.*?no error entries in the last hour").Value
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:DiagText, [ref]$null, [ref]$null)
+        $probe = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Sub' -and $node.Extent.Text -match 'journalctl -p err -n 20' }, $true)
+        $probe | Should -Not -BeNullOrEmpty
+        $eventsBlock = $probe.Parent.Parent.Extent.Text
         $eventsBlock | Should -Match '\$jc \| ForEach-Object \{ Write-Output \$_ \}' -Because 'the operator must still be able to read what was there'
     }
 }
@@ -153,8 +157,11 @@ Describe 'diagnostic journal: the harness does not report itself as news' {
 Describe 'diagnostic: a libvirt host is asked about the DHCP service it runs' {
 
     BeforeAll {
-        $script:LibvirtBlock = [regex]::Match($script:DiagText,
-            "(?ms)Write-Sub ""libvirt guest networks.*?Write-Sub ""journalctl -xe").Value
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:DiagText, [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Sub' }, $true))
+        $begin = @($calls | Where-Object { (($_.Extent.Text + "`n" + ((Get-CatalogSourceMessage -Source $_.Extent.Text) -join "`n"))) -match 'libvirt guest networks' })[0]
+        $end = @($calls | Where-Object { $_.Extent.StartOffset -gt $begin.Extent.StartOffset -and (($_.Extent.Text + "`n" + ((Get-CatalogSourceMessage -Source $_.Extent.Text) -join "`n"))) -match 'journalctl -xe' })[0]
+        $script:LibvirtBlock = $script:DiagText.Substring($begin.Extent.StartOffset, $end.Extent.StartOffset - $begin.Extent.StartOffset)
     }
 
     It 'is present at all' {

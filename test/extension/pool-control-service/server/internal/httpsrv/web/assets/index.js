@@ -19,7 +19,7 @@
     window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var tbody = document.getElementById('pool-rows');
-    var done = quiet ? function () { } : Y.busy(tbody, 'Loading pools...');
+    var done = quiet ? function () { } : Y.busy(tbody, window.YurunaI18n.t("pool.loading_pools"));
     chrome.busy(true);
     // Runs on the failure path too: an indicator left turning over a read that
     // already failed claims progress that is not happening.
@@ -28,6 +28,13 @@
   }
 
   function renderPools(tbody) {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/index.html", "data", function () {
+      return renderPoolsMeasured(tbody);
+    });
+  }
+
+
+  function renderPoolsMeasured(tbody) {
     Y.clearNotice();
     // Y.hostInfo is memoized and non-rejecting, so this is one read for the
     // life of the page and an aggregator this daemon does not know about just
@@ -37,7 +44,7 @@
       chrome.markLoaded();
       paintPools(tbody, both[0], both[1].goBaseUrl || '');
     }, function (e) {
-      Y.notice('error', 'Could not load pool intent: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("pool.could_not_load_pool_intent_value1", {value1: (e.message)}));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/index.html', 'error');
     });
   }
@@ -50,7 +57,7 @@
 
     if (pools.length === 0) {
       sorter.set([]);
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No pools defined. Create one on the Pools page.' })]));
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: window.YurunaI18n.t("pool.no_pools_defined_create_one_on_the_pools_page") })]));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/index.html', 'empty');
       return;
     }
@@ -71,18 +78,18 @@
     // they all announce as a bare "combo box" and there is nothing to tell
     // them apart -- which is how a test set gets assigned to the wrong pool.
     // The three sibling selects in this service already do this.
-    var sel = Y.el('select', { 'aria-label': 'Test set for pool ' + p.poolId });
-    sel.appendChild(Y.el('option', { value: '', text: '(choose a test set)' }));
+    var sel = Y.el('select', { 'aria-label': window.YurunaI18n.t("pool.test_set_for_pool_value1", {value1: (p.poolId)}) });
+    sel.appendChild(Y.el('option', { value: '', text: window.YurunaI18n.t("pool.choose_a_test_set") }));
     for (var i = 0; i < testSets.length; i++) {
       var t = testSets[i];
       var o = Y.el('option', { value: t.name, text: t.name });
       if (ts && ts.name === t.name) { o.selected = true; }
       sel.appendChild(o);
     }
-    var assignBtn = Y.el('button', { class: 'primary', text: 'Assign' });
+    var assignBtn = Y.el('button', { class: 'primary', text: window.YurunaI18n.t("pool.assign") });
     assignBtn.addEventListener('click', function () {
       var name = sel.value;
-      if (!name) { Y.notice('error', 'Pick a test set first (define one on the Test sets page).'); return; }
+      if (!name) { Y.notice('error', window.YurunaI18n.t("pool.pick_a_test_set_first_define_one_on_the_test_sets_page")); return; }
       var chosen = null;
       for (var j = 0; j < testSets.length; j++) {
         if (testSets[j].name === name) { chosen = testSets[j]; break; }
@@ -93,10 +100,10 @@
         method: 'POST',
         body: { poolId: p.poolId, name: chosen.name, frameworkURL: chosen.frameworkUrl, projectURL: chosen.projectUrl }
       }).then(function () {
-        Y.notice('ok', "Assigned '" + name + "' to pool '" + p.poolId + "'.");
+        Y.notice('ok', window.YurunaI18n.t("pool.assigned_value1_to_pool_value2", {value1: (name), value2: (p.poolId)}));
         load();
       }, function (e) {
-        Y.notice('error', 'Assign failed: ' + e.message);
+        Y.notice('error', window.YurunaI18n.t("pool.assign_failed_value1", {value1: (e.message)}));
         assignBtn.disabled = false;
       });
     });
@@ -106,7 +113,7 @@
     // footnote rather than a per-row repeat -- it is one instruction, not a
     // per-row fact.
     var members = p.members || [];
-    var memCell = Y.el('td', {}, [Y.el('div', { text: members.length + ' host(s)' })]);
+    var memCell = Y.el('td', {}, [Y.el('div', { text: window.YurunaI18n.t("pool.value1_host_s", {value1: (members.length)}) })]);
     for (var k = 0; k < members.length; k++) {
       memCell.appendChild(Y.el('div', {}, [Y.hostLink(members[k], p.poolId, goBaseUrl)]));
     }
@@ -118,7 +125,7 @@
         Y.el('div', { text: ts.frameworkUrl }),
         Y.el('div', { text: ts.projectUrl })
       ])
-      : Y.el('td', { class: 'mono', text: '(none)' });
+      : Y.el('td', { class: 'mono', text: window.YurunaI18n.t("pool.none") });
     // The picker column sorts on the set the pool holds NOW, not on the choice
     // sitting unsubmitted in the dropdown: the table orders what is true of the
     // lab, and a half-made choice is not that yet.
@@ -129,7 +136,7 @@
         Y.el('td', {}, [sel, ' ', assignBtn]),
         fwProj,
         memCell,
-        Y.el('td', { text: p.desiredState || 'run' })
+        Y.el('td', { text: p.desiredState || window.YurunaI18n.t("pool.run") })
       ]),
       values: {
         pool: p.poolId || '',

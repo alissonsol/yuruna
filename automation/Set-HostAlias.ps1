@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,7 @@ param (
 )
 
 begin {
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
     # --- REGION: 1. Platform-agnostic hosts-file path
     # $IsWindows/$IsLinux/$IsMacOS are PowerShell (Core) automatic variables;
     # #requires -version 7 guarantees they exist.
@@ -109,7 +110,7 @@ begin {
         $script:HostsPath = '/etc/hosts'
     }
     else {
-        throw "Set-HostAlias: unsupported operating system; cannot locate a hosts file."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_fe1810bb5dfc8772')
     }
 
     # --- REGION: 2. Elevation / root assertion
@@ -210,7 +211,7 @@ process {
     # tolerated, dot-separated, 253 chars max).
     $hostnamePattern = '\A(?=.{1,253}\z)[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\z'
     if ($name -notmatch $hostnamePattern) {
-        throw "Set-HostAlias: '$ComputerName' is not a valid hostname or FQDN."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_e87092c2e06d1183' -Arguments @{ computerName = "$ComputerName" })
     }
 
     # Validate the address before it can reach disk: a malformed value would
@@ -221,7 +222,7 @@ process {
     if ($isUpsert) {
         $parsed = [System.Net.IPAddress]::Any
         if (-not [System.Net.IPAddress]::TryParse($targetIp, [ref]$parsed)) {
-            throw "Set-HostAlias: '$targetIp' is not a valid IPv4 or IPv6 address."
+            throw (Format-YurunaOperatorMessage -Key 'automation.operator_c2498d8f40bd3b7e' -Arguments @{ targetIp = "$targetIp" })
         }
         $targetIp = $parsed.ToString()
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $InformationPreference = 'Continue'
 $ProgressPreference = 'Continue'
 
@@ -69,7 +70,7 @@ try {
         }
     }
 } catch {
-    Write-Warning "Invoke-Sequence: Initialize-YurunaHost failed at module load -- contract calls (Restart-VMConsole, Get-VMScreenshot) will fail. Detail: $($_.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67f9991e2652e324' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 # --- REGION: Load global defaults from test.config.yml
@@ -342,7 +343,7 @@ function Find-TextLocation {
     try {
         $boxes = Get-TesseractWordBox -ImagePath $ImagePath
     } catch {
-        Write-Warning "Tesseract TSV OCR failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_afe15df7c41fff0a' -Arguments @{ value = "$_" })
         return $null
     }
     if (-not $boxes -or $boxes.Count -eq 0) { return $null }
@@ -446,7 +447,7 @@ function Save-ScreenshotWithClickMarker {
         $copy.Dispose()
         return $true
     } catch {
-        Write-Warning "Save-ScreenshotWithClickMarker failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d8523930547c291e' -Arguments @{ value = "$_" })
         # Fall back to plain copy so the operator still has a screenshot.
         Copy-Item -Path $SourcePath -Destination $DestPath -Force -ErrorAction SilentlyContinue
         return $false
@@ -553,9 +554,9 @@ function Invoke-TapOn {
         $failScreenPath = Join-Path $logDir "failure_clickbutton_${VMName}.png"
         if (Test-Path $capturePath) {
             Copy-Item -Path $capturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure screenshot saved: $failScreenPath"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4333edb4f597ba98' -Arguments @{ failScreenPath = "$failScreenPath" })
         }
-        Write-Warning "Button with label '$labelDisplay' not located within ${TimeoutSeconds}s"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f82bcebaee6fc7b8' -Arguments @{ labelDisplay = "$labelDisplay"; timeoutSeconds = "${TimeoutSeconds}" })
         return $false
     } finally {
         Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
@@ -1456,7 +1457,7 @@ function Wait-ForText {
                             $script:Fail.WaitForTextConsoleFlood = $floodDetail
                             $script:LastWaitVerdict.Flooded      = $true
                             $script:LastWaitVerdict.DominantLine = [string]$floodVerdict.DominantLine
-                            Write-Warning "      Wait-ForText: $floodDetail -- the pattern cannot be read off a surface this is overwriting, so the wait will run its budget and the failure will be recorded as a flooded console rather than a missing pattern."
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b995254a51c06d12' -Arguments @{ floodDetail = "$floodDetail" })
                             if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
                                 Send-YurunaDegradation -Dependency 'console-content' -Primary 'readable-console' -Fallback 'none' `
                                     -Reason $floodDetail
@@ -1593,16 +1594,16 @@ function Wait-ForText {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
                     if (Test-OCRMatch -Text $lastOcrText -Pattern $fp -NoSegmentMatch:([bool]$strictFailurePattern[$fp])) {
                         $script:Fail.WaitForTextMatchedFailurePattern = $fp
-                        Write-Warning "      Failure pattern matched: '$fp' -- aborting wait early (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_62980faa8cb2736d' -Arguments @{ fp = "$fp"; elapsed = "${elapsed}"; timeoutSeconds = "${TimeoutSeconds}" })
                         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
                             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
                             Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-                            Write-Information "      Failure screenshot saved: $failScreenPath (sequence: $screensDir)"
+                            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
                         }
                         if ($lastOcrText) {
                             $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
                             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-                            Write-Information "      Failure OCR text saved: $failOcrPath"
+                            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
                             # Bounded tail + the sought patterns into causeDetail (set
                             # on failure only, so a successful wait can't leak them).
                             $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
@@ -1628,7 +1629,7 @@ function Wait-ForText {
                     # wait into a false failure. Keep polling and try again at
                     # the next interval; the action's host-I/O preflight has
                     # already established that the transport exists.
-                    Write-Warning "      Wait-ForText: console nudge '$NudgeKey' did not land; continuing OCR wait."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e0fe1d922e8ae72b' -Arguments @{ nudgeKey = "$NudgeKey" })
                 }
                 $nextNudgeUtc = $nudgeNowUtc.AddSeconds($NudgeIntervalSeconds)
             }
@@ -1641,12 +1642,12 @@ function Wait-ForText {
         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
             Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure screenshot saved: $failScreenPath (sequence: $screensDir)"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
         }
         if ($lastOcrText) {
             $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure OCR text saved: $failOcrPath"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
             # Bounded tail + the sought patterns into causeDetail (set on failure
             # only, so a successful wait can't leak them).
             $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
@@ -1681,7 +1682,7 @@ function Wait-ForText {
             if ($nearMiss.Count -gt 0) {
                 $script:Fail.WaitForTextFreshWindowNearMiss = $nearMiss
                 foreach ($line in $nearMiss) {
-                    Write-Warning "      freshMatch near miss: $line"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7fd9fd9e44112055' -Arguments @{ line = "$line" })
                 }
             }
         }
@@ -1701,7 +1702,7 @@ function Wait-ForText {
             # entitled to keep separate from "never compared anything".
             $script:Fail.WaitForTextClosestOnScreen = $closestOnScreen
             foreach ($closestLine in $closestOnScreen) {
-                Write-Warning "      closest on screen: $closestLine"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35445ede93646e87' -Arguments @{ closestLine = "$closestLine" })
             }
         }
 
@@ -1715,7 +1716,7 @@ function Wait-ForText {
             try {
                 $secondOpinion = Get-VMConsoleSecondOpinion -VMName $VMName
                 if ($secondOpinion -and $secondOpinion.Verdict -ne 'unavailable') {
-                    Write-Warning "      Console second opinion ($($secondOpinion.Verdict)): $($secondOpinion.Detail)"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b3dea02d8275ec49' -Arguments @{ verdict = "$($secondOpinion.Verdict)"; detail = "$($secondOpinion.Detail)" })
                 } elseif ($secondOpinion) {
                     Write-Verbose "      Console second opinion unavailable: $($secondOpinion.Detail)"
                 }
@@ -1726,9 +1727,9 @@ function Wait-ForText {
 
         if ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
-            Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s (+${deadlineGrantedSeconds}s degradation grace; waited ~${waited}s)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5d951715d9614411' -Arguments @{ patternLabel = "$patternLabel"; timeoutSeconds = "${TimeoutSeconds}"; deadlineGrantedSeconds = "${deadlineGrantedSeconds}"; waited = "${waited}" })
         } else {
-            Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_55583f4e86287622' -Arguments @{ patternLabel = "$patternLabel"; timeoutSeconds = "${TimeoutSeconds}" })
         }
         return $false
     } finally {
@@ -1848,7 +1849,7 @@ function Wait-ForConsoleChange {
     $screensDir = $null
     try { $screensDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false } catch { $screensDir = $null }
     if (-not $screensDir) {
-        Write-Warning "      Wait-ForConsoleChange: no capture directory available; cannot confirm."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fc8f368b71282373')
         return $false
     }
     # Short by intent, and not for tidiness: the directory is already per-VM, so
@@ -2008,7 +2009,7 @@ function Invoke-SequenceByName {
         # operator can see the locations that were probed.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
         $list = Format-SequenceSearchList -Item $searched
-        Write-Warning "[$GuestKey] Sequence file not found: $Name`nSearched (no match):`n$list"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0eb7bda9b10d1bc4' -Arguments @{ guestKey = "$GuestKey"; name = "$Name"; list = "$list" })
         return $false
     }
     # Informational lines go through Write-Information, NOT Write-Output.
@@ -2019,7 +2020,7 @@ function Invoke-SequenceByName {
     # that array, but a returned $null (e.g. from an unhandled crash path)
     # would look identical to success. Keep the pipeline clean so the
     # return is strictly [bool].
-    Write-Information "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bf9f079318a27ce2' -Arguments @{ guestKey = "$GuestKey"; name = "$Name"; hostType = "$HostType"; vMName = "$VMName" }) -InformationAction Continue
     Write-Verbose "    Sequence file: $sequenceFile"
     $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive -StartStep $StartStep
     # Normalize: only $true is success. Anything else -- $null, objects,
@@ -2114,16 +2115,17 @@ function Invoke-GuestSequenceList {
             if ($s -eq $ResumeFromSequence) {
                 $reachedResume = $true
             } else {
-                Write-Information "  Skipping (passed before warm-resume point): $s" -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1c23340e88163829' -Arguments @{ s = "$s" }) -InformationAction Continue
                 continue
             }
         }
         $thisStart = if ($resuming -and $s -eq $ResumeFromSequence) { [int]$ResumeFromStep } else { 1 }
-        Write-Information ("  Running: $s" + $(if ($thisStart -gt 1) { " (warm-resume at step $thisStart)" } else { '' })) -InformationAction Continue
+        $runningMessage = if ($thisStart -gt 1) { Format-YurunaOperatorMessage -Key 'runner.sequence_running_resume' -Arguments @{ sequence = $s; step = $thisStart } } else { Format-YurunaOperatorMessage -Key 'runner.sequence_running' -Arguments @{ sequence = $s } }
+        Write-Information $runningMessage -InformationAction Continue
         $seqStartUtc = [DateTime]::UtcNow
         $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables -StartStep $thisStart
         if (-not $ok) {
-            $errMsg = "$PhaseLabel sequence '$s' failed"
+            $errMsg = (Format-YurunaOperatorMessage -Key 'runner.operator_af33f0960f92ab46' -Arguments @{ phaseLabel = "$PhaseLabel"; s = "$s" })
             # -Global: a nested -Force without -Global evicts Test.YurunaDir from
             # the parent script's session state, breaking later top-level calls.
             $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
@@ -2161,7 +2163,7 @@ function Invoke-GuestSequenceList {
         # Debug-TestSequence's chain runner uses. No-op when nothing renamed.
         $finishedVm = Get-SequenceFinishedVMName
         if ($finishedVm -and $finishedVm -ne $VMName) {
-            Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9d7be750017c3720' -Arguments @{ vMName = "$VMName"; finishedVm = "$finishedVm" }) -InformationAction Continue
             $VMName = $finishedVm
         }
     }
@@ -2169,7 +2171,7 @@ function Invoke-GuestSequenceList {
         # The resume target is not in this list -- refuse to report success (every
         # sequence would have been silently skipped). The runner re-derives the
         # target from last_failure.json, so this only trips on a bad call.
-        return @{ success=$false; skipped=$false; errorMessage="warm-resume target sequence '$ResumeFromSequence' not found in the workload list" }
+        return @{ success=$false; skipped=$false; errorMessage=(Format-YurunaOperatorMessage -Key 'runner.operator_b8e59ada0f2a685a' -Arguments @{ resumeFromSequence = "$ResumeFromSequence" }) }
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
@@ -2229,7 +2231,7 @@ function Invoke-Sequence {
         # Missing sequence file = setup error. A silent-skip return of
         # $true would mask sequence-name typos and bad mode resolution
         # as test successes.
-        Write-Warning "    Sequence file not found: $SequencePath"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd500968f410241' -Arguments @{ sequencePath = "$SequencePath" })
         return $false
     }
 
@@ -2359,7 +2361,7 @@ function Invoke-Sequence {
         if (-not $vars.ContainsKey('loginUser')) { $vars['loginUser'] = $vars['username'] }
     }
 
-    Write-Information "    Sequence: $($sequence.description)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.sequence_description' -Arguments @{ description = (Resolve-YurunaOperatorProjectLabel -Entry $sequence) })
     # Apply the optional step window (default = whole sequence). Slicing here
     # (rather than the caller writing a sliced temp YAML) is what lets the chain
     # runner drive a step range with -StartStep / -StopStep on the real file.
@@ -2385,7 +2387,7 @@ function Invoke-Sequence {
                 $seqBody = [System.IO.File]::ReadAllText($SequencePath)
             } catch {
                 $readErr = $_
-                Write-Information "Perf: sequence file read failed; perf row will lack sequenceContentHash. Path=$SequencePath Error=$($readErr.Exception.Message)"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7545bc97968f08e8' -Arguments @{ sequencePath = "$SequencePath"; message = "$($readErr.Exception.Message)" })
                 Send-CycleEventSafely -EventRecord @{
                     timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                     event     = 'perf_context_unavailable'
@@ -2398,7 +2400,7 @@ function Invoke-Sequence {
             Set-PerfGuestContext    -GuestKey $GuestKey -VMName $VMName
         } catch {
             $setupErr = $_
-            Write-Information "Perf-context setup failed (non-fatal): $($setupErr.Exception.Message)"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c35bcc6c529958c' -Arguments @{ message = "$($setupErr.Exception.Message)" })
             Send-CycleEventSafely -EventRecord @{
                 timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 event     = 'perf_context_unavailable'
@@ -2466,7 +2468,7 @@ function Invoke-Sequence {
         # CAN render reads: the sentence comes from its own catalog and the
         # label is data, so the reader's language is decided where the reader
         # is rather than here.
-        param([string]$Line, [string]$Code = '', [string]$Label = '')
+        param([string]$Line, [string]$Code = '', [string]$Label = '', [hashtable]$Arguments = @{})
         $attempts = 0
         $lastErr  = $null
         while ($attempts -lt 3) {
@@ -2478,6 +2480,7 @@ function Invoke-Sequence {
                     line      = $Line
                     code      = $Code
                     label     = $Label
+                    arguments = $Arguments
                     updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 }
                 # Route through the shared atomic writer: a fixed "$Path.tmp"
@@ -2486,7 +2489,7 @@ function Invoke-Sequence {
                 # guaranteed no-BOM encoding) in one place. It returns $false
                 # rather than throwing, so surface that into the retry loop.
                 if (-not (Write-YurunaStateFileJson -Path $currentActionFile -InputObject $doc -Confirm:$false)) {
-                    throw "Write-YurunaStateFileJson returned false for $currentActionFile"
+                    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_140e410616042231' -Arguments @{ currentActionFile = "$currentActionFile" })
                 }
                 return
             } catch {
@@ -2494,7 +2497,7 @@ function Invoke-Sequence {
                 Start-Sleep -Milliseconds (50 * $attempts)
             }
         }
-        Write-Warning "current-action.json write failed after $attempts attempts: $($lastErr.Exception.Message) (path=$currentActionFile)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f0366c89e03f268' -Arguments @{ attempts = "$attempts"; message = "$($lastErr.Exception.Message)"; currentActionFile = "$currentActionFile" })
         Send-CycleEventSafely -EventRecord @{
             timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             event     = 'sidecar_write_failed'
@@ -2550,8 +2553,8 @@ function Invoke-Sequence {
                     event     = 'sequence_paused'
                 })
             }
-            & $writeCurrentAction "$Label Paused (waiting for resume)" 'sequence_paused_waiting_resume' $Label
-            Write-Information "    $Label Paused (status-service request). Waiting for resume..."
+            & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_paused' -Arguments @{ label = $Label }) 'sequence_paused_waiting_resume' $Label @{ label = $Label }
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_119f0ffa59a9f297' -Arguments @{ label = "$Label" })
             $heldFromUtc  = [DateTime]::UtcNow
             $pauseAttempt = 1
             while (Test-Path $stepPauseFlagFile) {
@@ -2559,7 +2562,7 @@ function Invoke-Sequence {
                 $pauseAttempt++
             }
             $heldSeconds = [int]([DateTime]::UtcNow - $heldFromUtc).TotalSeconds
-            Write-Information "    $Label Resumed after ${heldSeconds}s."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0c5e7a2f9a68193c' -Arguments @{ label = "$Label"; heldSeconds = "${heldSeconds}" })
             # Handed to the failure record so a step that fails right after a long
             # hold reports the hold as part of its cause. Read by
             # New-SequenceFailureRecord; harmless on the passing path, where
@@ -2599,8 +2602,8 @@ function Invoke-Sequence {
     $checkCycleRestart = {
         param([string]$Label)
         if (Test-Path $cycleRestartFlagFile) {
-            & $writeCurrentAction "$Label cycle-restart requested (aborting cycle)"
-            Write-Information "    $Label cycle-restart signal seen -- aborting current cycle."
+            & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_restart' -Arguments @{ label = $Label }) 'sequence_restart_requested' $Label @{ label = $Label }
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2b07789beedbf479' -Arguments @{ label = "$Label" })
             $restart = [System.Management.Automation.RuntimeException]::new("YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label")
             $restart.Data['YurunaCycleRestart'] = $true
             throw $restart
@@ -2714,8 +2717,10 @@ function Invoke-Sequence {
             & $waitWhilePaused "[$stepNum/$($Steps.Count)]"
             & $waitWhileLabHealthy "[$stepNum/$($Steps.Count)]"
             & $checkCycleRestart "[$stepNum/$($Steps.Count)]"
-            $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
-            & $writeCurrentAction "[$stepNum/$($Steps.Count)] $($step.action): $desc"
+            $displayDescription = Resolve-YurunaOperatorProjectLabel -Entry $step
+            $desc = $displayDescription ? (Expand-Variable $displayDescription $vars) : $step.action
+            $actionArguments = @{ index = $stepNum; total = $Steps.Count; action = [string]$step.action; description = $desc }
+            & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_step' -Arguments $actionArguments) 'sequence_step_active' $desc $actionArguments
             # Refresh runner.stepHeartbeat from the runspace so the outer
             # watchdog can detect a single step that exceeds stepTimeout-
             # Minutes. We do NOT update this inside the action's own poll
@@ -2820,7 +2825,7 @@ function Invoke-Sequence {
                 $script:SequenceFinishedVMName = $VMName
             }
         } else {
-            Write-Warning "Unknown action '$($step.action)' -- treating as failure."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8fc728510686c969' -Arguments @{ action = "$($step.action)" })
             $ok = $false
         }
         } finally {
@@ -2834,7 +2839,7 @@ function Invoke-Sequence {
         # Write-Output) silently pass the step despite a timeout.
         if ($ok -isnot [bool]) {
             $okType = if ($null -eq $ok) { '<null>' } else { $ok.GetType().Name }
-            Write-Warning "    Step [$stepNum] action '$($step.action)' returned a non-boolean ($okType) -- treating as failure."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7314781ecf320be5' -Arguments @{ stepNum = "$stepNum"; action = "$($step.action)"; okType = "$okType" })
             $ok = $false
         }
 
@@ -2946,7 +2951,7 @@ function Invoke-Sequence {
         }
 
         if (-not $ok) {
-            Write-Warning "    Step [$stepNum] failed: $desc"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dd72f34f455cfe9b' -Arguments @{ stepNum = "$stepNum"; desc = "$desc" })
 
             # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
             # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
@@ -3047,7 +3052,7 @@ function Invoke-Sequence {
             # before logging -- the capture and Wait-ForText failure paths in this
             # module gate on Test-Path the same way.
             if ($captured -and (Test-Path $failScreenPath)) {
-                Write-Information "      Failure screenshot saved: $failScreenPath"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4333edb4f597ba98' -Arguments @{ failScreenPath = "$failScreenPath" })
             }
         }
 
@@ -3090,9 +3095,10 @@ function Invoke-Sequence {
     $sequenceStopwatch.Stop()
     $sequenceElapsedLabel = ("{0,4}" -f [int]$sequenceStopwatch.Elapsed.TotalSeconds)
     $elapsedTotalSeconds = [long][math]::Floor($sequenceStopwatch.Elapsed.TotalSeconds)
-    $elapsedTimeIsMinutes = "$([math]::Floor($elapsedTotalSeconds / 60)) min and $($elapsedTotalSeconds % 60) s"
-    Write-Information "    $sequenceElapsedLabel s [All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
-    & $writeCurrentAction "[All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
+    $elapsedTimeIsMinutes = Format-YurunaOperatorMessage -Key 'runner.sequence_duration' -Arguments @{ minutes = [long][math]::Floor($elapsedTotalSeconds / 60); seconds = $elapsedTotalSeconds % 60 }
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0a9fd5fd1526e2d2' -Arguments @{ sequenceElapsedLabel = "$sequenceElapsedLabel"; count = "$($steps.Count)"; elapsedTimeIsMinutes = "$elapsedTimeIsMinutes" })
+    $completedArguments = @{ total = $steps.Count; duration = $elapsedTimeIsMinutes }
+    & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_completed' -Arguments $completedArguments) 'sequence_completed' '' $completedArguments
     return $true
 
   } catch {
@@ -3117,14 +3123,14 @@ function Invoke-Sequence {
     # gate's record intact.
     if (($_.Exception.Data -and $_.Exception.Data['YurunaLabDependencyDown']) -or
         ($_.Exception.Message -like 'YurunaLabDependencyDown:*')) {
-        Write-Warning "    Sequence stopped: $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f310b1b3a2d7721' -Arguments @{ message = "$($_.Exception.Message)" })
         return $false
     }
     # Print the message AND the throwing-statement origin AND the
     # call stack. Without these the operator gets only the .Exception
     # text (e.g. 'Exception calling "Replace" with "3" argument(s)')
     # and has to grep ten modules to find the actual throw.
-    Write-Warning "    Invoke-Sequence unhandled error: $_"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4579f44a5d893c14' -Arguments @{ value = "$_" })
     if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
         Write-Warning "    Origin:"
         foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
@@ -3167,7 +3173,7 @@ function Invoke-Sequence {
         }
     } catch {
         $writeErr = $_
-        Write-Warning "Could not write last_failure.json: $($writeErr.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aff1f890bceeea18' -Arguments @{ message = "$($writeErr.Exception.Message)" })
         Send-CycleEventSafely -EventRecord @{
             timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             event     = 'last_failure_write_failed'
@@ -3200,13 +3206,9 @@ function Invoke-Sequence {
 # label string. Capability requirements (HostIORequirement + OcrRequired)
 # ride in the same registry entries; Test.Capability reads them from there.
 #
-# The catalog of built-in verb Handlers lives in
-# Test.SequenceHandler.psm1, which is imported -Global at module load so
-# its Register-SequenceAction side effects populate the same
-# Test.SequenceAction registry the engine dispatches against. That
-# catalog includes retry and recoverFromSnapshot; the cross-module
-# failure state they coordinate lives in the shared Test.SequenceFailureState
-# store ($script:Fail), so this module stays the pure executor.
+# See ../../docs/test-sequences.md#handler-contract for the built-in verb
+# catalog's -Global wiring and how it coordinates through the shared
+# failure-state store. -- Test.SequenceEngine.psm1
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `

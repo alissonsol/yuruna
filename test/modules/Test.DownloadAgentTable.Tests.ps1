@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4218aa1e-40ef-4c05-ae43-e48a889c70d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.ProductGlobalization.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $web = Join-Path $repo 'test/extension/download-agent-service/server/internal/httpsrv/web'
@@ -187,5 +188,15 @@ Describe 'download-agent Download pool table: sortable headers and a row counter
         Assert-True ($script:common -match 'Y\.numCell\s*=') 'the runtime no longer defines Y.numCell'
         Assert-True ($script:style -match '(?m)^th\.rownum,\s*td\.rownum\s*\{') `
             'style.css no longer styles the counter column'
+    }
+}
+
+Describe 'product globalization acceptance' {
+    It 'globalization acceptance: stash and download catalog coverage' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/extension/ui-pages.test.js'
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/download-agent-service'
+    }
+    It 'globalization acceptance: Unicode search collision and filename delivery' {
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/stash-service'
     }
 }

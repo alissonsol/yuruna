@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
@@ -69,12 +70,12 @@ function Invoke-WorkloadChartDeployment {
         $sw
     )
     $chartName = $deployment['chart']
-    if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "context.chart cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    if ([string]::IsNullOrEmpty($chartName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1506eb75a8975ce0' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.chart cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName")
-    if (-Not (Test-Path -Path $chartFolder)) { Write-Information "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workload[$contextName] chart[$chartName] folder not found: $chartFolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    if (-Not (Test-Path -Path $chartFolder)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_24a5e116f61aa042' -Arguments @{ contextName = "$contextName"; chartName = "$chartName"; chartFolder = "$chartFolder" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workload[$contextName] chart[$chartName] folder not found: $chartFolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $installName = $ExecutionContext.InvokeCommand.ExpandString($deployment.variables['installName'])
     if ([string]::IsNullOrEmpty($installName)) {
-        Write-Information "Chart[$chartName] missing variables['installName'] in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] missing variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds);
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_aa8bf2f60f5da888' -Arguments @{ chartName = "$chartName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] missing variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds);
     }
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
@@ -124,7 +125,7 @@ function Invoke-WorkloadChartDeployment {
     $lintOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
     if ($lintExit -ne 0) {
-        Write-Information "helm lint FAILED (exit $lintExit) for chart '$installName' in $workFolder"
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
         $lintOutput | ForEach-Object { Write-Information "$_" }
         Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
@@ -141,7 +142,7 @@ function Invoke-WorkloadChartDeployment {
         $statusLine = ($statusOutput | Where-Object { $_ -match '^STATUS:\s*(\S+)' }) | Select-Object -First 1
         if ($statusLine -and $statusLine -match '^STATUS:\s*(pending-\S+)') {
             $pendingState = $Matches[1]
-            Write-Warning "Helm release '$installName' is in $pendingState state (likely prior-cycle SIGKILL). Rolling back to recover."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5010c107b9432bae' -Arguments @{ installName = "$installName"; pendingState = "$pendingState" })
             Add-Content -LiteralPath $helmLogFile -Value "== pre-flight helm status (state=$pendingState; recovering) =="
             $statusOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
             $rollbackOutput = helm rollback $installName 0 2>&1
@@ -152,7 +153,7 @@ function Invoke-WorkloadChartDeployment {
                 # No prior good revision to roll back to (the very first
                 # upgrade was the one killed): fall through to uninstall
                 # --no-hooks so the next upgrade --install lands fresh.
-                Write-Warning "  helm rollback failed (exit $rollbackExit); falling back to uninstall --no-hooks."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_712c78ee18789584' -Arguments @{ rollbackExit = "$rollbackExit" })
                 $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
                 $uninstallExit = $LASTEXITCODE
                 Add-Content -LiteralPath $helmLogFile -Value "== helm uninstall $installName --no-hooks (exit=$uninstallExit) =="
@@ -179,7 +180,7 @@ function Invoke-WorkloadChartDeployment {
     # FAILED" / "UPGRADE FAILED" marker.
     $installErrorLines = @($installOutput | Where-Object { $_ -match '^Error: ' -or $_ -match '(INSTALLATION|UPGRADE) FAILED' })
     if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
-        Write-Information "helm upgrade --install --atomic '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ce3524d480509234' -Arguments @{ installName = "$installName"; installExit = "$installExit"; count = "$($installErrorLines.Count)"; workFolder = "$workFolder" })
         $installOutput | ForEach-Object { Write-Information "$_" }
         Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
@@ -283,7 +284,7 @@ function Invoke-WorkloadToolDeployment {
         # nothing to catch, so the next sequence step (e.g.
         # test-localhost.sh) runs into a missing ingress controller and
         # times out minutes later -- masking the real fault.
-        Write-Information "EXITCODE: $toolExit for: $expression"
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$expression" })
         $output | ForEach-Object { Write-Information "$_" }
         Pop-Location
         return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $expression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
@@ -314,10 +315,10 @@ function Publish-WorkloadList {
     if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-WorkloadList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     Write-Debug "---- Publish Workloads"
     $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
-    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e62e8faba8815e88' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $workloadsYaml = ConvertFrom-File $workloadsFile
-    if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
-    if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+    if ($null -eq $workloadsYaml) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+    if ($null -eq $workloadsYaml.workloads) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
 
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
@@ -348,8 +349,8 @@ function Publish-WorkloadList {
 
     foreach ($workload in $workloadsYaml.workloads) {
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
-        Write-Information "-- Workloads for context: $contextName"
-        if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workloads.context cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_413b7cf0cb658ee6' -Arguments @{ contextName = "$contextName" })
+        if ([string]::IsNullOrEmpty($contextName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_5dcf5d347e3917c0' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workloads.context cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         if (-Not ([string]::IsNullOrEmpty($workFolder))) {
             $resolvedFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
@@ -357,7 +358,7 @@ function Publish-WorkloadList {
                 Remove-Item -Path $resolvedFolder -Force -Recurse -ErrorAction SilentlyContinue
             }
         }
-        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information "workFolder cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workFolder cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_f2223139d6d90a86' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workFolder cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         Set-Item -Path Env:contextName -Value ${contextName}
         Set-Item -Path Env:workFolder -Value ${workFolder}
 
@@ -378,12 +379,12 @@ function Publish-WorkloadList {
         # context never leaves the shell on the wrong cluster.
         $null = kubectl config get-contexts $contextName *>&1
         $probeExit = $LASTEXITCODE
-        if ($probeExit -ne 0) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+        if ($probeExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
         # Activate the context for the deployment loop; every kubectl/helm call
         # below targets whatever the kubeconfig's current context is.
         kubectl config use-context $contextName *>&1 | Write-Verbose
         $useContextExit = $LASTEXITCODE
-        if ($useContextExit -ne 0) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+        if ($useContextExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
 
         # Restore $originalContext in a finally so every early-return failure
         # path inside the per-deployment loop (and the normal end-of-loop exit)
@@ -400,7 +401,7 @@ function Publish-WorkloadList {
             # should-be and must-be strings stay identical.
             $kind = Resolve-YurunaDeploymentKind -Deployment $deployment
             $expectedKinds = Get-YurunaDeploymentKindExpectedText
-            if ($null -eq $kind) { Write-Information "context.deployment should be $expectedKinds in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "context.deployment must be $expectedKinds in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+            if ($null -eq $kind) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_29e3eefb95c92048' -Arguments @{ expectedKinds = "$expectedKinds"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.deployment must be $expectedKinds in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
 
             # Build the merged variable set: resources.output + workloads
             # globals + workload locals + deployment locals (latter wins).

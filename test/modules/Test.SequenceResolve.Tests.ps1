@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -479,5 +479,79 @@ Describe 'Get-StepLeadAction (what a step actually leads with)' {
         $inner = [ordered]@{ action = 'loadDiskSnapshot'; id = 'probe' }
         $step  = [ordered]@{ action = 'retry'; steps = @($inner) }
         Assert-Equal -Expected 'loadDiskSnapshot' -Actual (Get-StepLeadAction -Step $step)
+    }
+}
+
+Describe 'planner failure identity is independent of diagnostic text' {
+    BeforeAll {
+        function Invoke-ActualPlannerCatch {
+            param([string]$Owner, [Exception]$Failure)
+            $path = Join-Path $PSScriptRoot ('Test.' + $Owner + '.psm1')
+            $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+            $catches = @($ast.FindAll({
+                param($node)
+                $node -is [Management.Automation.Language.CatchClauseAst] -and
+                    $node.Body.Extent.Text.Contains('Test-SequencePlannerFailure -ErrorObject $_')
+            }, $true))
+            Assert-Equal 1 $catches.Count 'the actual owner must have one planner-routing catch'
+            $body = $catches[0].Body.Extent.Text
+            $harness = [scriptblock]::Create(@'
+param([Exception]$Failure)
+function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; return $Key }
+function Write-CycleInfraFailure { param($Stage, $FailureClass, $GuestKey, $ErrorMessage, $HostType)
+    $null = @($Stage, $GuestKey, $ErrorMessage, $HostType); $records.Add($FailureClass)
+}
+$records = [Collections.Generic.List[string]]::new()
+$plannerFatal = $false
+$reThrown = $false
+$HostType = 'fixture'
+try {
+    foreach ($iteration in 1) {
+        $null = $iteration
+        try { throw $Failure }
+        catch __BODY__
+    }
+} catch { $reThrown = $true }
+[pscustomobject]@{ ReThrown = $reThrown; PlannerFatal = $plannerFatal; Codes = $records.ToArray() }
+'@.Replace('__BODY__', $body))
+            $results = @(& $harness $Failure 3>$null)
+            return $results[-1]
+        }
+    }
+
+    It 'recognizes typed nested failures in both actual catches regardless of their language' {
+        $failure = [InvalidOperationException]::new(([char]0x627).ToString() + ' arbitrary diagnostic')
+        $failure.Data['YurunaFailureCode'] = 'sequence.plan_invalid'
+        $wrapped = [Exception]::new('invocation wrapper', $failure)
+        Assert-True (Test-SequencePlannerFailure -ErrorObject $wrapped)
+        $record = [Management.Automation.ErrorRecord]::new($wrapped, 'fixture', [Management.Automation.ErrorCategory]::InvalidData, $null)
+        Assert-True (Test-SequencePlannerFailure -ErrorObject $record)
+        $planner = Invoke-ActualPlannerCatch -Owner 'SequencePlanner' -Failure $wrapped
+        Assert-True $planner.ReThrown 'the planner swallowed a classified invalid plan'
+        $runner = Invoke-ActualPlannerCatch -Owner 'RunnerInnerLoop' -Failure $wrapped
+        Assert-True $runner.PlannerFatal 'the runner fell back to a guest list for an invalid plan'
+        Assert-Equal 'plan_invalid' ($runner.Codes -join ',') 'the infrastructure failure lost its stable class'
+    }
+
+    It 'does not classify an untyped English prefix as an invalid plan' {
+        $failure = [InvalidOperationException]::new('PlannerFatal: unclassified external prose')
+        Assert-False (Test-SequencePlannerFailure -ErrorObject $failure)
+        $planner = Invoke-ActualPlannerCatch -Owner 'SequencePlanner' -Failure $failure
+        Assert-False $planner.ReThrown 'the planner classified display text as control state'
+        $runner = Invoke-ActualPlannerCatch -Owner 'RunnerInnerLoop' -Failure $failure
+        Assert-False $runner.PlannerFatal 'the runner classified display text as control state'
+        Assert-Equal 0 $runner.Codes.Count 'an untyped exception acquired a classified failure event'
+    }
+
+    It 'preserves typed snippet failures through the real sequence reader' {
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $path = Join-Path $root 'typed.yml'
+        Write-TextFile $path "steps:`n  - snippet: missing_snippet`n"
+        $caught = $null
+        try { $null = Read-SequenceFile -Path $path -NoCache } catch { $caught = $_ }
+        Assert-NotNull $caught 'the invalid snippet was accepted'
+        Assert-True (Test-SequencePlannerFailure -ErrorObject $caught) 'the YAML error wrapper discarded the planner classification'
+        Assert-True ($caught.Exception.Data['YurunaMessageCode'] -like 'exceptions.*') 'the reader lost the catalog message identity'
     }
 }

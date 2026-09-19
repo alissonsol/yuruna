@@ -43,6 +43,7 @@ stop and unregister the test VMs *and* sweep, use
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
 | `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the internal authentication key |
 | `Lab-Diag.ps1` | show where a Lab token exchange stops, step by step, when `Set-LabToken.ps1` fails |
+| `Invoke-HostRefresh.ps1` | probe hypervisor responsiveness and report a repair the operator would need to run by hand; `-WhatIf` previews with no lock, request or mutation |
 
 ```
 pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard's Lab token tile>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42987493-0ebe-43b4-b8e8-475951cbb931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,9 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep host-I/O registrations across -Force re-imports.')]
 param()
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 
@@ -118,7 +121,7 @@ function Invoke-HostIOAction {
     $hostMap = & $script:HostIORegistry.Get $HostType
     if (-not $hostMap -or -not $hostMap.Contains($Action)) {
         $known = if ($hostMap) { ($hostMap.Keys -join ', ') } else { '<host not registered>' }
-        throw "Host I/O action '$Action' is not available on '$HostType' (available actions: $known)."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2e7c522081d7df58' -Arguments @{ action = "$Action"; hostType = "$HostType"; known = "$known" })
     }
     $impl = $hostMap[$Action]
     return (& $impl $Arguments)
@@ -153,7 +156,7 @@ function Clear-HostIOProvider {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.HostIO registry', 'Clear all providers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_38dba2a38524aa74'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
         & $script:HostIORegistry.Clear
     }
 }

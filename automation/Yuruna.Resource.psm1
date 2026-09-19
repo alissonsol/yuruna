@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
@@ -65,7 +66,7 @@ function Publish-ResourceListHelper {
     # tofu destroy will reuse).
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
-    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $resourcesFile" -FailureClass 'config_error'); }
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b400ae75394f002b' -Arguments @{ resourcesFile = "$resourcesFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $resourcesFile" -FailureClass 'config_error'); }
     $yaml = ConvertFrom-File $resourcesFile
 
     if ($isInitialization) {
@@ -90,29 +91,29 @@ function Publish-ResourceListHelper {
         Add-Content -Path $resourcesOutputFile -Value $(ConvertTo-Yaml $yamlExpanded)
     }
 
-    if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return (New-YurunaResultManifest -Success $true -Skipped $true); }
+    if ($null -eq $yaml.resources) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1510c154a8ab2b3e' -Arguments @{ resourcesFile = "$resourcesFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true); }
     foreach ($resource in $yaml.resources) {
         $resourceName = $resource['name']
         $resourceNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($resourceName)
         Write-Verbose "$resourceName = $resourceNameExpanded"
         $resourceName = $resourceNameExpanded
         $resourceTemplate = $resource['template']
-        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "Resource without name in file: $resourcesFile" -FailureClass 'config_error'); }
+        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_8673902ca1f57300' -Arguments @{ resourcesFile = "$resourcesFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "Resource without name in file: $resourcesFile" -FailureClass 'config_error'); }
         # Empty template: just naming an already-existing resource
         if (![string]::IsNullOrEmpty($resourceTemplate)) {
             $templateFolder = Join-Path -Path $project_root -ChildPath "resources/$resourceTemplate" -ErrorAction SilentlyContinue
             if (($null -eq $templateFolder) -or (-Not (Test-Path -Path $templateFolder))) {
                 $templateFolder = Join-Path -Path $yuruna_root  -ChildPath "global/resources/$resourceTemplate" -ErrorAction SilentlyContinue
                 if (($null -eq $templateFolder) -or (-Not (Test-Path -Path $templateFolder))) {
-                    Write-Information "Resources template not found locally or globally: $resourceTemplate`nUsed in file: $resourcesFile";
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_d227328570c74937' -Arguments @{ resourceTemplate = "$resourceTemplate"; resourcesFile = "$resourcesFile" });
                     return (New-YurunaResultManifest -Success $false -ErrorMessage "Resources template not found: $resourceTemplate (used in $resourcesFile)" -FailureClass 'config_error');
                 }
             }
             if ($isInitialization) {
-                Write-Information "-- Initializing: $resourceName from template $templateFolder"
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_8e17815082cb03cd' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
             }
             else {
-                Write-Information "-- Creating: $resourceName from template $templateFolder"
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_d7820c1435d6f83d' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
             }
             # Atomic template refresh via a staging directory, so a cycle
             # never observes a half-applied template. Swap order, rollback,
@@ -196,7 +197,7 @@ function Publish-ResourceListHelper {
 
             $terraformPath = Join-Path -Path $workFolder -ChildPath ".terraform"
             if ($isInitialization -and (Test-Path -Path $terraformPath)) {
-                Write-Information "-- WARNING: tofu already initialized: $terraformPath `n   Resource may not be created. Use 'yuruna clear' to clear tofu state.";
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_483ad55e8c49c6d8' -Arguments @{ terraformPath = "$terraformPath" });
                 Pop-Location;
                 return (New-YurunaResultManifest -Success $false -ErrorMessage "tofu already initialized at $terraformPath (run 'yuruna clear' first)" -FailureClass 'config_error');
             }
@@ -220,7 +221,7 @@ function Publish-ResourceListHelper {
                 $azSubscriptionId = ''
                 try { $azSubscriptionId = [string](& az account show --query id --output tsv 2>$null | Select-Object -First 1) } catch { $azSubscriptionId = '' }
                 if ([string]::IsNullOrWhiteSpace($azSubscriptionId)) {
-                    Write-Information "-- WARNING: ARM_SUBSCRIPTION_ID is not set and 'az account show' returned no subscription; the azurerm provider will fail at plan time until one is provided."
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_227db199c3c8f906')
                 }
                 else {
                     Set-Item -Path Env:ARM_SUBSCRIPTION_ID -Value $azSubscriptionId.Trim()
@@ -237,7 +238,7 @@ function Publish-ResourceListHelper {
             $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
             if (-not $retryResult.Success) {
                 Pop-Location
-                throw ("tofu init failed for resource '$resourceName' after $($retryResult.Attempts) attempts (final exit $($retryResult.LastExit)). Inspect $tofuLogFile for the underlying error (often a 5xx from registry.opentofu.org or a provider checksum mismatch)." + (Get-TofuStderrTail $tofuLogFile))
+                throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
             }
 
             Write-Debug "Executing tofu command from $workFolder"
@@ -284,7 +285,7 @@ function Publish-ResourceListHelper {
             $applyLog | ForEach-Object { Write-Verbose ([string]$_) }
             if ($applyExit -ne 0) {
                 Pop-Location
-                throw ("tofu command '$resolvedCommand' failed for resource '$resourceName' (exit $applyExit). Inspect $tofuLogFile for the underlying error (often a null_resource provisioner returning non-zero, or a data-source program failing)." + (Get-TofuStderrTail $tofuLogFile))
+                throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fcd2c71f3eb5ddd2' -Arguments @{ resolvedCommand = "$resolvedCommand"; resourceName = "$resourceName"; applyExit = "$applyExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
             }
 
             if (-Not $isInitialization) {
@@ -297,23 +298,23 @@ function Publish-ResourceListHelper {
                     param($info)
                     return [bool](& $transientTest -Output $info.Output)
                 }.GetNewClosure()
-                $outputRetry = Invoke-WithYurunaRetry -Label "tofu output -json ($resourceName)" -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
+                $outputRetry = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'automation.operator_e08ec6745a750a1d' -Arguments @{ resourceName = "$resourceName" }) -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
                 $outputExit = $outputRetry.LastExit
                 $jsonOutput = (@($outputRetry.LastOutput) | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ }) -join "`n"
                 if ($outputExit -ne 0) {
                     Pop-Location
-                    throw ("tofu output -json failed for resource '$resourceName' (exit $outputExit). Inspect $tofuLogFile." + (Get-TofuStderrTail $tofuLogFile))
+                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_f6bd22fdf471e472' -Arguments @{ resourceName = "$resourceName"; outputExit = "$outputExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
                 }
                 if ([string]::IsNullOrWhiteSpace($jsonOutput)) {
                     Pop-Location
-                    throw "tofu output -json returned empty for resource '$resourceName' -- this codebase requires every resource to define at least one `output` block. Add one in $templateFolder/*.tf, or remove the resource from resources.yml if it is no longer needed."
+                    throw (Format-YurunaOperatorMessage -Key 'automation.operator_2c034a64269ac7d5' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
                 }
                 $terraformYaml = $jsonOutput | ConvertFrom-Json
                 # --- REGION: https://yuruna.link/42d69dfa-0032
                 $propsList = @($terraformYaml.PSObject.Properties)
                 if ($propsList.Count -eq 0) {
                     Pop-Location
-                    throw ("tofu output -json returned {} for resource '$resourceName' -- apply succeeded but every `output` block evaluated to empty. The null_resource provisioner under $templateFolder almost certainly failed silently (no exit code, no stdout). Check $tofuLogFile and the provisioner scripts in $templateFolder." + (Get-TofuStderrTail $tofuLogFile))
+                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_70a25bee43fda5e2' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
                 }
                 $tuple = @{ }
                 $tuple."$resourceName" = $terraformYaml
@@ -324,7 +325,7 @@ function Publish-ResourceListHelper {
     }
 
     if (-Not $isInitialization) {
-        if ((Get-Item $resourcesOutputFile).Length -gt 0) { Write-Information "Resources output file: $resourcesOutputFile"; }
+        if ((Get-Item $resourcesOutputFile).Length -gt 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_64dbb21dc24464dc' -Arguments @{ resourcesOutputFile = "$resourcesOutputFile" }); }
     }
 
     return (New-YurunaResultManifest -Success $true);
@@ -358,7 +359,7 @@ function Publish-ResourceList {
     }
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
-    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $resourcesFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b400ae75394f002b' -Arguments @{ resourcesFile = "$resourcesFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $resourcesFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder

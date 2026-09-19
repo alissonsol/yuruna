@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,16 @@ Write-Output $note
     $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-redirect-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $root 'test/modules') -Force | Out-Null
     Copy-Item (Join-Path $repoRoot 'test/modules/Test.HostDetection.psm1') (Join-Path $root 'test/modules') -Force
+    # The relocated host detector carries its real rendering dependencies,
+    # exactly as a framework checkout does. A stub formatter would hide a
+    # deployment path that works only in the developer's original directory.
+    foreach ($relative in @('automation/Yuruna.Globalization.psm1', 'test/modules/Test.Locale.psm1',
+            'test/modules/Test.Catalog.psm1', 'globalization/locale-manifest.json',
+            'globalization/generated/powershell/en-US.runner.psd1')) {
+        $target = Join-Path $root $relative
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
+        [IO.File]::Copy((Join-Path $repoRoot $relative), $target)
+    }
     foreach ($shortName in @('windows.hyper-v', 'macos.utm', 'ubuntu.kvm')) {
         $folder = Join-Path $root "host/$shortName"
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -120,6 +130,11 @@ function Remove-RedirectFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: removes the temp directory tree.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
+    # Loaded modules keep lazy resource paths beneath their own checkout.
+    # Unload this fixture's modules before deleting those paths, so the next
+    # fixture exercises its own complete relocated checkout.
+    Get-Module -All | Where-Object { $_.Path -and $_.Path.StartsWith($Fixture.Root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal) } |
+        Remove-Module -Force
     Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
 }
 }

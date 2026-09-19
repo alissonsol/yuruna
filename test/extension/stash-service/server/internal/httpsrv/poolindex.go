@@ -409,7 +409,7 @@ func (f listFilter) match(r *meta.Record) bool {
 }
 
 func containsFold(haystack, needle string) bool {
-	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+	return meta.ContainsName(haystack, needle)
 }
 
 // fromBeforeWindow reports whether the query's lower bound reaches before the
@@ -516,7 +516,7 @@ func tiebreakViews(a, b *StashView) int {
 // reader expects rather than ahead of every lowercase one. Equal-ignoring-case
 // values fall through to the tiebreak, keeping the order total.
 func cmpText(a, b string) int {
-	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	return strings.Compare(meta.ComparisonKey(a), meta.ComparisonKey(b))
 }
 
 func cmpInt64(a, b int64) int {

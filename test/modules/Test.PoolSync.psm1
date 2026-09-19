@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,19 +17,13 @@
 #requires -version 7
 
 # yuruna pool intent sync (the PULL spine for the multi-host pool harness).
-# Each runner PULLs the slow-changing pool intent (pools.yml: membership +
-# desiredState) from a bare git repo on the caching-proxy-service over the LAN, finds its
-# OWN pool by locating its stable hostId in members[] (the single source of
-# truth), and reconciles the pulled desiredState (run|paused|drain) into the outer
-# loop -- exactly like the local control.cycle-restart flag. Everything here is
-# OPTIONAL + default-off + BEST-EFFORT: a host with no pool config, or an
-# unreachable intent store, keeps cycling as a single host. Every git call is
-# wall-clock-bounded + credential-prompt-proof so the unattended (and on the
-# bare-pwsh path, INTERACTIVE) outer loop can never hang on it.
+# See ../../docs/pool-admin.md#what-a-pool-is for the reconciliation model
+# and why every git call is bounded and credential-prompt-proof. -- Test.PoolSync.psm1
 
 # Wall-clock backstops (seconds) for the git operations. A healthy LAN clone/fetch
 # of a tiny intent repo finishes well under a second; these only cap a wedged or
 # unreachable remote. The clone (first run) gets the larger cap.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:PoolSyncCloneTimeoutSeconds = 60
 $script:PoolSyncFetchTimeoutSeconds = 30
 
@@ -69,6 +63,9 @@ function Invoke-PoolSyncGitCapture {
     $psi.RedirectStandardError  = $true
     # Neutralize every interactive credential path for the child only.
     $psi.Environment['GIT_TERMINAL_PROMPT'] = '0'
+    $psi.Environment['LC_ALL'] = 'C'
+    $psi.Environment['LANG'] = 'C'
+    $psi.Environment['LANGUAGE'] = 'C'
     $psi.Environment['GIT_ASKPASS']         = ''
     $psi.Environment['SSH_ASKPASS']         = ''
     $psi.Environment['GCM_INTERACTIVE']     = 'never'
@@ -83,7 +80,7 @@ function Invoke-PoolSyncGitCapture {
     $outTask = $proc.StandardOutput.ReadToEndAsync()
     $errTask = $proc.StandardError.ReadToEndAsync()
     if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-        Write-Warning "pool sync: 'git $($ArgumentList -join ' ')' exceeded ${TimeoutSeconds}s; killing the process tree."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2b99c7b8c33db974' -Arguments @{ join = "$($ArgumentList -join ' ')"; timeoutSeconds = "${TimeoutSeconds}" })
         try { $proc.Kill($true) } catch { $null = $_ }
         try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
         try { $proc.Dispose() } catch { $null = $_ }
@@ -158,7 +155,7 @@ function Get-YurunaPoolConfig {
     $pullTimeout  = if ($p['pullTimeoutSeconds']) { [int]$p['pullTimeoutSeconds'] } else { $script:PoolSyncFetchTimeoutSeconds }
     if (-not $enabled -and -not $IgnoreEnabled) { return $null }
     if ([string]::IsNullOrWhiteSpace($intentGitUrl)) {
-        if ($enabled) { Write-Warning 'pool.enabled is true but pool.intentGitUrl is empty; pool intent sync disabled.' }
+        if ($enabled) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3ee74fe8c9b60225') }
         return $null
     }
     if ([string]::IsNullOrWhiteSpace($localClone)) {
@@ -218,7 +215,7 @@ function Resolve-YurunaPoolForHost {
     if ($poolMatches.Count -gt 1) {
         $ids = @()
         foreach ($pm in $poolMatches) { $ids += [string]$pm['poolId'] }
-        Write-Warning "Host $HostId is a member of multiple pools ($($ids -join ', ')); a host must belong to at most one. Using '$([string]$winner['poolId'])'. Fix the intent (Remove-HostFromPool / Test-PoolIntent)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5a025273229840cf' -Arguments @{ hostId = "$HostId"; join = "$($ids -join ', ')"; poolId = "$([string]$winner['poolId'])" })
     }
     return $winner
 }
@@ -321,7 +318,7 @@ function Write-YurunaPoolState {
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.state.json'
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool sync state')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_566ac18cb90d8da9'))) { return $false }
     $state = [ordered]@{
         poolId       = $PoolId
         poolGuid     = $PoolGuid
@@ -375,17 +372,17 @@ function Write-YurunaPoolManifest {
     # it loudly rather than obey it -- a host that lands in the target pool
     # automatically must keep running its own project.
     if ($testSet -and $AutoEnrollTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrollTargetPoolId)) {
-        Write-Warning "Pool '$($Pool['poolId'])' is the auto-enrollment target pool and must not carry a testSet; ignoring it and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_68f76316350291c3' -Arguments @{ poolId = "$($Pool['poolId'])" })
         $testSet = $null
     }
     $hasTriple = ($testSet -is [System.Collections.IDictionary]) -and $testSet.Contains('frameworkUrl') -and $testSet.Contains('projectUrl')
     if (-not $hasTriple) {
-        if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, 'Remove stale pool manifest')) {
+        if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_8c18f9a4318c42b8'))) {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool manifest')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_6fc9e3d7a9f00bc4'))) { return $false }
     $manifest = [ordered]@{
         poolId      = [string]$Pool['poolId']
         poolGuid    = [string]$Pool['poolGuid']
@@ -485,7 +482,7 @@ function Sync-YurunaPoolIntent {
         $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false   # clear stale manifest -> single-host
         if (-not $pullOk) {
             $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not runnable' } else { "git rc=$rc" }
-            Write-Warning "pool sync: could not reach the intent store ($($pcfg.IntentGitUrl)) ($why); cycling as a single host."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a59b18694397dbf' -Arguments @{ intentGitUrl = "$($pcfg.IntentGitUrl)"; why = "$why" })
         }
         return $null
     }
@@ -493,17 +490,17 @@ function Sync-YurunaPoolIntent {
         # Surface WHY the pull failed so a real git error (a persistent 128/network
         # failure) is not indistinguishable from a transient timeout in the log.
         $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not runnable' } else { "git rc=$rc" }
-        Write-Warning "pool sync: intent fetch failed ($why); using the last-good cached pools.yml ($poolsPath)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d47f583d26c79d3' -Arguments @{ why = "$why"; poolsPath = "$poolsPath" })
     }
 
     $intent = $null
-    try { $intent = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered } catch { Write-Warning "pool sync: pools.yml parse failed ($($_.Exception.Message)); cycling as a single host." }
+    try { $intent = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_075bc59a36ee3ca1' -Arguments @{ message = "$($_.Exception.Message)" }) }
     $pool = Resolve-YurunaPoolForHost -Intent $intent -HostId $HostId
     if (-not $pool -and (Test-PoolIntentHasMember -Intent $intent)) {
         # pools.yml parsed and lists members, but none is this host: almost always a
         # hostId spelling/case typo in the intent repo rather than a deliberate exclusion.
         # Surface it so the authoring error is observable instead of silently single-host.
-        Write-Warning "pool sync: host $HostId is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the intent repo. Cycling as a single host."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47955cec68775797' -Arguments @{ hostId = "$HostId" })
     }
     $poolId   = if ($pool) { [string]$pool['poolId'] } else { $null }
     $poolGuid = if ($pool) { [string]$pool['poolGuid'] } else { $null }

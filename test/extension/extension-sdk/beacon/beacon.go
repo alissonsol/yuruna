@@ -2,21 +2,9 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package beacon self-announces an extension service's presence to the
-// pool-aggregator service (POST /announce), keeping the dashboard's Extension
-// hosts row alive independently of the owning HOST's status service: a hello at
-// startup (retried until it first lands), a re-announce every Interval, and a
-// best-effort goodbye at shutdown.
-//
-// The owning host's registration record is the other source of that row, and it
-// is read THROUGH that host's status service -- so the moment that process is
-// down, which a host reboot routinely leaves behind, the row vanishes even
-// though the service itself is up and serving. The beacon is what covers that
-// window, which is why it must keep working when nothing else on the host does.
-//
-// Trusted-LAN posture: the aggregator serves :9400 with a leaf signed by the
-// pool CA, which no guest has a trust-store entry for, so this non-secret
-// presence write encrypts without pinning. Pinning the pool CA is the documented
-// upgrade path, not a silent assumption.
+// pool-aggregator service. See
+// ../../../../docs/pool-admin.md#architecture for why this has to keep
+// working independently of the owning host's status service. -- beacon.go
 package beacon
 
 import (

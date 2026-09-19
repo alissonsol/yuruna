@@ -12,6 +12,65 @@
 - Different install methods can shadow each other via PATH order.
 - For most cases, use `brew-doctor-fix.sh`; occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
 
+<a id="42885ada-0012"></a>
+
+## After a macOS major upgrade
+
+A major upgrade -- 26 to 27, not 27.0 to 27.1 -- rebuilds parts of the surface
+the harness configures. App preference domains come back at their defaults, and
+the privacy grants are re-asked. Settings that were applied months ago are then
+gone, and the gate reports each of them separately, so one event arrives as a
+handful of unrelated-looking failures.
+
+The knobs in UTM's own domain are the ones that go quietly, because nothing
+about UTM looks different afterwards:
+
+```
+defaults read com.utmapp.UTM NSAppSleepDisabled                  # want: 1
+defaults read com.utmapp.UTM KeepRunningAfterLastWindowClosed    # want: 1
+```
+
+Unset, the first lets macOS throttle UTM until its window leaves the capture
+list while the VM keeps running, and the second makes closing any VM window
+quit UTM -- which saves the state of every VM still up, so the service VMs come
+back `suspended`. Neither needs sudo.
+
+**Check first whether they are unset or unreadable.** UTM is sandboxed, so that
+domain resolves into its container, and macOS gates one app's access to
+another's container data behind a grant the terminal application holds. Without
+it both reads and both writes fail and the exit code alone cannot say why:
+
+```
+defaults write com.utmapp.UTM NSAppSleepDisabled -bool YES
+# Error: Could not write domain .../com.utmapp.UTM; exiting
+```
+
+That is a file-access refusal, not a switch that is off, and no amount of
+re-running the host setup changes it -- the write is refused the same way each
+time. The POSIX mode is not the signal either: the plist is owned by the
+account at `-rw-------` and still will not open. Grant **Full Disk Access** to
+the terminal application, then fully quit it (Cmd-Q) and relaunch -- macOS does
+not honor that grant in an already-running process. Rename-VM edits the same
+container, so it is blocked by the same missing grant.
+
+With the container readable, re-run the host setup, which re-applies all of it
+and re-requests the grants:
+
+```
+pwsh test/lab/Enable-TestAutomation.ps1
+```
+
+Quit and reopen UTM afterwards: it reads both of those preferences at launch,
+so a UTM that was running while they were written keeps its old behavior until
+it is next started. Stop the service VMs first rather than quitting UTM under
+them (`test/service/Stop-CachingProxyServiceVM.ps1`,
+`test/service/Stop-StashServiceVM.ps1`) -- see
+[Service VMs come back `suspended` after UTM is quit](#service-vms-come-back-suspended-after-utm-is-quit).
+
+`pwsh test/Test-Config.ps1` reports the upgrade under **Host setup freshness**
+when the host was set up on an earlier major version, so the shared cause is
+named once before the sections that report its consequences.
+
 <a id="42885ada-0003"></a>
 
 ## The unified screen lock asks for your account password, not sudo's
@@ -47,7 +106,7 @@ what `Disable-TestAutomation.ps1` does from the captured pre-automation state.
 
 ## The permissions only a person can give (and why no password replaces them)
 
-Three macOS privacy grants gate the harness. They are held by the **terminal
+Four macOS privacy grants gate the harness. They are held by the **terminal
 application**, not by `pwsh`:
 
 | Grant | Pane | Needed for |
@@ -55,6 +114,7 @@ application**, not by `pwsh`:
 | Accessibility | Privacy & Security > Accessibility | posting keystrokes into UTM guest windows without holding focus |
 | Screen Recording | Privacy & Security > Screen Recording | window **titles** from `CGWindowList` and `screencapture -l <windowId>` |
 | Automation -> UTM | Privacy & Security > Automation | `utmctl`, which drives UTM over Apple Events |
+| Full Disk Access | Privacy & Security > Full Disk Access | reading and writing UTM's preferences, which live inside its sandbox container |
 
 **No script can grant these, with or without an administrator password.** macOS
 keeps them in the TCC databases; System Integrity Protection guards those
@@ -526,6 +586,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

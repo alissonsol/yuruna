@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,7 @@
 # The exporter's listen port. A constant rather than a configuration key: the
 # scrape side has to name the same number, and a per-host port that the
 # monitoring host cannot discover is a target that silently never scrapes.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:HostMetricsPort = 9182
 
 # The Windows service name the exporter's own installer registers.
@@ -277,7 +278,7 @@ function Resolve-YurunaHostMetricsCommandLine {
     # shape this could not read.
     $tokens = @(Split-YurunaServiceCommandLine -CommandLine $CurrentCommandLine)
     if ($tokens.Count -eq 0) {
-        $result.Reason = 'the service has no command line to read'
+        $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_6dd5e87a83027f91')
         return $result
     }
     $result.Executable = $tokens[0].Trim('"')
@@ -335,16 +336,16 @@ function Resolve-YurunaHostMetricsCommandLine {
 
     if ($collectorsAgree -and $listenAgrees) {
         $result.Matches = $true
-        $result.Reason  = 'the service already publishes this collector set on this port'
+        $result.Reason  = (Format-YurunaOperatorMessage -Key 'runner.operator_a8deab338e7b1f7f')
         return $result
     }
     $missing = @($wantCollector | Where-Object { $haveSet -notcontains $_ })
     $result.Reason = if (-not $collectorsAgree -and $missing.Count -gt 0) {
-        "the service does not publish: $($missing -join ', ')"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_0b9396b3fd26868f' -Arguments @{ join = "$($missing -join ', ')" })
     } elseif (-not $collectorsAgree) {
-        'the service publishes collectors this host does not ask for'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_62bdb0bb034f5e01')
     } else {
-        "the service does not listen on port $Port"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_8e05cb247fd2cce6' -Arguments @{ port = "$Port" })
     }
     return $result
 }
@@ -427,7 +428,7 @@ function Get-YurunaHostMetricsCapability {
         $guestOnly = $name -in @('GuestRuntime','GuestHypervisorRuntime','RawDispatchWait')
         $matched = @($samples | Where-Object { $_ -match $checks[$name] })
         $status = if ($guestOnly -and $null -ne $RunningVmCount -and $RunningVmCount -eq 0) { 'not-applicable' } elseif ($matched.Count) { 'present' } else { 'absent' }
-        $capabilities[$name] = [pscustomobject]@{ Status=$status; SeriesCount=$matched.Count; Reason=if ($status -eq 'not-applicable') { 'No running VM.' } elseif ($status -eq 'absent') { 'No matching sample; capability is unavailable, not zero.' } else { '' } }
+        $capabilities[$name] = [pscustomobject]@{ Status=$status; SeriesCount=$matched.Count; Reason=if ($status -eq 'not-applicable') { (Format-YurunaOperatorMessage -Key 'runner.operator_66b5545928b78b87') } elseif ($status -eq 'absent') { (Format-YurunaOperatorMessage -Key 'runner.operator_bb73359638de0c2f') } else { '' } }
     }
     [pscustomobject]@{
         Status = if ($samples.Count) { 'present' } else { 'absent' }
@@ -461,7 +462,7 @@ function Set-YurunaHostMetricsServiceCommandLine {
         [Parameter(Mandatory)][string]$ServiceName,
         [Parameter(Mandatory)][string]$CommandLine
     )
-    if (-not $PSCmdlet.ShouldProcess($ServiceName, 'Set the service binary path')) { return 0 }
+    if (-not $PSCmdlet.ShouldProcess($ServiceName, (Format-YurunaOperatorMessage -Key 'runner.operator_c05ca4c70606175d'))) { return 0 }
     $scExe = Join-Path $env:WINDIR 'System32\sc.exe'
     & $scExe config $ServiceName binPath= $CommandLine | Out-Null
     return $LASTEXITCODE
@@ -520,7 +521,7 @@ function Set-YurunaHostMetricsFirewallRule {
     )
     $result = [pscustomobject]@{ Ensured = $false; Changed = $false; Message = '' }
     if (-not $IsWindows) {
-        $result.Message = 'the host-metrics exporter is a Windows host component.'
+        $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_209d040d216b9f8c')
         return $result
     }
     try {
@@ -540,12 +541,12 @@ function Set-YurunaHostMetricsFirewallRule {
             ($existing.Direction -eq 'Inbound') -and ($existing.Action -eq 'Allow') -and $scopeCorrect
         if ($shapeCorrect -and $existing.Enabled -eq 'True') {
             $result.Ensured = $true
-            $result.Message = "Windows Firewall rule '$ruleName' already present, scoped and enabled."
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_4b197f8c514511bb' -Arguments @{ ruleName = "$ruleName" })
             Write-Verbose $result.Message
             return $result
         }
         if ($existing) {
-            if ($PSCmdlet.ShouldProcess($ruleName, "Rebuild inbound TCP :$Port allow rule scoped to the monitoring host")) {
+            if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'runner.operator_fad91a94e9edb38a' -Arguments @{ port = "$Port" }))) {
                 Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
                 $null = New-NetFirewallRule -DisplayName $ruleName -Description $desc `
                     -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port `
@@ -553,7 +554,7 @@ function Set-YurunaHostMetricsFirewallRule {
                 $result.Changed = $true
             }
         } else {
-            if ($PSCmdlet.ShouldProcess($ruleName, "Create inbound TCP :$Port allow rule scoped to the monitoring host")) {
+            if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'runner.operator_0ef40349ea9f9ff4' -Arguments @{ port = "$Port" }))) {
                 $null = New-NetFirewallRule -DisplayName $ruleName -Description $desc `
                     -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port `
                     -RemoteAddress $scope -Profile Any
@@ -561,8 +562,8 @@ function Set-YurunaHostMetricsFirewallRule {
             }
         }
         $result.Ensured = $true
-        $result.Message = if ($result.Changed) { "Ensured Windows Firewall rule '$ruleName' for $($scope -join ', ')." }
-                          else { "Windows Firewall rule '$ruleName' not applied (WhatIf)." }
+        $result.Message = if ($result.Changed) { (Format-YurunaOperatorMessage -Key 'runner.operator_ae4e8052943a33cd' -Arguments @{ ruleName = "$ruleName"; join = "$($scope -join ', ')" }) }
+                          else { (Format-YurunaOperatorMessage -Key 'runner.operator_5cb379d1027f2e31' -Arguments @{ ruleName = "$ruleName" }) }
         Write-Information $result.Message
     } catch {
         $result.Message = "Set-YurunaHostMetricsFirewallRule: $($_.Exception.Message)"
@@ -811,7 +812,7 @@ function Set-YurunaHostMetricsInstallAttempt {
         [AllowNull()][object]$ExitCode
     )
     if (-not "$Path".Trim()) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Record the host-metrics install attempt')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_8f8e308c2610f013'))) { return $false }
     try {
         $payload = [ordered]@{
             lastAttemptUtc = [datetime]::UtcNow.ToString('o')
@@ -877,26 +878,26 @@ function Test-YurunaHostMetricsInstallDue {
         [Parameter(Mandatory)][ValidateRange(1, 168)][int]$RetryHours
     )
     if ($null -eq $LastAttemptUtc) {
-        return [pscustomobject]@{ Due = $true; Reason = 'no install attempt is on record for this host' }
+        return [pscustomobject]@{ Due = $true; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_0e929ded244ecd06') }
     }
     $last = ([datetime]$LastAttemptUtc)
     # A record stamped in the future is a clock that moved, not a recent
     # attempt; leaving it in force would silence the install until the clock
     # caught up, which on a badly set host is never.
     if ($last -gt $NowUtc) {
-        return [pscustomobject]@{ Due = $true; Reason = 'the recorded attempt is in the future, so the interval cannot be measured' }
+        return [pscustomobject]@{ Due = $true; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_a850967bb821336d') }
     }
     if ($null -ne $BootTimeUtc -and ([datetime]$BootTimeUtc) -gt $last) {
-        return [pscustomobject]@{ Due = $true; Reason = 'the host has started since the last attempt' }
+        return [pscustomobject]@{ Due = $true; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b102c44bb6764306') }
     }
     $elapsed = $NowUtc - $last
     if ($elapsed.TotalHours -ge $RetryHours) {
-        return [pscustomobject]@{ Due = $true; Reason = "the last attempt was $([int]$elapsed.TotalHours) hours ago" }
+        return [pscustomobject]@{ Due = $true; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e8378d132f9a3a43' -Arguments @{ totalHours = "$([int]$elapsed.TotalHours)" }) }
     }
     $wait = [int][math]::Ceiling($RetryHours - $elapsed.TotalHours)
     return [pscustomobject]@{
         Due    = $false
-        Reason = "an install attempt failed less than $RetryHours hours ago; the next one is about $wait hours away, or at the host's next start"
+        Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_a957e130decf1053' -Arguments @{ retryHours = "$RetryHours"; wait = "$wait" })
     }
 }
 
@@ -930,8 +931,8 @@ function Invoke-YurunaWingetInstall {
         [Parameter(Mandatory)][AllowEmptyString()][string]$LogPath
     )
     $outcome = [pscustomobject]@{ Started = $false; TimedOut = $false; ExitCode = $null; Message = '' }
-    if (-not $PSCmdlet.ShouldProcess($PackageId, 'Install the package with winget')) {
-        $outcome.Message = 'the install was not run'
+    if (-not $PSCmdlet.ShouldProcess($PackageId, (Format-YurunaOperatorMessage -Key 'runner.operator_37ab4ee0939b9060'))) {
+        $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_2769ae139e782dd3')
         return $outcome
     }
     $argument = Get-YurunaHostMetricsInstallArgument -PackageId $PackageId -LogPath $LogPath
@@ -939,24 +940,24 @@ function Invoke-YurunaWingetInstall {
         $process = Start-Process -FilePath $WingetPath -ArgumentList $argument `
             -WindowStyle Hidden -PassThru -ErrorAction Stop
     } catch {
-        $outcome.Message = "winget did not start: $($_.Exception.Message)"
+        $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_02f3101f9fa2510c' -Arguments @{ message = "$($_.Exception.Message)" })
         return $outcome
     }
     if (-not $process) {
-        $outcome.Message = 'winget did not start and reported no error'
+        $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_7576808e0f6a085b')
         return $outcome
     }
     $outcome.Started = $true
     if (-not $process.WaitForExit($TimeoutSec * 1000)) {
         $outcome.TimedOut = $true
-        $outcome.Message = "winget did not finish within $TimeoutSec seconds and was stopped"
+        $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_9472d99a6c0bb198' -Arguments @{ timeoutSec = "$TimeoutSec" })
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         return $outcome
     }
     try { $outcome.ExitCode = [int]$process.ExitCode } catch {
         Write-Verbose "winget exit code unreadable: $($_.Exception.Message)"
     }
-    $outcome.Message = "winget exited $($outcome.ExitCode)"
+    $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_1a1ec2d750246113' -Arguments @{ exitCode = "$($outcome.ExitCode)" })
     return $outcome
 }
 
@@ -1021,7 +1022,7 @@ function Install-YurunaHostMetricsExporter {
         Outcome   = 'not-applicable'; Reason = ''; ExitCode = $null
     }
     if (-not $IsWindows) {
-        $result.Reason = 'the host-metrics exporter is a Windows host component.'
+        $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_454b8dae9910f2af')
         return $result
     }
     $serviceName = Get-YurunaHostMetricsServiceName
@@ -1037,18 +1038,18 @@ function Install-YurunaHostMetricsExporter {
         if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
             $result.Installed = $true
             $result.Outcome = 'already-present'
-            $result.Reason = "the $serviceName service is already registered on this host"
+            $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_c821996e7b901c3a' -Arguments @{ serviceName = "$serviceName" })
             return $result
         }
         if (-not (Test-YurunaHostMetricsElevated)) {
             $result.Outcome = 'unavailable'
-            $result.Reason = "registering the $serviceName service needs Administrator rights, which this session does not hold"
+            $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f33c4bb2dd309411' -Arguments @{ serviceName = "$serviceName" })
             return $result
         }
         $winget = Get-YurunaWingetPath
         if (-not $winget) {
             $result.Outcome = 'unavailable'
-            $result.Reason = 'winget is not available to this account, so the exporter package cannot be acquired from here'
+            $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_df5b48ab664f3b9b')
             return $result
         }
         $statePath = Get-YurunaHostMetricsInstallStatePath
@@ -1059,9 +1060,9 @@ function Install-YurunaHostMetricsExporter {
             $result.Reason = $due.Reason
             return $result
         }
-        if (-not $PSCmdlet.ShouldProcess($packageId, "Install the host-metrics exporter (up to $TimeoutSec seconds)")) {
+        if (-not $PSCmdlet.ShouldProcess($packageId, (Format-YurunaOperatorMessage -Key 'runner.operator_eff8c88ff946be21' -Arguments @{ timeoutSec = "$TimeoutSec" }))) {
             $result.Outcome = 'skipped-whatif'
-            $result.Reason = 'the install was not run'
+            $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_4910589d71246ed0')
             return $result
         }
         $logPath = Get-YurunaHostMetricsInstallLogPath
@@ -1071,7 +1072,7 @@ function Install-YurunaHostMetricsExporter {
         # capturing this function's value cannot pick the line up as data, and
         # forced to Continue because that stream is silent at the runner's
         # default preference -- an announcement nobody sees is not one.
-        Write-Information "Host metrics: no $serviceName service on this host; installing $packageId ($($due.Reason)). Up to $TimeoutSec seconds, then this cycle continues either way." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c9c81f06f88e3fea' -Arguments @{ serviceName = "$serviceName"; packageId = "$packageId"; reason = "$($due.Reason)"; timeoutSec = "$TimeoutSec" }) -InformationAction Continue
         $attemptSpent = $true
         $run = Invoke-YurunaWingetInstall -WingetPath $winget -PackageId $packageId -TimeoutSec $TimeoutSec -LogPath $logPath
         $result.ExitCode = $run.ExitCode
@@ -1079,7 +1080,7 @@ function Install-YurunaHostMetricsExporter {
             $result.Installed = $true
             $result.Changed = $true
             $result.Outcome = 'installed'
-            $result.Reason = "installed $packageId and the $serviceName service is now registered"
+            $result.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_4326115d904813ce' -Arguments @{ packageId = "$packageId"; serviceName = "$serviceName" })
             # The record only exists to hold off a repeat of something that did
             # not work; an install that worked must not leave one behind for the
             # next host state that needs an attempt.
@@ -1090,11 +1091,11 @@ function Install-YurunaHostMetricsExporter {
         }
         $result.Outcome = 'failed'
         $result.Reason = if ($run.TimedOut) {
-            "$($run.Message); the $serviceName service is not registered yet. If the installer finished on its own afterward, the next pass finds it."
+            (Format-YurunaOperatorMessage -Key 'runner.operator_323063cf8b5d4057' -Arguments @{ message = "$($run.Message)"; serviceName = "$serviceName" })
         } elseif (-not $run.Started) {
             $run.Message
         } else {
-            "$($run.Message) but no $serviceName service was registered. The package manager's log is at $logPath."
+            (Format-YurunaOperatorMessage -Key 'runner.operator_c5d693212c5194b3' -Arguments @{ message = "$($run.Message)"; serviceName = "$serviceName"; logPath = "$logPath" })
         }
         $null = Set-YurunaHostMetricsInstallAttempt -Path $statePath -Reason $result.Reason -ExitCode $result.ExitCode -Confirm:$false
     } catch {
@@ -1173,7 +1174,7 @@ function Set-YurunaHostMetricsExporter {
     )
     $result = [pscustomobject]@{ Installed = $false; Running = $false; Ensured = $false; Changed = $false; Message = '' }
     if (-not $IsWindows) {
-        $result.Message = 'the host-metrics exporter is a Windows host component.'
+        $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_209d040d216b9f8c')
         return $result
     }
     $serviceName = Get-YurunaHostMetricsServiceName
@@ -1193,13 +1194,7 @@ function Set-YurunaHostMetricsExporter {
         if (-not $service) {
             $detail = if ($acquisition) { "Installing it did not get there: $acquisition." }
                       else { 'Installing it was not attempted on this pass.' }
-            $result.Message = @"
-No host-metrics exporter on this host, so nothing records its memory, CPU, disk
-or VM state. A refused allocation here cannot be explained afterward.
-$detail
-To put it there by hand, from an elevated prompt on the host:
-  winget install --id $(Get-YurunaHostMetricsPackageId) --exact --source winget --silent
-"@
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_9085c3bc2bcf25e5' -Arguments @{ detail = "$detail"; yurunaHostMetricsPackageId = "$(Get-YurunaHostMetricsPackageId)" })
             Write-Warning $result.Message
             return $result
         }
@@ -1208,7 +1203,7 @@ To put it there by hand, from an elevated prompt on the host:
         # Start type first: a service that only runs until the next reboot
         # leaves a gap exactly where an overnight run would have needed it.
         if ($service.StartType -ne 'Automatic') {
-            if ($PSCmdlet.ShouldProcess($serviceName, 'Set start type to Automatic')) {
+            if ($PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_243841d0b52ff7e7'))) {
                 Set-Service -Name $serviceName -StartupType Automatic -ErrorAction SilentlyContinue
                 $result.Changed = $true
             }
@@ -1218,18 +1213,18 @@ To put it there by hand, from an elevated prompt on the host:
         $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $current `
             -Collector (Get-YurunaHostMetricsCollector) -Port $port
         if (-not $plan.Matches -and $plan.Executable) {
-            Write-Information "Host metrics: $($plan.Reason); rewriting the exporter service command line."
-            if ($PSCmdlet.ShouldProcess($serviceName, 'Publish the collector set this host needs')) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_26ae0718f0a53461' -Arguments @{ reason = "$($plan.Reason)" })
+            if ($PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_8182f7798d10a687'))) {
                 $code = Set-YurunaHostMetricsServiceCommandLine -ServiceName $serviceName -CommandLine $plan.Desired
                 if ($code -ne 0) {
-                    Write-Warning "Could not rewrite the $serviceName service command line (sc.exe exit $code); it keeps the collectors it had."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_090cbff68be9fbf9' -Arguments @{ serviceName = "$serviceName"; code = "$code" })
                 } else {
                     $result.Changed = $true
                     Restart-Service -Name $serviceName -ErrorAction SilentlyContinue
                     if (-not (Test-YurunaHostMetricsAnswering -Port $port)) {
                         # The rewrite is the only thing that changed, so the
                         # rewrite is what goes back.
-                        Write-Warning "The $serviceName service did not answer after the collector rewrite; restoring the command line it had."
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_29b6cf97cccf9b49' -Arguments @{ serviceName = "$serviceName" })
                         $null = Set-YurunaHostMetricsServiceCommandLine -ServiceName $serviceName -CommandLine $current
                         Restart-Service -Name $serviceName -ErrorAction SilentlyContinue
                     }
@@ -1239,7 +1234,7 @@ To put it there by hand, from an elevated prompt on the host:
 
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($service -and $service.Status -ne 'Running') {
-            if ($PSCmdlet.ShouldProcess($serviceName, 'Start the service')) {
+            if ($PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_f057b0a728a75b43'))) {
                 Start-Service -Name $serviceName -ErrorAction SilentlyContinue
                 $result.Changed = $true
             }
@@ -1257,13 +1252,13 @@ To put it there by hand, from an elevated prompt on the host:
         $check = Test-YurunaHostMetricsPayload -Payload $payload
         if ($check.Ok) {
             $result.Ensured = $true
-            $result.Message = "Host metrics: http://<host>:$port/metrics publishes $((Get-YurunaHostMetricsCollector) -join ', ') to $($scope -join ', ')."
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_ed79aa221ffe2e37' -Arguments @{ port = "$port"; join = "$((Get-YurunaHostMetricsCollector) -join ', ')"; join2 = "$($scope -join ', ')" })
             Write-Information $result.Message
         } elseif (-not $payload) {
-            $result.Message = "Host metrics: the $serviceName service is present but http://127.0.0.1:$port/metrics did not answer, so this host's memory and VM state are not being recorded."
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_fc858bf92dc49506' -Arguments @{ serviceName = "$serviceName"; port = "$port" })
             Write-Warning $result.Message
         } else {
-            $result.Message = "Host metrics: http://127.0.0.1:$port/metrics answers but is missing $($check.Missing -join ', '). Reinstall the exporter with those collectors enabled."
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d5c597bca4182525' -Arguments @{ port = "$port"; join = "$($check.Missing -join ', ')" })
             Write-Warning $result.Message
         }
     } catch {

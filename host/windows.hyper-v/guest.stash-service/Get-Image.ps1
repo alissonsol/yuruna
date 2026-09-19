@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42792cb4-cc27-4e47-9d88-065ea12e6551
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -36,15 +37,15 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
-    Write-Error "host/windows.hyper-v/guest.stash-service/Get-Image.ps1 only runs on Windows Hyper-V."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9fc234da9c539846')
     exit 1
 }
 
 # --- REGION: Elevation check
-Write-Output "This script requires elevation (Run as Administrator)."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e3de8bf7b8f6ba1')
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Write-Output "Be careful."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9fd336c78bc7623')
     exit 1
 }
 
@@ -61,7 +62,7 @@ try {
     Write-Error $_.Exception.Message
     exit 1
 }
-Write-Output "Hyper-V default VHDX folder: $($image.DownloadDir)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2dfa662521f0753f' -Arguments @{ downloadDir = "$($image.DownloadDir)" })
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }

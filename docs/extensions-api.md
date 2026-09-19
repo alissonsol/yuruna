@@ -25,7 +25,7 @@ is discovered by existing; it adds no case to any list in the framework.
 | Area                   | Active default | What it controls |
 |------------------------|----------------|------------------|
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` -- vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication -- Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
-| `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates the subscriber list and delivers each one through its declared transport. The `default` extension implements exactly one, `email` via Resend; any other value in `transports.yml` warns `Unknown transport` and delivers nothing. Wire a new one by adding a branch here. |
+| `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates the subscriber list and delivers each one through its declared transport. The `default` extension implements exactly one, `email` via Resend; any other value in `transports.yml` warns `Unknown transport` and delivers nothing. An empty or missing subscriber list is a silent no-op (`Verbose` only), so a first-run user with no config filled in yet gets no errors. Wire a new one by adding a branch here. |
 | `caching-proxy-parser-service` | `default`      | Tails the Squid access log into a 100-entry in-memory ring and serves it on `:9302` as JSON (`/recent-requests`) plus a self-contained HTML page -- the source behind the Grafana dashboard's **Recent 100 requests** panel, replacing loki + promtail for it. Ships a stdlib-only Go daemon (`parse.go` + `main_linux.go` + `caching-proxy-parser-service.service`) built into the proxy VM; the PowerShell `default.psm1` is the host-side wrapper, exporting `Get-CachingProxyParserServiceManifest`. Nothing is persisted: the ring is the retention policy. |
 | `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy-service VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports Squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: Squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
@@ -105,6 +105,8 @@ test/extension/
     +-- beacon/                         # POST /announce presence
     +-- pool/                           # the pool-aggregator read client
     +-- labgate/                        # the lab-token write gate
+    +-- webui/                          # shared browser assets (yuruna.core.js runtime)
+    +-- mcp/                            # MCP-over-HTTP surface every daemon mounts
 ```
 
 No `server/` holds a copy of the SDK. Each one names it as a sibling module
@@ -130,6 +132,17 @@ daemon, a `server/` directory holding that daemon.
 Per-area state (vault file, transport credentials) lives under
 [`test/status/extension/<area>/`](../test/status/) -- gitignored, never
 shipped.
+
+`extension-sdk/webui` ships the browser assets every service UI shares --
+today that is the runtime in `yuruna.core.js`, while each service still
+carries its own stylesheet. A service embeds its own pages and page scripts
+and asks this package only for the names it does not have, so there is one
+copy of the shared runtime rather than one per service: these assets carry a
+browser baseline ([Safari iOS 9.0](definition.md)), and a service with its own
+copy is a service that can fall off that baseline on its own without anyone
+noticing. `//go:embed` cannot reach outside its own module, which is why the
+shared files are embedded inside `webui` and handed over through Go rather
+than referenced in place across the module boundary.
 
 <a id="42fffc2c-0004"></a>
 
@@ -320,6 +333,11 @@ into its seed), so it usually cannot check an arriving proof itself. It asks
 labor the 6-character code already follows: validation stays with the daemon
 that owns the secret. A service that *does* hold the token verifies locally and
 makes no round trip.
+
+The Lab token is public on the LAN by construction -- the aggregator publishes
+it on its open `/metrics` as well as painting it on the dashboard tile. It is
+a stop-a-stray-click gate, not a secret, and it is worth having precisely
+because it rotates: a code copied out of the lab stops working on its own.
 
 `labgate` is that rule in code, and each area's `writeGate:` declares it, so
 "which services gate their writes" is answerable without reading four route
@@ -547,6 +565,21 @@ suites assert the two match.
 `caching-proxy-parser-service` is deliberately absent: it has no auth story at
 all, so there is no gate for a mutating tool to inherit and nothing to make
 read-only tools a considered decision rather than a default.
+
+The HTTP surface is served by `extension-sdk/mcp`, a package built on
+`net/http` and `encoding/json` rather than the official MCP SDK. Four of the
+five daemons that mount it are stdlib-only by deliberate posture: they are
+compiled inside their own VM at bring-up, from sources fetched file by file,
+with no module cache and often no route to a registry. Adding the official
+SDK would make this the first third-party dependency in every one of them,
+and it would arrive through the very caching proxy one of them manages. The
+protocol subset a read-mostly service needs -- tools over HTTP, no resources,
+no prompts, no sampling -- is small enough that carrying it is cheaper than
+carrying the dependency. Resources, prompts, sampling, server-initiated
+requests, and an SSE stream are therefore deliberately absent rather than
+unfinished: every method here is a single request and a single response, a
+notification gets `202` and no body, and none of those omissions can be added
+without also adding a session model this package does not have.
 
 <a id="42fffc2c-0010"></a>
 

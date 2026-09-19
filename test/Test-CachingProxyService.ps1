@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@ param(
     [string]$NetworkService
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
@@ -91,7 +92,7 @@ function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:
 # the runner would.
 
 Write-Output ""
-Write-Output "== Yuruna caching-proxy service probe =="
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_cd8ce1605493d871')
 
 # -SetHostProxy ends this script with Remove-HostProxy then Set-HostProxy, both
 # of which reach Invoke-MacElevationIfNeeded and prompt for a password -- after
@@ -109,7 +110,7 @@ $resolvedFrom = $null
 
 if ($CacheIp) {
     if (-not (Test-IpAddress $CacheIp)) {
-        Write-Fail "CacheIp parameter '$CacheIp' is not a valid IPv4 or IPv6 address."
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_7fc4b0d3401fc82b' -Arguments @{ cacheIp = "$CacheIp" })
         exit 1
     }
     $resolvedIp   = $CacheIp
@@ -139,7 +140,7 @@ if ($CacheIp) {
                 "`$Env:YURUNA_CACHING_PROXY_SERVICE_IP"
             }
         } else {
-            Write-Warn "Configured cache source(s) rejected (no reachable HTTP proxy port; see probe above) -- falling back to local discovery, as Start-TestRunner would."
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_a78ad4d51643c788')
         }
     }
     if (-not $resolvedIp) {
@@ -151,19 +152,19 @@ if ($CacheIp) {
         try {
             [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
         } catch {
-            Write-Fail "Initialize-YurunaHost failed: $_. Set vmStart.cachingProxyIp / `$Env:YURUNA_CACHING_PROXY_SERVICE_IP or pass -CacheIp to probe remotely."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_976e93edcdcf9ee9' -Arguments @{ value = "$_" })
             exit 1
         }
         $proxyUrl = Test-CachingProxyServiceAvailable
         if (-not $proxyUrl) {
-            Write-Fail "Test-CachingProxyServiceAvailable returned no cache. Either Start-CachingProxyServiceVM.ps1 hasn't been run, or the cache VM is not listening on :3128."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_dcfd0bcfa41c2f11')
             exit 1
         }
         if ($proxyUrl -match '^http://([0-9.]+):') {
             $resolvedIp   = $matches[1]
             $resolvedFrom = "Test-CachingProxyServiceAvailable ($proxyUrl)"
         } else {
-            Write-Fail "Test-CachingProxyServiceAvailable returned '$proxyUrl' (could not parse IP)."
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_9a3cb55db2a4a2a2' -Arguments @{ proxyUrl = "$proxyUrl" })
             exit 1
         }
     }
@@ -206,7 +207,7 @@ $httpPort  = $probe.HttpPort
 # doesn't show up by dumping env vars alone.
 
 Write-Output ""
-Write-Output "== Host system-proxy check =="
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_72ff9744d8398906')
 
 if ($IsMacOS) {
     try {
@@ -214,27 +215,27 @@ if ($IsMacOS) {
         Write-Output "  scutil --proxy:"
         foreach ($line in ($scText -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
     } catch {
-        Write-Output "  scutil --proxy failed: $($_.Exception.Message)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4de7942157cfd862' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 } elseif ($IsWindows) {
     try {
         $nwText = (& netsh winhttp show proxy 2>&1) -join "`n"
-        Write-Output "  netsh winhttp show proxy:"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4ac977c303f1ed0e')
         foreach ($line in ($nwText -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
     } catch {
-        Write-Output "  netsh winhttp show proxy failed: $($_.Exception.Message)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fff1ea06a82dafb8' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     try {
         $is = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
-        Write-Output "  WinINet (HKCU Internet Settings):"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d168a5486eb59de2')
         Write-Output ("    ProxyEnable   = " + $is.ProxyEnable)
         Write-Output ("    ProxyServer   = " + $is.ProxyServer)
         Write-Output ("    ProxyOverride = " + $is.ProxyOverride)
     } catch {
-        Write-Output "  WinINet registry probe failed: $($_.Exception.Message)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0d11ff94c7f25814' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 } else {
-    Write-Output "  (no platform-specific system-proxy probe on this OS)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9c87c921239516dc')
 }
 
 # --- REGION: Effective proxy for outbound calls
@@ -257,7 +258,7 @@ if ($IsMacOS) {
 $envHttp  = $env:HTTP_PROXY
 $envHttps = $env:HTTPS_PROXY
 $envNo    = $env:NO_PROXY
-Write-Output "  Process env (what child processes inherit):"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8bb3b2dde85b45eb')
 Write-Output ("    HTTP_PROXY    = " + ($(if ($envHttp)  { $envHttp }  else { '(not set)' })))
 Write-Output ("    HTTPS_PROXY   = " + ($(if ($envHttps) { $envHttps } else { '(not set)' })))
 Write-Output ("    NO_PROXY      = " + ($(if ($envNo)    { $envNo }    else { '(not set)' })))
@@ -271,7 +272,7 @@ if ($IsWindows) {
         $userVal = [Environment]::GetEnvironmentVariable($name, 'User')
         if (($procVal -or $userVal) -and ($procVal -ne $userVal)) {
             $shown = if ($userVal) { $userVal } else { '(not set)' }
-            Write-Output ("    (HKCU $name = $shown differs from this process; new shells from explorer would see HKCU.)")
+            Write-Output ((Format-YurunaOperatorMessage -Key 'runner.operator_17b7093853e8e1e1' -Arguments @{ name = "$name"; shown = "$shown" }))
         }
     }
 }
@@ -286,11 +287,11 @@ if ($effProxy -and $effProxy -match '^https?://([^:/]+):(\d+)/?') {
 }
 
 if (-not $effHost) {
-    Write-Pass "No process-env proxy configured (HTTP/HTTPS clients go direct or via WinINet for WinINet-aware apps)"
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_298414de14ec9357')
 } elseif ($effHost -eq $resolvedIp -and $effPort -eq $httpPort) {
-    Write-Pass "Process env routes external requests via ${effHost}:${effPort} (matches probe target)"
+    Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_e14b9d7f8cc09904' -Arguments @{ effHost = "${effHost}"; effPort = "${effPort}" })
 } else {
-    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching-proxy service under test is ${resolvedIp}:${httpPort} -- Start-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
+    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_c4a7a6bd503e6bb6' -Arguments @{ effHost = "${effHost}"; effPort = "${effPort}"; resolvedIp = "${resolvedIp}"; httpPort = "${httpPort}" })
     Write-Output ""
     if ($SetHostProxy) {
         # The promotion below wipes process env (Remove-HostProxy) and
@@ -298,13 +299,13 @@ if (-not $effHost) {
         # run completes the WARN above is cleared.
         Write-Output "==== FIX ===="
         Write-Output ""
-        Write-Output "  This run will wipe the stale env vars and promote ${resolvedIp}:${httpPort} below."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_681ba60a8c0d8255' -Arguments @{ resolvedIp = "${resolvedIp}"; httpPort = "${httpPort}" })
     } else {
         $isElev    = if ($IsMacOS) { 'sudo -E ' } else { '' }
         $promoteCmd= "${isElev}pwsh test/Test-CachingProxyService.ps1 -SetHostProxy"
         Write-Output "==== FIX ===="
         Write-Output ""
-        Write-Output "  Single step -- wipes the stale process-env HTTP(S)_PROXY and"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c6e93dc84c9fac48')
         Write-Output "  promotes ${resolvedIp}:${httpPort}:"
         Write-Output "    $promoteCmd"
     }
@@ -312,11 +313,11 @@ if (-not $effHost) {
 
 # --- REGION: Summary
 Write-Output ""
-Write-Output "== Summary: $script:PassCount PASS, $script:WarnCount WARN, $script:FailCount FAIL =="
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d044061ad149a912' -Arguments @{ passCount = "$script:PassCount"; warnCount = "$script:WarnCount"; failCount = "$script:FailCount" })
 
 if ($script:FailCount -gt 0) {
     Write-Output ""
-    Write-Output "One or more required ports did not answer. Start-TestRunner would treat this cache as broken."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_bc870d8db66eadde')
     exit 1
 }
 
@@ -338,7 +339,7 @@ if ($script:FailCount -gt 0) {
 
 if ($SetHostProxy) {
     Write-Output ""
-    Write-Output "== Promoting to machine-wide host proxy =="
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a84aa3e0623290e1')
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $PSScriptRoot))
     try {
@@ -350,11 +351,11 @@ if ($SetHostProxy) {
         if ($NetworkService) { $setParams.NetworkService = $NetworkService }
         Set-HostProxy @setParams
         Write-Output ""
-        Write-Output "Host proxy is now http://${resolvedHost}:${httpPort}."
-        Write-Output "Run 'pwsh test/service/Stop-CachingProxyServiceVM.ps1' to wipe the host proxy when you're done."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_56e751c4c8b4a591' -Arguments @{ resolvedHost = "${resolvedHost}"; httpPort = "${httpPort}" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_70961e1633f5b455')
     } catch {
         Write-Output ""
-        Write-Output "[FAIL] -SetHostProxy threw: $($_.Exception.Message)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_12e2dd1dd8779580' -Arguments @{ message = "$($_.Exception.Message)" })
         exit 1
     }
 }

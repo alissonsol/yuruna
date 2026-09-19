@@ -1,16 +1,9 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package state persists the download-agent service's operational state under
-// the pool share (poolStorageNetworkPath/download-agent-service/): an
-// append-only audit log of every pool mutation, plus a status.json (last
-// action, counters, health, heartbeat) that survives a service restart. When no
-// state dir is configured it is an inert no-op, so unit tests and a
-// pool-less bring-up run without a NAS.
-//
-// A write failure is recorded in Health and never blocks the mutation itself:
-// losing the audit trail is strictly better than refusing to serve images
-// because the share went read-only.
+// Package state persists the download-agent service's operational state. See
+// ../../../../../../docs/download-agent.md#the-download-pool for the on-share
+// layout and why it degrades to an inert no-op. -- state.go
 package state
 
 import (

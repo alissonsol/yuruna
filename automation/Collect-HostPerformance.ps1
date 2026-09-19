@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a6bdf9-496a-46e5-9f44-7ae4c1d0e643
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,9 @@ param(
     [switch]$Worker,
     [int]$OwnerProcessId = 0
 )
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.HostSampling.psm1') -Force
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-host-performance-' + [datetime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N')) }
@@ -55,8 +58,8 @@ if ($Worker) {
     Invoke-YurunaHostSampling -Directory $OutputDirectory -DurationSeconds $DurationSeconds -IntervalSeconds $IntervalSeconds -OwnerProcessId $OwnerProcessId
     return
 }
-if (($GuestAddress -and -not $GuestUser) -or ($GuestUser -and -not $GuestAddress)) { throw 'Specify both GuestAddress and GuestUser to include a guest snapshot.' }
-if (Test-Path -LiteralPath $OutputDirectory) { throw 'The output directory already exists; choose a new directory to preserve prior evidence.' }
+if (($GuestAddress -and -not $GuestUser) -or ($GuestUser -and -not $GuestAddress)) { throw (Format-YurunaOperatorMessage -Key 'automation.operator_ee4c81412b67b1c2') }
+if (Test-Path -LiteralPath $OutputDirectory) { throw (Format-YurunaOperatorMessage -Key 'automation.operator_b5362b267131b912') }
 $null = [IO.Directory]::CreateDirectory($OutputDirectory)
 $traceOwned = $false
 $traceInfo = [ordered]@{ Requested=[bool]$Trace; Status='not-requested'; Reason='' }
@@ -66,7 +69,7 @@ $manifest = [ordered]@{ Utc=[datetime]::UtcNow.ToString('o'); MonotonicTicks=[Di
 try {
     if ($Trace) {
         $wpr = Get-Command wpr.exe -ErrorAction SilentlyContinue
-        if (-not $wpr) { $traceInfo.Status='unavailable'; $traceInfo.Reason='WPR executable is unavailable.' }
+        if (-not $wpr) { $traceInfo.Status='unavailable'; $traceInfo.Reason=(Format-YurunaOperatorMessage -Key 'automation.operator_eac08d333d18b400') }
         else {
             $status = Invoke-YurunaHostBoundedCommand -FilePath $wpr.Source -ArgumentList @('-status') -TimeoutSeconds 5
             $profiles = Invoke-YurunaHostBoundedCommand -FilePath $wpr.Source -ArgumentList @('-profiles') -TimeoutSeconds 5
@@ -77,9 +80,9 @@ try {
                 $traceOwned = ($start.Status -eq 'complete' -and $start.ExitCode -eq 0)
                 $traceInfo.Status = if ($traceOwned) { 'recording' } else { 'unavailable' }
                 $traceInfo.Reason = $start.Output
-                if ($start.Status -eq 'timeout') { $traceInfo.Status='uncertain'; $traceInfo.Reason='WPR start exceeded its deadline; recording ownership could not be confirmed. Inspect WPR status before starting another trace.' }
+                if ($start.Status -eq 'timeout') { $traceInfo.Status='uncertain'; $traceInfo.Reason=(Format-YurunaOperatorMessage -Key 'automation.operator_f250b44132d70fac') }
                 if ($traceOwned) { $null = Invoke-YurunaHostBoundedCommand -FilePath $wpr.Source -ArgumentList @('-marker', "Yuruna phase: $Phase") -TimeoutSeconds 5 }
-            } else { $traceInfo.Status='preserved'; $traceInfo.Reason='A previous recording or unknown localized WPR status prevents a safe new recording.' }
+            } else { $traceInfo.Status='preserved'; $traceInfo.Reason=(Format-YurunaOperatorMessage -Key 'automation.operator_db72b63273de3023') }
         }
     }
     $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
@@ -116,7 +119,7 @@ try {
         }
     }
     if ($manifest.Status -ne 'timeout') { $manifest.Status=if ($workerProcess.ExitCode -eq 0) { 'complete' } else { 'partial' }; $manifest.WorkerExitCode=$workerProcess.ExitCode }
-    if ($GuestAddress -and -not $manifest.Contains('Guest')) { $manifest.Guest=@{Status='unavailable'; Reason='Host recording ended before an overlapping guest snapshot could be captured.'} }
+    if ($GuestAddress -and -not $manifest.Contains('Guest')) { $manifest.Guest=@{Status='unavailable'; Reason=(Format-YurunaOperatorMessage -Key 'automation.operator_de580b5b7b4a75be')} }
 
 } finally {
     if ($workerProcess -and -not $workerProcess.HasExited) { $workerProcess.Kill($true) }

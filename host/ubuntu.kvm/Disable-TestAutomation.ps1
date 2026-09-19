@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,12 +37,13 @@ param(
     [switch]$StopServices
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsLinux) {
-    Write-Error 'Disable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux.'
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_56dd0a83b1740c20')
     exit 1
 }
 
@@ -61,10 +62,10 @@ if (-not (Assert-SafeToDisable)) { exit 1 }
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
-    Write-Information "Restoring from the capture taken at $($state.capturedUtc)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_97b7a77dbbb6e9c9' -Arguments @{ capturedUtc = "$($state.capturedUtc)" })
 } else {
-    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
-    Write-Warning 'Only the ufw status-port rule will be removed -- it is provably ours. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.'
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b151e82086a9c67b')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a0e97dcbb626019f')
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
@@ -103,12 +104,12 @@ foreach ($t in @(
     $schema = $t[0]; $key = $t[1]
     Restore-Knob -Name "gsettings/$schema/$key" -Description "gsettings $schema $key" -Apply {
         param($v)
-        if (-not (Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue)) { throw 'gsettings is not present on this host' }
+        if (-not (Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8d770e16b147abe9') }
         # gsettings prints values quoted ('nothing') and typed (uint32 0); it
         # also ACCEPTS them in that form, so the captured string round-trips
         # without parsing.
         & gsettings set $schema $key "$v"
-        if ($LASTEXITCODE -ne 0) { throw "gsettings set $schema $key '$v' failed (exit $LASTEXITCODE)" }
+        if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_ee375a40b48f886b' -Arguments @{ schema = "$schema"; key = "$key"; v = "$v"; lASTEXITCODE = "$LASTEXITCODE" }) }
     }.GetNewClosure()
 }
 
@@ -117,7 +118,7 @@ Restore-Knob -Name 'timedatectl/ntp' -Description 'timedatectl NTP' -Apply {
     param($v)
     $onOff = if ("$v" -match '^(yes|active|true)$') { 'true' } else { 'false' }
     $r = Invoke-YurunaSudo -Argument @('timedatectl', 'set-ntp', $onOff) -TolerateBlocked
-    if ($r.ExitCode -ne 0) { throw "timedatectl set-ntp $onOff failed: $($r.Output)" }
+    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b1cc462acbad03b8' -Arguments @{ onOff = "$onOff"; output = "$($r.Output)" }) }
 }
 
 # --- REGION: libvirt services
@@ -131,7 +132,7 @@ foreach ($unit in @('libvirtd', 'virtlogd')) {
             return
         }
         $r = Invoke-YurunaSudo -Argument @('systemctl', 'disable', '--now', $unit) -TolerateBlocked
-        if ($r.ExitCode -ne 0) { throw "systemctl disable --now $unit failed: $($r.Output)" }
+        if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_e9ae1d4da44d99f5' -Arguments @{ unit = "$unit"; output = "$($r.Output)" }) }
     }.GetNewClosure()
 }
 
@@ -150,7 +151,7 @@ foreach ($grp in @('libvirt', 'kvm')) {
     if (-not $line) { $skipped.Add("Membership of '$grp' (the group no longer exists)"); continue }
     $members = (("$line" -split ':', 4)[3]) -split ','
     if ($members -notcontains $env:USER) { continue }
-    if ($PSCmdlet.ShouldProcess("$env:USER in group '$grp'", 'Remove (added by Enable-TestAutomation)')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_50d00b7a87dd80cf' -Arguments @{ uSER = "$env:USER"; grp = "$grp" }), (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
         $r = Invoke-YurunaSudo -Argument @('gpasswd', '-d', $env:USER, $grp) -TolerateBlocked
         if ($r.ExitCode -eq 0) {
             $restored.Add("Removed $env:USER from '$grp' (log out and back in for this shell's group set to catch up)")
@@ -168,7 +169,7 @@ if (-not $aclKnob -or -not $aclKnob.present) {
     $skipped.Add("libvirt-qemu search ACL on $HOME (it was already there before automation)")
 } elseif (-not (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)) {
     $skipped.Add("libvirt-qemu search ACL on $HOME (setfacl is not installed)")
-} elseif ($PSCmdlet.ShouldProcess("libvirt-qemu search ACL on $HOME", 'Remove (added by Enable-TestAutomation)')) {
+} elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_410c0c308f73c958' -Arguments @{ hOME = "$HOME" }), (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
     & setfacl -x 'u:libvirt-qemu' $HOME
     if ($LASTEXITCODE -eq 0) { $restored.Add("Removed the libvirt-qemu search ACL on $HOME") }
     else { $skipped.Add("libvirt-qemu search ACL on $HOME (setfacl -x failed, exit $LASTEXITCODE)") }
@@ -197,7 +198,7 @@ if (-not $ufwCmd) {
         $skipped.Add("ufw allow $statusPort/tcp (could not read ufw status: $($status.Output))")
     } elseif ($status.Output -notmatch "(?m)^\s*$statusPort/tcp\s") {
         Write-Verbose "ufw has no allow rule for $statusPort/tcp."
-    } elseif ($PSCmdlet.ShouldProcess("ufw allow $statusPort/tcp", 'Delete the status-service rule Yuruna added')) {
+    } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_88043c49f7b71195' -Arguments @{ statusPort = "$statusPort" }), (Format-YurunaOperatorMessage -Key 'host.operator_503158d3bf5fcbd6'))) {
         $r = Invoke-YurunaSudo -Argument @($ufwExe, '--force', 'delete', 'allow', "$statusPort/tcp") -TolerateBlocked
         if ($r.ExitCode -eq 0) { $restored.Add("ufw rule removed: allow $statusPort/tcp") }
         else { $skipped.Add("ufw allow $statusPort/tcp (delete failed: $($r.Output))") }
@@ -213,18 +214,18 @@ if ($StopServices) {
 Write-DisableReport -Platform 'ubuntu.kvm' -Restored $restored -Skipped $skipped
 
 Write-Output ''
-Write-Output 'NOT reversed (deliberately) -- run these yourself if you want them gone:'
-Write-DisableManualStep -What 'apt packages (qemu-kvm, libvirt-daemon-system, cifs-utils, acl, ...) and PSGallery modules' -Command @(
-    'Uninstall-Module powershell-yaml, PSScriptAnalyzer'
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_87f50089fdd7e8c5')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_f08765755eb06413') -Command @(
+    (Format-YurunaOperatorMessage -Key 'host.operator_8da23b13d6bee38a')
 )
-Write-DisableManualStep -What 'The libvirt default network, and any guests defined on this host' -Command @(
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_67dd1ec8d0469702') -Command @(
     'sudo virsh net-list --all',
     'sudo virsh list --all'
 )
-Write-DisableManualStep -What 'Cloned repos, VM images and run history under ~/yuruna'
-Write-DisableManualStep -What 'networkStorage configuration, the vaulted credential and any mounts' `
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_51ad715d8bf6eabf')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_c65c4b6881513631') `
     -Command (Get-PoolStorageManualTeardown -RepoRoot $RepoRoot)
-Write-DisableManualStep -What 'The pool-storage sudoers drop-in, if one was installed' -Command @(
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_2407762573afa1d1') -Command @(
     'sudo ls /etc/sudoers.d/ | grep -i yuruna'
 )
 Write-DisableCommonEpilogue -StateCaptured ([bool]$state) -StopServices ([bool]$StopServices)

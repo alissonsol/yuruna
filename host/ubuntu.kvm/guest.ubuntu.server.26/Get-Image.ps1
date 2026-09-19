@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42bd869c-ef6b-4b88-bd37-3f2e8aa2f1ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@ param(
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -42,7 +43,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.ubuntu.server.26/Get-Image.ps1 only runs on Ubuntu KVM."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_713c26d7b0425606')
     exit 1
 }
 
@@ -51,7 +52,7 @@ $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $hostArch = 'amd64' }
     'aarch64' { $hostArch = 'arm64' }
-    default   { Write-Error "Unsupported arch: $arch"; exit 1 }
+    default   { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fdfd0961eabd7db1' -Arguments @{ arch = "$arch" }); exit 1 }
 }
 
 # --- REGION: Configuration

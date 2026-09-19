@@ -7,63 +7,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Assign &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.assign_yuruna_pool_control">Assign &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign" aria-current="page">Assign</a>
-        <a href="/hosts">Hosts</a>
-        <a href="/pools">Pools</a>
-        <a href="/test-sets">Test sets</a>
-        <a href="/scan">Scan</a>
-        <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" aria-current="page" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Assign test sets to pools</h1>
-    <p class="muted">Each pool tests one test set (a framework + project repo pair).
+    <h1 data-i18n="pool.assign_test_sets_to_pools">Assign test sets to pools</h1>
+    <p class="muted" data-i18n="pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok">Each pool tests one test set (a framework + project repo pair).
       GH_TOKEN stays host-local &mdash; never stored in pool intent.</p>
     <div id="notice" role="alert" class="notice"></div>
-    <div class="row"><button id="refresh">Refresh</button></div>
+    <div class="row"><button id="refresh" data-i18n="pool.refresh">Refresh</button></div>
     <table>
       <thead>
         <tr>
-          <th class="rownum" aria-label="Row number">#</th>
-          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort">Pool</button></th>
-          <th data-sort="poolGuid"><button type="button" class="sort">Pool ID</button></th>
-          <th data-sort="testSet"><button type="button" class="sort">Assign test set</button></th>
-          <th data-sort="repos"><button type="button" class="sort">Framework / Project</button></th>
-          <th data-sort="members"><button type="button" class="sort">Members *</button></th>
-          <th data-sort="state"><button type="button" class="sort">State</button></th>
+          <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
+          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort" data-i18n="pool.pool">Pool</button></th>
+          <th data-sort="poolGuid"><button type="button" class="sort" data-i18n="pool.pool_id">Pool ID</button></th>
+          <th data-sort="testSet"><button type="button" class="sort" data-i18n="pool.assign_test_set_50fb7bbc">Assign test set</button></th>
+          <th data-sort="repos"><button type="button" class="sort" data-i18n="pool.framework_project">Framework / Project</button></th>
+          <th data-sort="members"><button type="button" class="sort" data-i18n="pool.members">Members *</button></th>
+          <th data-sort="state"><button type="button" class="sort" data-i18n="pool.state">State</button></th>
         </tr>
       </thead>
       <tbody id="pool-rows"></tbody>
     </table>
-    <p class="footnote">
-      * A pool's members are meant to be configured alike. To copy one peer's
-      configuration onto another host, run on that host:
-      <code>pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;</code>
-    </p>
+    <p class="footnote" data-i18n="pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee" data-i18n-args="{&quot;command1&quot;: &quot;pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;&quot;}">* A pool&#x27;s members are meant to be configured alike. To copy one peer&#x27;s configuration onto another host, run on that host: pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;</p>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

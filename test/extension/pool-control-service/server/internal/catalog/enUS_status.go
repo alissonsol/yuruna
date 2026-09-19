@@ -7,6 +7,424 @@ package catalog
 // DataenUSstatus is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSstatus = `{
+  "status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy": "A cycle is currently running. Save the config, abort the running cycle, and start a new one? In-progress VMs are removed first -- this is not instant: each running VM is given up to ~30 seconds to shut down (macOS/UTM is the slowest), so with several VMs up the new cycle can take a minute or two to begin.",
+  "status.add_item": "+ add item",
+  "status.add_item_all_guests_added": "+ add item (all guests added)",
+  "status.aggregate_summary": {
+    "kind": "plural",
+    "selector": "count",
+    "variants": {
+      "one": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " sequence · latest ",
+        {
+          "arg": "cycles",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " cycles each · generated ",
+        {
+          "arg": "generated",
+          "type": "detail",
+          "trust": "external"
+        }
+      ],
+      "other": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " sequences · latest ",
+        {
+          "arg": "cycles",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " cycles each · generated ",
+        {
+          "arg": "generated",
+          "type": "detail",
+          "trust": "external"
+        }
+      ]
+    }
+  },
+  "status.api_another_start_cycle_request_is_in_progress_3f51d139": "another start-cycle request is in progress",
+  "status.api_authentication_extension_unavailable_2ece9896": "authentication extension unavailable",
+  "status.api_body_must_be_a_json_object_831ab327": "body must be a JSON object",
+  "status.api_could_not_pack_folder_detail_268ee848": [
+    "Could not pack ",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.api_could_not_read_body_aa31dc00": "could not read body",
+  "status.api_detail_caf3c2c2": [
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.api_diagnostic_failed": [
+    "Error running Get-SystemDiagnostic.ps1: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.api_diagnostic_script_missing": [
+    "Get-SystemDiagnostic.ps1 not found at ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "status.api_expected_diagnostics_folder_filename_5f581c78": "expected /diagnostics/<folder>.../<filename>",
+  "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": "failure folder not found; runner must have created it first",
+  "status.api_filename_must_match_system_diagnostic_id_txt_ec048334": "filename must match *.system.diagnostic.<id>.txt",
+  "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5": "folder segment contains traversal or backslash",
+  "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1": "follow guidance at https://yuruna.link/42185271-0007",
+  "status.api_forbidden_78342a09": "Forbidden",
+  "status.api_forbidden_deny_list_1c7d1cfa": "Forbidden (deny-list)",
+  "status.api_forbidden_directory_listing_disabled_5d107f5b": "Forbidden (directory listing disabled)",
+  "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "forbidden: missing X-Yuruna request header (cross-site request guard)",
+  "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP",
+  "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "internal authentication key not configured on this host",
+  "status.api_invalid_json_detail_c907dfc3": [
+    "invalid JSON: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": "invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)",
+  "status.api_method_not_allowed_be4fb6a2": "method not allowed",
+  "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf": "method not allowed; POST the checkpoint body",
+  "status.api_method_not_allowed_post_the_dump_body_fa73866b": "method not allowed; POST the dump body",
+  "status.api_no_break_active_bc29bdab": "no break active",
+  "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa": "no caching-proxy-service CA resolvable",
+  "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2": [
+    "No cycle ",
+    {
+      "arg": "cycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    " in the retained log history."
+  ],
+  "status.api_no_cycle_results_folder_folder_on_this_host_51798923": [
+    "No cycle results folder ",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    " on this host."
+  ],
+  "status.api_no_lab_hold_is_active_49dd8185": "no lab hold is active",
+  "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b": "no stored credential for that user on this host",
+  "status.api_not_a_cycle_results_archive_name_395b9777": "Not a cycle results archive name.",
+  "status.api_path_escapes_log_dir_355b2034": "path escapes log dir",
+  "status.api_path_escapes_log_root_13754cf8": "path escapes log root",
+  "status.api_payload_too_large_1_mb_350b49df": "payload too large (>1 MB)",
+  "status.api_payload_too_large_256_kb_ad49d5cd": "payload too large (>256 KB)",
+  "status.api_payload_too_large_4_mb_3455f869": "payload too large (>4 MB)",
+  "status.api_payload_too_large_5_mb_ab90ca52": "payload too large (>5 MB)",
+  "status.api_post_required_663cc07c": "POST required",
+  "status.api_project_repo_not_present_on_host_885e6338": "project repo not present on host",
+  "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "proof mismatch (wrong or stale internal authentication key)",
+  "status.api_put_or_post_required_1f919659": "PUT or POST required",
+  "status.api_runner_script_missing": [
+    "Start-TestRunner.ps1 not found at ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "status.api_sidecar_write_failed_0ce361a9": "sidecar write failed",
+  "status.api_test_config_yml_not_found_3b38d785": "test.config.yml not found",
+  "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c": "Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)",
+  "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c": "Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)",
+  "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": "user, nonce and proof query parameters are required",
+  "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3": "user not referenced by this host's networkStorage config",
+  "status.api_write_failed_detail_c07681e1": [
+    "write failed: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.api_yaml_parse_failed_detail_363d5cf4": [
+    "YAML parse failed: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.archive": "Archive",
+  "status.attach_downloaded_file": "Draft emails cannot automatically include attachments, so please manually attach the downloaded file before you send it.",
+  "status.auto_refresh_paused": "Auto-refresh paused",
+  "status.banner_fail": "Incident detected — see status",
+  "status.banner_idle": "No test data available",
+  "status.banner_incident_details": "Incident detected — see details below",
+  "status.banner_pass": "All guests operational",
+  "status.banner_running": "Test in progress",
+  "status.banner_stopped": "Test runner stopped",
+  "status.cache_caching_proxy_service_306beb37": "Caching-proxy service:",
+  "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": [
+    "Caching-proxy service: configured at ",
+    {
+      "arg": "address",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", not answering"
+  ],
+  "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": "Caching-proxy service: detected (port map failed)",
+  "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": "Caching-proxy service: detected (port map owned by a bring-up)",
+  "status.cache_caching_proxy_service_not_detected_eeb2edfb": "Caching-proxy service: not detected",
+  "status.cache_detected_b96da48a": "detected",
+  "status.caching_proxy_test_endpoint_unavailable_value1": [
+    "Caching-proxy test endpoint unavailable: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": "Caching-proxy test timed out (15 s) - not reachable from this host?",
+  "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65": "Caching-proxy test timed out (15 s) — not reachable from this host?",
+  "status.commit": "Commit",
+  "status.config": "Config",
+  "status.config_field_alwaysredownload": "alwaysRedownload",
+  "status.config_field_armwindowhours": "armWindowHours",
+  "status.config_field_autorefreshafterstalls": "autoRefreshAfterStalls",
+  "status.config_field_autoremediation": "autoRemediation",
+  "status.config_field_autoseed": "autoSeed",
+  "status.config_field_bootdelayseconds": "bootDelaySeconds",
+  "status.config_field_cachingproxyip": "cachingProxyIp",
+  "status.config_field_chardelayms": "charDelayMs",
+  "status.config_field_cleanupvmnameprefixes": "cleanupVmNamePrefixes",
+  "status.config_field_configservice": "configService",
+  "status.config_field_cycledelayseconds": "cycleDelaySeconds",
+  "status.config_field_discoveryintervalseconds": "discoveryIntervalSeconds",
+  "status.config_field_downloadagentservice": "downloadAgentService",
+  "status.config_field_enabled": "enabled",
+  "status.config_field_failuresbeforealert": "failuresBeforeAlert",
+  "status.config_field_failurestoquarantine": "failuresToQuarantine",
+  "status.config_field_frameworkurl": "frameworkUrl",
+  "status.config_field_freshnessseconds": "freshnessSeconds",
+  "status.config_field_ghtoken": "ghToken",
+  "status.config_field_guestquarantine": "guestQuarantine",
+  "status.config_field_guestsequence": "guestSequence",
+  "status.config_field_intentgiturl": "intentGitUrl",
+  "status.config_field_labhealth": "labHealth",
+  "status.config_field_language": "language",
+  "status.config_field_localclonepath": "localClonePath",
+  "status.config_field_loglevel": "logLevel",
+  "status.config_field_maxattempts": "maxAttempts",
+  "status.config_field_maxattemptspercycle": "maxAttemptsPerCycle",
+  "status.config_field_maxholdattempts": "maxHoldAttempts",
+  "status.config_field_minintervalseconds": "minIntervalSeconds",
+  "status.config_field_movelogstopoolstorage": "moveLogsToPoolStorage",
+  "status.config_field_networkstorage": "networkStorage",
+  "status.config_field_notification": "notification",
+  "status.config_field_perflog": "perfLog",
+  "status.config_field_pollseconds": "pollSeconds",
+  "status.config_field_pool": "pool",
+  "status.config_field_poolstoragelocalpath": "poolStorageLocalPath",
+  "status.config_field_poolstoragenetworkpath": "poolStorageNetworkPath",
+  "status.config_field_poolstoragenetworkuser": "poolStorageNetworkUser",
+  "status.config_field_port": "port",
+  "status.config_field_preambletimeoutseconds": "preambleTimeoutSeconds",
+  "status.config_field_prefetchleadseconds": "prefetchLeadSeconds",
+  "status.config_field_projecturl": "projectUrl",
+  "status.config_field_pulltimeoutseconds": "pullTimeoutSeconds",
+  "status.config_field_recentdisplaycount": "recentDisplayCount",
+  "status.config_field_refreshseconds": "refreshSeconds",
+  "status.config_field_repositories": "repositories",
+  "status.config_field_require": "require",
+  "status.config_field_scanintervalseconds": "scanIntervalSeconds",
+  "status.config_field_screenhistorysize": "screenHistorySize",
+  "status.config_field_skipcycles": "skipCycles",
+  "status.config_field_starttimeoutseconds": "startTimeoutSeconds",
+  "status.config_field_stashstoragelocalpath": "stashStorageLocalPath",
+  "status.config_field_stashstoragenetworkpath": "stashStorageNetworkPath",
+  "status.config_field_stashstoragenetworkuser": "stashStorageNetworkUser",
+  "status.config_field_statusservice": "statusService",
+  "status.config_field_steptimeoutseconds": "stepTimeoutSeconds",
+  "status.config_field_stoponfailure": "stopOnFailure",
+  "status.config_field_successesbeforerearm": "successesBeforeRearm",
+  "status.config_field_testcycle": "testCycle",
+  "status.config_field_testvmnameprefix": "testVmNamePrefix",
+  "status.config_field_timeoutseconds": "timeoutSeconds",
+  "status.config_field_vmcommunication": "vmCommunication",
+  "status.config_field_vmimage": "vmImage",
+  "status.config_field_vmstart": "vmStart",
+  "status.config_field_vncport": "vncPort",
+  "status.config_field_warmresume": "warmResume",
+  "status.config_loading": "Loading…",
+  "status.config_type_array": [
+    "array (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.config_type_boolean": [
+    "boolean (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.config_type_number": [
+    "number (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.config_type_object": [
+    "object (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.config_type_string": [
+    "string (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.control_host_token_missing": "This host holds no lab token yet.",
+  "status.control_instructions": [
+    "This host accepts control only from a browser on the host itself (",
+    {
+      "arg": "address",
+      "type": "detail",
+      "trust": "external"
+    },
+    "), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ",
+    {
+      "arg": "command",
+      "type": "detail",
+      "trust": "external"
+    },
+    " with the code from the dashboard’s Lab token tile."
+  ],
+  "status.control_proof_expired": "This page’s control token has expired (they last 15 minutes).",
+  "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.",
+  "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
+    "Control proof expires in ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s -- save soon, or re-open this host from the dashboard link for a fresh one."
+  ],
+  "status.control_proof_invalid": "This page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll.",
+  "status.control_proof_missing": "This page was opened without a control token, so none was sent.",
+  "status.control_refused": "Control refused.",
+  "status.control_routes": "control-route setup",
+  "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
+    "This host has no lab-auth-token, so remote control is loopback-only. Open this page as ",
+    {
+      "arg": "address",
+      "type": "token",
+      "trust": "internal"
+    },
+    " on the host, or enroll it: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    " <code from the dashboard’s Lab token tile>. See ",
+    {
+      "arg": "documentation",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.control_verifier_unavailable": "This host’s status service could not load its token verifier (check test/status/runtime/server.err on the host).",
+  "status.could_not_check_the_cycle_folder_first": "Could not check the cycle folder first. ",
+  "status.could_not_determine_runner_status_value1_save_and_start_cycle_any": [
+    "Could not determine runner status (",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Save and start cycle anyway? In-progress VMs (if any) are removed first -- up to ~30 seconds per running VM (macOS/UTM is the slowest), so the new cycle may take a minute or two to begin."
+  ],
+  "status.could_not_load_aggregates_value1": [
+    "Could not load aggregates: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.could_not_load_config_value1": [
+    "Could not load config: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.could_not_load_test_status_refresh_to_retry": "Could not load test status. Refresh to retry.",
+  "status.could_not_load_value1": [
+    "Could not load: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.could_not_serialize_value1": [
+    "Could not serialize: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.cycle": "Cycle",
   "status.cycle_duration": [
     "Duration: ",
     {
@@ -16,8 +434,29 @@ const DataenUSstatus = `{
     }
   ],
   "status.cycle_paused": "Paused, waiting for resume.",
+  "status.cycle_performance": "Cycle performance",
   "status.cycle_resume_action": "Continue",
   "status.cycle_resuming": "Continuing...",
+  "status.cycle_running": [
+    {
+      "arg": "cycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (still running)"
+  ],
+  "status.cycle_start_utc": "Cycle start (UTC)",
+  "status.dashboards": "Dashboards",
+  "status.delete_item_value1": [
+    "Delete item ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.diagnostics": "Diagnostics",
+  "status.diagnostics_yuruna": "Diagnostics — Yuruna",
   "status.directory_column_modified_utc": "Modified (UTC)",
   "status.directory_column_name": "Name",
   "status.directory_column_size": "Size",
@@ -38,8 +477,70 @@ const DataenUSstatus = `{
     }
   ],
   "status.directory_parent": "Parent directory",
+  "status.discard": "Discard",
+  "status.discard_unsaved_config_changes_and_return_to_status": "Discard unsaved config changes and return to status?",
+  "status.download_the_archive": "Download the archive",
+  "status.download_value1": [
+    "Download ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.draft_emails_cannot_automatically_include_attachments_so_please_m": "Draft emails cannot automatically include attachments, so please\n      manually attach the downloaded file before you send it.",
+  "status.duration": "Duration",
+  "status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d": "e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)",
+  "status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_": "Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.",
+  "status.elapsed_duration": [
+    "Duration: ",
+    {
+      "arg": "duration",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st": [
+    "Elapsed interval: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "\nSummed top-level work: ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    "\nTop-level steps: ",
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    },
+    "\nFailed retry children: ",
+    {
+      "arg": "value4",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.empty_array": "(empty array)",
+  "status.empty_object": "(empty object)",
+  "status.empty_value": "(empty)",
+  "status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi": "Enter a valid IP address to test caching-proxy-service connectivity from host.",
+  "status.enum_invalid": [
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (invalid — pick one)"
+  ],
   "status.error_file_too_large": "File too large",
   "status.error_not_found": "Not found",
+  "status.every_guest_folder_under_this_host_is_already_in_the_list": "Every guest folder under this host is already in the list",
   "status.external_detail": [
     "The tool reported: ",
     {
@@ -48,6 +549,38 @@ const DataenUSstatus = `{
       "trust": "external"
     }
   ],
+  "status.failure_sequence": [
+    "sequence: ",
+    {
+      "arg": "sequence",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.failure_sequence_step": [
+    "sequence: ",
+    {
+      "arg": "sequence",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (step ",
+    {
+      "arg": "step",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "status.failure_severity": [
+    "severity: ",
+    {
+      "arg": "severity",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.false": "False",
   "status.file_size_bytes": [
     {
       "arg": "size",
@@ -80,6 +613,37 @@ const DataenUSstatus = `{
     },
     " MB"
   ],
+  "status.guest_not_found": [
+    {
+      "arg": "guest",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (not under host folder)"
+  ],
+  "status.guest_sequence_fallback_note": [
+    "Fallback only. The guest set comes from ",
+    {
+      "arg": "file",
+      "type": "token",
+      "trust": "internal"
+    },
+    " in the project repository; this list is read only when that file resolves no plan."
+  ],
+  "status.guest_sequence_last_plan": [
+    "Last cycle ran: ",
+    {
+      "arg": "plan",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.guest_sequence_no_plan": "No resolved plan is recorded for the last cycle.",
+  "status.guide": "Guide",
+  "status.host": "Host",
+  "status.host_diagnostics": "Host diagnostics",
+  "status.host_ip_addresses": "Host IP addresses",
   "status.host_online_count": {
     "kind": "plural",
     "selector": "count",
@@ -102,6 +666,608 @@ const DataenUSstatus = `{
       ]
     }
   },
-  "status.step_timing_unavailable": "No per-step timing was recorded for this cycle."
+  "status.host_value1": [
+    "Host: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.http_value1": [
+    "HTTP ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.images_refresh": "Images refresh",
+  "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": "Invocation inferred from legacy step order; concurrent or incomplete runs may remain combined.",
+  "status.ips": "IPs:",
+  "status.lab_hold": [
+    "Lab hold -- waiting for ",
+    {
+      "arg": "areas",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.lab_hold_unspecified": "Lab hold -- waiting for a lab service",
+  "status.latest_cycle": "Latest Cycle",
+  "status.latest_runs": {
+    "kind": "plural",
+    "selector": "count",
+    "variants": {
+      "one": [
+        "latest ",
+        {
+          "arg": "shown",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " of ",
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " run"
+      ],
+      "other": [
+        "latest ",
+        {
+          "arg": "shown",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " of ",
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " runs"
+      ]
+    }
+  },
+  "status.latest_runs_failures": {
+    "kind": "plural",
+    "selector": "count",
+    "variants": {
+      "one": [
+        "latest ",
+        {
+          "arg": "shown",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " of ",
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " run · ",
+        {
+          "arg": "failed",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " with failures"
+      ],
+      "other": [
+        "latest ",
+        {
+          "arg": "shown",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " of ",
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " runs · ",
+        {
+          "arg": "failed",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " with failures"
+      ]
+    }
+  },
+  "status.leave_the_field_to_test_caching_proxy_service_from_host": "Leave the field to test caching-proxy service from host.",
+  "status.loaded": "Loaded:",
+  "status.loading": "Loading…",
+  "status.loading_47d2a515": "Loading...",
+  "status.loading_perf_aggregates": "Loading perf aggregates…",
+  "status.log_level_debug": "Debug",
+  "status.log_level_error": "Error",
+  "status.log_level_information": "Information",
+  "status.log_level_verbose": "Verbose",
+  "status.log_level_warning": "Warning",
+  "status.menu": "Menu",
+  "status.missing_step_timing": {
+    "kind": "plural",
+    "selector": "count",
+    "variants": {
+      "one": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " cycle lacks per-step timing — drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ",
+        {
+          "arg": "endpoint",
+          "type": "detail",
+          "trust": "external"
+        },
+        ". Restart it with: ",
+        {
+          "arg": "command",
+          "type": "detail",
+          "trust": "external"
+        },
+        ", then reload this page."
+      ],
+      "other": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " cycles lack per-step timing — drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ",
+        {
+          "arg": "endpoint",
+          "type": "detail",
+          "trust": "external"
+        },
+        ". Restart it with: ",
+        {
+          "arg": "command",
+          "type": "detail",
+          "trust": "external"
+        },
+        ", then reload this page."
+      ]
+    }
+  },
+  "status.never": "never",
+  "status.no_aggregates_available": "No aggregates available.",
+  "status.no_control_proof_was_presented_reach_this_page_through_the_dashbo": [
+    "No control proof was presented. Reach this page through the dashboard link, or use http://localhost:",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "/ on the host itself."
+  ],
+  "status.no_cycle_folder_recorded_for_this_cycle": "No cycle folder recorded for this cycle",
+  "status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y": "No cycle to share. Open this page from the cycle timeline on the Yuruna hosts dashboard.",
+  "status.no_dashboard_server": "No dashboard server",
+  "status.no_data": "(no data)",
+  "status.no_ip_set_nothing_to_test": "No IP set — nothing to test.",
+  "status.no_output": "(no output)",
+  "status.no_perf_data_yet_run_at_least_one_test_cycle": "No perf data yet — run at least one test cycle.",
+  "status.no_test_data_yet": "No test data yet",
+  "status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected": "Not a valid IPv4 or IPv6 address. Save will be rejected.",
+  "status.not_a_valid_ipv4_or_ipv6_address_test_skipped": "Not a valid IPv4 or IPv6 address — test skipped.",
+  "status.null": "null",
+  "status.open_cycle_data_folder": "Open cycle data folder",
+  "status.open_the_email_draft": "Open the email draft",
+  "status.pack_and_download_the_cycle_results": "Pack and download the cycle results",
+  "status.packing_value1": [
+    "Packing ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "…"
+  ],
+  "status.pages": "Pages",
+  "status.pause": "Pause",
+  "status.pause_after_cycle": "Pause after cycle",
+  "status.pause_after_step": "Pause after step",
+  "status.paused": "Test paused",
+  "status.paused_age": [
+    "Test paused -- ",
+    {
+      "arg": "age",
+      "type": "text",
+      "trust": "internal"
+    }
+  ],
+  "status.paused_age_guest": [
+    "Test paused -- ",
+    {
+      "arg": "age",
+      "type": "text",
+      "trust": "internal"
+    },
+    ", guest ",
+    {
+      "arg": "guest",
+      "type": "detail",
+      "trust": "external"
+    },
+    " running"
+  ],
+  "status.paused_guest": [
+    "Test paused -- guest ",
+    {
+      "arg": "guest",
+      "type": "detail",
+      "trust": "external"
+    },
+    " running"
+  ],
+  "status.pausing_after_cycle": "Test pausing (after cycle)",
+  "status.pausing_after_step": "Test pausing (after step)",
+  "status.perf_yuruna": "Perf — Yuruna",
+  "status.performance": "Performance",
+  "status.pill_new_vm_resource": "New VM",
+  "status.pill_start_guestos": "Start OS",
+  "status.pill_start_guestworkload": "Workload",
+  "status.process_environment_value_the_status_service_inherited_at_startup": "Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.",
+  "status.quarantine_pinned": [
+    "Quarantined after repeated same-class failures (skipped until a new commit; pinned at ",
+    {
+      "arg": "commit",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "status.quarantine_reason": "Quarantined after repeated same-class failures",
+  "status.quarantined": "quarantined",
+  "status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart": "Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.",
+  "status.recalculate": "Recalculate",
+  "status.recalculating": "Recalculating…",
+  "status.recalculating_perf_aggregates": "Recalculating perf aggregates…",
+  "status.recent_cycles": "Recent Cycles",
+  "status.refresh": "Refresh",
+  "status.results_folder": [
+    "Open results folder for ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.resume": "Resume",
+  "status.resume_in_place": "Resume the sequence in place (no snapshot restore)",
+  "status.run_command1_to_start_a_test_cycle": [
+    "Run ",
+    {
+      "arg": "command1",
+      "type": "token",
+      "trust": "internal"
+    },
+    " to start a test cycle."
+  ],
+  "status.run_start_testrunner_ps1_to_start_a_test_cycle": "Run Start-TestRunner.ps1 to start a test cycle.",
+  "status.save": "Save",
+  "status.save_and_start_cycle": "Save and start cycle",
+  "status.save_and_start_cycle_failed_value1": [
+    "Save and start cycle failed: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.save_failed_value1": [
+    "Save failed: ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.saved_returning_to_status": "Saved. Returning to status…",
+  "status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_": "Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two…",
+  "status.saving": "Saving…",
+  "status.saving_config": "Saving config…",
+  "status.sequences": "Sequences",
+  "status.server_reports_ip_not_valid_test_skipped": "Server reports IP not valid — test skipped.",
+  "status.setup": "(setup)",
+  "status.share_body": "Yuruna cycle results are attached",
+  "status.share_cycle_results": "Share cycle results",
+  "status.share_cycle_yuruna": "Share cycle — Yuruna",
+  "status.share_download_manual": [
+    "Download ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " with the first link. Then open the draft and attach the file before sending."
+  ],
+  "status.share_download_started": [
+    "Downloading ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". The host packs the whole folder before the first byte arrives, so give it a moment. Then open the draft and attach the file before sending."
+  ],
+  "status.share_subject": [
+    "Yuruna Host ",
+    {
+      "arg": "host",
+      "type": "detail",
+      "trust": "external"
+    },
+    " at ",
+    {
+      "arg": "time",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.shared_value1_value2": [
+    "Shared ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "status.sharing_canceled": "Sharing canceled.",
+  "status.show_only_the_first_8_characters": "Show only the first 8 characters",
+  "status.show_the_full_id": "Show the full id",
+  "status.skip_suffix": " (skip)",
+  "status.snapshot_restore": [
+    "Restore snapshot id ",
+    {
+      "arg": "snapshot",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", restart the VM, then resume the sequence"
+  ],
+  "status.started": "Started",
+  "status.started_utc": "Started (UTC)",
+  "status.status": "Status",
+  "status.status_unavailable": "Status unavailable",
+  "status.step_timing_unavailable": "No per-step timing was recorded for this cycle.",
+  "status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va": [
+    "Test caching-proxy service from host failed (",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " fail",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    {
+      "arg": "value3",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2": [
+    "Test caching-proxy service from host succeeded (",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " pass",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "status.test_config_yml": "test.config.yml",
+  "status.test_config_yml_yuruna": "test.config.yml — Yuruna",
+  "status.test_sequences": "Test sequences",
+  "status.testing_caching_proxy_service_from_host": "Testing caching-proxy service from host…",
+  "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.",
+  "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "The control proof expired. Re-open this host from the dashboard link to get a fresh one.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
+  "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "The host could not load its control-proof verifier; check the status service log.",
+  "status.the_share_sheet_expired_while_the_host_packed_the_folder": "The share sheet expired while the host packed the folder. ",
+  "status.this_browser_could_not_attach_the_file_to_a_message_itself": "This browser could not attach the file to a message itself. ",
+  "status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w": "This cycle is still running. The archive will hold what has been written so far.",
+  "status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot": [
+    "This host will not pack ",
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (HTTP ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). The cycle may have rotated out of the retained log history."
+  ],
+  "status.timing_cycle_started": [
+    "Cycle: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_diagnostic": [
+    "Diagnostic: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_duration": [
+    "Duration: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_evidence": [
+    "Evidence capture within step: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_incomplete_capture": {
+    "kind": "plural",
+    "selector": "count",
+    "variants": {
+      "one": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " incomplete capture(s)"
+      ],
+      "other": [
+        {
+          "arg": "count",
+          "type": "integer",
+          "trust": "internal"
+        },
+        " incomplete capture(s)"
+      ]
+    }
+  },
+  "status.timing_incomplete_record": "incomplete record",
+  "status.timing_kind": [
+    "Kind: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_outcome": [
+    "Outcome: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_reused": [
+    "Reused execution: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_summed_work": [
+    "work ",
+    {
+      "arg": "duration",
+      "type": "text",
+      "trust": "internal"
+    }
+  ],
+  "status.timing_unavailable_value": "unavailable",
+  "status.timing_within": [
+    "Within: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.timing_within_attempt": [
+    "Within: ",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    " attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    }
+  ],
+  "status.transcript_for": [
+    "Open transcript for ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.true": "True",
+  "status.unavailable": "(unavailable)",
+  "status.unknown": "(unknown)",
+  "status.unnamed": "(unnamed)",
+  "status.user_account": "User account:",
+  "status.value1_returning_to_status_in_6_seconds": [
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Returning to status in 6 seconds…"
+  ],
+  "status.value1_work_value2": [
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    "\nWork · ",
+    {
+      "arg": "value2",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.value1_yuruna_status": [
+    {
+      "arg": "value1",
+      "type": "detail",
+      "trust": "external"
+    },
+    " — Yuruna status"
+  ],
+  "status.vm_name": [
+    "VM: ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.working": "Working...",
+  "status.yuruna_host_status": "Yuruna host status",
+  "status.yuruna_status": "Yuruna Status"
 }
 `

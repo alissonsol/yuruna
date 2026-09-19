@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d48379-bb62-43d9-b80a-bcbb0440f82e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.psm1"
 Import-Module -Name $modulePath
@@ -37,12 +38,12 @@ function Clear-Configuration {
     # so the forward check is only a warning here, and the resources.output.yml
     # gate below is the real precondition.
     if (!(Confirm-ResourceList $project_root $config_subfolder)) {
-        Write-Warning "Clear-Configuration: forward resources.yml validation failed; proceeding with teardown from resources.output.yml anyway (source config may have drifted since deploy)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_f30d376c3b6737d6')
     }
     Write-Debug "---- Destroying Resources"
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
-    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b400ae75394f002b' -Arguments @{ resourcesFile = "$resourcesFile" }); return $false; }
     $yaml = ConvertFrom-File $resourcesFile
 
     # Global variables saved expanded for reuse. Same expand -> Set-Item Env ->
@@ -67,7 +68,7 @@ function Clear-Configuration {
     if (($null -ne $yaml) -and ($null -ne $yaml.Keys)) {
         $resourceNames = @($yaml.Keys | Where-Object { (-Not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne 'globalVariables') })
     }
-    if ($resourceNames.Count -eq 0) { Write-Information "No deployed resources in file: $resourcesFile"; return $true; }
+    if ($resourceNames.Count -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e39c3c3dc7a39a89' -Arguments @{ resourcesFile = "$resourcesFile" }); return $true; }
     $destroyFailed = $false
     foreach ($resourceName in $resourceNames) {
         Write-Debug "resource: $resourceName"
@@ -89,7 +90,7 @@ function Clear-Configuration {
             # Keep the work folder (and its tfstate) when destroy fails: it is the
             # only local state that lets the destroy be retried. Deleting it here
             # would orphan the real cloud/VM resource with no way to recover.
-            Write-Information "OpenTofu destroy failed (exit ${destroyExit}) for ${resourceName}; preserving $workFolder for retry"
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_90f26461d4a00353' -Arguments @{ destroyExit = "${destroyExit}"; resourceName = "${resourceName}"; workFolder = "$workFolder" })
             $destroyFailed = $true
         }
         else {

@@ -64,6 +64,12 @@ which have to be created on the device itself. See
   `poolStorageNetworkUser`, `poolStorageLocalPath` left empty is a complete no-op:
   no mount, no copy, no background work. Populating all three turns archiving on;
   `moveLogsToPoolStorage` then selects copy vs move.
+- **Everything is best-effort** in copy mode: a missing, unreachable,
+  misconfigured, or merely slow share never throws and never blocks the
+  caller, because the unattended test loop has to keep running regardless.
+  Every network-touching subprocess is bounded by a wall-clock cap and killed
+  on timeout, so a wedged NAS can never freeze the loop. Move mode is the
+  deliberate exception at the edges, described next.
 
 <a id="428405a0-0003"></a>
 
@@ -798,6 +804,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

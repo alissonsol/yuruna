@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # The host side of the extension interface: what an area DECLARES about itself,
 # and the runtime marker that says this host is running it.
@@ -398,7 +401,7 @@ function Remove-ExtensionServiceMarker {
     )
     $path = Get-ExtensionServiceMarkerPath -Area $Area -RuntimeDir $RuntimeDir
     if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($path, "Remove the $Area marker")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_be9d6a7f5e2de0e5' -Arguments @{ area = "$Area" }))) { return $false }
     Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     return (-not (Test-Path -LiteralPath $path))
 }

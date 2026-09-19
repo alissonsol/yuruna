@@ -2,14 +2,8 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // pool-aggregator-service: read-only multi-host pool view for the Yuruna test harness.
-//
-// Runs on the caching-proxy-service machine (the pool services host). Auto-discovers
-// pool members from the squid access log (no host list), identifies them by
-// the stable hostId (DHCP-resilient, no DNS), and ships cycle transitions +
-// per-step events to Loki/Prometheus for the Grafana pool dashboard.
-// Read-only: killing it leaves every runner testing unaffected.
-//
-// Full design and operator guide: https://yuruna.link/pool-aggregator-service (README.md).
+// See ../../../docs/pool-admin.md#architecture for the auto-discovery and
+// identification design, and README.md in this directory for the full detail.
 package main
 
 import (
@@ -172,6 +166,16 @@ const (
 	defaultSuccessesBeforeRearm = 2
 	defaultHealthyThreshold     = 0.5
 	defaultDegradedAfter        = 1800 * time.Second
+	// The key file the provisioned unit names on -auth-token-file. Matching this
+	// path exactly is what licenses the legacy fallback: an operator who named some
+	// other path meant that path, and quietly reading a different file would hand
+	// this proxy a token they never pointed it at.
+	defaultAuthTokenFile = "/etc/yuruna/internal-auth.key"
+	// The key file path a proxy built under the older layout still carries. Read
+	// only when the default path is absent, so such a VM keeps minting control
+	// proofs, serving /ingest and displaying a Lab token until it is rebuilt --
+	// the same fallback the download-agent and pool-control services apply.
+	legacyAuthTokenFile = "/etc/yuruna/lab-auth.token"
 	// Lab connection token: the 6-char enrollment code the dashboard's "Lab
 	// token" tile displays and POST /api/v1/lab-token exchanges for the shared
 	// internal authentication key (so enrolling a host never needs SSH into the proxy).
@@ -868,7 +872,7 @@ func sortedKeys(m map[string]bool) []string {
 func recentClientIPs(logPath string, window time.Duration, now time.Time) []string {
 	f, err := os.Open(logPath)
 	if err != nil {
-		log.Printf("squid log %s: %v", logPath, err)
+		log.Print(operatorMessage("aggregator.log_squid_log_value1_value2_792a142a", map[string]any{"value1": fmt.Sprintf("%s", logPath), "value2": fmt.Sprintf("%v", err)}))
 		return nil
 	}
 	defer f.Close()
@@ -1462,7 +1466,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.13"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.18"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1611,19 +1615,19 @@ func postToLoki(client *http.Client, lokiURL string, payload map[string]any, log
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
 	if err != nil {
-		log.Printf("%s build: %v", logPrefix, err)
+		log.Print(operatorMessage("aggregator.log_value1_build_value2_cf7663df", map[string]any{"value1": fmt.Sprintf("%s", logPrefix), "value2": fmt.Sprintf("%v", err)}))
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("%s: %v", logPrefix, err)
+		log.Print(operatorMessage("aggregator.log_value1_value2_efae3eb9", map[string]any{"value1": fmt.Sprintf("%s", logPrefix), "value2": fmt.Sprintf("%v", err)}))
 		return err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode/100 != 2 {
-		log.Printf("%s HTTP %d", logPrefix, resp.StatusCode)
+		log.Print(operatorMessage("aggregator.log_value1_http_value2_eb0cd24f", map[string]any{"value1": fmt.Sprintf("%s", logPrefix), "value2": fmt.Sprintf("%d", resp.StatusCode)}))
 		return fmt.Errorf("%s: HTTP %d", logPrefix, resp.StatusCode)
 	}
 	return nil
@@ -1686,7 +1690,7 @@ var poolStatsRanges = map[string]bool{"1h": true, "24h": true, "7d": true, "30d"
 func (s *poolState) countCyclesByHost(status, window string) (map[string]int64, error) {
 	out := map[string]int64{}
 	if s.lokiURL == "" || s.httpClient == nil {
-		return out, fmt.Errorf("loki not configured")
+		return out, errors.New("loki-unconfigured")
 	}
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`sum by (hostId) (count_over_time({pool=~".+"} | json | overallStatus=%q [%s]))`, status, window))
@@ -1739,7 +1743,7 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 		window = "24h"
 	}
 	if !poolStatsRanges[window] {
-		http.Error(w, `{"error":"unsupported range; use 1h, 24h, 7d or 30d"}`, http.StatusBadRequest)
+		localizedJSONError(w, r, "aggregator.unsupported_range_use_1h_24h_7d_or_30d", http.StatusBadRequest)
 		return
 	}
 
@@ -1760,7 +1764,7 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 		// Both legs failed: say so rather than serve zeros, which the board
 		// would render as a real "0 cycles" and an operator would read as
 		// "nothing ran" instead of "we could not tell".
-		http.Error(w, `{"error":"loki query failed"}`, http.StatusBadGateway)
+		localizedJSONError(w, r, "aggregator.loki_query_failed", http.StatusBadGateway)
 		return
 	}
 
@@ -1794,7 +1798,7 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := json.Marshal(out)
 	if err != nil {
-		http.Error(w, `{"error":"encode failed"}`, http.StatusInternalServerError)
+		localizedJSONError(w, r, "aggregator.encode_failed", http.StatusInternalServerError)
 		return
 	}
 	s.statsMu.Lock()
@@ -1974,23 +1978,23 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
 	if err != nil {
-		log.Printf("rehydrate: build request: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_build_request_value1_11b6bf8a", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("rehydrate: Loki query: %v (starting with empty counts)", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_loki_query_value1_starting_with_empty_counts_13e1deb7", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		log.Printf("rehydrate: Loki HTTP %d: %s (starting with empty counts)", resp.StatusCode, strings.TrimSpace(string(body)))
+		log.Print(operatorMessage("aggregator.log_rehydrate_loki_http_value1_value2_starting_with_empty__4f5aa860", map[string]any{"value1": fmt.Sprintf("%d", resp.StatusCode), "value2": fmt.Sprintf("%s", strings.TrimSpace(string(body)))}))
 		return
 	}
 	var lr lokiStreamsResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&lr); err != nil {
-		log.Printf("rehydrate: parse Loki response: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_parse_loki_response_value1_5d983c04", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 
@@ -2066,13 +2070,13 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 		sort.Slice(fw, func(i, j int) bool { return fw[i].t.Before(fw[j].t) })
 	}
 	if restored > 0 {
-		log.Printf("rehydrate: restored %d terminal cycle counts from Loki (window=%s)", restored, window)
+		log.Print(operatorMessage("aggregator.log_rehydrate_restored_value1_terminal_cycle_counts_from_l_de930fa3", map[string]any{"value1": fmt.Sprintf("%d", restored), "value2": fmt.Sprintf("%s", window)}))
 	}
 	if seeded > 0 {
-		log.Printf("rehydrate: re-seeded %d host(s) from transition baseUrls (window=%s)", seeded, window)
+		log.Print(operatorMessage("aggregator.log_rehydrate_re_seeded_value1_host_s_from_transition_base_4a5fd67e", map[string]any{"value1": fmt.Sprintf("%d", seeded), "value2": fmt.Sprintf("%s", window)}))
 	}
 	if capped >= 5000 {
-		log.Printf("rehydrate: WARNING hit the 5000-line query cap; counts older than the most recent 5000 transitions may be undercounted")
+		log.Print(operatorMessage("aggregator.log_rehydrate_warning_hit_the_5000_line_query_cap_counts_o_08375cc0", nil))
 	}
 }
 
@@ -2102,7 +2106,7 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("rehydrate incidents: Loki query: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_incidents_loki_query_value1_62f316f1", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	defer resp.Body.Close()
@@ -2111,7 +2115,7 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 	}
 	var lr lokiStreamsResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr); err != nil {
-		log.Printf("rehydrate incidents: parse: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_incidents_parse_value1_6c2aee5f", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 
@@ -2120,7 +2124,7 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 		streams = append(streams, st.Values)
 	}
 	if n := s.applyIncidentLines(streams, now); n > 0 {
-		log.Printf("rehydrate: restored %d open incident(s) from Loki", n)
+		log.Print(operatorMessage("aggregator.log_rehydrate_restored_value1_open_incident_s_from_loki_9bcd828c", map[string]any{"value1": fmt.Sprintf("%d", n)}))
 	}
 }
 
@@ -2247,7 +2251,7 @@ func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, wind
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("rehydrate presence: Loki query: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_presence_loki_query_value1_5ba034a0", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	defer resp.Body.Close()
@@ -2263,7 +2267,7 @@ func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, wind
 		streams = append(streams, st.Values)
 	}
 	if n := s.applyPresenceLines(streams, now); n > 0 {
-		log.Printf("rehydrate: re-seeded %d host(s) from the presence feed", n)
+		log.Print(operatorMessage("aggregator.log_rehydrate_re_seeded_value1_host_s_from_the_presence_fe_b6c9e59f", map[string]any{"value1": fmt.Sprintf("%d", n)}))
 	}
 }
 
@@ -2325,7 +2329,7 @@ func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now tim
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("rehydrate announces: Loki query: %v", err)
+		log.Print(operatorMessage("aggregator.log_rehydrate_announces_loki_query_value1_99a0159c", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	defer resp.Body.Close()
@@ -2341,7 +2345,7 @@ func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now tim
 		streams = append(streams, st.Values)
 	}
 	if n := s.applyAnnounceLines(streams, now); n > 0 {
-		log.Printf("rehydrate: restored %d self-announced extension(s) from Loki", n)
+		log.Print(operatorMessage("aggregator.log_rehydrate_restored_value1_self_announced_extension_s_f_e79d2b5f", map[string]any{"value1": fmt.Sprintf("%d", n)}))
 	}
 }
 
@@ -2985,7 +2989,7 @@ func (s *poolState) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, "ok\n")
 }
 
-func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
+func (s *poolState) handlePoolStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	out := struct {
 		Pool        string            `json:"pool"`
@@ -3029,7 +3033,7 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	body, err := json.Marshal(out)
 	s.mu.Unlock()
 	if err != nil {
-		http.Error(w, "failed to encode pool status", http.StatusInternalServerError)
+		localizedHTTPError(w, r, "aggregator.failed_to_encode_pool_status", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -3063,7 +3067,7 @@ type promTargetGroup struct {
 // Open, like /api/v1/pool-status: this is a re-shaping of host addresses that
 // endpoint already serves to anyone, and gating it would imply a secret it does
 // not carry. /metrics is the exposition that carries one.
-func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, _ *http.Request) {
+func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.hosts))
 	for id := range s.hosts {
@@ -3096,7 +3100,7 @@ func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, _ *http.Reque
 
 	body, err := json.Marshal(groups)
 	if err != nil {
-		http.Error(w, "failed to encode scrape targets", http.StatusInternalServerError)
+		localizedHTTPError(w, r, "aggregator.failed_to_encode_scrape_targets", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -3333,8 +3337,7 @@ func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 			continue
 		}
 		h.refusedLogged = true
-		log.Printf("extension %s: refusing %s for resolution -- unanswered for %s (%s); the entry stays suppressed until the service re-announces or the announce TTL reaps it",
-			key, h.Target, extensionHealthGrace, h.LastError)
+		log.Print(operatorMessage("aggregator.log_extension_value1_refusing_value2_for_resolution_unansw_14b41da9", map[string]any{"value1": fmt.Sprintf("%s", key), "value2": fmt.Sprintf("%s", h.Target), "value3": fmt.Sprintf("%s", extensionHealthGrace), "value4": fmt.Sprintf("%s", h.LastError)}))
 	}
 }
 
@@ -3595,7 +3598,7 @@ func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request)
 	if area != "" {
 		entry, ok := entries[area]
 		if !ok {
-			http.Error(w, "no live host for that extension area", http.StatusNotFound)
+			localizedHTTPError(w, r, "aggregator.no_live_host_for_that_extension_area", http.StatusNotFound)
 			return
 		}
 		payload = entry
@@ -3623,7 +3626,7 @@ func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		http.Error(w, "failed to encode extension hosts", http.StatusInternalServerError)
+		localizedHTTPError(w, r, "aggregator.failed_to_encode_extension_hosts", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -3701,24 +3704,24 @@ func (s *poolState) forgetHost(hid string) bool {
 // that is genuinely gone.
 func (s *poolState) handleForgetHost(w http.ResponseWriter, r *http.Request) {
 	if s.authToken == "" {
-		http.Error(w, "forget-host disabled (no auth token configured)", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.forget_host_disabled_no_auth_token_configured", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	const bearer = "Bearer "
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, bearer) ||
 		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		localizedHTTPError(w, r, "aggregator.unauthorized", http.StatusUnauthorized)
 		return
 	}
 	hid := strings.TrimSpace(r.URL.Query().Get("hostId"))
 	if !validForgetHostID(hid) {
-		http.Error(w, "hostId must be a 42-prefixed 32-hex id", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.hostid_must_be_a_42_prefixed_32_hex_id", http.StatusBadRequest)
 		return
 	}
 	present := s.forgetHost(hid)
@@ -3728,7 +3731,7 @@ func (s *poolState) handleForgetHost(w http.ResponseWriter, r *http.Request) {
 		WasPresent bool   `json:"wasPresent"`
 	}{Forgotten: true, HostId: hid, WasPresent: present})
 	if err != nil {
-		http.Error(w, "failed to encode result", http.StatusInternalServerError)
+		localizedHTTPError(w, r, "aggregator.failed_to_encode_result", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -3984,24 +3987,24 @@ func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration)
 // Self-gates on a configured token (503), because "no token" is not "not valid".
 func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
 	if s.authToken == "" {
-		http.Error(w, "control-proof verification disabled: this aggregator holds no internal authentication key", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLabTokenBody))
 	if err != nil {
-		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		localizedHTTPError(w, r, "aggregator.payload_too_large_or_unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
 	var req struct {
 		Proof string `json:"proof"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "malformed request", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.malformed_request", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -4113,7 +4116,7 @@ func newLabCode() (string, error) {
 func (s *poolState) rotateLabToken(now time.Time) {
 	code, err := newLabCode()
 	if err != nil {
-		log.Printf("lab-token rotation failed (%v); keeping previous codes", err)
+		log.Print(operatorMessage("aggregator.log_lab_token_rotation_failed_value1_keeping_previous_code_e2670350", map[string]any{"value1": fmt.Sprintf("%v", err)}))
 		return
 	}
 	cut := now.Add(-labFailWindow)
@@ -4185,34 +4188,34 @@ func sealLabToken(code, token string) (map[string]string, error) {
 // mirroring /ingest.
 func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	if s.labRotate <= 0 || s.authToken == "" {
-		http.Error(w, "lab-token exchange disabled", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.lab_token_exchange_disabled", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	srcIP := requestSourceIP(r)
 	if srcIP == "" {
-		http.Error(w, "no source address", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.no_source_address", http.StatusForbidden)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLabTokenBody))
 	if err != nil {
-		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		localizedHTTPError(w, r, "aggregator.payload_too_large_or_unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
 	var req struct {
 		LabToken string `json:"labToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "malformed request", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.malformed_request", http.StatusBadRequest)
 		return
 	}
 	code := strings.ToLower(strings.TrimSpace(req.LabToken))
 	if !labTokenRE.MatchString(code) {
-		http.Error(w, "labToken must be 6 lowercase letters/digits", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.labtoken_must_be_6_lowercase_letters_digits", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UTC()
@@ -4270,7 +4273,7 @@ func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	// never logged: a refused one is a guess worth nothing, and an accepted
 	// one would put a live credential in the log.
 	if audit {
-		log.Printf("lab-token exchange %s from %s", outcome, srcIP)
+		log.Print(operatorMessage("aggregator.log_lab_token_exchange_value1_from_value2_3d2e9e4a", map[string]any{"value1": fmt.Sprintf("%s", outcome), "value2": fmt.Sprintf("%s", srcIP)}))
 		line, _ := json.Marshal(map[string]string{"sourceIp": srcIP, "outcome": outcome})
 		pushLokiStream(s.httpClient, s.lokiURL, "lab-token exchange",
 			map[string]string{"pool": poolLabel, "src": "lab-token"}, line, now)
@@ -4278,14 +4281,14 @@ func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case throttled:
 		w.Header().Set("Retry-After", strconv.Itoa(int(labFailWindow/time.Second)))
-		http.Error(w, "too many failed attempts; retry later", http.StatusTooManyRequests)
+		localizedHTTPError(w, r, "aggregator.too_many_failed_attempts_retry_later", http.StatusTooManyRequests)
 	case !match:
-		http.Error(w, "unknown or expired lab token", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.unknown_or_expired_lab_token", http.StatusForbidden)
 	default:
 		envelope, err := sealLabToken(code, token)
 		if err != nil {
-			log.Printf("lab-token exchange: sealing failed (%v)", err)
-			http.Error(w, "failed to seal the token", http.StatusInternalServerError)
+			log.Print(operatorMessage("aggregator.log_lab_token_exchange_sealing_failed_value1_8aceabc2", map[string]any{"value1": fmt.Sprintf("%v", err)}))
+			localizedHTTPError(w, r, "aggregator.failed_to_seal_the_token", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -4391,12 +4394,12 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
-		http.Error(w, "missing host", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.missing_host", http.StatusBadRequest)
 		return
 	}
 	base, _ := s.resolveHostBase(hostID, strings.TrimSpace(q.Get("pool")))
 	if base == "" {
-		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.host_not_known_to_the_pool", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -4428,7 +4431,7 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
-		http.Error(w, "missing host", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.missing_host", http.StatusBadRequest)
 		return
 	}
 	area := strings.TrimSpace(q.Get("area"))
@@ -4444,7 +4447,7 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	target := s.extensionTargetForLocked(hostID, area, time.Now())
 	s.mu.Unlock()
 	if target == "" {
-		http.Error(w, "stash target not known to the pool", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.stash_target_not_known_to_the_pool", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -4480,7 +4483,7 @@ func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) 
 	q := r.URL.Query()
 	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
-		http.Error(w, "missing host", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.missing_host", http.StatusBadRequest)
 		return "", "", false
 	}
 	var clickT time.Time
@@ -4504,7 +4507,7 @@ func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) 
 	// also normalizes an empty pool so the per-cycle folder lookups below can scope.
 	base, pool = s.resolveHostBase(hostID, pool)
 	if base == "" {
-		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.host_not_known_to_the_pool", http.StatusNotFound)
 		return "", "", false
 	}
 
@@ -4631,7 +4634,7 @@ func (s *poolState) resolveFolderByArchive(hostID string, t time.Time) string {
 func (s *poolState) handleArchive(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	rel := strings.TrimPrefix(r.URL.Path, "/archive/")
@@ -4648,7 +4651,7 @@ func (s *poolState) handleArchive(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The mount is away (or was never there). Say so plainly rather than
 		// serving a 500 that reads like a bug in the service.
-		http.Error(w, "the pool share is not mounted on this machine", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.the_pool_share_is_not_mounted_on_this_machine", http.StatusNotFound)
 		return
 	}
 	defer root.Close()
@@ -4726,7 +4729,7 @@ func (s *poolState) handleGoCycleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if folder == "" {
-		http.Error(w, "no cycle results folder for that host at that time", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.no_cycle_results_folder_for_that_host_at_that_time", http.StatusNotFound)
 		return
 	}
 	// The share page and the host's archive route both name a results folder by
@@ -4737,7 +4740,7 @@ func (s *poolState) handleGoCycleShare(w http.ResponseWriter, r *http.Request) {
 	// value), so hand on the last segment rather than the path.
 	target := cycleShareTarget(base, folder)
 	if target == "" {
-		http.Error(w, "unusable cycle results folder for that host at that time", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -4753,7 +4756,33 @@ func (s *poolState) resolveFolderByListing(baseURL, hostID string, t time.Time) 
 	if s.httpClient == nil {
 		return ""
 	}
-	u := strings.TrimRight(baseURL, "/") + "/log/"
+	body := s.fetchListing(strings.TrimRight(baseURL, "/") + "/log/")
+	if body == "" {
+		return ""
+	}
+	// An exact hit in the live index is the common case and costs one request.
+	if best, _ := scanListingForHost(body, hostID, t); best != "" {
+		return "log/" + strings.TrimSuffix(best, "/") + "/"
+	}
+	// A cycle older than the retention window is not gone: it moves into a
+	// date-named history.<YYYY-MM-DD>/ bucket that the index LINKS but does not
+	// inline. Without following that link the click falls through to the
+	// oldest-retained fallback below and silently lands on a cycle nobody asked
+	// for -- the failure being investigated reads as "the evidence was pruned"
+	// when it is still on disk one directory away. The bucket is named for the
+	// date, so this is one extra request, not a walk.
+	if bucket := historyBucketFor(body, t); bucket != "" {
+		if hb := s.fetchListing(strings.TrimRight(baseURL, "/") + "/log/" + bucket); hb != "" {
+			if best, _ := scanListingForHost(hb, hostID, t); best != "" {
+				return "log/" + bucket + strings.TrimSuffix(best, "/") + "/"
+			}
+		}
+	}
+	return pickFolderFromListing(body, hostID, t)
+}
+
+// fetchListing GETs one directory index and returns its body, "" on any failure.
+func (s *poolState) fetchListing(u string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -4772,7 +4801,45 @@ func (s *poolState) resolveFolderByListing(baseURL, hostID string, t time.Time) 
 	if err != nil {
 		return ""
 	}
-	return pickFolderFromListing(string(body), hostID, t)
+	return string(body)
+}
+
+// historyBucketFor returns the "history.<YYYY-MM-DD>/" bucket covering t when the
+// given index links it, else "". Rotation files a cycle under the date it STARTED,
+// which is the same date the folder leaf encodes.
+func historyBucketFor(body string, t time.Time) string {
+	name := "history." + t.UTC().Format("2006-01-02") + "/"
+	if strings.Contains(body, name) {
+		return name
+	}
+	return ""
+}
+
+// scanListingForHost finds this host's cycle folders in one directory index and
+// returns two answers: the leaf whose encoded start is the latest at/before t (the
+// cycle active at that moment, "" when the listing holds none that old) and the
+// earliest leaf present. Separating them lets a caller tell a real hit from the
+// oldest-retained consolation prize, which reads identically once returned.
+func scanListingForHost(body, hostID string, t time.Time) (best, earliest string) {
+	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete)?/`)
+	var bestStart, earliestStart time.Time
+	for _, m := range re.FindAllStringSubmatch(body, -1) {
+		st, perr := time.Parse("2006-01-02 15-04-05", m[1]+" "+m[2])
+		if perr != nil {
+			continue
+		}
+		st = st.UTC()
+		if earliest == "" || st.Before(earliestStart) {
+			earliest, earliestStart = m[0], st
+		}
+		if st.After(t) {
+			continue
+		}
+		if best == "" || st.After(bestStart) {
+			best, bestStart = m[0], st
+		}
+	}
+	return best, earliest
 }
 
 // pickFolderFromListing scans a /log/ index page for this host's cycle folders
@@ -4799,25 +4866,7 @@ func cycleStartFromFolder(name string) (time.Time, bool) {
 var cycleStartRe = regexp.MustCompile(`^\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.`)
 
 func pickFolderFromListing(body, hostID string, t time.Time) string {
-	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete)?/`)
-	best, earliest := "", ""
-	var bestStart, earliestStart time.Time
-	for _, m := range re.FindAllStringSubmatch(body, -1) {
-		st, perr := time.Parse("2006-01-02 15-04-05", m[1]+" "+m[2])
-		if perr != nil {
-			continue
-		}
-		st = st.UTC()
-		if earliest == "" || st.Before(earliestStart) {
-			earliest, earliestStart = m[0], st
-		}
-		if st.After(t) {
-			continue
-		}
-		if best == "" || st.After(bestStart) {
-			best, bestStart = m[0], st
-		}
-	}
+	best, earliest := scanListingForHost(body, hostID, t)
 	if best == "" {
 		best = earliest
 	}
@@ -4848,7 +4897,7 @@ func isLoopbackSource(r *http.Request) bool {
 // from whoever set it up.
 func (s *poolState) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if !isLoopbackSource(r) {
-		http.Error(w, "metrics are served to this host only", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.metrics_are_served_to_this_host_only", http.StatusForbidden)
 		return
 	}
 	s.handleMetricsBody(w)
@@ -5551,29 +5600,29 @@ func fileReadable(path string) bool {
 // the pull side. Telemetry-only: it ships to Loki and reaches no control plane.
 func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 	if s.authToken == "" {
-		http.Error(w, "ingest disabled", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.ingest_disabled", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	const bearer = "Bearer "
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, bearer) ||
 		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		localizedHTTPError(w, r, "aggregator.unauthorized", http.StatusUnauthorized)
 		return
 	}
 	srcIP := requestSourceIP(r)
 	if srcIP == "" {
-		http.Error(w, "no source address", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.no_source_address", http.StatusForbidden)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxEventFetch))
 	if err != nil {
-		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		localizedHTTPError(w, r, "aggregator.payload_too_large_or_unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
 	// Scan the body incrementally (NOT strings.Split, which would materialize every line
@@ -5598,7 +5647,7 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if len(lines) >= maxEventPush {
-			http.Error(w, "too many lines", http.StatusRequestEntityTooLarge)
+			localizedHTTPError(w, r, "aggregator.too_many_lines", http.StatusRequestEntityTooLarge)
 			return
 		}
 		if bid := ingestLineHostID(ln); bid != "" {
@@ -5611,7 +5660,7 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 		lines = append(lines, redactEventLine(ln))
 	}
 	if mixed {
-		http.Error(w, "batch mixes multiple hostIds", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.batch_mixes_multiple_hostids", http.StatusForbidden)
 		return
 	}
 	if len(lines) == 0 {
@@ -5647,7 +5696,7 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	if hostID == "" {
-		http.Error(w, "sender identity could not be bound (undiscovered IP, hostId not owned by this IP, or ambiguous)", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own", http.StatusForbidden)
 		return
 	}
 	pushEvents(s.httpClient, s.lokiURL, poolLabel, hostID, lines, time.Now().UTC())
@@ -5704,22 +5753,22 @@ func pushHostAnnounce(client *http.Client, lokiURL, pool, hostID, baseURL string
 //     control-plane capability.
 func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 	if s.announceTtl <= 0 {
-		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.announce_disabled", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	srcIP := requestSourceIP(r)
 	if srcIP == "" {
-		http.Error(w, "no source address", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.no_source_address", http.StatusForbidden)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAnnounceBody))
 	if err != nil {
-		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		localizedHTTPError(w, r, "aggregator.payload_too_large_or_unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
 	var a struct {
@@ -5727,15 +5776,15 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 		StatusPort int    `json:"statusPort"`
 	}
 	if err := json.Unmarshal(body, &a); err != nil {
-		http.Error(w, "malformed announce", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.malformed_announce", http.StatusBadRequest)
 		return
 	}
 	if !announceHostIDRE.MatchString(a.HostId) {
-		http.Error(w, "invalid hostId", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.invalid_hostid", http.StatusBadRequest)
 		return
 	}
 	if a.StatusPort <= 0 || a.StatusPort > 65535 {
-		http.Error(w, "invalid statusPort", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.invalid_statusport", http.StatusBadRequest)
 		return
 	}
 	baseURL := fmt.Sprintf("http://%s:%d", srcIP, a.StatusPort)
@@ -5749,11 +5798,11 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 	// when the identity does not match what that address actually serves.
 	st, err := fetchStatus(s.httpClient, baseURL)
 	if err != nil {
-		http.Error(w, "announced address did not serve status.json", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.announced_address_did_not_serve_status_json", http.StatusBadRequest)
 		return
 	}
 	if st == nil || !strings.EqualFold(st.HostId, a.HostId) {
-		http.Error(w, "announced address serves a different hostId", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.announced_address_serves_a_different_hostid", http.StatusBadRequest)
 		return
 	}
 
@@ -5775,7 +5824,7 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 	// success, so a 2xx for a line that never reached Loki costs the pool a
 	// whole beacon period of a host it cannot resolve.
 	if err := pushHostAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, baseURL, now); err != nil {
-		http.Error(w, "announce accepted but not recorded", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.announce_accepted_but_not_recorded", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -5807,7 +5856,7 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 func (s *poolState) handleHostAddress(w http.ResponseWriter, r *http.Request) {
 	hostID := strings.TrimSpace(r.URL.Query().Get("hostId"))
 	if !announceHostIDRE.MatchString(hostID) {
-		http.Error(w, "invalid hostId", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.invalid_hostid", http.StatusBadRequest)
 		return
 	}
 	s.mu.Lock()
@@ -5831,7 +5880,7 @@ func (s *poolState) handleHostAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	if !found {
-		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		localizedHTTPError(w, r, "aggregator.host_not_known_to_the_pool", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -5843,22 +5892,22 @@ func (s *poolState) handleHostAddress(w http.ResponseWriter, r *http.Request) {
 
 func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if s.announceTtl <= 0 {
-		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.announce_disabled", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		localizedHTTPError(w, r, "aggregator.method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	srcIP := requestSourceIP(r)
 	if srcIP == "" {
-		http.Error(w, "no source address", http.StatusForbidden)
+		localizedHTTPError(w, r, "aggregator.no_source_address", http.StatusForbidden)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAnnounceBody))
 	if err != nil {
-		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		localizedHTTPError(w, r, "aggregator.payload_too_large_or_unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
 	var a struct {
@@ -5869,14 +5918,14 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		Active     *bool  `json:"active"`
 	}
 	if err := json.Unmarshal(body, &a); err != nil {
-		http.Error(w, "malformed announce", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.malformed_announce", http.StatusBadRequest)
 		return
 	}
 	if a.Area == "" {
 		a.Area = stashArea
 	}
 	if !announceHostIDRE.MatchString(a.HostId) || !announceAreaRE.MatchString(a.Area) {
-		http.Error(w, "invalid hostId or area", http.StatusBadRequest)
+		localizedHTTPError(w, r, "aggregator.invalid_hostid_or_area", http.StatusBadRequest)
 		return
 	}
 	// Resolve the advertised service URL. An explicit target must point at the
@@ -5889,11 +5938,11 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		target = strings.TrimRight(strings.TrimSpace(a.Target), "/")
 		u, perr := url.Parse(target)
 		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			http.Error(w, "invalid target URL", http.StatusBadRequest)
+			localizedHTTPError(w, r, "aggregator.invalid_target_url", http.StatusBadRequest)
 			return
 		}
 		if u.Hostname() != srcIP {
-			http.Error(w, "target host must be the announcing address", http.StatusForbidden)
+			localizedHTTPError(w, r, "aggregator.target_host_must_be_the_announcing_address", http.StatusForbidden)
 			return
 		}
 	case a.TargetPort == 80:
@@ -5905,7 +5954,7 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// NAT that rewrites the source address, or a proxy header this handler ever
 	// learns to trust, is how a loopback or link-local value would arrive here.
 	if why := extensionTargetProblem(target); why != "" {
-		http.Error(w, "invalid target address: "+why, http.StatusBadRequest)
+		localizedHTTPErrorArgs(w, r, "aggregator.invalid_target_address_detail", http.StatusBadRequest, map[string]any{"detail": why})
 		return
 	}
 	active := a.Active == nil || *a.Active
@@ -5935,7 +5984,7 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	if !accepted {
-		http.Error(w, "too many announced extensions", http.StatusTooManyRequests)
+		localizedHTTPError(w, r, "aggregator.too_many_announced_extensions", http.StatusTooManyRequests)
 		return
 	}
 	// Confirm a NEWLY announced address right here rather than at the next poll:
@@ -5962,10 +6011,40 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// it durable. Where no Loki is configured there is nothing to lose, and the
 	// push reports success (pushLokiStream), so those pools still get 2xx.
 	if err := pushAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, a.Area, target, active, time.Now().UTC()); err != nil {
-		http.Error(w, "announce accepted but not durably recorded; retry", http.StatusServiceUnavailable)
+		localizedHTTPError(w, r, "aggregator.announce_accepted_but_not_durably_recorded_retry", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// readAuthTokenFile loads the internal authentication key this proxy mints control
+// proofs with, gates /ingest on, and hands out through the lab-token exchange. An
+// empty return leaves every one of those disabled rather than open.
+//
+// Surrounding whitespace is trimmed because the key reaches the file through
+// cloud-init, which is free to terminate it with a newline; the PowerShell side
+// that computes the matching control tag trims at its own read, and a key that
+// differed by one byte between the two would report the whole pool as onsite-only.
+// defaultPath and legacyPath are parameters rather than reads of the constants so a
+// test can exercise the fallback without writing under /etc.
+func readAuthTokenFile(path, defaultPath, legacyPath string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		// Only the provisioned default falls back to the older path; see
+		// legacyAuthTokenFile for why an operator-named path is taken literally.
+		if path == defaultPath {
+			if lb, lerr := os.ReadFile(legacyPath); lerr == nil {
+				log.Print(operatorMessage("aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d", map[string]any{"value1": fmt.Sprintf("%s", legacyPath), "value2": fmt.Sprintf("%s", defaultPath)}))
+				return strings.TrimSpace(string(lb))
+			}
+		}
+		log.Print(operatorMessage("aggregator.log_auth_token_file_value1_unreadable_value2_ingest_contro_d458a79c", map[string]any{"value1": fmt.Sprintf("%q", path), "value2": fmt.Sprintf("%v", err)}))
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // version is overwritten at link time with -X main.version=<framework version>,
@@ -5975,25 +6054,27 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 var version = "dev"
 
 func main() {
-	addr := flag.String("listen", defaultListenAddr, "address to listen on")
-	squidLog := flag.String("squid-log", defaultSquidLog, "squid access log to discover pool client IPs from")
-	lokiURL := flag.String("loki", defaultLokiURL, "Loki push API URL")
-	pool := flag.String("pool", defaultPool, "pool name label")
-	statusPort := flag.Int("status-port", defaultStatusPort, "status-service port to probe on each discovered IP")
-	hostMetricsPort := flag.Int("host-metrics-port", defaultHostMetricsPort, "port the machine-metrics exporter listens on for each Windows host, as published in the /api/v1/prometheus-targets scrape document")
-	interval := flag.Duration("interval", defaultInterval, "poll/discover interval")
-	rehydrateWin := flag.Duration("rehydrate-window", defaultRehydrate, "on startup, restore cycle counts from Loki over this trailing window (0 to disable)")
-	incidentN := flag.Int("incident-fails", defaultIncidentN, "open an incident after this many failed cycles within -incident-window")
-	incidentWin := flag.Duration("incident-window", defaultIncidentWin, "trailing window for the N-failures-in-M-minutes incident rule")
-	crossN := flag.Int("cross-host-fails", defaultCrossN, "distinct hosts that must fail within -cross-host-window to open a pool-wide incident")
-	crossWin := flag.Duration("cross-host-window", defaultCrossWin, "window for cross-host (pool-wide) incident correlation")
-	announceTtl := flag.Duration("announce-ttl", defaultAnnounceTtl, "reap a self-announced extension (POST /announce) not refreshed within this window; 0 disables the announce route")
-	hostTtl := flag.Duration("host-ttl", defaultHostTtl, "drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host")
-	poolArchiveRoot := flag.String("pool-archive-root", "", "the pool share's hosts/ directory on this machine (e.g. /mnt/ypool-nas/hosts); serves archived cycle results at /archive/<hostId>/test-cycles/... and lets /go/cycle resolve them. Empty disables both -- the route is not registered at all")
-	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
-	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
-	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
-	labRotate := flag.Duration("lab-token-rotate", defaultLabRotate, "rotate the dashboard lab connection token this often; 0 disables the Lab token tile and the POST /api/v1/lab-token exchange")
+	flag.Lookup("language").Usage = operatorMessage("aggregator.help_display_language", nil)
+	flag.Lookup("allow-pseudo-locale").Usage = operatorMessage("aggregator.help_allow_pseudo", nil)
+	addr := flag.String("listen", defaultListenAddr, operatorMessage("aggregator.help_address_to_listen_on_59add3f5", nil))
+	squidLog := flag.String("squid-log", defaultSquidLog, operatorMessage("aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba", nil))
+	lokiURL := flag.String("loki", defaultLokiURL, operatorMessage("aggregator.help_loki_push_api_url_c89d9321", nil))
+	pool := flag.String("pool", defaultPool, operatorMessage("aggregator.help_pool_name_label_31358a97", nil))
+	statusPort := flag.Int("status-port", defaultStatusPort, operatorMessage("aggregator.help_status_service_port_to_probe_on_each_discovered_ip_e5073cc7", nil))
+	hostMetricsPort := flag.Int("host-metrics-port", defaultHostMetricsPort, operatorMessage("aggregator.help_port_the_machine_metrics_exporter_listens_on_for_each__0ae78ba6", nil))
+	interval := flag.Duration("interval", defaultInterval, operatorMessage("aggregator.help_poll_discover_interval_a9ec46cd", nil))
+	rehydrateWin := flag.Duration("rehydrate-window", defaultRehydrate, operatorMessage("aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f", nil))
+	incidentN := flag.Int("incident-fails", defaultIncidentN, operatorMessage("aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc", nil))
+	incidentWin := flag.Duration("incident-window", defaultIncidentWin, operatorMessage("aggregator.help_trailing_window_for_the_n_failures_in_m_minutes_incide_60aa9aa2", nil))
+	crossN := flag.Int("cross-host-fails", defaultCrossN, operatorMessage("aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083", nil))
+	crossWin := flag.Duration("cross-host-window", defaultCrossWin, operatorMessage("aggregator.help_window_for_cross_host_pool_wide_incident_correlation_b4663557", nil))
+	announceTtl := flag.Duration("announce-ttl", defaultAnnounceTtl, operatorMessage("aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce", nil))
+	hostTtl := flag.Duration("host-ttl", defaultHostTtl, operatorMessage("aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1", nil))
+	poolArchiveRoot := flag.String("pool-archive-root", "", operatorMessage("aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e", nil))
+	tlsCert := flag.String("tls-cert", "", operatorMessage("aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e", nil))
+	tlsKey := flag.String("tls-key", "", operatorMessage("aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018", nil))
+	authTokenFile := flag.String("auth-token-file", "", operatorMessage("aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952", nil))
+	labRotate := flag.Duration("lab-token-rotate", defaultLabRotate, operatorMessage("aggregator.help_rotate_the_dashboard_lab_connection_token_this_often_0_f9f6d959", nil))
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -6008,7 +6089,7 @@ func main() {
 	if *hostMetricsPort > 0 && *hostMetricsPort <= 65535 {
 		state.hostMetricsPort = *hostMetricsPort
 	} else {
-		log.Printf("host-metrics-port %d is not a valid port; keeping the default %d", *hostMetricsPort, defaultHostMetricsPort)
+		log.Print(operatorMessage("aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724", map[string]any{"value1": fmt.Sprintf("%d", *hostMetricsPort), "value2": fmt.Sprintf("%d", defaultHostMetricsPort)}))
 	}
 	state.incidentN = *incidentN
 	state.incidentWin = *incidentWin
@@ -6020,27 +6101,21 @@ func main() {
 	if *hostTtl > 0 {
 		state.hostTtl = *hostTtl
 	} else {
-		log.Printf("host-ttl %v is not positive; keeping the default %v", *hostTtl, defaultHostTtl)
+		log.Print(operatorMessage("aggregator.log_host_ttl_value1_is_not_positive_keeping_the_default_va_7ade3d03", map[string]any{"value1": fmt.Sprintf("%v", *hostTtl), "value2": fmt.Sprintf("%v", defaultHostTtl)}))
 	}
 	client := newInternalHTTPClient(probeTimeout)
 	state.lokiURL = *lokiURL
 	state.httpClient = client
 	// Load the shared bearer token that GATES /ingest. Absent / empty file -> token
 	// stays "" -> the route is disabled (503), so it is never exposed unauthenticated.
-	if *authTokenFile != "" {
-		if b, rerr := os.ReadFile(*authTokenFile); rerr == nil {
-			state.authToken = strings.TrimSpace(string(b))
-		} else {
-			log.Printf("auth-token-file %q unreadable (%v); /ingest disabled", *authTokenFile, rerr)
-		}
-	}
+	state.authToken = readAuthTokenFile(*authTokenFile, defaultAuthTokenFile, legacyAuthTokenFile)
 	// Archive root: the pool share's hosts/ directory as this machine sees it. Only
 	// the path is captured here; the directory itself is opened per request, because
 	// the CIFS mount arrives asynchronously after boot and may also go away and come
 	// back without this process noticing.
 	state.archiveRoot = strings.TrimSpace(*poolArchiveRoot)
 	if state.archiveRoot != "" {
-		log.Printf("archive route enabled at /archive/ from %q", state.archiveRoot)
+		log.Print(operatorMessage("aggregator.log_archive_route_enabled_at_archive_from_value1_7b032a09", map[string]any{"value1": fmt.Sprintf("%q", state.archiveRoot)}))
 	}
 	// Lab connection token rotation: seeded before the server starts so the
 	// first /metrics scrape already carries a redeemable code. Requires the
@@ -6061,7 +6136,7 @@ func main() {
 			}
 		}()
 	} else if *labRotate > 0 {
-		log.Printf("lab-token exchange disabled: no auth token configured")
+		log.Print(operatorMessage("aggregator.log_lab_token_exchange_disabled_no_auth_token_configured_a47d49b1", nil))
 	}
 
 	go func() {
@@ -6191,24 +6266,23 @@ func main() {
 	// Windows toolchain still cross-builds this.
 	useTLS := fileReadable(*tlsCert) && fileReadable(*tlsKey)
 	if (*tlsCert != "" || *tlsKey != "") && !useTLS {
-		log.Printf("tls-cert/tls-key set but not both readable+non-empty; serving plain HTTP")
+		log.Print(operatorMessage("aggregator.log_tls_cert_tls_key_set_but_not_both_readable_non_empty_s_f5dfa9e3", nil))
 	}
-	authState := "ingest disabled (no token)"
+	authState := operatorMessage("aggregator.log_ingest_disabled_no_token_3a819fb4", nil)
 	if state.authToken != "" {
-		authState = "ingest enabled (bearer)"
+		authState = operatorMessage("aggregator.log_ingest_enabled_bearer_89578b00", nil)
 	}
 	if state.labRotate > 0 {
-		authState += fmt.Sprintf(", lab-token exchange on (rotate %s)", state.labRotate)
+		authState += operatorMessage("aggregator.log_lab_token_exchange_on_rotate_duration_5ce442f0", map[string]any{"duration": state.labRotate.String()})
 	} else {
-		authState += ", lab-token exchange off"
+		authState += operatorMessage("aggregator.log_lab_token_exchange_off_4bdcc105", nil)
 	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https+http"
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	log.Printf("pool-aggregator-service listening on %s (%s), pool=%q, discover-from=%s, status-port=%d, loki=%s, interval=%s, %s",
-		*addr, scheme, *pool, *squidLog, *statusPort, *lokiURL, *interval, authState)
+	log.Print(operatorMessage("aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764", map[string]any{"value1": fmt.Sprintf("%s", *addr), "value2": fmt.Sprintf("%s", scheme), "value3": fmt.Sprintf("%q", *pool), "value4": fmt.Sprintf("%s", *squidLog), "value5": fmt.Sprintf("%d", *statusPort), "value6": fmt.Sprintf("%s", *lokiURL), "value7": fmt.Sprintf("%s", *interval), "value8": fmt.Sprintf("%s", authState)}))
 	var serveErr error
 	if useTLS {
 		// With the leaf present, :9400 answers BOTH protocols on the one port

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a98740-f91d-4449-a691-90bbcafc57af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,7 +227,7 @@ Describe 'extension UI chrome: one header, one menu, page-first titles' {
     It 'titles every page "Page - Service", never service-first' {
         $findings = @()
         foreach ($p in $pages) {
-            $m = [regex]::Match($p.Text, '<title>(.*?)</title>')
+            $m = [regex]::Match($p.Text, '<title\b[^>]*>(.*?)</title>')
             if (-not $m.Success) { $findings += "$($p.Id): no <title>"; continue }
             $want = "$($p.Title) &mdash; $($p.Service)"
             if ($m.Groups[1].Value -ne $want) {
@@ -242,12 +242,16 @@ Describe 'extension UI chrome: one header, one menu, page-first titles' {
         foreach ($p in $pages) {
             foreach ($needle in @(
                     '<header class="app">',
-                    "<span class=`"name`"><a href=`"/`">$($p.Service)</a></span>",
+                    'class="name"',
                     'id="header-version"',
                     'id="machine"',
                     'class="spacer"')) {
                 if (-not $p.Text.Contains($needle)) { $findings += "$($p.Id): header is missing $needle" }
             }
+        }
+        foreach ($p in $pages) {
+            $brand = '<span class="name"><a href="/"[^>]*>' + [regex]::Escape($p.Service) + '</a></span>'
+            if (-not [regex]::IsMatch($p.Text, $brand)) { $findings += "$($p.Id): header brand label/link changed" }
         }
         Assert-NoFinding $findings 'the header shape is what makes the three services read as one product'
     }
@@ -275,7 +279,7 @@ Describe 'extension UI chrome: one header, one menu, page-first titles' {
             # target="_blank" keeps the guide off the tab the service is running
             # in: the pages poll and hold unsaved edits, so navigating away from
             # them to read documentation loses live state.
-            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($p.Guide))`" target=`"_blank`" rel=`"noopener`">")) {
+            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($p.Guide))`" target=`"_blank`" rel=`"noopener`"[^>]*>")) {
                 $findings += "$($p.Id): menu does not link the guide in a new tab"
             }
         }
@@ -384,7 +388,7 @@ Describe 'host status pages carry the same chrome as the service UIs' {
             }
             # In the menu specifically, and in a new tab -- see the service-side
             # twin of this test.
-            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($statusGuide))`" target=`"_blank`" rel=`"noopener`">")) {
+            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($statusGuide))`" target=`"_blank`" rel=`"noopener`"[^>]*>")) {
                 $findings += "$($p.Id): menu does not link the guide in a new tab"
             }
             $footer = [regex]::Match($p.Text, '(?s)<footer[^>]*>.*?</footer>')

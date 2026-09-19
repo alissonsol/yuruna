@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4253a6e6-83fb-4271-9b88-d30712d73323
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,7 +52,12 @@ function Get-CachingProxyParserServiceManifest {
     param()
     return @{
         SourceFiles = @(
-            'main.go',
+            'parse.go',
+            'requestadapter.go',
+            'localization.go',
+            'internal/catalog/registry.go',
+            'main_linux.go',
+            'main_other.go',
             'go.mod',
             'caching-proxy-parser-service.service'
         )

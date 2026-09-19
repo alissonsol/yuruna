@@ -2,23 +2,6 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // caching-proxy-service: the management plane for the Yuruna caching proxy.
-//
-// The proxy VM was the one Yuruna service outside the extension interface --
-// no manifest, no beacon, nothing the pool could ask. This daemon gives it the
-// same shape its siblings have without moving anything that serves traffic:
-// squid, zot, Grafana, Prometheus, Loki and the exporters stay where they are,
-// on the ports they already use. What it adds is a read surface over that VM's
-// state and ownership of the two operator switches (offline mode, no upstream)
-// that were previously flipped by hand over SSH.
-//
-// It is deliberately separable from squid's host. Everything it reads comes
-// from squid's manager API, zot's HTTP API, or files on a share -- never from a
-// local socket or a systemd call -- so the same binary runs either ON the proxy
-// VM (--mode local, the default) or on another machine that can reach those
-// (--mode remote). Remote mode is READ-ONLY: stock squid has no remote
-// reconfigure, so a change made off the box could be written but never
-// applied, and the mutating routes say so rather than pretending.
-//
 // Full design and operator guide: https://yuruna.link/42f6b05f-003c.
 package main
 
@@ -40,6 +23,7 @@ import (
 	"time"
 
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
@@ -142,6 +126,7 @@ func main() {
 	d.squid = newSquidClient(*squidAddr, readTrimmedFile(*squidPassword), 5*time.Second)
 	d.registry = newRegistryReader(*registryURL, *metaURL, *shareRoot, 5*time.Second)
 	d.gate = labgate.New(labgate.Options{
+		Language: *pageLanguage, AllowPseudoLocale: *pageAllowPseudo,
 		AggregatorURL: *aggregatorURL,
 		BearerToken:   readTrimmedFile(*authTokenFile),
 		CookieName:    "yuruna_caching_proxy_service",
@@ -281,14 +266,16 @@ func (d *daemon) handleSession(w http.ResponseWriter, r *http.Request) {
 // reports its own failure rather than failing the whole response: a squid that
 // is not answering is exactly what this endpoint exists to say, and the
 // switches and registry beside it are usually still readable.
-func (d *daemon) handleStatus(w http.ResponseWriter, _ *http.Request) {
+func (d *daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
+	locale := localizedPages().Negotiator.Resolve(r)
+	i18n.Apply(w.Header(), locale)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"mode":     string(d.mode),
 		"version":  version,
 		"squid":    d.squid.summary(),
 		"switches": d.readSwitches(),
-		"registry": d.registry.state(),
+		"registry": d.registry.state(locale),
 	})
 }
 

@@ -10,7 +10,7 @@
        keeps content readable on notched devices. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title>Yuruna Status</title>
+  <title data-i18n="status.yuruna_status">Yuruna Status</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     #banner-dash-row {
@@ -232,28 +232,28 @@
   <span class="machine" id="header-machine"></span>
   <div class="menu">
     <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
     </button>
-    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-      <a href="index.html" aria-current="page">Status</a>
-      <a href="config.html">Config</a>
-      <a href="performance.html">Performance</a>
-      <a href="diagnostics.html">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener">Guide</a>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" aria-current="page" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
   <span id="banner-dash-row">
-    <a id="banner-dash" class="hidden" href="#" target="_blank" rel="noopener">Dashboards</a><span id="banner-dash-noproxy" class="hidden">No dashboard server</span>
+    <a id="banner-dash" class="hidden" href="#" target="_blank" rel="noopener" data-i18n="status.dashboards">Dashboards</a><span id="banner-dash-noproxy" class="hidden" data-i18n="status.no_dashboard_server">No dashboard server</span>
   </span>
 </div>
 
 <main>
-  <h1 class="sr-only">Yuruna host status</h1>
+  <h1 class="sr-only" data-i18n="status.yuruna_host_status">Yuruna host status</h1>
 
   <!-- Shown by controlAction() when a /control/* POST is refused (403): the
        on-host operator has loopback control; a browser on another machine needs
@@ -269,14 +269,14 @@
 
   <section id="sec-cycle" style="display:none" aria-labelledby="sec-cycle-title">
     <div class="section-title with-controls">
-      <h2 id="sec-cycle-title">Latest Cycle</h2>
-      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
+      <h2 id="sec-cycle-title" data-i18n="status.latest_cycle">Latest Cycle</h2>
+      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled data-i18n="status.pause_after_cycle">Pause after cycle</button>
     </div>
     <div class="meta-grid">
-      <div class="meta-card"><div class="label">Cycle start (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
-      <div class="meta-card"><div class="label">Started</div><div class="value" id="cycle-started">—</div></div>
-      <div class="meta-card"><div class="label">Commit</div><div class="value" id="cycle-commit">—</div></div>
-      <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.cycle_start_utc">Cycle start (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.started">Started</div><div class="value" id="cycle-started">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.commit">Commit</div><div class="value" id="cycle-commit">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.images_refresh">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
     </div>
     <!-- Classified failure cause for the live cycle; populated/shown by renderStatus from data.lastFailure. -->
     <div id="cycle-failure" class="cycle-failure" style="display:none"></div>
@@ -284,23 +284,23 @@
 
   <section id="sec-sequences" style="display:none" aria-labelledby="sec-sequences-title">
     <div class="section-title with-controls">
-      <h2 id="sec-sequences-title">Test sequences</h2>
-      <button id="step-pause-btn" class="meta-btn" type="button" disabled>Pause after step</button>
+      <h2 id="sec-sequences-title" data-i18n="status.test_sequences">Test sequences</h2>
+      <button id="step-pause-btn" class="meta-btn" type="button" disabled data-i18n="status.pause_after_step">Pause after step</button>
     </div>
     <div id="sequence-list"></div>
   </section>
 
   <section id="sec-history" style="display:none" aria-labelledby="sec-history-title">
     <div class="section-title with-controls">
-      <h2 id="sec-history-title">Recent Cycles</h2>
-      <a class="section-title-link" href="performance.html">Performance</a>
+      <h2 id="sec-history-title" data-i18n="status.recent_cycles">Recent Cycles</h2>
+      <a class="section-title-link" href="performance.html" data-i18n="status.performance">Performance</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th scope="col">Cycle start (UTC)</th><th scope="col">Duration</th>
-            <th scope="col">Sequences</th><th scope="col">Commit</th>
+            <th scope="col" data-i18n="status.cycle_start_utc">Cycle start (UTC)</th><th scope="col" data-i18n="status.duration">Duration</th>
+            <th scope="col" data-i18n="status.sequences">Sequences</th><th scope="col" data-i18n="status.commit">Commit</th>
           </tr>
         </thead>
         <tbody id="history-body"></tbody>
@@ -309,16 +309,16 @@
   </section>
 
   <div id="no-data" class="no-data">
-    <h3>No test data yet</h3>
-    <p>Run <code>Start-TestRunner.ps1</code> to start a test cycle.</p>
+    <h3 data-i18n="status.no_test_data_yet">No test data yet</h3>
+    <p data-i18n="status.run_command1_to_start_a_test_cycle" data-i18n-args="{&quot;command1&quot;: &quot;Start-TestRunner.ps1&quot;}">Run Start-TestRunner.ps1 to start a test cycle.</p>
   </div>
 
 </main>
 
 <footer id="footer-bar">
-  <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses">—</textarea></span>
-  <span>Loaded: <span id="last-loaded">—</span></span>
-  <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+  <span id="footer-ips"><span class="label" data-i18n="status.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses" data-i18n-aria-label="status.host_ip_addresses">—</textarea></span>
+  <span><span data-i18n="status.loaded">Loaded:</span> <span id="last-loaded">—</span></span>
+  <span><button type="button" id="footer-refresh" class="linkish" data-i18n="status.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="status.pause">Pause</button></span>
 </footer>
 
 <script src="yuruna.common.js"></script>

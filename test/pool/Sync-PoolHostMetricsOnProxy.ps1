@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42208271-79d6-4f13-84cb-51fe46e67ef4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param([string]$ProxyAddress, [string]$User = 'caching-proxy-service-admin', [ValidateRange(120,600)][int]$TimeoutSeconds = 180)
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 $ErrorActionPreference = 'Stop'
 $modules = Join-Path $PSScriptRoot '../modules'
 $callerWhatIf = $WhatIfPreference
@@ -62,7 +65,7 @@ $helper = Join-Path $PSScriptRoot 'sync_host_metrics.py'
 if (-not (Test-Path -LiteralPath $helper)) { throw "Missing synchronization helper: $helper" }
 $payload = [Convert]::ToBase64String([IO.File]::ReadAllBytes($helper))
 $retention = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-YurunaHostMetricsRetentionRegex)))
-if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", 'Validate, atomically update and reload the pool-host Prometheus metric filter')) { return }
+if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", (Format-YurunaOperatorMessage -Key 'runner.operator_e6d3f6473ab79834'))) { return }
 
 # --- REGION: Apply and verify
 $command = @'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,11 @@
     Skip the framework repo pull for this cycle.
 .PARAMETER NoStatusService
     Forwarded to the inner runner.
+.PARAMETER NoConfigGate
+    Forwarded to the inner runner: skip this cycle's Test-Config.ps1
+    preflight. An operator who bypassed the outer's startup gate for an
+    in-progress edit would otherwise be stopped by the same check one
+    layer down, on the very run they asked to bypass it for.
 .PARAMETER CycleDelaySeconds
     Forwarded to the inner runner.
 .PARAMETER logLevel
@@ -66,6 +71,7 @@ param(
     [string]$ConfigPath = $null,
     [switch]$NoGitPull,
     [switch]$NoStatusService,
+    [switch]$NoConfigGate,
     [int]$CycleDelaySeconds = 30,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
@@ -75,6 +81,7 @@ param(
 # Lives under test/modules/ alongside Invoke-TestRunnerInnerLoop.ps1: the outer
 # runner is the only legitimate caller, so it stays out of test/'s operator-facing
 # layer. $PSScriptRoot is therefore test/modules/, one level below $TestRoot.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder -ConfigPath $ConfigPath
 $TestRoot   = $paths.TestRoot
@@ -85,7 +92,7 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
-    Write-Error "Invoke-TestRunnerInnerLoop.ps1 not found at $InnerScript"
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_187b34999bcb56f2' -Arguments @{ innerScript = "$InnerScript" })
     exit 1
 }
 
@@ -174,10 +181,10 @@ try {
     # reports a failed write by returning $false rather than throwing, so the
     # catch below would not see one.
     if (-not (Write-YurunaStateFile -Path $outcomeFile -Content $json -Confirm:$false)) {
-        Write-Warning "Could not write the cycle outcome file: $outcomeFile"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28a938238a1f9f61' -Arguments @{ outcomeFile = "$outcomeFile" })
     }
 } catch {
-    Write-Warning "Could not write the cycle outcome file: $($_.Exception.Message)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d1c2444b71ef8fde' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 exit $exitCode

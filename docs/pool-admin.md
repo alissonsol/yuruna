@@ -33,6 +33,32 @@ Intent has three parts:
 The intent repo holds **only non-secret** files (`pools.yml`, the `test-sets.yml`
 library, `guests.compatibility.yml`). No credential is ever routed through it.
 
+**Planning is decentralized -- there is no central dispatch.** Each runner
+turns the pool's assigned test-set into a cycle plan for itself, and that
+planning is autonomous: a host keeps only the guests it can actually run
+(the guest's folder is present, the host's capability matrix supports it,
+and the guest is compatible with this host's hypervisor per
+`guests.compatibility.yml`) and skips the rest, trusting another pool member
+to cover them. It is also strictly additive and best-effort -- any missing or
+malformed input degrades to no plan at all, so the runner falls back to its
+own single-host `test.runner.yml` rather than throwing or halting the loop.
+`cycleStrategy: all` and `provisioning.betweenSets: none` are the only
+runtime-active values today; other enum values validate but then run as
+`all`/`none` with a warning, pending implementation.
+
+**The pull itself** is a small git spine, optional and default-off: a host
+with `pool.enabled: false`, or one whose intent store is unreachable, just
+keeps cycling as a single host. Each runner clones/fetches the intent repo
+over the LAN, finds its own pool by locating its stable `hostId` in
+`members[]` -- the single source of truth for membership -- and reconciles
+the pulled `desiredState` (`run`/`paused`/`drain`) into the outer loop
+exactly like the local `control.cycle-restart` flag. Every git call is
+wall-clock-bounded and proofed against a credential prompt
+(`GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS`, `GCM_INTERACTIVE=never`,
+and stdin closed immediately), so a hung or unreachable remote fails fast
+instead of hanging the unattended loop -- or, on the bare-`pwsh` path, an
+interactive one.
+
 <a id="4207d71a-0003"></a>
 
 ## Before you start
@@ -58,6 +84,9 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
    (`/var/lib/yuruna/pool-intent.git`), or against any pre-authenticated writable remote.
    Pass it with `-IntentGitUrl <writable-url>`, or set `pool.intentGitUrl` to a writable
    value in the `test.config.yml` you run the admin CLI from (then you can omit the flag).
+   The admin CLIs reuse `Test.PoolSync`'s same bounded, prompt-proof git wrapper the
+   runner's pull path uses, and every change is schema-validated **before** commit,
+   so a malformed intent can never reach the store the whole pool pulls from.
 
 Run the commands below from the repo root.
 
@@ -387,6 +416,14 @@ Nothing bakes that token file into a service VM, so path 2 is what normally
 carries this. When neither is available the change is refused **once**, naming
 the file, rather than collecting one `403` per host.
 
+The control proof itself is an HMAC over the shared internal authentication
+key, carried as the `X-Yuruna-Control` header -- see
+[control-routes.md](control-routes.md#where-the-proof-comes-from) for the full
+mechanism. Three independent implementations (the pool aggregator, a target
+host's own PowerShell verifier, and this service's Go client) must derive that
+HMAC byte for byte identically, which is what a shared golden test vector
+pins.
+
 Members are driven individually and reported individually: `2 applied, 1 failed
 -- 42ab12cd (the host holds no lab token ...)`. A host that was never enrolled, is
 powered off, or holds a different Lab token fails on its own without costing the
@@ -437,6 +474,37 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   `poolStorageNetworkPath/pool-control-service/` (the pool NAS), surviving restarts. `/healthz`
   serves that status. A monitor loop probes the intent every `--monitor-interval`.
 
+The area's own `default.psm1` is its host-side presence: it makes the area
+visible to `Get-ExtensionAreaName`, gives it a capability-matrix entry, and
+supplies the reachability pre-flight a caller needs before it commits to a
+resolved board address. `Get-PoolControlServiceInfo` returns the same uniform
+status hashtable every extension area's host-side cmdlet vocabulary uses,
+currently a stub whose flags stay `$false` until host-side status probing
+against a running board VM is wired up. `Test-PoolControlServiceHost` is the
+reachability pre-flight, the same contract `Test-DownloadAgentServiceHost` and
+the stash pre-flight carry.
+
+The **pool-aggregator service** it reads `/api/v1/pool-stats` from and
+self-announces to is a separate, read-only daemon on the caching-proxy-service
+machine. It needs no configured host list: it auto-discovers pool members from
+the Squid access log, identifies each one on its stable `hostId`
+(`runtime/host.uuid`, DHCP- and DNS-independent) rather than its address, and
+ships cycle transitions and per-step events to Loki and Prometheus for the
+Grafana pool dashboard. Being read-only and killable without affecting any
+runner is deliberate -- nothing about scheduling or executing a test cycle
+depends on it being up. Full design:
+[the aggregator's own README](../test/extension/pool-aggregator-service/README.md).
+
+**Why every extension service self-announces (beacons) independently of the
+host.** A host's own status service also reports that service in its
+registration record, but the dashboard reads that record *through* the host's
+status service -- so the moment that process is down, which a host reboot
+routinely leaves behind, the Extension hosts row vanishes even though the
+service itself is still up and serving. The beacon (`POST /announce`, a hello
+retried at boot, a re-announce every interval, and a best-effort goodbye at
+shutdown) is what covers that window, which is why it has to keep working
+when nothing else on the host does.
+
 <a id="4207d71a-0012"></a>
 
 ### Unlocking the actions
@@ -462,6 +530,13 @@ extension service:
 **Reads are open**, matching the aggregator's own `pool-status` and every other
 extension service: the board renders on a wall display with no credential, and
 nothing it shows is a secret the LAN cannot already read from the pool.
+
+This gate is deliberately **not per-user auth.** It stops a stranger on the LAN
+and an accidental visitor; it does not tell you *who* assigned something, which
+is why every mutation is still recorded in the audit log with the address that
+made it -- the same reasoning as the [Lab token
+rule](extensions-api.md#the-lab-token-rule) elsewhere. If per-operator
+traceability ever matters, this is the piece to replace.
 
 An aggregator that is down means the board cannot be unlocked &mdash; a
 deliberate fail-closed, reported as `503` with reason `lab-token-unavailable`
@@ -760,6 +835,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

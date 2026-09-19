@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -250,16 +253,16 @@ function Invoke-WithYurunaRetry {
                 try {
                     $retryThis = [bool](& $ShouldRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError })
                 } catch {
-                    Write-Information "!! ${Label}: ShouldRetry predicate threw ($($_.Exception.Message)); treating the failure as retryable"
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_5bb127d98fea6728' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
                 }
                 if (-not $retryThis) {
-                    Write-Information "!! ${Label}: failure not retryable (exit=${lastExit}); failing fast"
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_34010bbd70837710' -Arguments @{ label = "${Label}"; lastExit = "${lastExit}" })
                     Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $true
                     break
                 }
             }
             $sleep = Get-YurunaRetryBackoff -BaseDelay $delay -MaxDelay $MaxDelaySeconds -JitterFraction $JitterFraction
-            Write-Information "!! ${Label}: attempt ${attempt}/${MaxAttempts} failed (exit=${lastExit}); sleeping ${sleep}s before retry"
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b33c77878eaa7c77' -Arguments @{ label = "${Label}"; attempt = "${attempt}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}"; sleep = "${sleep}" })
             Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep
             if ($OnRetry) {
                 try { & $OnRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; SleepSeconds = $sleep; ExitCode = $lastExit } } catch { $null = $_ }
@@ -267,7 +270,7 @@ function Invoke-WithYurunaRetry {
             Start-Sleep -Seconds $sleep
             $delay = [Math]::Min([int]($delay * 2), $MaxDelaySeconds)
         } else {
-            Write-Information "!! ${Label}: all ${MaxAttempts} attempts exhausted (exit=${lastExit})"
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0006b705ae0abd93' -Arguments @{ label = "${Label}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}" })
             Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $false
         }
         $attempt++

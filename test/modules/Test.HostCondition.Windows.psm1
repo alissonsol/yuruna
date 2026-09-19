@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 # and resolve these names through its Export-ModuleMember. See
 # Test.HostCondition.psm1 for the per-platform split rationale.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Test-YurunaUsbmmiddDevice {
     <#
     .SYNOPSIS
@@ -175,7 +176,7 @@ function Install-YurunaVirtualDisplay {
 
     # --- REGION: Cache + verify the toolkit (download only when missing)
     if (-not (Test-Path -LiteralPath $installer)) {
-        if (-not $PSCmdlet.ShouldProcess('Amyuni usbmmidd_v2 virtual-display driver', 'Download + verify')) {
+        if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_915047f1e0b07833'), 'Download + verify')) {
             return 'Skipped'
         }
         if (-not (Test-Path -LiteralPath $cacheRoot)) { New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null }
@@ -194,19 +195,19 @@ function Install-YurunaVirtualDisplay {
             # invokes the scriptblock inside its own module scope -- a bare
             # scriptblock would resolve them to $null there.
             $fetch = { Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing -TimeoutSec 120 }.GetNewClosure()
-            $downloaded = (Invoke-WithYurunaRetry -Label 'download usbmmidd_v2' -LogPath $logPath -ScriptBlock $fetch).Success
+            $downloaded = (Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'runner.operator_b2a8299782dbc6dc') -LogPath $logPath -ScriptBlock $fetch).Success
         } else {
             try { Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing -TimeoutSec 120; $downloaded = $true }
             catch { Add-Content -LiteralPath $logPath -Value "download failed: $($_.Exception.Message)" }
         }
         if (-not $downloaded -or -not (Test-Path -LiteralPath $zipPath)) {
-            Write-Warning "Virtual-display driver download failed (see $logPath)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cf060e49de0efc39' -Arguments @{ logPath = "$logPath" })
             return 'Failed'
         }
 
         $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
         if ($actual -ne $expectedSha256) {
-            Write-Warning "Virtual-display driver checksum mismatch (expected $expectedSha256, got $actual) -- refusing to install."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_64b97c6a547f8524' -Arguments @{ expectedSha256 = "$expectedSha256"; actual = "$actual" })
             Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
             return 'Failed'
         }
@@ -215,11 +216,11 @@ function Install-YurunaVirtualDisplay {
         Expand-Archive -LiteralPath $zipPath -DestinationPath $cacheRoot -Force
     }
     if (-not (Test-Path -LiteralPath $installer)) {
-        Write-Warning "Virtual-display installer missing after extract: $installer"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6748461c0d115c17' -Arguments @{ installer = "$installer" })
         return 'Failed'
     }
     $infName = (Get-ChildItem -LiteralPath $toolDir -Filter '*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1).Name
-    if (-not $infName) { Write-Warning "usbmmidd .inf not found in $toolDir"; return 'Failed' }
+    if (-not $infName) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_608d47bb8a05be12' -Arguments @{ toolDir = "$toolDir" }); return 'Failed' }
 
     # --- REGION: usbmmidd monitor census
     # The vendor's enableidd is additive (up to 4 monitors), so a COUNT is the
@@ -244,7 +245,7 @@ function Install-YurunaVirtualDisplay {
     $devPresent = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
         Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count -gt 0
     if (-not $devPresent) {
-        if ($PSCmdlet.ShouldProcess('Amyuni usbmmidd virtual-display driver', 'Install (stage signed driver)')) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_4d22e058a1a4a01c'), (Format-YurunaOperatorMessage -Key 'runner.operator_e368b715ba81e0c6'))) {
             Push-Location -LiteralPath $toolDir
             try {
                 $out = & ".\$installerExe" install $infName usbmmidd 2>&1
@@ -264,7 +265,7 @@ function Install-YurunaVirtualDisplay {
     if ($alreadyOne) {
         $status = 'AlreadyActive'
     } else {
-        if ($PSCmdlet.ShouldProcess('Amyuni usbmmidd virtual display', 'Reset to exactly one virtual display (enableidd 0 then 1)')) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_cf99c5c769abe3b5'), (Format-YurunaOperatorMessage -Key 'runner.operator_d6b22af149a28e6c'))) {
             Push-Location -LiteralPath $toolDir
             try {
                 $out = & ".\$installerExe" enableidd 0 2>&1
@@ -304,7 +305,7 @@ function Install-YurunaVirtualDisplay {
     # (the attached monitor is the load-bearing part), so warn and keep the
     # monitor status.
     try { $null = Set-YurunaDisplayCloneAndResolution -LogPath $logPath }
-    catch { Write-Warning "Display clone/resolution enforcement failed (non-fatal): $($_.Exception.Message)" }
+    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c9ff158c02757ab8' -Arguments @{ message = "$($_.Exception.Message)" }) }
 
     return $status
 }
@@ -575,7 +576,7 @@ namespace Yuruna {
 }
 '@
         } catch {
-            Write-Warning "Could not compile Yuruna.DisplayConfig interop; skipping clone/resolution enforcement: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a06ef8a5a1d5ed3c' -Arguments @{ message = "$($_.Exception.Message)" })
             return $false
         }
     }
@@ -710,10 +711,10 @@ namespace Yuruna {
     foreach ($v in @($active | Where-Object { $_.IsVirtual -and $_.HasMode })) {
         if ($v.Width -ge $cloneW -and $v.Height -ge $cloneH) { continue }
         if (-not (& $supportsMode $v.Name $cloneW $cloneH)) {
-            Write-Warning "Virtual display '$($v.Name)' does not advertise a ${cloneW}x${cloneH} mode; OCR may fail. Check the usbmmidd EDID modes."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_72e4140bd951a43f' -Arguments @{ name = "$($v.Name)"; cloneW = "${cloneW}"; cloneH = "${cloneH}" })
             continue
         }
-        if ($PSCmdlet.ShouldProcess("Virtual display $($v.Name) ($($v.Width)x$($v.Height))", "Set ${cloneW}x${cloneH} (OCR floor)")) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_d45436b6c49fe8e7' -Arguments @{ name = "$($v.Name)"; width = "$($v.Width)"; height = "$($v.Height)" }), (Format-YurunaOperatorMessage -Key 'runner.operator_813ca315e92dc542' -Arguments @{ cloneW = "${cloneW}"; cloneH = "${cloneH}" }))) {
             $null    = & $stageDeviceMode $v.Name $cloneW $cloneH $v.PosX $v.PosY $false
             $applyRc = [Yuruna.DisplayConfig]::ChangeDisplaySettingsExApply($null, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
             if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== virtual '$($v.Name)' -> ${cloneW}x${cloneH} (OCR floor) apply rc=$applyRc ==" }
@@ -754,7 +755,7 @@ namespace Yuruna {
         # window sweep below keeps the extended desktop usable).
         $canClone = (& $supportsMode $physTarget.Name $cloneW $cloneH)
         if (-not $canClone) {
-            Write-Warning "Clone: physical display '$($physTarget.Name)' does not advertise a ${cloneW}x${cloneH} mode (the virtual display's only shared resolution); cannot duplicate. Making the virtual display primary anyway; the desktop stays extended."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6180197a529e3b76' -Arguments @{ name = "$($physTarget.Name)"; cloneW = "${cloneW}"; cloneH = "${cloneH}" })
         }
 
         # Skip the re-apply when already converged (duplicated at 1920x1080 with
@@ -767,7 +768,7 @@ namespace Yuruna {
         if ($converged) {
             if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== already duplicated at ${cloneW}x${cloneH}, virtual '$($virtTarget.Name)' primary; no change ==" }
         } else {
-            if ($PSCmdlet.ShouldProcess("Virtual display $($virtTarget.Name)", "Set ${cloneW}x${cloneH} + primary at (0,0); lay out the other monitor(s)")) {
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_5e254220c82bfee1' -Arguments @{ name = "$($virtTarget.Name)" }), (Format-YurunaOperatorMessage -Key 'runner.operator_5a2ea87a76336133' -Arguments @{ cloneW = "${cloneW}"; cloneH = "${cloneH}" }))) {
                 $null  = & $stageDeviceMode $virtTarget.Name $cloneW $cloneH 0 0 $true
                 $nextX = $cloneW
                 foreach ($other in @($active | Where-Object { $_.Name -ne $virtTarget.Name -and $_.HasMode })) {
@@ -788,7 +789,7 @@ namespace Yuruna {
 
             if ($canClone) {
                 # --- REGION: Clone (duplicate) topology across all active displays
-                if ($PSCmdlet.ShouldProcess('All active displays', 'Set clone (duplicate) topology')) {
+                if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_eb34c66699c670e5'), (Format-YurunaOperatorMessage -Key 'runner.operator_00041714738b26ad'))) {
                     $rc = [Yuruna.DisplayConfig]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, ($SDC_APPLY -bor $SDC_TOPOLOGY_CLONE))
                     if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== SetDisplayConfig(clone) rc=$rc ==" }
                     if ($rc -ne 0) {
@@ -799,10 +800,10 @@ namespace Yuruna {
                                 Start-Process -FilePath $displaySwitch -ArgumentList '/clone' -Wait -WindowStyle Hidden -ErrorAction Stop
                                 if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== DisplaySwitch.exe /clone (fallback) ==" }
                             } catch {
-                                Write-Warning "Clone topology: SetDisplayConfig rc=$rc and DisplaySwitch fallback failed: $($_.Exception.Message)"
+                                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b32c4084b2f291c5' -Arguments @{ rc = "$rc"; message = "$($_.Exception.Message)" })
                             }
                         } else {
-                            Write-Warning "Clone topology: SetDisplayConfig rc=$rc and DisplaySwitch.exe not found."
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_58be7b0a6cb2501a' -Arguments @{ rc = "$rc" })
                         }
                     }
                     $changed = $true
@@ -815,7 +816,7 @@ namespace Yuruna {
                     $layout = ($postActive | ForEach-Object {
                             "$($_.Name)$(if ($_.IsVirtual) { ' (virtual)' })@$($_.PosX),$($_.PosY) $($_.Width)x$($_.Height)$(if ($_.IsPrimary) { ' [primary]' })"
                         }) -join '; '
-                    Write-Warning "Clone enforcement: displays are still EXTENDED, not duplicated ($layout). The virtual display is primary so the capture surface is preserved, but the physical monitor shows a separate desktop region. See docs/host-hyperv.md."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2c61a83be908ec75' -Arguments @{ layout = "$layout" })
                     if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== clone NOT bound; still extended: $layout ==" }
                 } elseif ($LogPath) {
                     Add-Content -LiteralPath $LogPath -Value "== clone verified: all active displays at (0,0) =="
@@ -835,14 +836,14 @@ namespace Yuruna {
         if ($primaryActive -and ($primaryActive.Width -lt $cloneW -or $primaryActive.Height -lt $cloneH)) {
             $mode = & $pickFloorMode $primaryActive.Name
             if ($mode) {
-                if ($PSCmdlet.ShouldProcess("Primary display ($($primaryActive.Width)x$($primaryActive.Height))", "Set resolution $($mode.W)x$($mode.H) (OCR floor)")) {
+                if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_5d6ff36a2e05eb76' -Arguments @{ width = "$($primaryActive.Width)"; height = "$($primaryActive.Height)" }), (Format-YurunaOperatorMessage -Key 'runner.operator_94d129d1a1cada05' -Arguments @{ w = "$($mode.W)"; h = "$($mode.H)" }))) {
                     $rc      = & $stageDeviceMode $primaryActive.Name $mode.W $mode.H $primaryActive.PosX $primaryActive.PosY $false
                     $applyRc = [Yuruna.DisplayConfig]::ChangeDisplaySettingsExApply($null, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
                     if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== floor primary '$($primaryActive.Name)' -> $($mode.W)x$($mode.H) (stage rc=$rc apply rc=$applyRc) ==" }
-                    if ($applyRc -ne 0) { Write-Warning "Resolution floor: apply returned $applyRc (0 = success)." } else { $changed = $true }
+                    if ($applyRc -ne 0) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_264ba07042cdb395' -Arguments @{ applyRc = "$applyRc" }) } else { $changed = $true }
                 }
             } else {
-                Write-Warning "Resolution floor: no display mode >= 1920x1080 is available on the primary; OCR may fail. Check the virtual display's EDID modes."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b0a52e9a95b6e986')
             }
         }
     }
@@ -854,7 +855,7 @@ namespace Yuruna {
     # GDI name after the layout changes above so the right source is targeted.
     $primaryName = ((@(& $enumActive) | Where-Object { $_.IsPrimary -and $_.HasMode } | Select-Object -First 1)).Name
     if ($primaryName) {
-        if ($PSCmdlet.ShouldProcess("Primary display $primaryName", 'Set display scale to 100% (live)')) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_821a0a226063ed25' -Arguments @{ primaryName = "$primaryName" }), (Format-YurunaOperatorMessage -Key 'runner.operator_ccd260442c911f6b'))) {
             try {
                 $scaleRc = [Yuruna.DisplayConfig]::SetSourceDpiTo100($primaryName)
                 if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== SetSourceDpiTo100('$primaryName') rc=$scaleRc (1=set 0=already100 -1=notfound -2=error) ==" }
@@ -866,11 +867,11 @@ namespace Yuruna {
                     try { $dpi = [int][Yuruna.DisplayConfig]::GetDpiForSystem() } catch { $dpi = 96 }
                     if ($dpi -gt 96) {
                         $pct = [int][math]::Round(($dpi / 96.0) * 100)
-                        Write-Warning "Could not set display scale to 100% live (rc=$scaleRc); system scaling reads ${pct}%. Set-WindowsHostConditionSet writes the 100% registry knobs, but they apply on next sign-in -- sign out/in (or reboot) the host."
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f373c113a5566e4e' -Arguments @{ scaleRc = "$scaleRc"; pct = "${pct}" })
                     }
                 }
             } catch {
-                Write-Warning "Live display-scale enforcement failed (non-fatal): $($_.Exception.Message)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b669f9fbb9413001' -Arguments @{ message = "$($_.Exception.Message)" })
             }
         }
     }
@@ -879,16 +880,16 @@ namespace Yuruna {
     # New windows open on the primary, but apps that remember a position (or a
     # window dragged onto the extended virtual display) can land off-screen.
     # Best-effort; never fails the cycle.
-    if ($PSCmdlet.ShouldProcess('Top-level windows', 'Move windows off the primary back onto it')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_6bddfaac24f64c25'), (Format-YurunaOperatorMessage -Key 'runner.operator_0f4f78b6a3104b8e'))) {
         try {
             $movedCount = [Yuruna.DisplayConfig]::ConstrainWindowsToPrimary()
             if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== ConstrainWindowsToPrimary moved=$movedCount ==" }
             if ($movedCount -gt 0) {
-                Write-Information "Moved $movedCount window(s) off the virtual display back onto the primary."
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1dafa4accdcc7f53' -Arguments @{ movedCount = "$movedCount" })
                 $changed = $true
             }
         } catch {
-            Write-Warning "Window-reposition sweep failed (non-fatal): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_558d2963492788bb' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
 
@@ -943,14 +944,14 @@ function Remove-YurunaVirtualDisplay {
         # present we cannot drive enableidd without the tool -- surface it;
         # otherwise there is genuinely nothing to clean up.
         if ((& $presentCount) -gt 0) {
-            Write-Warning "usbmmidd virtual display(s) present but the cached installer is missing ($installer); cannot disable them."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5201505becf65702' -Arguments @{ installer = "$installer" })
             return 'Failed'
         }
         return 'AlreadyAbsent'
     }
     if ((& $presentCount) -eq 0) { return 'AlreadyAbsent' }
 
-    if (-not $PSCmdlet.ShouldProcess('Amyuni usbmmidd virtual display', 'Disable all virtual displays (enableidd 0)')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_cf99c5c769abe3b5'), (Format-YurunaOperatorMessage -Key 'runner.operator_1b08502e12a6b3b1'))) {
         return 'Skipped'
     }
 
@@ -990,10 +991,10 @@ function Remove-YurunaVirtualDisplay {
     # removed it).
     if (& $runVerb @('enableidd', '0') 'enableidd 0 (teardown)') { return 'Removed' }
 
-    Write-Warning "usbmmidd virtual display(s) still present after enableidd 0; escalating to 'stop usbmmidd'."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f003c7db354854a')
     if (& $runVerb @('stop', 'usbmmidd') 'stop usbmmidd (escalated teardown)') { return 'Removed' }
 
-    Write-Warning "usbmmidd virtual display(s) still present after enableidd 0 and stop (see $logPath). Reconnect/disconnect the physical monitor or reboot the host to clear it."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11c69dead4a48de8' -Arguments @{ logPath = "$logPath" })
     return 'Failed'
 }
 
@@ -1052,9 +1053,9 @@ function Set-YurunaDisplayScale100 {
             $target = -$recommended
             if ($current -ne $target) {
                 $label = $mon.PSChildName
-                if ($PSCmdlet.ShouldProcess("Monitor $label", "Set DpiValue $current -> $target (100% display scale)")) {
+                if ($PSCmdlet.ShouldProcess("Monitor $label", (Format-YurunaOperatorMessage -Key 'runner.operator_21f42dcf20935063' -Arguments @{ current = "$current"; target = "$target" }))) {
                     Set-ItemProperty -LiteralPath $mon.PSPath -Name 'DpiValue' -Value $target -Type DWord
-                    Write-Information "Set display scale to 100% for monitor $label (DpiValue: $current -> $target)."
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b432098ae43b78c8' -Arguments @{ label = "$label"; current = "$current"; target = "$target" })
                     $scaleChanged = $true
                 }
             }
@@ -1075,38 +1076,38 @@ function Set-YurunaDisplayScale100 {
     $currentLogPixels = if ($dp -and ($dp.PSObject.Properties.Name -contains 'LogPixels'))      { & $asSignedDword $dp.LogPixels }      else { 96 }
     $currentWin8      = if ($dp -and ($dp.PSObject.Properties.Name -contains 'Win8DpiScaling')) { & $asSignedDword $dp.Win8DpiScaling } else { 0 }
     if ($currentLogPixels -ne 96) {
-        if ($PSCmdlet.ShouldProcess($desktopPath, "Set LogPixels=96, Win8DpiScaling=1 (100% system DPI)")) {
+        if ($PSCmdlet.ShouldProcess($desktopPath, (Format-YurunaOperatorMessage -Key 'runner.operator_116ec74ac5b0a7f3'))) {
             Set-ItemProperty -LiteralPath $desktopPath -Name 'LogPixels'      -Value 96 -Type DWord
             Set-ItemProperty -LiteralPath $desktopPath -Name 'Win8DpiScaling' -Value 1  -Type DWord
-            Write-Information "Set system DPI to 96 (100%) for the current user (LogPixels=$currentLogPixels -> 96, Win8DpiScaling=$currentWin8 -> 1)."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d454ac849fb047c8' -Arguments @{ currentLogPixels = "$currentLogPixels"; currentWin8 = "$currentWin8" })
             $scaleChanged = $true
         }
     } else {
-        Write-Information "System DPI (LogPixels) is already 96 (100%)."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2198291864b673e1')
     }
 
     # --- REGION: Windows 11 Accessibility "Text size"
     $accPath = 'HKCU:\Software\Microsoft\Accessibility'
     if (-not (Test-Path -LiteralPath $accPath)) {
-        if ($PSCmdlet.ShouldProcess($accPath, 'Create Accessibility key')) {
+        if ($PSCmdlet.ShouldProcess($accPath, (Format-YurunaOperatorMessage -Key 'runner.operator_557ad99d1ffd4409'))) {
             $null = New-Item -Path $accPath -Force
         }
     }
     $ap = Get-ItemProperty -LiteralPath $accPath -ErrorAction SilentlyContinue
     $currentTsf = if ($ap -and ($ap.PSObject.Properties.Name -contains 'TextScaleFactor')) { [int]$ap.TextScaleFactor } else { 100 }
     if ($currentTsf -ne 100) {
-        if ($PSCmdlet.ShouldProcess($accPath, "Set TextScaleFactor $currentTsf -> 100")) {
+        if ($PSCmdlet.ShouldProcess($accPath, (Format-YurunaOperatorMessage -Key 'runner.operator_b020e81fe95e0bbd' -Arguments @{ currentTsf = "$currentTsf" }))) {
             Set-ItemProperty -LiteralPath $accPath -Name 'TextScaleFactor' -Value 100 -Type DWord
-            Write-Information "Set accessibility TextScaleFactor to 100 ($currentTsf -> 100)."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_36099e5fc006e763' -Arguments @{ currentTsf = "$currentTsf" })
             $scaleChanged = $true
         }
     } else {
-        Write-Information "Accessibility TextScaleFactor is already 100."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_301546e08663bcbb')
     }
 
     if ($scaleChanged) {
-        Write-Warning "Display/text scale changes take effect on next sign-in."
-        Write-Warning "Sign out and back in (or reboot) before running Start-TestRunner.ps1 again, or OCR will still see the old scale."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_61e6dacabba69f87')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_183c242969f55f65')
     }
     return $scaleChanged
 }
@@ -1238,7 +1239,7 @@ function Get-WindowsDisplayScaleIssue {
         return [pscustomobject]@{
             Status = 'Unknown'
             Issue  = @()
-            Detail = 'The Windows display scaling settings could not be read on this host.'
+            Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_280d9eca5cd4b998')
         }
     }
 
@@ -1269,7 +1270,7 @@ function Get-WindowsDisplayScaleIssue {
         $determined  = $true
         if ($current -ne $target) {
             $percent = 100 + (($current - $target) * 25)
-            $issue.Add("Monitor $($mon.Name) is at $percent% display scale (DpiValue=$current, recommended offset=$recommended).")
+            $issue.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ff46ac2e57716259' -Arguments @{ name = "$($mon.Name)"; percent = "$percent"; current = "$current"; recommended = "$recommended" }))
         }
     }
 
@@ -1283,7 +1284,7 @@ function Get-WindowsDisplayScaleIssue {
         $determined = $true
         if ($logPixels -ne 96) {
             $percent = [math]::Round(($logPixels / 96.0) * 100)
-            $issue.Add("System DPI applies to every display and is $logPixels ($percent%).")
+            $issue.Add((Format-YurunaOperatorMessage -Key 'runner.operator_8551169e2b329b92' -Arguments @{ logPixels = "$logPixels"; percent = "$percent" }))
         }
     }
 
@@ -1294,7 +1295,7 @@ function Get-WindowsDisplayScaleIssue {
     if ($null -ne $Setting.TextScaleFactor) {
         $tsf = & $asSignedDword $Setting.TextScaleFactor
         if ($tsf -ne 100) {
-            $issue.Add("Accessibility text size is $tsf% (Settings > Accessibility > Text size).")
+            $issue.Add((Format-YurunaOperatorMessage -Key 'runner.operator_b44c6ce01b643245' -Arguments @{ tsf = "$tsf" }))
         }
     }
 
@@ -1302,20 +1303,20 @@ function Get-WindowsDisplayScaleIssue {
         return [pscustomobject]@{
             Status = 'Issue'
             Issue  = @($issue)
-            Detail = 'Host display or text scaling is not at 100%.'
+            Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_bb588d717338d3d3')
         }
     }
     if ($determined) {
         return [pscustomobject]@{
             Status = 'Clean'
             Issue  = @()
-            Detail = 'Every scaling knob this host records reads 100%.'
+            Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_3d0c518b6c9335de')
         }
     }
     return [pscustomobject]@{
         Status = 'Unknown'
         Issue  = @()
-        Detail = 'This host records no per-monitor display scale, so each display is running at whatever scale Windows recommends for it, which is 125% or 150% on a HiDPI panel. Read Settings > System > Display > Scale to confirm it is 100%.'
+        Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_64ba07eb293bfdb0')
     }
 }
 
@@ -1337,7 +1338,7 @@ function Set-WindowsHostConditionSet {
     param()
 
     if (-not $IsWindows) {
-        Write-Warning "Set-WindowsHostConditionSet is only supported on Windows."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_550946089ec508da')
         return 0
     }
 
@@ -1345,7 +1346,7 @@ function Set-WindowsHostConditionSet {
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
-        Write-Error "This script must be run as Administrator. Right-click PowerShell -> Run as Administrator."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9065276ad8ccddb6')
         return 1
     }
 
@@ -1380,23 +1381,23 @@ function Set-WindowsHostConditionSet {
             }
         }
         if ($featureState -eq 'Enabled') {
-            Write-Warning "Hyper-V feature is Enabled but components (vmms) are not deployed yet."
-            Write-Warning "  A Windows RESTART is pending. Reboot, then re-run this script."
-            $unmet.Add('Hyper-V components pending a reboot')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ddcd511702c4cced')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_48da20f024cc7b4d')
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_2dbc212b874aa5e4'))
         } else {
-            Write-Warning "Hyper-V service (vmms) is not installed (feature state: $featureState)."
-            Write-Warning "  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
-            Write-Warning "  Then reboot and re-run this script."
-            $unmet.Add('Hyper-V service (vmms) not installed')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6f814160b35e11f5' -Arguments @{ featureState = "$featureState" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2284614ab700c9b7')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_919d3eac253c2d7b')
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_42b767e5d0a1d476'))
         }
     } elseif ($svc.Status -ne 'Running') {
         if ($PSCmdlet.ShouldProcess("Hyper-V service (vmms)", "Start")) {
-            Write-Information "Starting Hyper-V Virtual Machine Management service..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8de6eade88c97d85')
             Start-Service vmms
             $changed = $true
         }
     } else {
-        Write-Information "Hyper-V service (vmms) is already running."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8aeb93b7e2037f2')
     }
 
     # --- REGION: Display timeout -> Never
@@ -1407,14 +1408,14 @@ function Set-WindowsHostConditionSet {
 
     if ($currentAc -ne 0) {
         $minutes = [math]::Round($currentAc / 60)
-        if ($PSCmdlet.ShouldProcess("Display timeout AC (currently $minutes min)", "Set to 0 (Never)")) {
-            Write-Information "Setting display timeout to Never (AC and DC)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e7d251348e22eeb5' -Arguments @{ minutes = "$minutes" }), (Format-YurunaOperatorMessage -Key 'runner.operator_af80cb8b9805df26'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d7ba04fc3114a17e')
             & powercfg /change monitor-timeout-ac 0
             & powercfg /change monitor-timeout-dc 0
             $changed = $true
         }
     } else {
-        Write-Information "Display timeout (AC) is already set to Never."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f4faadbd7e5c2c6a')
     }
 
     # --- REGION: Machine inactivity lock -> disabled
@@ -1426,13 +1427,13 @@ function Set-WindowsHostConditionSet {
     }
 
     if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
-        if ($PSCmdlet.ShouldProcess("Inactivity lock timeout (currently ${lockTimeoutSeconds}s)", "Set to 0 (disabled)")) {
-            Write-Information "Disabling machine inactivity lock..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c2837fa426ae1306' -Arguments @{ lockTimeoutSeconds = "${lockTimeoutSeconds}" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f65d44a26e9ca81d')
             Set-ItemProperty -Path $regPath -Name 'InactivityTimeoutSecs' -Value 0
             $changed = $true
         }
     } else {
-        Write-Information "Machine inactivity lock is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_25aea44ba0131a2a')
     }
 
     # --- REGION: Lock screen on resume -> disabled
@@ -1443,15 +1444,15 @@ function Set-WindowsHostConditionSet {
     $consoleLockVal = if ($consoleLock) { [Convert]::ToInt32($consoleLock.Matches[0].Groups[1].Value, 16) } else { $null }
 
     if ($consoleLockVal -and $consoleLockVal -ne 0) {
-        if ($PSCmdlet.ShouldProcess("Console lock on resume (currently enabled)", "Disable")) {
-            Write-Information "Disabling lock screen on resume from sleep..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_9ac9c7e924316ac3'), "Disable")) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e23879fc293cffdb')
             & powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
             & powercfg /SETDCVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
             & powercfg /SETACTIVE SCHEME_CURRENT
             $changed = $true
         }
     } else {
-        Write-Information "Lock screen on resume is already disabled (or not applicable)."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_74d629322c4c0da8')
     }
 
     # --- REGION: Allow ICMPv4 echo (ping) from VM guests and the LAN
@@ -1477,16 +1478,16 @@ function Set-WindowsHostConditionSet {
     $enabledAny = $false
     foreach ($rule in $icmpAllowRules) {
         if ($rule.Enabled -ne 'True') {
-            if ($PSCmdlet.ShouldProcess("$($rule.DisplayName) [$($rule.Profile)]", 'Enable built-in ICMPv4 Echo Request rule')) {
+            if ($PSCmdlet.ShouldProcess("$($rule.DisplayName) [$($rule.Profile)]", (Format-YurunaOperatorMessage -Key 'runner.operator_10b5fa431a00abe6'))) {
                 Enable-NetFirewallRule -Name $rule.Name -ErrorAction SilentlyContinue
-                Write-Information "Enabled ICMPv4 echo rule: $($rule.DisplayName) [profile: $($rule.Profile)]"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bf49e3b21a93364e' -Arguments @{ displayName = "$($rule.DisplayName)"; profile = "$($rule.Profile)" })
                 $enabledAny = $true
                 $changed = $true
             }
         }
     }
     if (-not $enabledAny) {
-        Write-Information "ICMPv4 echo-request rules: all matching Allow rules already enabled (count: $($icmpAllowRules.Count))."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_508eff5a6eb8b2b1' -Arguments @{ count = "$($icmpAllowRules.Count)" })
     }
 
     # 5b. Belt-and-suspenders: our own always-on rule, profile Any.
@@ -1494,17 +1495,17 @@ function Set-WindowsHostConditionSet {
     $existingRule = Get-NetFirewallRule -DisplayName $icmpRuleName -ErrorAction SilentlyContinue
     if ($existingRule) {
         if ($existingRule.Enabled -ne 'True') {
-            if ($PSCmdlet.ShouldProcess($icmpRuleName, 'Enable existing firewall rule')) {
+            if ($PSCmdlet.ShouldProcess($icmpRuleName, (Format-YurunaOperatorMessage -Key 'runner.operator_900c7dfb1e5d32e3'))) {
                 Enable-NetFirewallRule -DisplayName $icmpRuleName
-                Write-Information "Enabled firewall rule: $icmpRuleName"
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_349ba5da238ab77b' -Arguments @{ icmpRuleName = "$icmpRuleName" })
                 $changed = $true
             }
         } else {
-            Write-Information "Firewall rule already present and enabled: $icmpRuleName"
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_928a02fd91c5d181' -Arguments @{ icmpRuleName = "$icmpRuleName" })
         }
     } else {
-        if ($PSCmdlet.ShouldProcess($icmpRuleName, 'Create ICMPv4 echo allow rule (all profiles)')) {
-            Write-Information "Creating firewall rule: $icmpRuleName (all profiles)..."
+        if ($PSCmdlet.ShouldProcess($icmpRuleName, (Format-YurunaOperatorMessage -Key 'runner.operator_4d55461626461cca'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c36d98127664db55' -Arguments @{ icmpRuleName = "$icmpRuleName" })
             $null = New-NetFirewallRule `
                 -DisplayName $icmpRuleName `
                 -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Enable-TestAutomation (host\windows.hyper-v).' `
@@ -1527,11 +1528,11 @@ function Set-WindowsHostConditionSet {
             $null -ne $fltr -and $fltr.Protocol -eq 'ICMPv4'
         }
     if ($icmpBlockRules) {
-        Write-Warning "Found enabled ICMPv4 Block rules that may override the Allow rules above:"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dee3df1a3e35bd23')
         foreach ($r in $icmpBlockRules) {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
-        Write-Warning "If ping still fails, disable these or ask your admin -- GPO may be pushing them."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_728ccee85989e53f')
     }
 
     # --- REGION: Allow inbound TCP on the status-service port
@@ -1574,15 +1575,15 @@ function Set-WindowsHostConditionSet {
             )
         }
     if ($tcpBlockRules) {
-        Write-Warning "Found enabled TCP Block rules that may override the status-service Allow rule:"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8c80c4ba4e9cd7af')
         foreach ($r in $tcpBlockRules) {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
-        Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin -- GPO may be pushing them."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bdf3488a7845a3ea' -Arguments @{ statusPort = "$statusPort" })
         # A Block rule wins over the Allow rule just ensured, and removing one
         # pushed by policy is not this process's call, so the status port stays
         # closed to the LAN until an operator or their admin acts.
-        $unmet.Add("inbound TCP Block rule on the status-service port $statusPort")
+        $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_025b1d211de4d9b7' -Arguments @{ statusPort = "$statusPort" }))
     }
 
     # --- REGION: Host metrics exporter
@@ -1620,11 +1621,11 @@ function Set-WindowsHostConditionSet {
     # Sync-WindowsHostClock for what a drifting one does to them.
     $clock = Sync-WindowsHostClock
     if ($clock.Succeeded) {
-        Write-Information "Host clock: $($clock.Message)"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bde543092a1bb8a4' -Arguments @{ message = "$($clock.Message)" })
         $changed = $true
     } else {
-        Write-Warning "Host clock not disciplined: $($clock.Message)"
-        $unmet.Add('host clock discipline (W32Time)')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_51cb27fe73da4e73' -Arguments @{ message = "$($clock.Message)" })
+        $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_c95d4cb31f7e15f2'))
     }
 
     # Display/text scale = 100% (HKCU per-monitor DPI, system DPI, Win11
@@ -1649,7 +1650,7 @@ function Set-WindowsHostConditionSet {
 
     if ($changed) {
         Write-Information ""
-        Write-Information "Settings updated. Re-run Assert-HostConditionSet to verify:"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d20e469ddee7bf32')
         Write-Information "  Assert-HostConditionSet -HostType 'host.windows.hyper-v'"
     }
 
@@ -1659,7 +1660,7 @@ function Set-WindowsHostConditionSet {
     if ($WhatIfPreference) { return 0 }
 
     if ($unmet.Count -gt 0) {
-        Write-Warning "Host settings applied with $($unmet.Count) condition(s) still unmet: $($unmet -join ', ')."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e02f5f51fe94b8cb' -Arguments @{ count = "$($unmet.Count)"; join = "$($unmet -join ', ')" })
     }
     return $unmet.Count
 }
@@ -1689,38 +1690,38 @@ function Sync-WindowsHostClock {
     param()
 
     if (-not $IsWindows) {
-        return @{ Succeeded = $false; Message = 'Sync-WindowsHostClock is only supported on Windows.' }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_35d5afdbb117286d') }
     }
-    $manual = 'From an elevated PowerShell: Set-Service W32Time -StartupType Automatic; Start-Service W32Time; w32tm /resync /force'
+    $manual = (Format-YurunaOperatorMessage -Key 'runner.operator_4a166764452f6255')
     $timeSvc = Get-Service -Name W32Time -ErrorAction SilentlyContinue
     if (-not $timeSvc) {
-        return @{ Succeeded = $false; Message = 'Windows Time service (W32Time) is not present; this host cannot discipline its own clock.' }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_fae243e03122adf1') }
     }
 
     $steps = @()
     try {
         if ($timeSvc.StartType -ne 'Automatic') {
-            if ($PSCmdlet.ShouldProcess("Windows Time service (W32Time, currently $($timeSvc.StartType))", 'Set startup type to Automatic')) {
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e49ec440a1a060bf' -Arguments @{ startType = "$($timeSvc.StartType)" }), (Format-YurunaOperatorMessage -Key 'runner.operator_e3274d8030cf75c8'))) {
                 Set-Service -Name W32Time -StartupType Automatic -ErrorAction Stop
                 $steps += 'startup type -> Automatic'
             }
         }
         if ($timeSvc.Status -ne 'Running') {
-            if ($PSCmdlet.ShouldProcess('Windows Time service (W32Time)', 'Start')) {
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_3e4bce529537a12a'), 'Start')) {
                 Start-Service -Name W32Time -ErrorAction Stop
                 $steps += 'service started'
             }
         }
     } catch {
-        return @{ Succeeded = $false; Message = "W32Time could not be configured ($($_.Exception.Message)). $manual" }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d9a2d2bf22d15adf' -Arguments @{ message = "$($_.Exception.Message)"; manual = "$manual" }) }
     }
 
-    if (-not $PSCmdlet.ShouldProcess('Host clock', 'Resynchronize against the configured time source')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_ab78290b0162b326'), (Format-YurunaOperatorMessage -Key 'runner.operator_5a198f884eed15db'))) {
         return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
     }
     $resyncOut = & w32tm /resync /force 2>&1
     if ($LASTEXITCODE -ne 0) {
-        return @{ Succeeded = $false; Message = "w32tm /resync failed: $(($resyncOut | Out-String).Trim()) -- inspect the source with 'w32tm /query /status'. $manual" }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_5ee21a55ab02bc48' -Arguments @{ trim = "$(($resyncOut | Out-String).Trim())"; manual = "$manual" }) }
     }
     $steps += 'resynchronized'
     return @{ Succeeded = $true; Message = "W32Time: $($steps -join ', ')." }
@@ -1744,14 +1745,14 @@ function Assert-WindowsHostConditionSet {
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
         Write-Warning "========"
-        Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f5be34e2fa47f964')
         Write-Warning ""
-        Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21bf544607a3ab53')
         Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
         Write-Warning ""
-        Write-Warning " If Hyper-V is not installed, enable it first:"
-        Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
-        Write-Warning " then reboot."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_66fd4994ecae1b26')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7dc2dfdbe7267514')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f65262da9eead076')
         Write-Warning "========"
         return $false
     }
@@ -1766,11 +1767,11 @@ function Assert-WindowsHostConditionSet {
             if ($seconds -ne 0) {
                 $minutes = [math]::Round($seconds / 60)
                 Write-Warning "========"
-                Write-Warning " Display timeout is set to $minutes minute(s) on AC power."
-                Write-Warning " The screen will blank during long test runs, which may cause"
-                Write-Warning " Hyper-V Enhanced Session screen captures to fail."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a19fdf9bda60abcf' -Arguments @{ minutes = "$minutes" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f44f9e8f23d222ee')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6463c7679f7ee09e')
                 Write-Warning ""
-                Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21bf544607a3ab53')
                 Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
                 Write-Warning "========"
                 return $false
@@ -1789,10 +1790,10 @@ function Assert-WindowsHostConditionSet {
         }
         if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
             Write-Warning "========"
-            Write-Warning " Machine inactivity lock is set to $lockTimeoutSeconds second(s)."
-            Write-Warning " The lock screen will activate during long test runs."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_09bf54ad310b792e' -Arguments @{ lockTimeoutSeconds = "$lockTimeoutSeconds" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dbbaafd4998deae3')
             Write-Warning ""
-            Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21bf544607a3ab53')
             Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
             Write-Warning "========"
             return $false
@@ -1899,16 +1900,16 @@ function Test-WindowsGuestNetworkHealth {
     }
 
     if ($HostType -and $HostType -ne 'host.windows.hyper-v') {
-        $record.Reason = "Host type '$HostType' carries no Hyper-V guest-network state to check."
+        $record.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_fec95ecce649b320' -Arguments @{ hostType = "$HostType" })
         return $record
     }
     if (-not $IsWindows) {
-        $record.Reason = 'Not Windows -- Hyper-V guest-network state is not evaluable here.'
+        $record.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b50547961ef89534')
         return $record
     }
     if (-not (Get-Command Get-VMSwitch -ErrorAction SilentlyContinue) -or
         -not (Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue)) {
-        $record.Reason = 'Hyper-V / Net* cmdlets are not available -- guest-network state left unchecked.'
+        $record.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_5b4220329251da21')
         return $record
     }
 
@@ -1954,10 +1955,7 @@ function Test-WindowsGuestNetworkHealth {
                     $externalViable = $true
                 } else {
                     $record.Degraded = $true
-                    Write-Information ("Host guest-network: External vSwitch '$($sw.Name)' reads '$verdict' -- " +
-                        'guests attached there come up with no carrier, so they take the Default Switch instead ' +
-                        '(NAT + DHCP; LAN-exposed services ride host port-forwarders). ' +
-                        (Get-WindowsUplinkVerdictRemedy -Verdict $verdict -SwitchName $sw.Name))
+                    Write-Information ((Format-YurunaOperatorMessage -Key 'runner.operator_25c718fca36ba33c' -Arguments @{ name = "$($sw.Name)"; verdict = "$verdict"; name2 = [string]((Get-WindowsUplinkVerdictRemedy -Verdict $verdict -SwitchName $sw.Name)) }))
                 }
             }
         }
@@ -1970,29 +1968,29 @@ function Test-WindowsGuestNetworkHealth {
         if ($externalViable) {
             $record.Path = 'external'
             $record.Reason = if ($externalPending) {
-                'No External vSwitch exists yet; the driver creates one on demand when a guest asks for a bridged path.'
+                (Format-YurunaOperatorMessage -Key 'runner.operator_ee55e336902ccaa1')
             } else {
-                'An External vSwitch can still carry a guest.'
+                (Format-YurunaOperatorMessage -Key 'runner.operator_8df0c05badd86279')
             }
         } elseif ($defaultSwitchIp) {
             $record.Path = 'default-switch'
             $record.Reason = if ($notBridgeable) {
-                "Uplink is Wi-Fi or USB, which Hyper-V cannot bridge; guests take the Default Switch (NAT + DHCP) at $($defaultSwitchIp.IPAddress)."
+                (Format-YurunaOperatorMessage -Key 'runner.operator_3ab94b401b1ddd7f' -Arguments @{ iPAddress = "$($defaultSwitchIp.IPAddress)" })
             } else {
-                "No External vSwitch can carry a guest; the Default Switch (NAT + DHCP) at $($defaultSwitchIp.IPAddress) is still available."
+                (Format-YurunaOperatorMessage -Key 'runner.operator_12b817c88dcdf727' -Arguments @{ iPAddress = "$($defaultSwitchIp.IPAddress)" })
             }
         } else {
             $record.Path     = 'none'
             $record.Healthy  = $false
             $record.Degraded = $true
-            $record.Reason   = "No External vSwitch can carry a guest and the host holds no 'vEthernet (Default Switch)' IPv4, so a guest created now would have no network at all."
+            $record.Reason   = (Format-YurunaOperatorMessage -Key 'runner.operator_a85f2b132cd2973e')
         }
     } catch {
         $record.Healthy  = $true
         $record.Degraded = $false
         $record.Path     = 'unknown'
         $record.Verdicts = @()
-        $record.Reason   = "Guest-network probe did not complete ($($_.Exception.Message)); host state left unchecked."
+        $record.Reason   = (Format-YurunaOperatorMessage -Key 'runner.operator_b545ce6374221d59' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return $record
 }
@@ -2017,15 +2015,15 @@ function Test-WindowsHostMinimum {
     $ok = $true
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
     if (-not $isAdmin) {
-        Write-Warning "host.windows.hyper-v requires Administrator. Re-run this script from an elevated PowerShell -- without elevation, Hyper-V cmdlets (Get-VM/Stop-VM/Remove-VM) fail with 'You do not have the required permission...' before any friendlier check can run."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_574da1edda3ad2a0')
         $ok = $false
     }
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc) {
-        Write-Warning "Hyper-V Virtual Machine Management service (vmms) is not installed. Enable Hyper-V from an elevated PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All  (then reboot)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0f5a121afdec7904')
         $ok = $false
     } elseif ($svc.Status -ne 'Running') {
-        Write-Warning "Hyper-V Virtual Machine Management service (vmms) is not running. Start it from an elevated PowerShell: Start-Service vmms"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_54a435c1056986c3')
         $ok = $false
     }
     return $ok
@@ -2154,7 +2152,7 @@ function Get-WindowsVhdxFilterIssue {
     $issues = @()
 
     if (-not $FilterProfile.VhdxPath) {
-        return @{ Status = 'Unknown'; Issue = @(); Detail = 'The Hyper-V virtual hard disk path could not be read, so nothing can be said about what filters it.' }
+        return @{ Status = 'Unknown'; Issue = @(); Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_5a576784a1b51113') }
     }
     # Drop empty entries before counting. @($null) has one element, so a
     # profile whose filter reading came back null would otherwise count as
@@ -2162,7 +2160,7 @@ function Get-WindowsVhdxFilterIssue {
     # the exact false all-clear the Unknown state exists to prevent.
     $filters = @($FilterProfile.Filters | Where-Object { $_ -and $null -ne $_.Altitude })
     if ($filters.Count -eq 0) {
-        return @{ Status = 'Unknown'; Issue = @(); Detail = "No filesystem filters could be listed for $($FilterProfile.VhdxVolume). Listing them needs an elevated session, so this is 'not measured' rather than 'nothing attached'." }
+        return @{ Status = 'Unknown'; Issue = @(); Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_256dd2d9eb1d3160' -Arguments @{ vhdxVolume = "$($FilterProfile.VhdxVolume)" }) }
     }
 
     $scanners = @($filters | Where-Object {
@@ -2171,7 +2169,7 @@ function Get-WindowsVhdxFilterIssue {
 
     if ($scanners.Count -gt 0) {
         $names = ($scanners | ForEach-Object { "$($_.Name) (altitude $($_.Altitude))" }) -join ', '
-        $issues += "Anti-virus filters are attached to $($FilterProfile.VhdxVolume), the volume holding $($FilterProfile.VhdxPath): $names. Every guest write is inspected on its way to disk."
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_3eb81d6ae5a943dd' -Arguments @{ vhdxVolume = "$($FilterProfile.VhdxVolume)"; vhdxPath = "$($FilterProfile.VhdxPath)"; names = "$names" })
 
         # An exclusion list that does not name the VHDX path is the same as no
         # exclusion, and Defender's list is the only one readable from here --
@@ -2179,7 +2177,7 @@ function Get-WindowsVhdxFilterIssue {
         # unknown coverage rather than assumed either way.
         $covered = @($FilterProfile.Exclusions | Where-Object { $_ -and $FilterProfile.VhdxPath.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
         if ($covered.Count -eq 0) {
-            $issues += "No Microsoft Defender exclusion covers that path. Where a third-party product owns real-time scanning its own exclusions are not readable from here and have to be checked in its console."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_f5a443dafafef278')
         }
     }
 
@@ -2187,11 +2185,11 @@ function Get-WindowsVhdxFilterIssue {
         $usedGb = [math]::Round($FilterProfile.ShadowUsedBytes / 1GB, 1)
         $maxGb  = if ($FilterProfile.ShadowMaxBytes) { [math]::Round($FilterProfile.ShadowMaxBytes / 1GB, 1) } else { $null }
         $span   = if ($maxGb) { "$usedGb GB of a $maxGb GB area" } else { "$usedGb GB" }
-        $issues += "Volume shadow copies are using $span on this host ($($FilterProfile.ShadowCount) copies). A dynamically expanding VHDX first-touches new blocks constantly during an install, and each first touch under a shadow copy is a copy-on-write before the guest's own write lands."
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_eb14a9e26aa5a3cf' -Arguments @{ span = "$span"; shadowCount = "$($FilterProfile.ShadowCount)" })
     }
 
     if ($issues.Count -eq 0) {
-        return @{ Status = 'Clean'; Issue = @(); Detail = "Nothing between $($FilterProfile.VhdxPath) and the disk is inspecting or duplicating guest writes." }
+        return @{ Status = 'Clean'; Issue = @(); Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_b48d71da6d030cfe' -Arguments @{ vhdxPath = "$($FilterProfile.VhdxPath)" }) }
     }
     return @{ Status = 'Issue'; Issue = $issues; Detail = '' }
 }
@@ -2252,7 +2250,7 @@ function Initialize-WindowsHostMetricsExporter {
         [string]$ConfigPath = (Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test.config.yml')
     )
     if (-not $IsWindows) {
-        return [pscustomobject]@{ Status = 'Skipped'; Reason = 'the host-metrics exporter is a Windows host component' }
+        return [pscustomobject]@{ Status = 'Skipped'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_7da85baa92a16593') }
     }
     try {
         if (-not (Get-Command Install-YurunaHostMetricsExporter -ErrorAction SilentlyContinue)) {
@@ -2289,7 +2287,7 @@ function Initialize-WindowsHostMetricsExporter {
         $null = Set-YurunaHostMetricsExporter -ConfigIp $scrapeIp -EnvIp $env:YURUNA_CACHING_PROXY_SERVICE_IP -SkipInstall -Confirm:$false
         return [pscustomobject]@{ Status = 'Installed'; Reason = $reason }
     } catch {
-        return [pscustomobject]@{ Status = 'Failed'; Reason = "the exporter convergence threw: $($_.Exception.Message)" }
+        return [pscustomobject]@{ Status = 'Failed'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_255019e79dd813a4' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
 }
 

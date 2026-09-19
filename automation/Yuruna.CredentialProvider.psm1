@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ef082c-e8a7-4b9b-a65e-775dd8f26574
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
     Justification = 'Cross-module-eviction-safe anchor.')]
 param()
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not $global:YurunaCredentialProviders) {
     $global:YurunaCredentialProviders = [ordered]@{}
 }
@@ -105,7 +106,7 @@ Register-CredentialProvider -Type 'azurecr' `
         $null = $a
         $registry = ($Target -split '/')[0]
         if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-            Write-Warning "azurecr Authenticator: 'az' CLI not on PATH; cannot run 'az acr login'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_a85e6d3c95a02f33')
             return $false
         }
         & az acr login --name $registry | Out-Null
@@ -128,11 +129,11 @@ Register-CredentialProvider -Type 'ecr' `
         $registryHost = ($Target -split '/')[0]
         $region = ($registryHost -split '\.')[3]
         if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-            Write-Warning "ecr Authenticator: 'aws' CLI not on PATH; cannot run 'aws ecr get-login-password'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_cb3a96dd4251d42c')
             return $false
         }
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-            Write-Warning "ecr Authenticator: 'docker' CLI not on PATH; cannot complete login."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_48ffd650c4a65b3b')
             return $false
         }
         $password = & aws ecr get-login-password --region $region
@@ -158,11 +159,11 @@ Register-CredentialProvider -Type 'gar' `
         $null = $a
         $registryHost = ($Target -split '/')[0]
         if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
-            Write-Warning "gar Authenticator: 'gcloud' CLI not on PATH; cannot run 'gcloud auth print-access-token'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_c53fba62e994e87a')
             return $false
         }
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-            Write-Warning "gar Authenticator: 'docker' CLI not on PATH; cannot complete login."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_f4bb767139b39bba')
             return $false
         }
         $token = & gcloud auth print-access-token
@@ -190,11 +191,11 @@ Register-CredentialProvider -Type 'dockerhub' `
         $userName = $env:YURUNA_DOCKER_HUB_USERNAME
         $password = $env:YURUNA_DOCKER_HUB_PASSWORD
         if ([string]::IsNullOrEmpty($userName) -or [string]::IsNullOrEmpty($password)) {
-            Write-Warning "dockerhub Authenticator: set YURUNA_DOCKER_HUB_USERNAME and YURUNA_DOCKER_HUB_PASSWORD env vars to enable Docker Hub login."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_2b40950464027594')
             return $false
         }
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-            Write-Warning "dockerhub Authenticator: 'docker' CLI not on PATH."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_2a3b65a19646de9d')
             return $false
         }
         $password | & docker login --username $userName --password-stdin | Out-Null
@@ -223,11 +224,11 @@ Register-CredentialProvider -Type 'docker-generic' `
         $password = $env:YURUNA_REGISTRY_PASSWORD
         $registryHost = ($Target -split '/')[0]
         if ([string]::IsNullOrEmpty($userName) -or [string]::IsNullOrEmpty($password)) {
-            Write-Warning "docker-generic Authenticator: set YURUNA_REGISTRY_USERNAME and YURUNA_REGISTRY_PASSWORD env vars to enable login for '$registryHost'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_7a8a2cc13729acb4' -Arguments @{ registryHost = "$registryHost" })
             return $false
         }
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-            Write-Warning "docker-generic Authenticator: 'docker' CLI not on PATH."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_7f64bfad9ab853d4')
             return $false
         }
         $password | & docker login --username $userName --password-stdin $registryHost | Out-Null

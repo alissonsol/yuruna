@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 $VncRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $VncIsMac = $IsMacOS -and (Test-Path '/usr/libexec/PlistBuddy')
@@ -315,7 +316,7 @@ Describe 'A failed VM start is never reported as success' {
         $body = $text.Substring($i, $next - $i)
         Assert-True ($body -notmatch '\$startRes -is \[hashtable\] -and') 'the short-circuiting shape guard is gone'
         Assert-True ($body -match 'Select-Object -Last 1') 'the status record is extracted from the return'
-        Assert-True ($body -match 'no status record') 'a missing record fails the step'
+        Assert-True (((Get-CatalogSourceMessage -Source $body) -join "`n") -match 'no status record') 'a missing record fails the step'
     }
 }
 

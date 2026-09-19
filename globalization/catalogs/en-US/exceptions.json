@@ -1,0 +1,1939 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "exceptions",
+  "locale": "en-US",
+  "messages": {
+    "exceptions.host_1568d9e12a12e190": {
+      "message": "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead.",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Sync-HostConfiguration.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_1c714189825ec0e2": {
+      "message": "Hyper-V\\Remove-VM failed for '{vMName}': {message}\nLive Hyper-V state:\n{diag}",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/guest.pool-control-service/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$VMName"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        },
+        "diag": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$diag"
+        }
+      }
+    },
+    "exceptions.host_29df6c21ee80406c": {
+      "message": "download wrote no file to {tmp}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "tmp": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$tmp"
+        }
+      }
+    },
+    "exceptions.host_29ec111859986081": {
+      "message": "Writing '{leasePath}' failed (exit {exitCode}): {trim}",
+      "description": "Whole operator-visible Write-Error failure in host/macos.utm/Remove-StaleDhcpLease.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "leasePath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LeasePath"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.ExitCode)"
+        },
+        "trim": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($result.Output.Trim())"
+        }
+      }
+    },
+    "exceptions.host_3229f8d0887eda42": {
+      "message": "Fido did not return a download URL.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_34a5ef05cab6ab38": {
+      "message": "SourceDir not found: {sourceDir}",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sourceDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SourceDir"
+        }
+      }
+    },
+    "exceptions.host_35a1dbbdd2006dae": {
+      "message": "sysadminctl -screenLock {target} failed: {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "target": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$target"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_37d35a4c65c7d70a": {
+      "message": "auto-logout write failed: {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_3fa13d65fc1bcf6d": {
+      "message": "HTTP {statusCode} {reasonPhrase} for {uri}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.HostDownload.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "statusCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$([int]$response.StatusCode)"
+        },
+        "reasonPhrase": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($response.ReasonPhrase)"
+        },
+        "uri": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Uri"
+        }
+      }
+    },
+    "exceptions.host_4e1b665678bb8be4": {
+      "message": "defaults write {dLabel} failed (exit {lASTEXITCODE})",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "dLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$dLabel"
+        },
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.host_4ff2b596d293bb78": {
+      "message": "systemsetup -setusingnetworktime {onOff} failed: {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "onOff": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$onOff"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_56dd0a83b1740c20": {
+      "message": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux.",
+      "description": "Whole operator-visible Write-Error failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_5e82d7a32d22a269": {
+      "message": "HTTP {status} {reasonPhrase} for {uri}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.DownloadAgent.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$status"
+        },
+        "reasonPhrase": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($response.ReasonPhrase)"
+        },
+        "uri": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Uri"
+        }
+      }
+    },
+    "exceptions.host_5fbd4e8bd8efc5cc": {
+      "message": "Unsupported architecture for the extension-service base image: {osArch}. A Hyper-V host must be AMD64 or ARM64.",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "osArch": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$osArch"
+        }
+      }
+    },
+    "exceptions.host_607d7ff275d56f40": {
+      "message": "Get-Image.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required).",
+      "description": "Whole operator-visible Write-Error failure in host/macos.utm/guest.macos.26/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_634b857addaa8df5": {
+      "message": "Hyper-V\\Remove-VM returned success for '{vMName}' but Get-VM still finds it; aborting before re-creation.",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/guest.pool-control-service/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$VMName"
+        }
+      }
+    },
+    "exceptions.host_674dd7c6c0448e92": {
+      "message": "sudo -v failed -- cannot obtain root for networksetup. Check your sudo configuration.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_6a438f8f59faef03": {
+      "message": "The Hyper-V default VHDX folder does not exist: {dir}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "dir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$dir"
+        }
+      }
+    },
+    "exceptions.host_6ac6dfe19b3c2194": {
+      "message": "Invalid -ExposeVirtualizationExtensions '{exposeVirtualizationExtensions}': expected 'true' or 'false'.",
+      "description": "Whole operator-visible Write-Error failure in host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exposeVirtualizationExtensions": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$ExposeVirtualizationExtensions"
+        }
+      }
+    },
+    "exceptions.host_6ce33651bd210b55": {
+      "message": "Get-VMName: virsh not found on PATH; cannot enumerate libvirt domains.",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_74d716391a86a463": {
+      "message": "New-VM.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required).",
+      "description": "Whole operator-visible Write-Error failure in host/macos.utm/guest.macos.26/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_75249e3feb95694e": {
+      "message": "This is the macOS UTM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Sync-HostConfiguration.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_76bccb579d55bc73": {
+      "message": "Get-VMName: utmctl did not answer -- UTM.app is not responding to Apple Events. Quit and relaunch UTM.app (or restart appleeventsd) and try again; nothing here can be enumerated until it answers.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_78d93fd740dd1ed5": {
+      "message": "Download failed: {message}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.UbuntuImage.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "exceptions.host_7c4b552da601ab61": {
+      "message": "Get-VMName: utmctl could not reach UTM. Run from a Terminal session with Automation access for pwsh, after UTM.app is launched and a user is logged in graphically. Output:\n{text}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "text": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$text"
+        }
+      }
+    },
+    "exceptions.host_7e0c1c27f76157e5": {
+      "message": "This is the Windows Hyper-V variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead.",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/Sync-HostConfiguration.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_81fb05f8b6924bce": {
+      "message": "Get-VMName: utmctl not found on PATH; cannot enumerate UTM VMs.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_870df3a8573355af": {
+      "message": "Download failed: file not found.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_8829c3d9ffaef2dd": {
+      "message": "Enable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux.",
+      "description": "Whole operator-visible Write-Error failure in host/ubuntu.kvm/Enable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_88d0b2dc03ee17c2": {
+      "message": "virtio-win.iso download failed after {attempts}/{maxAttempts} attempt(s) [lastExit={lastExit}]: {detail}\n  last-attempt output:\n    {tail}\n  full per-attempt log: {dlLog}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "attempts": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($download.Attempts)"
+        },
+        "maxAttempts": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($download.MaxAttempts)"
+        },
+        "lastExit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($download.LastExit)"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$detail"
+        },
+        "tail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$tail"
+        },
+        "dlLog": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$dlLog"
+        }
+      }
+    },
+    "exceptions.host_88e5a12c10f16189": {
+      "message": "Downloaded file is suspiciously small (< 1 GB). It may not be a valid ISO.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_8c0479442a041d98": {
+      "message": "Disable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.",
+      "description": "Whole operator-visible Write-Error failure in host/windows.hyper-v/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_8d770e16b147abe9": {
+      "message": "gsettings is not present on this host",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_8fa181c2fe215cd1": {
+      "message": "Invalid configured language '{languageRaw}'.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.pool-control-service/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "languageRaw": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$languageRaw"
+        }
+      }
+    },
+    "exceptions.host_9174df31c5ee6350": {
+      "message": "virsh destroy + undefine left '{vMName}' defined; aborting before re-creation.\ndominfo:\n{dominfo}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/guest.pool-control-service/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$VMName"
+        },
+        "dominfo": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$dominfo"
+        }
+      }
+    },
+    "exceptions.host_9a18fc9562c73b34": {
+      "message": "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service).",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_9a7684fc14fabdb7": {
+      "message": "pmset {flag} {key} {v} failed (exit {exitCode}): {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "flag": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$flag"
+        },
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "v": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$v"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_9aec44ead873e6bc": {
+      "message": "genisoimage (autounattend) failed (exit {lASTEXITCODE})",
+      "description": "Whole operator-visible Write-Error failure in host/ubuntu.kvm/guest.windows.11/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.host_9bbc5dc302229fc3": {
+      "message": "Image checksum verification failed for {isoFileName} (see banner above): mismatch or unverifiable download. Deleted the download and aborted; re-run once the publisher checksum is reachable.",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.UbuntuImage.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "isoFileName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$isoFileName"
+        }
+      }
+    },
+    "exceptions.host_9e5168a03fb971f1": {
+      "message": "pmset -a {key} {absentValue} failed (exit {exitCode}): {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "absentValue": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$absentValue"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_9e776665909b3868": {
+      "message": "Could not read the Hyper-V VirtualHardDiskPath: Get-VMHost failed. Hyper-V may not be installed, or this session is not elevated.",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_a64eb0bfe41b92f6": {
+      "message": "the Windows Time service is not present on this host",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_a6a18006853361cb": {
+      "message": "Get-VMName: virsh could not enumerate domains (is libvirtd running and this shell in the libvirt group?): {join}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($output -join '; ')"
+        }
+      }
+    },
+    "exceptions.host_a937232a82280ebc": {
+      "message": "download produced an empty file at {tmp}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "tmp": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$tmp"
+        }
+      }
+    },
+    "exceptions.host_b0946878b754a138": {
+      "message": "SHA256SUMS GPG signature invalid for {checksumUrl}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "checksumUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$ChecksumUrl"
+        }
+      }
+    },
+    "exceptions.host_b1cc462acbad03b8": {
+      "message": "timedatectl set-ntp {onOff} failed: {output}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "onOff": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$onOff"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_b719fe2e9aee1899": {
+      "message": "sysadminctl -screenLock {target} needs the account password: {output}. Run it by hand: {target2}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "target": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$target"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        },
+        "target2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$(Get-MacScreenLockManualCommand -State $target)"
+        }
+      }
+    },
+    "exceptions.host_ba52b7b4134e8e12": {
+      "message": "Oscdimg.exe not found at path: {oscdimgPath}. Install the Windows ADK 'Deployment Tools' feature (winget install --id Microsoft.WindowsADK), then re-run. If the ADK is installed somewhere else, point $script:OscdimgToolsRoot in host\\windows.hyper-v\\modules\\Yuruna.Host.psm1 at its 'Deployment Tools' directory.",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "oscdimgPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$OscdimgPath"
+        }
+      }
+    },
+    "exceptions.host_bf69280290368131": {
+      "message": "Disable-TestAutomation.ps1 (host/macos.utm) only runs on macOS.",
+      "description": "Whole operator-visible Write-Error failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_c3577106b0f799eb": {
+      "message": "pmset -a {key} {v} failed (exit {exitCode}): {output}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "v": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$v"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_c499e6600386ccd3": {
+      "message": "the captured status '{text}' does not name an interval to restore",
+      "description": "Whole operator-visible throw failure in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "text": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$text"
+        }
+      }
+    },
+    "exceptions.host_ce186b06237fbe4d": {
+      "message": "networksetup needs root and this run cannot ask for a password. Run 'sudo -v' in the terminal that owns this run before starting it, or grant this account a passwordless rule for /usr/sbin/networksetup in /etc/sudoers.d.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_d35eaa0aac5124a8": {
+      "message": "Downloaded file is too small ({spiceSize} bytes). It may not be a valid ISO.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "spiceSize": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$spiceSize"
+        }
+      }
+    },
+    "exceptions.host_d43d0cab95add9be": {
+      "message": "Cannot verify removal of '{vMName}': virsh list failed: {join}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/guest.pool-control-service/New-VM.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$VMName"
+        },
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($domainNames -join '; ')"
+        }
+      }
+    },
+    "exceptions.host_dd6d74db4a58cc9d": {
+      "message": "Fido.ps1 hash mismatch (pinned v1.70): expected {fidoSha256}, got {fidoActual}",
+      "description": "Whole operator-visible throw failure in host/macos.utm/guest.windows.11/Get-Image.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "fidoSha256": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$fidoSha256"
+        },
+        "fidoActual": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$fidoActual"
+        }
+      }
+    },
+    "exceptions.host_de8cc2205b118bfb": {
+      "message": "Get-VMName: could not enumerate Hyper-V VMs (is this session elevated and the Hyper-V service running?): {message}",
+      "description": "Whole operator-visible throw failure in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "exceptions.host_df96b1b9a83640ad": {
+      "message": "Image checksum mismatch for {destPath} (expected {expected}, got {actual})",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "destPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$DestPath"
+        },
+        "expected": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$expected"
+        },
+        "actual": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$actual"
+        }
+      }
+    },
+    "exceptions.host_e9ae1d4da44d99f5": {
+      "message": "systemctl disable --now {unit} failed: {output}",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "unit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$unit"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.host_ede3d2a333ea0452": {
+      "message": "Test-UtmVMRegistered: registration state for '{vMName}' could not be determined (missing client, denied probe, timeout, or unrecognized response). Call Get-UtmVMRegistrationState directly to handle 'Unknown' explicitly instead of reading this as absence.",
+      "description": "Whole operator-visible throw failure in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$VMName"
+        }
+      }
+    },
+    "exceptions.host_ee375a40b48f886b": {
+      "message": "gsettings set {schema} {key} '{v}' failed (exit {lASTEXITCODE})",
+      "description": "Whole operator-visible throw failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "schema": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$schema"
+        },
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "v": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$v"
+        },
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.host_fec98f88ac3a6a73": {
+      "message": "Unsupported architecture for the extension-service base image: {machine}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "machine": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$machine"
+        }
+      }
+    },
+    "exceptions.runner_037f5a478339db90": {
+      "message": "Runner config has no 'sequences' entries: {path}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequencePlanner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$path"
+        }
+      }
+    },
+    "exceptions.runner_054c6e454d434969": {
+      "message": "Snapshot source paths must be nonempty paths relative to the framework checkout.",
+      "description": "Whole operator-visible throw in test/modules/Test.SnapshotManifest.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_073ccaf1b0a8e98d": {
+      "message": "Tesseract TSV mode failed with exit code {exitCode}.\n{errMsg}",
+      "description": "Whole operator-visible throw in test/modules/Test.Tesseract.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$exitCode"
+        },
+        "errMsg": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$errMsg"
+        }
+      }
+    },
+    "exceptions.runner_0ace35c12511a385": {
+      "message": "New-YurunaConfigServerCertificate: -WhatIf declined minting and no server leaf exists yet.",
+      "description": "Whole operator-visible throw in test/modules/Test.ConfigServiceCA.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_0c36e11e9915d052": {
+      "message": "On macOS the '{name}' storage password may not begin with '-' (sysadminctl would parse it as an option). Change it in the lab vault and re-run.",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Name"
+        }
+      }
+    },
+    "exceptions.runner_0d9384b17d6408a3": {
+      "message": "Vision OCR failed: {errMsg}",
+      "description": "Whole operator-visible throw in test/modules/Test.OcrEngine.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "errMsg": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$errMsg"
+        }
+      }
+    },
+    "exceptions.runner_0f52ca7e110a77a5": {
+      "message": "Could not secure SSH private key '{sshKeyPath}': chmod exited {lASTEXITCODE} ({join})",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sshKeyPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$script:SshKeyPath"
+        },
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        },
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($chmodText -join ' ')"
+        }
+      }
+    },
+    "exceptions.runner_1365372513779503": {
+      "message": "Get-YurunaConfigCaDir: cannot resolve the runtime directory (set $env:{setting} or import Test.YurunaDir).",
+      "description": "Whole operator-visible throw in test/modules/Test.ConfigServiceCA.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "setting": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "YURUNA_RUNTIME_DIR"
+        }
+      }
+    },
+    "exceptions.runner_140e410616042231": {
+      "message": "Write-YurunaStateFileJson returned false for {currentActionFile}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceEngine.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "currentActionFile": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$currentActionFile"
+        }
+      }
+    },
+    "exceptions.runner_171dd62b87249d01": {
+      "message": "Could not write the '{n}' hosts-file alias (sudo pwsh exited {exitCode}): {output}\nIf that names a missing .NET runtime, this host's PowerShell is the Homebrew formula build and cannot start with a stripped environment. Fix it once, machine-wide:\n  {command}\nthen re-run this script -- it is idempotent and will converge.",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "n": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$n"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($aliasRun.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($aliasRun.Output)"
+        },
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "echo \"$(brew --prefix dotnet)/libexec\" | sudo tee /etc/dotnet/install_location_$(uname -m)"
+        }
+      }
+    },
+    "exceptions.runner_187b34999bcb56f2": {
+      "message": "Invoke-TestRunnerInnerLoop.ps1 not found at {innerScript}",
+      "description": "Whole operator-visible Write-Error in test/modules/Invoke-TestCycleRunner.ps1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "innerScript": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$InnerScript"
+        }
+      }
+    },
+    "exceptions.runner_192d44cf22fa5b5c": {
+      "message": "Config root is not a mapping: {resolved}",
+      "description": "Whole operator-visible throw in test/modules/Test.Config.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "resolved": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$resolved"
+        }
+      }
+    },
+    "exceptions.runner_21cd8bca74cb4370": {
+      "message": "snippet '{key}' in {p} is not a list of steps.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "p": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$p"
+        }
+      }
+    },
+    "exceptions.runner_2316b2b4214772a1": {
+      "message": "Get-GuestRunWrapperCommand: the run supervisor is missing at '{runSupervisorPath}'.",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "runSupervisorPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$script:RunSupervisorPath"
+        }
+      }
+    },
+    "exceptions.runner_23c851299b3a4f8f": {
+      "message": "the resulting ACL has no access rule",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_249290e3cb220e63": {
+      "message": "the resulting owner SID is {ownerValue}, expected {value}",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "ownerValue": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$ownerValue"
+        },
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($currentSid.Value)"
+        }
+      }
+    },
+    "exceptions.runner_2736bc206a47f22d": {
+      "message": "git fetch failed (exit {exitCode}) after {attempt} attempt(s) / {elapsed}s (cap {maxTotalSeconds}s).",
+      "description": "Whole operator-visible Write-Error in test/modules/Test.HostGit.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($fetch.ExitCode)"
+        },
+        "attempt": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$attempt"
+        },
+        "elapsed": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${elapsed}"
+        },
+        "maxTotalSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${maxTotalSeconds}"
+        }
+      }
+    },
+    "exceptions.runner_2751aa86523ed820": {
+      "message": "Could not remove the stale managed baseline.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceRunner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_28b94cd32cbaf4b1": {
+      "message": "Config file not found: {path}",
+      "description": "Whole operator-visible throw in test/modules/Test.Config.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        }
+      }
+    },
+    "exceptions.runner_2b1a4abe77bcd371": {
+      "message": "caching-proxy-service returned status={statusCode} length={rawContentLength}",
+      "description": "Whole operator-visible throw in test/modules/Test.CachingProxyService.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "statusCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($caResp.StatusCode)"
+        },
+        "rawContentLength": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($caResp.RawContentLength)"
+        }
+      }
+    },
+    "exceptions.runner_2e7c522081d7df58": {
+      "message": "Host I/O action '{action}' is not available on '{hostType}' (available actions: {known}).",
+      "description": "Whole operator-visible throw in test/modules/Test.HostIO.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "action": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Action"
+        },
+        "hostType": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$HostType"
+        },
+        "known": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$known"
+        }
+      }
+    },
+    "exceptions.runner_30370fb77a74bcc8": {
+      "message": "OCR provider '{name}' is not registered.",
+      "description": "Whole operator-visible throw in test/modules/Test.OcrEngine.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Name"
+        }
+      }
+    },
+    "exceptions.runner_3045e8dd4d3523e0": {
+      "message": "Extension module not found for area '{area}', name '{n}': {path}",
+      "description": "Whole operator-visible throw in test/modules/Test.Extension.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "area": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Area"
+        },
+        "n": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$n"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$path"
+        }
+      }
+    },
+    "exceptions.runner_31cfbd18727596c9": {
+      "message": "The GUI command verification line exceeds the typed-character budget.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceHandler.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_3f7582b4c254198f": {
+      "message": "Unsupported operating system. New-LocalLabStorage supports Windows, macOS, and Ubuntu.",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_3f7ce7bf346e3755": {
+      "message": "the mount.cifs helper is not installed, so 'mount -t cifs' cannot work on this host (it fails with \"unknown filesystem type 'cifs'\"). Install it: {command}",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "sudo apt-get install -y cifs-utils"
+        }
+      }
+    },
+    "exceptions.runner_40552def8b1fec50": {
+      "message": "Legacy 'baseline:' is no longer supported -- rename it to 'resource:'. See docs/test-sequences.md (resource/component/workload).",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_44419ed3590574a4": {
+      "message": "Sequence action '{name}' has no Handler scriptblock registered.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceAction.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Name"
+        }
+      }
+    },
+    "exceptions.runner_4600bf42e8f5c6cb": {
+      "message": "Extension module not loaded for area '{area}' (looked for {modPath} in Get-Module).",
+      "description": "Whole operator-visible throw in test/modules/Test.Extension.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "area": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Area"
+        },
+        "modPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$modPath"
+        }
+      }
+    },
+    "exceptions.runner_486dd5400df4805b": {
+      "message": "access-rule inheritance is still enabled",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_4a5aa2a294fb3299": {
+      "message": "unexpected access rule for SID {value}",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($sid.Value)"
+        }
+      }
+    },
+    "exceptions.runner_4ebab78c20241f2d": {
+      "message": "powershell-yaml is required to read sequence files. Install with: {command}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Install-Module -Name powershell-yaml -Scope CurrentUser"
+        }
+      }
+    },
+    "exceptions.runner_4fc4598b71d43c23": {
+      "message": "Could not secure SSH private key '{path}': {message}",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($_.Exception.Message)"
+        }
+      }
+    },
+    "exceptions.runner_511c60ef5e84a2bf": {
+      "message": "Samba rejected the generated configuration; the shares were NOT activated: {output}",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($check.Output)"
+        }
+      }
+    },
+    "exceptions.runner_58320111b08e6feb": {
+      "message": "Initialize-YurunaConfigCA: -WhatIf declined minting and no CA exists yet.",
+      "description": "Whole operator-visible throw in test/modules/Test.ConfigServiceCA.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_62eaa799b46f377c": {
+      "message": "Yuruna.Host.psm1 not found for {hostType} (looked at {modulePath}). Cannot dispatch host operations.",
+      "description": "Whole operator-visible throw in test/modules/Test.HostBootstrap.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostType": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$HostType"
+        },
+        "modulePath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$modulePath"
+        }
+      }
+    },
+    "exceptions.runner_6305b986d1a90039": {
+      "message": "caching-proxy-service CA is not a valid X509 PEM",
+      "description": "Whole operator-visible throw in test/modules/Test.CachingProxyService.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_636858bd74711c9e": {
+      "message": "Newly generated key is not loadable with empty passphrase. ssh-keygen output: {string}",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "string": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($probe | Out-String)"
+        }
+      }
+    },
+    "exceptions.runner_6b875a73f815e66a": {
+      "message": "the current Windows account has no SID",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_6c293b52d562e7c0": {
+      "message": "Sequence file not found: {sequenceName}\nSearched (no match):\n{list}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequencePlanner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sequenceName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SequenceName"
+        },
+        "list": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$list"
+        }
+      }
+    },
+    "exceptions.runner_6f99aa1ba9ef5572": {
+      "message": "callExtension: 'method' must be 'area.Method' (got '{methodFqn}').",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceHandler.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "methodFqn": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$methodFqn"
+        }
+      }
+    },
+    "exceptions.runner_7387b2930b7001c9": {
+      "message": "chmod 600 on credentials file failed (rc={lASTEXITCODE})",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.runner_7b768110a092cc93": {
+      "message": "{count} project sequence files named '{fileName}' found under flat test/ folders:\n{list}\nKeep only one so the planner can resolve a single sequence file.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($hits.Count)"
+        },
+        "fileName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$FileName"
+        },
+        "list": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$list"
+        }
+      }
+    },
+    "exceptions.runner_7f5f244997a1c718": {
+      "message": "Get-GuestRunWrapperCommand: Token '{token}' must match ^[A-Za-z0-9._-]+$ -- it is interpolated into a shell command line.",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "token": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Token"
+        }
+      }
+    },
+    "exceptions.runner_86e81d4c81406275": {
+      "message": "mount_smbfs rc={exitCode}{stdErr}",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($sm.ExitCode)"
+        },
+        "stdErr": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$(Get-PoolStorageProcessErrorDetail -StdErr $sm.StdErr)"
+        }
+      }
+    },
+    "exceptions.runner_870490a8a4454890": {
+      "message": "snippet cycle detected at '{name}' (referenced from {seqPath}).",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$name"
+        },
+        "seqPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SeqPath"
+        }
+      }
+    },
+    "exceptions.runner_88fa927a70dd9984": {
+      "message": "sudo mount -t cifs rc={exitCode}{hint}{detail}",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($mnt.ExitCode)"
+        },
+        "hint": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$hint"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$detail"
+        }
+      }
+    },
+    "exceptions.runner_8ab33e8dd3c14ea8": {
+      "message": "WinRT OCR read no text and reported: {errText}",
+      "description": "Whole operator-visible throw in test/modules/Test.OcrEngine.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "errText": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$errText"
+        }
+      }
+    },
+    "exceptions.runner_92362a2623a29d74": {
+      "message": "ssh-keygen not found on PATH. Install OpenSSH client.",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_956bc257626cca2e": {
+      "message": "the access rule for SID {value} does not grant FullControl",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($sid.Value)"
+        }
+      }
+    },
+    "exceptions.runner_9b97bf35e35de969": {
+      "message": "Snapshot maxAgeHours must be finite and positive.",
+      "description": "Whole operator-visible throw in test/modules/Test.SnapshotManifest.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_9d8762f2b5ff27c7": {
+      "message": "New-SmbMapping timed out after {poolStorageMountTimeoutSeconds}s",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "poolStorageMountTimeoutSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${script:PoolStorageMountTimeoutSeconds}"
+        }
+      }
+    },
+    "exceptions.runner_9d91512a828389cf": {
+      "message": "An SMB share named '{shareName}' already exists on this host and points at '{path}', not '{folderPath}'. Remove or rename it, then re-run.",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "shareName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($t.ShareName)"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($existing.Path)"
+        },
+        "folderPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($t.FolderPath)"
+        }
+      }
+    },
+    "exceptions.runner_9fe3c4a46ba0668d": {
+      "message": "git pull --ff-only failed (exit {exitCode}): {output}",
+      "description": "Whole operator-visible Write-Error in test/modules/Test.HostGit.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($pull.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($pull.Output)"
+        }
+      }
+    },
+    "exceptions.runner_a01e6215c9b21e74": {
+      "message": "snippet '{name}' referenced by {seqPath} was not found. Available snippets: {available}.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$name"
+        },
+        "seqPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SeqPath"
+        },
+        "available": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$available"
+        }
+      }
+    },
+    "exceptions.runner_a038a1eea843a737": {
+      "message": "Snapshot policy requires at least one source file.",
+      "description": "Whole operator-visible throw in test/modules/Test.SnapshotManifest.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_a36f9aee4f868c72": {
+      "message": "Extension area directory not found: {dir}",
+      "description": "Whole operator-visible throw in test/modules/Test.Extension.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "dir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$dir"
+        }
+      }
+    },
+    "exceptions.runner_a4fb11bebe1b1114": {
+      "message": "seeding push to '{path}' failed (exit {lASTEXITCODE}).",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolAdmin.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        },
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.runner_a6e757fc71fd4874": {
+      "message": "Tesseract failed with exit code {exitCode}.\n{errMsg}",
+      "description": "Whole operator-visible throw in test/modules/Test.Tesseract.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$exitCode"
+        },
+        "errMsg": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$errMsg"
+        }
+      }
+    },
+    "exceptions.runner_ae41cdc2535f423f": {
+      "message": "A guest sequence must not use top-level 'steps:' -- split its actions into 'component:' and 'workload:'. See docs/test-sequences.md.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_aebd04afebf25aaf": {
+      "message": "WinRT OCR failed (exit {exitCode}): {detail}",
+      "description": "Whole operator-visible throw in test/modules/Test.OcrEngine.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$exitCode"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$detail"
+        }
+      }
+    },
+    "exceptions.runner_b6abddc95da1d271": {
+      "message": "Runner config not found: {path} (set test.config.yml's repositories.projectUrl, or place the file under <repo>/project/test/)",
+      "description": "Whole operator-visible throw in test/modules/Test.SequencePlanner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$path"
+        }
+      }
+    },
+    "exceptions.runner_b8accd7ac3900ef3": {
+      "message": "Could not enable the macOS SMB server. Turn File Sharing on in System Settings > General > Sharing and re-run. (launchctl enable: {output}; start: {output2})",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($enable.Output)"
+        },
+        "output2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($start.Output)"
+        }
+      }
+    },
+    "exceptions.runner_bcfafa04e60d24c8": {
+      "message": "Area '{area}' requires exactly one active extension; {area}.config.yml lists {count}: {join}.",
+      "description": "Whole operator-visible throw in test/modules/Test.Extension.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "area": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Area"
+        },
+        "count": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($names.Count)"
+        },
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($names -join ', ')"
+        }
+      }
+    },
+    "exceptions.runner_c8d3447d823adc70": {
+      "message": "Invalid {setting} value '{envVal}'. Only 'Or' and 'And' are allowed.",
+      "description": "Whole operator-visible throw in test/modules/Test.OcrMatch.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "envVal": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$envVal"
+        },
+        "setting": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "YURUNA_OCR_COMBINE"
+        }
+      }
+    },
+    "exceptions.runner_c959d88998b87c80": {
+      "message": "powershell-yaml is required to expand sequence snippets. Install with: {command}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Install-Module -Name powershell-yaml -Scope CurrentUser"
+        }
+      }
+    },
+    "exceptions.runner_d0e5e81b3dcaf9c7": {
+      "message": "ssh-keygen failed to create key at {sshKeyPath}",
+      "description": "Whole operator-visible throw in test/modules/Test.Ssh.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sshKeyPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$script:SshKeyPath"
+        }
+      }
+    },
+    "exceptions.runner_d3b174912efd30ac": {
+      "message": "git init --bare failed for '{path}' (exit {lASTEXITCODE}).",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolAdmin.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        },
+        "lASTEXITCODE": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$LASTEXITCODE"
+        }
+      }
+    },
+    "exceptions.runner_d4288d81f5c5acb3": {
+      "message": "Sequence action '{name}' is not registered.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceAction.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Name"
+        }
+      }
+    },
+    "exceptions.runner_d65c529aa94bc884": {
+      "message": "Extension '{extensionName}' (loaded from {modPath}) does not export '{method}' (also tried '{hyphenated}').",
+      "description": "Whole operator-visible throw in test/modules/Test.Extension.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "extensionName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$ExtensionName"
+        },
+        "modPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$modPath"
+        },
+        "method": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Method"
+        },
+        "hyphenated": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$hyphenated"
+        }
+      }
+    },
+    "exceptions.runner_d661d09f953abb27": {
+      "message": "YAML parse error in {path}: {message}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($err.Message)"
+        }
+      }
+    },
+    "exceptions.runner_d6c2daddc3ec9502": {
+      "message": "snippet expansion exceeded depth 25 in {seqPath} (cyclic or pathological nesting).",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seqPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SeqPath"
+        }
+      }
+    },
+    "exceptions.runner_d72dd7b3536de5e5": {
+      "message": "missing sequence '{topName}'{sourceLabel}\nSearched (no match):\n{list}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequencePlanner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "topName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$TopName"
+        },
+        "sourceLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$(if ($SourceLabel) { \" $SourceLabel\" })"
+        },
+        "list": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$list"
+        }
+      }
+    },
+    "exceptions.runner_e5734bccf5e0076c": {
+      "message": "sudo {join} exited {exitCode}: {output}",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "join": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($ArgumentList -join ' ')"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.ExitCode)"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($r.Output)"
+        }
+      }
+    },
+    "exceptions.runner_e80a19e94ca9be85": {
+      "message": "Composed VM name '{vmName}' has characters outside [A-Za-z0-9._-]; fix vmStart.testVmNamePrefix ('{prefix}') -- VM names must be shell-safe.",
+      "description": "Whole operator-visible throw in test/modules/Test.HostDetection.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$vmName"
+        },
+        "prefix": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Prefix"
+        }
+      }
+    },
+    "exceptions.runner_ea88e75707522b67": {
+      "message": "could not create mount point '{localPath}' (sudo -n mkdir rc={exitCode}; a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount){stdErr}",
+      "description": "Whole operator-visible throw in test/modules/Test.PoolStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "localPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($Config.LocalPath)"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($mk.ExitCode)"
+        },
+        "stdErr": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)"
+        }
+      }
+    },
+    "exceptions.runner_f1bde95b1f050137": {
+      "message": "prereq sequence not found: {sequenceName} (referenced by an entry in project/test/test.runner.yml)\nSearched (no match):\n{list}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequencePlanner.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sequenceName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$SequenceName"
+        },
+        "list": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$list"
+        }
+      }
+    },
+    "exceptions.runner_f3da34207d2a8685": {
+      "message": "Snapshot source pattern matched no files: {pattern}",
+      "description": "Whole operator-visible throw in test/modules/Test.SnapshotManifest.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pattern": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$pattern"
+        }
+      }
+    },
+    "exceptions.runner_f4ad79f944023fe8": {
+      "message": "The Server (LanmanServer) service is not present on this host; SMB sharing cannot be enabled.",
+      "description": "Whole operator-visible throw in test/modules/Test.LocalLabStorage.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active"
+    },
+    "exceptions.runner_f68eed0750b170ae": {
+      "message": "snippet '{key}' is defined in two project libraries:\n    {file}\n    {p}\nKeep only one so the reference resolves unambiguously.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($map[$key].File)"
+        },
+        "p": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$p"
+        }
+      }
+    },
+    "exceptions.runner_fc123b0e72bddd90": {
+      "message": "snippet '{key}' in {f} is not a list of steps.",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$key"
+        },
+        "f": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$f"
+        }
+      }
+    },
+    "exceptions.runner_fc93013c47f0dff2": {
+      "message": "YAML parse error in {path} at line {line}:{col}: {message}",
+      "description": "Whole operator-visible throw in test/modules/Test.SequenceResolve.psm1. Preserve paths, diagnostic details and protected command arguments; classification is carried separately from this prose.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$Path"
+        },
+        "line": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${line}"
+        },
+        "col": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${col}"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($synErr.Message)"
+        }
+      }
+    }
+  }
+}

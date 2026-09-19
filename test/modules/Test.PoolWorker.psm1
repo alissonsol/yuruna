@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,7 @@
 # Get-YurunaServiceVmRoster is the single source of truth for "which VMs are
 # services", and the extension half of it is discovered from the area manifests
 # -- so a service added to the framework joins this teardown by existing.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.ServiceVm.psm1')        -Force -DisableNameChecking -Verbose:$false
 Import-Module (Join-Path $PSScriptRoot 'Test.ExtensionService.psm1') -Force -DisableNameChecking -Verbose:$false
 # Get-PoolStorageServerName: the share-path grammar lives in one module, so this
@@ -153,11 +154,11 @@ function Get-PoolWorkerAdvertisementPlan {
         if (-not $area -or -not $seen.Add($area)) { continue }
         if ($exempt.Contains($area)) {
             [void]$plan.Add([pscustomobject]@{ Area = $area; Action = 'kept'
-                Reason = 'the caller is still running this service, so the advertisement is true' })
+                Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_13fa9df7e3b3ba3c') })
             continue
         }
         [void]$plan.Add([pscustomobject]@{ Area = $area; Action = 'clear'
-            Reason = 'this host no longer runs the service the marker advertises' })
+            Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b97592c6253dde56') })
     }
     return [pscustomobject[]]@($plan)
 }
@@ -318,30 +319,30 @@ function Get-PoolWorkerAliasPlan {
 
         if (-not $address) {
             [void]$plan.Add([pscustomobject]@{ Name = $name; Address = ''; Action = 'keep'
-                Reason = 'does not resolve here, so there is no entry to drop' })
+                Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_838a86b478f53d5e') })
             continue
         }
         if ($configured.Contains($name)) {
             [void]$plan.Add([pscustomobject]@{ Name = $name; Address = $address; Action = 'keep'
-                Reason = "the synced configuration still names this server; the sync owns where it points ($address)" })
+                Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_affb62bc4c36af5b' -Arguments @{ address = "$address" }) })
             continue
         }
         if ($script:StandaloneOnlyAlias -contains $name) {
             [void]$plan.Add([pscustomobject]@{ Name = $name; Address = $address; Action = 'drop'
-                Reason = 'names a service VM this host no longer runs' })
+                Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_46a0012522c30c4f') })
             continue
         }
         $parsed = [System.Net.IPAddress]::Any
         $isLoopback = [System.Net.IPAddress]::TryParse($address, [ref]$parsed) -and [System.Net.IPAddress]::IsLoopback($parsed)
         if ($isLoopback) {
             [void]$plan.Add([pscustomobject]@{ Name = $name; Address = $address; Action = 'drop'
-                Reason = 'points at a share this host served and the synced configuration no longer names' })
+                Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_5505ccc7247ac25e') })
             continue
         }
         # Resolves off-box and the config does not name it: someone else's, or an
         # earlier lab's. Not this conversion's to remove.
         [void]$plan.Add([pscustomobject]@{ Name = $name; Address = $address; Action = 'keep'
-            Reason = "resolves off this machine ($address); not published by a local storage bring-up" })
+            Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_20e406f8baa8edd7' -Arguments @{ address = "$address" }) })
     }
     return [pscustomobject[]]@($plan)
 }
@@ -531,7 +532,7 @@ function Invoke-PoolWorkerServiceTeardown {
     foreach ($item in $Plan) {
         if ($item.Action -eq 'absent') {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'absent'; ExitCode = 0; Message = 'not built on this host' })
+                Action = 'absent'; ExitCode = 0; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_55110b53e7e30cf1') })
             continue
         }
         # A caller may have downgraded an entry to 'kept' (the conversion's
@@ -542,13 +543,13 @@ function Invoke-PoolWorkerServiceTeardown {
         if ($item.Action -eq 'kept') {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
                 Action = 'kept'; ExitCode = 0
-                Message = "left running at the caller's request (state: $($item.State))" })
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_07ea58f9483c6219' -Arguments @{ state = "$($item.State)" }) })
             continue
         }
         if ($item.Action -eq 'unretirable') {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
                 Action = 'unretirable'; ExitCode = -1
-                Message = "the VM '$($item.VMName)' exists but no Stop script could be derived from '$($item.StartScript)'; remove it with the host's own tooling" })
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_fbf5c280d19e1f44' -Arguments @{ vMName = "$($item.VMName)"; startScript = "$($item.StartScript)" }) })
             continue
         }
         # The roster and the extension configs name the stop script; the service
@@ -558,28 +559,28 @@ function Invoke-PoolWorkerServiceTeardown {
         $script     = Join-Path $serviceDir $item.StopScript
         if (-not (Test-Path -LiteralPath $script)) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'unretirable'; ExitCode = -1; Message = "$($item.StopScript) not found in $serviceDir" })
+                Action = 'unretirable'; ExitCode = -1; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_1ff7d24a984b7cf4' -Arguments @{ stopScript = "$($item.StopScript)"; serviceDir = "$serviceDir" }) })
             continue
         }
-        if (-not $PSCmdlet.ShouldProcess($item.VMName, "Retire the $($item.DisplayName) VM and delete its files")) {
+        if (-not $PSCmdlet.ShouldProcess($item.VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_18a46b521c6d5115' -Arguments @{ displayName = "$($item.DisplayName)" }))) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'whatif'; ExitCode = 0; Message = "would run $($item.StopScript)" })
+                Action = 'whatif'; ExitCode = 0; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_ea87669d888757ca' -Arguments @{ stopScript = "$($item.StopScript)" }) })
             continue
         }
         if (-not $pwshExe -or -not (Test-Path -LiteralPath $pwshExe)) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'failed'; ExitCode = -1; Message = 'the running pwsh executable could not be located, so the stop script could not be launched' })
+                Action = 'failed'; ExitCode = -1; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_8d7d1c9ce77605c6') })
             continue
         }
-        Write-Information "  Retiring the $($item.DisplayName) VM ($($item.VMName), state: $($item.State)) ..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fd84f55857e825f1' -Arguments @{ displayName = "$($item.DisplayName)"; vMName = "$($item.VMName)"; state = "$($item.State)" }) -InformationAction Continue
         & $pwshExe -NoProfile -File $script
         $code = [int]$LASTEXITCODE
         if ($code -eq 0) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'retired'; ExitCode = 0; Message = 'VM and its files removed; marker and registration refreshed' })
+                Action = 'retired'; ExitCode = 0; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_849098729901c662') })
         } else {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'failed'; ExitCode = $code; Message = "$($item.StopScript) exited $code; review its output above" })
+                Action = 'failed'; ExitCode = $code; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_92669cc6ef6a942b' -Arguments @{ stopScript = "$($item.StopScript)"; code = "$code" }) })
         }
     }
     return [pscustomobject[]]@($results)
@@ -654,7 +655,7 @@ function Clear-PoolWorkerAdvertisement {
             [void]$results.Add([pscustomobject]@{ Area = $item.Area; Action = 'kept'; Message = [string]$item.Reason })
             continue
         }
-        if (-not $PSCmdlet.ShouldProcess("runtime/$($item.Area).json", 'Withdraw the extension advertisement')) {
+        if (-not $PSCmdlet.ShouldProcess("runtime/$($item.Area).json", (Format-YurunaOperatorMessage -Key 'runner.operator_fcf1765cc01fc14c'))) {
             [void]$results.Add([pscustomobject]@{ Area = $item.Area; Action = 'whatif'; Message = [string]$item.Reason })
             continue
         }
@@ -666,11 +667,11 @@ function Clear-PoolWorkerAdvertisement {
                 [void]$results.Add([pscustomobject]@{ Area = $item.Area; Action = 'cleared'; Message = [string]$item.Reason })
             } else {
                 [void]$results.Add([pscustomobject]@{ Area = $item.Area; Action = 'absent'
-                    Message = 'the marker was already gone' })
+                    Message = (Format-YurunaOperatorMessage -Key 'runner.operator_4ed62b38ddfa1db4') })
             }
         } catch {
             [void]$results.Add([pscustomobject]@{ Area = $item.Area; Action = 'failed'
-                Message = "the marker could not be removed: $($_.Exception.Message); delete runtime/$($item.Area).json by hand" })
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_e38f56aa3dbb02e8' -Arguments @{ message = "$($_.Exception.Message)"; area = "$($item.Area)" }) })
         }
     }
     if ($cleared -gt 0 -and (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue)) {
@@ -681,10 +682,10 @@ function Clear-PoolWorkerAdvertisement {
                 Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
             }
             if (Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot) {
-                Write-Information '  Refreshed host.registration.json (this host drops off the dashboard within one aggregator poll).' -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_da650bd0ef8da5a0') -InformationAction Continue
             }
         } catch {
-            Write-Warning "The advertisements were withdrawn but host.registration.json could not be refreshed ($($_.Exception.Message)); the dashboard clears it at the next cycle instead."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9aab5a9ac4b0c40a' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
     return [pscustomobject[]]@($results)
@@ -717,7 +718,7 @@ function Remove-PoolWorkerAlias {
                 Message = "Set-HostAlias.ps1 not found at $aliasScript; remove the '$($item.Name)' line from the hosts file by hand" })
             continue
         }
-        if (-not $PSCmdlet.ShouldProcess('hosts file', "Remove the '$($item.Name)' mapping ($($item.Reason))")) {
+        if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_f5c0e102b6efe224'), (Format-YurunaOperatorMessage -Key 'runner.operator_dc03517321a5e5f6' -Arguments @{ name = "$($item.Name)"; reason = "$($item.Reason)" }))) {
             [void]$results.Add([pscustomobject]@{ Name = $item.Name; Action = 'whatif'; Message = [string]$item.Reason })
             continue
         }
@@ -737,7 +738,7 @@ function Remove-PoolWorkerAlias {
                 # reaches for when the prompt does not say otherwise.
                 $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                     -ScriptArgument @('-ComputerName', $item.Name) -NonInteractive:$NonInteractive `
-                    -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to drop '$($item.Name)' from /etc/hosts: "
+                    -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_2d5291a7b88f3857' -Arguments @{ name = "$($item.Name)" })
                 & sudo @sudoArgs
                 if ($LASTEXITCODE -ne 0) {
                     [void]$results.Add([pscustomobject]@{ Name = $item.Name; Action = 'failed'
@@ -750,7 +751,7 @@ function Remove-PoolWorkerAlias {
             [void]$results.Add([pscustomobject]@{ Name = $item.Name; Action = 'dropped'; Message = [string]$item.Reason })
         } catch {
             [void]$results.Add([pscustomobject]@{ Name = $item.Name; Action = 'failed'
-                Message = "removing the '$($item.Name)' alias failed: $($_.Exception.Message)" })
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_7091ed0f1d04929b' -Arguments @{ name = "$($item.Name)"; message = "$($_.Exception.Message)" }) })
         }
     }
     return [pscustomobject[]]@($results)
@@ -888,11 +889,11 @@ function Clear-PoolWorkerSupersededMount {
         }
         foreach ($old in $superseded) {
             $reason = if ($old.Reason -eq 'server-session') {
-                "holds the '$($t.Server)' SMB session, which decides where a mount of that name lands"
+                (Format-YurunaOperatorMessage -Key 'runner.operator_d75cc5a3e060e266' -Arguments @{ server = "$($t.Server)" })
             } else {
-                "stands on the $($t.Kind) mount point"
+                (Format-YurunaOperatorMessage -Key 'runner.operator_49e3e40dff45e14f' -Arguments @{ kind = "$($t.Kind)" })
             }
-            if (-not $PSCmdlet.ShouldProcess("$($old.MountPoint) [$($old.Remote)]", 'Release the superseded SMB mount')) {
+            if (-not $PSCmdlet.ShouldProcess("$($old.MountPoint) [$($old.Remote)]", (Format-YurunaOperatorMessage -Key 'runner.operator_2e19a108c72b47fe'))) {
                 [void]$results.Add([pscustomobject]@{ Kind = $t.Kind; MountPoint = $old.MountPoint
                     Remote = $old.Remote; Reason = $reason; Action = 'whatif' })
                 continue
@@ -934,13 +935,13 @@ function Invoke-PoolWorkerShareWithdrawal {
         return [pscustomobject]@{ Action = 'missing'; ExitCode = -1
             Message = "Clear-LocalLabStorage.ps1 not found in $TestRoot; withdraw the shares and accounts by hand" }
     }
-    if (-not $PSCmdlet.ShouldProcess('this machine''s own pool and stash shares', 'Withdraw the SMB shares and their storage accounts')) {
-        return [pscustomobject]@{ Action = 'whatif'; ExitCode = 0; Message = 'would run Clear-LocalLabStorage.ps1' }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_886eebfb021d306e'), (Format-YurunaOperatorMessage -Key 'runner.operator_b6354b1b41f4e05b'))) {
+        return [pscustomobject]@{ Action = 'whatif'; ExitCode = 0; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_867bed4c8acd1abf') }
     }
     $pwshExe = [System.Environment]::ProcessPath
     if (-not $pwshExe -or -not (Test-Path -LiteralPath $pwshExe)) {
         return [pscustomobject]@{ Action = 'failed'; ExitCode = -1
-            Message = 'the running pwsh executable could not be located, so Clear-LocalLabStorage.ps1 could not be launched' }
+            Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d6134caca4a97b11') }
     }
     # -Force: the conversion took the operator's consent for this already, and a
     # second confirmation for a step they were told about is how an unattended
@@ -949,7 +950,7 @@ function Invoke-PoolWorkerShareWithdrawal {
     $code = [int]$LASTEXITCODE
     if ($code -eq 0) {
         return [pscustomobject]@{ Action = 'withdrawn'; ExitCode = 0
-            Message = 'the shares and their accounts are gone; the data under the storage root is untouched' }
+            Message = (Format-YurunaOperatorMessage -Key 'runner.operator_74520d7423bf2040') }
     }
     return [pscustomobject]@{ Action = 'failed'; ExitCode = $code
         Message = "Clear-LocalLabStorage.ps1 exited $code; review its output above" }
@@ -985,9 +986,9 @@ function Connect-PoolWorkerStorage {
     )
     $results = [System.Collections.Generic.List[pscustomobject]]::new()
     foreach ($t in @($Tier)) {
-        if (-not $PSCmdlet.ShouldProcess("$($t.NetworkPath) at $($t.LocalPath)", "Mount the lab's $($t.Kind) storage")) {
+        if (-not $PSCmdlet.ShouldProcess("$($t.NetworkPath) at $($t.LocalPath)", (Format-YurunaOperatorMessage -Key 'runner.operator_e13ad08336df2530' -Arguments @{ kind = "$($t.Kind)" }))) {
             [void]$results.Add([pscustomobject]@{ Kind = $t.Kind; Mounted = $false; Action = 'whatif'
-                Message = "would mount $($t.NetworkPath) at $($t.LocalPath)" })
+                Message = (Format-YurunaOperatorMessage -Key 'runner.operator_17ca780403f4baf9' -Arguments @{ networkPath = "$($t.NetworkPath)"; localPath = "$($t.LocalPath)" }) })
             continue
         }
         # Only when the tier is not already standing. Ensuring the target folder
@@ -999,7 +1000,7 @@ function Connect-PoolWorkerStorage {
             $folder = Initialize-PoolStorageTargetFolder -Config $t.Storage -Confirm:$false
             if (-not $folder.ok) {
                 [void]$results.Add([pscustomobject]@{ Kind = $t.Kind; Mounted = $false; Action = 'failed'
-                    Message = "the target folder on the share could not be ensured -- $($folder.error)" })
+                    Message = (Format-YurunaOperatorMessage -Key 'runner.operator_73183940a086e2c1' -Arguments @{ error = "$($folder.error)" }) })
                 continue
             }
         }
@@ -1007,13 +1008,13 @@ function Connect-PoolWorkerStorage {
             $ready = Initialize-PoolStorageHostFolder -Config $t.Storage -HostId $HostId -Confirm:$false
             [void]$results.Add([pscustomobject]@{ Kind = $t.Kind; Mounted = [bool]$ready.ok
                 Action  = $(if ($ready.ok) { 'mounted' } else { 'failed' })
-                Message = $(if ($ready.ok) { "mounted at $($t.LocalPath); per-host folder '$($ready.folder)' ready" } else { [string]$ready.error }) })
+                Message = $(if ($ready.ok) { (Format-YurunaOperatorMessage -Key 'runner.operator_8f2b0aa29534df99' -Arguments @{ localPath = "$($t.LocalPath)"; folder = "$($ready.folder)" }) } else { [string]$ready.error }) })
             continue
         }
         $ok = Connect-YurunaPoolStorage -Config $t.Storage -Confirm:$false
         [void]$results.Add([pscustomobject]@{ Kind = $t.Kind; Mounted = [bool]$ok
             Action  = $(if ($ok) { 'mounted' } else { 'failed' })
-            Message = $(if ($ok) { "mounted at $($t.LocalPath)" } else { "could not mount $($t.NetworkPath) at $($t.LocalPath)" }) })
+            Message = $(if ($ok) { (Format-YurunaOperatorMessage -Key 'runner.operator_580d457e4f3ef9d8' -Arguments @{ localPath = "$($t.LocalPath)" }) } else { (Format-YurunaOperatorMessage -Key 'runner.operator_59212ab250829cab' -Arguments @{ networkPath = "$($t.NetworkPath)"; localPath = "$($t.LocalPath)" }) }) })
     }
     return [pscustomobject[]]@($results)
 }

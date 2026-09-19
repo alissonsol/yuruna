@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
     # test/modules/<this file> -> test/modules -> test -> repo root.
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $script:DriverPath = Join-Path $script:RepoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
@@ -101,7 +102,7 @@ Describe 'hyper-v DHCP capture: collected with the failure, discarded with the g
     It 'lands beside the failure diagnostics, by feature detection' {
         $script:RunnerText | Should -Match 'Get-Command Save-VMDhcpCapture' -Because 'most host drivers do not implement the capture; a bare call fails the collection on all of them'
         $script:RunnerText | Should -Match 'Save-VMDhcpCapture -VMName \$VMName -OutputDirectory \$destSeqDir' -Because 'the wire evidence must sit next to the diagnostics that point at it'
-        $script:RunnerText | Should -Match 'DHCP capture collection skipped' -Because 'the collection must soft-fail like its neighbors, never the step'
+        ((Get-CatalogSourceMessage -Source $script:RunnerText) -join "`n") | Should -Match 'DHCP capture collection skipped' -Because 'the collection must soft-fail like its neighbors, never the step'
     }
 
     It 'discards at Remove-VM only a capture the removed VM owns' {

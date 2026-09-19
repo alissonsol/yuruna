@@ -1,32 +1,9 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package pool is the read client for the pool-aggregator service, the
-// information provider every extension service asks about the rest of the lab:
-// which hosts exist, which of them the pool can drive, and where each extension
-// area is currently served.
-//
-// One client rather than one per consumer, because the posture is the part that
-// must not vary. Every call here carries the same three decisions:
-//
-//   - Trusted-LAN TLS. The aggregator serves :9400 with a leaf signed by the
-//     pool CA, which no guest has a trust-store entry for, so a default client
-//     fails the handshake and the caller's numbers gray out permanently. These
-//     reads encrypt without pinning; pinning the pool CA is the documented
-//     upgrade path, not a silent assumption.
-//   - Every URL-valued field in a response is sanitized before a caller can see
-//     it. The reads above do not verify who answered, so a poisoned reply could
-//     otherwise hand a UI a javascript: or data: value that it renders as an
-//     <a href> sink. A field that is not an absolute http(s) URL comes back
-//     empty, which every consumer already treats as "not resolvable".
-//   - An https base URL falls back to plain http on a TRANSPORT failure only.
-//     The aggregator serves TLS only once its proxy-CA leaf is minted, so an
-//     older proxy answers :9400 in the clear; a protocol answer (any status) is
-//     authoritative and is never retried against the other scheme.
-//
-// Nothing here throws a caller's own work away: a pool that does not answer is
-// an error value, and every consumer of this package treats the pool as
-// best-effort by design.
+// Package pool is the read client for the pool-aggregator service. See
+// ../../../../docs/extensions-api.md#2-the-go-sdk----talking-to-the-pool-and-gating-writes
+// for the TLS, sanitization and fallback decisions every call carries. -- pool.go
 package pool
 
 import (

@@ -158,19 +158,21 @@ type CatalogEntry struct {
 	LastModified     string          `json:"lastModified,omitempty"`
 	// ResolvedVariant names the preference the bytes actually came from, which
 	// differs from Variant whenever preference-with-fallback fired.
-	ResolvedVariant string `json:"resolvedVariant,omitempty"`
-	CurrentBytes    int64  `json:"currentBytes"`
-	PreviousBytes   int64  `json:"previousBytes"`
-	GenerationCount int    `json:"generationCount"`
-	DownloadedAt    string `json:"downloadedAt,omitempty"`
-	LastVerifiedAt  string `json:"lastVerifiedAt,omitempty"`
-	ExpiresAt       string `json:"expiresAt,omitempty"`
-	SecondsToExpiry int64  `json:"secondsToExpiry"`
-	RefreshInFlight bool   `json:"refreshInFlight"`
-	Phase           string `json:"phase,omitempty"`
-	BytesDone       int64  `json:"bytesDone,omitempty"`
-	BytesTotal      int64  `json:"bytesTotal,omitempty"`
-	LastError       string `json:"lastError,omitempty"`
+	ResolvedVariant    string         `json:"resolvedVariant,omitempty"`
+	CurrentBytes       int64          `json:"currentBytes"`
+	PreviousBytes      int64          `json:"previousBytes"`
+	GenerationCount    int            `json:"generationCount"`
+	DownloadedAt       string         `json:"downloadedAt,omitempty"`
+	LastVerifiedAt     string         `json:"lastVerifiedAt,omitempty"`
+	ExpiresAt          string         `json:"expiresAt,omitempty"`
+	SecondsToExpiry    int64          `json:"secondsToExpiry"`
+	RefreshInFlight    bool           `json:"refreshInFlight"`
+	Phase              string         `json:"phase,omitempty"`
+	BytesDone          int64          `json:"bytesDone,omitempty"`
+	BytesTotal         int64          `json:"bytesTotal,omitempty"`
+	LastError          string         `json:"lastError,omitempty"`
+	LastErrorCode      string         `json:"lastErrorCode,omitempty"`
+	LastErrorArguments map[string]any `json:"lastErrorArguments,omitempty"`
 }
 
 // Totals is the pool footprint, with the per-hostType subtotals that answer
@@ -255,13 +257,14 @@ type Agent struct {
 	// a client built for public origins cannot complete that handshake at all.
 	pool *pool.Client
 
-	mu           sync.Mutex
-	lastScan     time.Time
-	nextScan     time.Time
-	scans        int
-	stagingSwept int
-	lastSeed     SeedOutcome
-	lastErr      map[string]string
+	mu                  sync.Mutex
+	lastScan            time.Time
+	nextScan            time.Time
+	scans               int
+	stagingSwept        int
+	lastSeed            SeedOutcome
+	lastErr             map[string]string
+	lastErrPresentation map[string]errorPresentation
 	// lastErrAt stamps lastErr so a first-ever download that failed can be
 	// reported as failed for a back-off window instead of being restarted by
 	// every poll.
@@ -629,9 +632,19 @@ func (a *Agent) startRefresh(id ImageID, seed bool) (*Flight, bool) {
 		a.mu.Lock()
 		if err != nil {
 			a.lastErr[id.Key()] = err.Error()
+			if a.lastErrPresentation == nil {
+				a.lastErrPresentation = map[string]errorPresentation{}
+			}
+			var presented *presentationError
+			if errors.As(err, &presented) {
+				a.lastErrPresentation[id.Key()] = presented.presentation
+			} else {
+				delete(a.lastErrPresentation, id.Key())
+			}
 			a.lastErrAt[id.Key()] = a.opts.Now()
 		} else {
 			delete(a.lastErr, id.Key())
+			delete(a.lastErrPresentation, id.Key())
 			delete(a.lastErrAt, id.Key())
 		}
 		a.mu.Unlock()
@@ -683,7 +696,7 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 	if err != nil {
 		// Stamp nothing: laundering an unreachable origin into lastVerifiedAt
 		// would certify staleness as freshness.
-		return fmt.Errorf("origin probe %s: %w", res.SourceURL, err)
+		return &presentationError{cause: fmt.Errorf("origin probe %s: %w", res.SourceURL, err), presentation: errorPresentation{code: "download.refresh_origin_probe", arguments: map[string]any{"url": res.SourceURL, "detail": err.Error()}}}
 	}
 
 	cur, hasPointer, err := a.store.ReadPointer(id)
@@ -716,7 +729,7 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 	// before the checksum.
 	if size > 0 && written != size {
 		_ = os.Remove(staged)
-		return fmt.Errorf("origin %s: HEAD reported %d byte(s), the download produced %d", res.SourceURL, size, written)
+		return &presentationError{cause: fmt.Errorf("origin %s: HEAD reported %d byte(s), the download produced %d", res.SourceURL, size, written), presentation: errorPresentation{code: "download.refresh_size_mismatch", arguments: map[string]any{"url": res.SourceURL, "expected": size, "actual": written}}}
 	}
 	byteCount := size
 	if byteCount <= 0 {
@@ -838,7 +851,7 @@ func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progr
 	p.Reset()
 	direct, derr := a.openDirectStream(ctx, rawURL)
 	if derr != nil {
-		return "", n, fmt.Errorf("proxy stream failed (%v); direct retry: %w", err, derr)
+		return "", n, &presentationError{cause: fmt.Errorf("proxy stream failed (%v); direct retry: %w", err, derr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": derr.Error()}}}
 	}
 	return copyStream(direct, dstPath, p)
 }
@@ -1042,9 +1055,17 @@ func (a *Agent) decorate(e Entry, now time.Time) CatalogEntry {
 
 	a.mu.Lock()
 	lastErr := a.lastErr[e.ID.Key()]
+	presentation := a.lastErrPresentation[e.ID.Key()]
 	deleting := a.deleting[e.ID.Key()]
 	a.mu.Unlock()
 	ce.LastError = lastErr
+	ce.LastErrorCode = presentation.code
+	if presentation.arguments != nil {
+		ce.LastErrorArguments = make(map[string]any, len(presentation.arguments))
+		for key, value := range presentation.arguments {
+			ce.LastErrorArguments[key] = value
+		}
+	}
 
 	if f, live := a.flights.Lookup(e.ID.Key()); live {
 		snap := f.Progress.Snapshot()
@@ -1327,6 +1348,7 @@ func (a *Agent) Delete(id ImageID) error {
 		a.mu.Lock()
 		delete(a.deleting, id.Key())
 		delete(a.lastErr, id.Key())
+		delete(a.lastErrPresentation, id.Key())
 		delete(a.lastErrAt, id.Key())
 		a.mu.Unlock()
 	}()
@@ -1359,3 +1381,17 @@ func (a *Agent) PrunePrevious(id ImageID) (int, error) {
 func (a *Agent) OpenGeneration(id ImageID, generation string) (*os.File, os.FileInfo, error) {
 	return a.store.Open(id, generation)
 }
+
+// errorPresentation carries catalog identity alongside the unchanged audit and
+// compatibility error. Its arguments are immutable after the failure is stored.
+type errorPresentation struct {
+	code      string
+	arguments map[string]any
+}
+type presentationError struct {
+	cause        error
+	presentation errorPresentation
+}
+
+func (e *presentationError) Error() string { return e.cause.Error() }
+func (e *presentationError) Unwrap() error { return e.cause }

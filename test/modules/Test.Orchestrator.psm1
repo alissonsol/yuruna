@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 # regress the standalone path; folding them onto one helper needs a full-lab
 # run to re-verify both.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Test-IsOrchestrationSequence {
     <#
     .SYNOPSIS
@@ -165,11 +166,11 @@ function Invoke-OrchestratorHostAction {
         $scriptNames = @([string]$hostBlock['script'])
     }
     if ($scriptNames.Count -eq 0) {
-        Write-Error "Host-action '$Name' has no 'host.script' or 'host.scripts'."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_c6c3099b644345dc' -Arguments @{ name = "$Name" })
         return 1
     }
     if ($elevated -and -not (Test-IsElevatedHost)) {
-        Write-Error "Host-action '$Name' requires elevation but this shell is not elevated. Re-run from an elevated shell (Run as Administrator)."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_11dd313197e1d9c6' -Arguments @{ name = "$Name" })
         return 1
     }
     $pwshExe = if (Get-Command Get-PwshExePath -ErrorAction SilentlyContinue) { Get-PwshExePath } else { 'pwsh' }
@@ -178,10 +179,10 @@ function Invoke-OrchestratorHostAction {
     foreach ($scriptName in $scriptNames) {
         $scriptPath = Join-Path $entryDir $scriptName
         if (-not (Test-Path -LiteralPath $scriptPath)) {
-            Write-Error "Host-action '$Name' script not found: $scriptPath"
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5a564e98a029d970' -Arguments @{ name = "$Name"; scriptPath = "$scriptPath" })
             return 1
         }
-        Write-OrchestratorLine "Host action: $scriptPath $($hostArgs -join ' ')$(if ($elevated) { ' (elevated)' })"
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_4ed4aab44d7af64a' -Arguments @{ scriptPath = "$scriptPath"; join = "$($hostArgs -join ' ')"; elevated = "$(if ($elevated) { ' (elevated)' })" })
         # Pipe to Write-OrchestratorLine, not the success stream: this
         # function returns the exit code, so un-piped stdout would be swallowed
         # into that value instead of shown. The information stream (rather than
@@ -231,12 +232,12 @@ function Invoke-OrchestratorGuestRun {
         $osKeys = @($Sequence.baseline.Keys)
     }
     if ($osKeys.Count -eq 0) {
-        return & $fail "Inner sequence '$Name' has no 'baseline:' OS key; not a runnable guest sequence."
+        return & $fail (Format-YurunaOperatorMessage -Key 'runner.inner_sequence_baseline_missing' -Arguments @{ name = $Name })
     }
     $osKey    = [string]$osKeys[0]
     $guestKey = "guest.$osKey"
     if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $guestKey)) {
-        return & $fail "Guest folder not found for '$guestKey' on $HostType (inner '$Name')."
+        return & $fail (Format-YurunaOperatorMessage -Key 'runner.inner_guest_folder_missing' -Arguments @{ guest = $guestKey; host = $HostType; name = $Name })
     }
 
     # --- REGION: Derive VM name
@@ -267,9 +268,9 @@ function Invoke-OrchestratorGuestRun {
     # --- REGION: Ensure VM exists (reuse or create)
     # Forwards the shared proxy.
     if ((Get-VMState -VMName $vmName) -ne 'absent') {
-        Write-OrchestratorLine "VM '$vmName' already exists. Reusing."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_a625bc6e8395161a' -Arguments @{ vmName = "$vmName" })
     } else {
-        Write-OrchestratorLine "VM '$vmName' not found. Creating..."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_734d4db0ea4612b1' -Arguments @{ vmName = "$vmName" })
         $newVmArgs = @{ GuestKey = $guestKey; RepoRoot = $RepoRoot; VMName = $vmName; CachingProxyServiceUrl = $CachingProxyServiceUrl }
         if ($effectiveUser) { $newVmArgs.Username = $effectiveUser }
         if ($effectiveHost) { $newVmArgs.Hostname = $effectiveHost }
@@ -285,19 +286,19 @@ function Invoke-OrchestratorGuestRun {
     # runs first, so a nested restore is recognized as one.
     $firstAction = [string](Get-FirstExecutedStepAction -ChainEntries $chainEntries -StartStep 1)
     if ($firstAction -eq 'loadDiskSnapshot') {
-        Write-OrchestratorLine "VM '$vmName': skipping pre-sequence start -- first step is loadDiskSnapshot."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_21e1094877b5bc10' -Arguments @{ vmName = "$vmName" })
     } elseif ((Get-VMState -VMName $vmName) -eq 'running') {
-        Write-OrchestratorLine "VM '$vmName' is already running."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_e0af652141bb2f23' -Arguments @{ vmName = "$vmName" })
     } else {
         $startTimeout = $Config.vmStart.startTimeoutSeconds ? [int]$Config.vmStart.startTimeoutSeconds : 120
         $bootDelay    = $Config.vmStart.bootDelaySeconds    ? [int]$Config.vmStart.bootDelaySeconds    : 15
-        Write-OrchestratorLine "Starting VM '$vmName'..."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_051a02c281a0d2b2' -Arguments @{ vmName = "$vmName" })
         $r = Start-VM -VMName $vmName -Confirm:$false
         if (-not $r.success) { return & $fail "Start-VM failed for inner '$Name': $($r.errorMessage)" }
         if (-not (Wait-VMRunning -VMName $vmName -TimeoutSeconds $startTimeout -BootDelaySeconds $bootDelay)) {
             return & $fail "VM '$vmName' did not reach running state within ${startTimeout}s (inner '$Name')."
         }
-        Write-OrchestratorLine "VM '$vmName' is running."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_f466b580997a484d' -Arguments @{ vmName = "$vmName" })
     }
 
     # --- REGION: Run each chain entry (StartStep 1 .. end)
@@ -369,18 +370,18 @@ function Invoke-OrchestrationSequence {
     foreach ($step in @($Sequence['steps'])) {
         $stepIdx++
         if ($step -isnot [System.Collections.IDictionary] -or [string]$step['action'] -ne 'InvokeTestSequence') {
-            Write-Error "Orchestration sequence '$setName' step $stepIdx is not an 'InvokeTestSequence' action."
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_fd26523bb424d415' -Arguments @{ setName = "$setName"; stepIdx = "$stepIdx" })
             return 1
         }
         $innerRef = [string]$step['sequence']
         if ([string]::IsNullOrWhiteSpace($innerRef)) {
-            Write-Error "Orchestration sequence '$setName' step $stepIdx has no 'sequence:' to invoke."
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f52b08f0a9c9458f' -Arguments @{ setName = "$setName"; stepIdx = "$stepIdx" })
             return 1
         }
         $innerName = $innerRef -replace '\.ya?ml$', ''
         $innerPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $innerName -HostType $HostType -RepoRoot $RepoRoot
         if (-not $innerPath) {
-            Write-Error "Inner sequence not found: $innerName (referenced in '$setName')"
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f11bbe223863fb80' -Arguments @{ innerName = "$innerName"; setName = "$setName" })
             foreach ($p in (Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $innerName -HostType $HostType -RepoRoot $RepoRoot)) { Write-OrchestratorLine "  $p" }
             return 1
         }
@@ -405,7 +406,7 @@ function Invoke-OrchestrationSequence {
     Write-OrchestratorLine "  Orchestration: $setName"
     Write-OrchestratorLine "  Sequence:      $SequencePath"
     Write-OrchestratorLine "  Steps:         $($entries.Count)"
-    Write-OrchestratorLine "  On error:      $(if ($continueOnError) { 'continue (report all)' } else { 'stop at first failure' })"
+    Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_9ce0fabe891f6c6f' -Arguments @{ failure = "$(if ($continueOnError) { 'continue (report all)' } else { 'stop at first failure' })" })
     Write-OrchestratorLine "========"
 
     # --- REGION: Resolve the caching-proxy-service endpoint from config + env
@@ -450,7 +451,7 @@ function Invoke-OrchestrationSequence {
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
     }
     $cachingProxyUrl = Test-CachingProxyServiceAvailable
-    if ($cachingProxyUrl) { Write-OrchestratorLine "Caching-proxy service: $cachingProxyUrl (forwarded to inner runs)" }
+    if ($cachingProxyUrl) { Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_6d7d25b104033455' -Arguments @{ cachingProxyUrl = "$cachingProxyUrl" }) }
 
     # --- REGION: Register this run as a cycle in status.json
     # OWNER: reset + initialize ONE status cycle where
@@ -464,7 +465,7 @@ function Invoke-OrchestrationSequence {
         Register-NestedRunNode -StatusPath $statusFile -NodeId $orchNodeId -ParentId ([string]$ctx.parentId) `
             -Name $setName -Kind 'orchestration' -LogRel $nlog.LogRel -CycleStartUtc ([string]$ctx.cycleStartUtc)
         $cycleStartUtc = [string]$ctx.cycleStartUtc
-        Write-OrchestratorLine "Log file: $($nlog.LogFile)"
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_3e560fa5dd1ee982' -Arguments @{ logFile = "$($nlog.LogFile)" })
     } else {
         Reset-StatusDocumentForCycleStart -StatusFilePath $statusFile -Confirm:$false
         $guestKeys = @($entries | ForEach-Object { $_.name })
@@ -488,7 +489,7 @@ function Invoke-OrchestrationSequence {
 
         $cycleNumber = Get-CycleNumber
         $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber -GitCommits $gitCommitsList
-        Write-OrchestratorLine "Log file: $logFile"
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_254906044fad17f7' -Arguments @{ logFile = "$logFile" })
 
         # Open the per-step perf log for the cycle this orchestration owns.
         # An orchestration owns its whole cycle, so nothing upstream has opened
@@ -523,7 +524,7 @@ function Invoke-OrchestrationSequence {
                 if ($cycFolder) { $perfArgs.HostDiagnosticPath = Join-Path $cycFolder 'host.diagnostic.txt' }
                 Start-PerfCycle @perfArgs -Confirm:$false
             } catch {
-                Write-OrchestratorLine "Start-PerfCycle failed (non-fatal): $($_.Exception.Message)"
+                Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_5cc65763e73334c7' -Arguments @{ message = "$($_.Exception.Message)" })
             }
         }
     }
@@ -553,14 +554,14 @@ function Invoke-OrchestrationSequence {
     $orchWaitWhilePaused = {
         param([string]$Label)
         if (-not $orchStepPauseFlag -or -not (Test-Path -LiteralPath $orchStepPauseFlag)) { return }
-        Write-OrchestratorLine "$Label paused (status-service request); waiting for resume."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_2abc7b8438379497' -Arguments @{ label = "$Label" })
         $attempt = 1
         while (Test-Path -LiteralPath $orchStepPauseFlag) {
             $delay = if (Get-Command Get-PollDelay -ErrorAction SilentlyContinue) { Get-PollDelay -Attempt $attempt } else { 2000 }
             Start-Sleep -Milliseconds $delay
             $attempt++
         }
-        Write-OrchestratorLine "$Label resumed."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_837ab3f8df47479e' -Arguments @{ label = "$Label" })
     }
 
     # Same control-flow marker the sequence engine throws, carried both as an
@@ -570,7 +571,7 @@ function Invoke-OrchestrationSequence {
     $orchCheckCycleRestart = {
         param([string]$Label)
         if (-not $orchCycleRestartFlag -or -not (Test-Path -LiteralPath $orchCycleRestartFlag)) { return }
-        Write-OrchestratorLine "$Label cycle-restart signal seen -- aborting current cycle."
+        Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_5bce4dcd946bfee3' -Arguments @{ label = "$Label" })
         $restart = [System.Management.Automation.RuntimeException]::new("YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label")
         $restart.Data['YurunaCycleRestart'] = $true
         throw $restart
@@ -650,7 +651,7 @@ function Invoke-OrchestrationSequence {
                 } elseif ($e.kind -eq 'host') {
                     $exit = Invoke-OrchestratorHostAction -Sequence $e.sequence -SequencePath $e.path -Name $e.name
                     $ok = ($exit -eq 0)
-                    if (-not $ok) { $reason = "host action '$($e.name)' exited $exit" }
+                    if (-not $ok) { $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_8d9e40dd307d47d9' -Arguments @{ name = "$($e.name)"; exit = "$exit" }) }
                 } elseif ($e.kind -eq 'guest') {
                     $run = Invoke-OrchestratorGuestRun -Sequence $e.sequence -SequencePath $e.path -Name $e.name `
                         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
@@ -661,7 +662,7 @@ function Invoke-OrchestrationSequence {
                     if (-not $ok) { $reason = $run.reason }
                 } else {
                     $ok = $false
-                    $reason = "inner '$($e.name)' is neither a guest sequence (baseline + steps) nor a host action (host:)."
+                    $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e2e4c1d2a97c7116' -Arguments @{ name = "$($e.name)" })
                     Write-Error $reason
                 }
             } finally {
@@ -754,7 +755,7 @@ function Invoke-OrchestrationSequence {
     $passCount = @($results | Where-Object { $_.outcome -eq 'PASS' }).Count
     Write-OrchestratorLine ""
     Write-OrchestratorLine "========"
-    Write-OrchestratorLine "  Orchestration: $setName -- $passCount passed, $failCount failed, $skipCount skipped"
+    Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_cf9f4d7cb9117fd1' -Arguments @{ setName = "$setName"; passCount = "$passCount"; failCount = "$failCount"; skipCount = "$skipCount" })
     foreach ($r in $results) {
         Write-OrchestratorLine ("  [{0}] {1,-8} {2} [{3}]" -f $r.index, $r.outcome, $r.name, $r.kind)
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c6e83b-159d-4f27-8a0e-6b7d2c4901fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,7 +49,7 @@
     pwsh tools/Publish-Localization.ps1
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
     Justification = 'Quiet is read by the private Write-Line helper; ScriptAnalyzer does not follow that dynamic script scope.')]
 param(
@@ -79,7 +79,7 @@ function Write-Line {
 # reads what it produces; a check that ran against stale generated artifacts
 # would pass on text nobody ships.
 $script:Step = @(
-    [ordered]@{ name = 'catalog-compile'; tool = 'tools/Invoke-CatalogCompile.ps1'; arguments = @(); writes = $true
+    [ordered]@{ name = 'catalog-compile'; tool = 'tools/Invoke-CatalogCompile.ps1'; arguments = @('-Update'); writes = $true
         purpose = 'rebuild the per-runtime catalogs from the source catalogs'
     }
     [ordered]@{ name = 'catalog-embed'; tool = 'tools/Invoke-CatalogEmbed.ps1'; arguments = @(); writes = $true
@@ -129,6 +129,8 @@ if ($ListOnly) {
     exit 0
 }
 
+if (-not $PSCmdlet.ShouldProcess("$Root and $ProjectRoot", 'regenerate localization artifacts and run the owned gates')) { exit 0 }
+
 $failed = [Collections.Generic.List[string]]::new()
 $ran = 0
 foreach ($step in $script:Step) {
@@ -152,12 +154,19 @@ foreach ($step in $script:Step) {
     $output = (& $script:PowerShellPath @arguments 2>&1 | Out-String).Trim()
     $code = $LASTEXITCODE
     $ran++
+    if ($step.writes -and $code -in @(0, 1)) {
+        $verifyArguments = @($arguments | Where-Object { $_ -cne '-Update' }) + '-Check'
+        $verification = (& $script:PowerShellPath @verifyArguments 2>&1 | Out-String).Trim()
+        $code = $LASTEXITCODE
+        if ($code -ne 0) { $output += "`n" + $verification }
+    }
     if ($code -eq 0) {
         Write-Line ('ok     {0,-20} {1}' -f $name, [string]$step.purpose)
         continue
     }
     $failed.Add("${name}: exit $code")
     Write-Warning ('{0} failed (exit {1}):{2}{3}' -f $name, $code, [Environment]::NewLine, $output)
+    break
 }
 
 foreach ($problem in $failed) { Write-Warning $problem }

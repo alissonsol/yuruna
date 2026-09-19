@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f81d3c-9e04-4a72-b5c8-6d190af7be21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -804,5 +804,114 @@ Describe 'the UTF-8 gate refuses what the ASCII gate no longer sees' {
         $run = Invoke-Tool -Tool $script:Utf8Gate -Argument @('-Path', $path, '-Quiet')
         Assert-Equal -Expected 1 -Actual $run.ExitCode 'an unclosed override has to fail'
         Assert-Match -Pattern 'unclosed' -Actual $run.Output 'the report names the leak'
+    }
+}
+
+Describe 'complete Portuguese variants use the pinned target grammar' {
+    It 'globalization acceptance: pt-BR complete active keys variants and placeholders' {
+        # The real compiler checks every enabled domain. Planned languages do
+        # not count as delivered; the later-wave source gate requires supported.
+        $current = Invoke-Tool -Tool $script:Compiler -Argument @('-Check', '-Quiet')
+        $current.ExitCode | Should -Be 0 -Because $current.Output
+        $root = New-CatalogRoot -Name 'portuguese-plural-target' -DomainJson $script:GoodCatalog
+        $null = Invoke-Compile -Root $root -Update
+        $initial = Get-Content -LiteralPath (Join-Path $root 'manifests/catalog-set.json') -Raw | ConvertFrom-Json -AsHashtable
+        $manifest = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/locale-manifest.json') -Raw | ConvertFrom-Json -AsHashtable
+        $manifest.locales.'pt-BR'.status = 'supported'
+        [IO.File]::WriteAllText((Join-Path $root 'locale-manifest.json'), (ConvertTo-Json $manifest -Depth 15))
+        $messages = @{
+            'sample.plain' = @{ sourceHash = $initial.messageSources.'sample.plain'.sourceHash; message = 'Test-only translated fixture.' }
+            'sample.counted' = @{ sourceHash = $initial.messageSources.'sample.counted'.sourceHash; plural = @{ variants = @{ one = '{count} singular fixture'; many = '{count} million fixture'; other = '{count} other fixture' } } }
+        }
+        $translated = @{ schema = 'yuruna.catalog/v1'; locale = 'pt-BR'; domain = 'sample'; messages = $messages }
+        $directory = Join-Path $root 'catalogs/pt-BR'
+        [void][IO.Directory]::CreateDirectory($directory)
+        $path = Join-Path $directory 'sample.json'
+        [IO.File]::WriteAllText($path, (ConvertTo-Json $translated -Depth 15))
+        $null = Invoke-Compile -Root $root -Update
+        (Invoke-Compile -Root $root).ExitCode | Should -Be 0
+        $artifact = Join-Path $root 'generated/browser/pt-BR.sample.js'
+        $before = (Get-FileHash $artifact).Hash
+        $messages.'sample.counted'.plural.variants.Remove('many')
+        [IO.File]::WriteAllText($path, (ConvertTo-Json $translated -Depth 15))
+        $bad = Invoke-Compile -Root $root -Update
+        $bad.ExitCode | Should -Be 1
+        $bad.Output | Should -Match 'many'
+        (Get-FileHash $artifact).Hash | Should -BeExactly $before
+    }
+}
+
+Describe 'Portuguese activation requires all official project values' {
+    It 'globalization acceptance: pt-BR pinned plural and all official project values' {
+        Import-Module (Join-Path $PSScriptRoot 'Test.Catalog.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Test.LocalizationExchange.psm1') -Force -Global -DisableNameChecking
+        $manifest = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/locale-manifest.json') -Raw | ConvertFrom-Json
+        $fixture = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/fixtures/pt-BR-plurals.json') -Raw | ConvertFrom-Json
+        $manifest.locales.'pt-BR'.pluralRule | Should -BeExactly $fixture.rule
+        foreach ($row in $fixture.cases) { Get-PluralCategory -Count $row.count -Locale 'pt-BR' | Should -BeExactly $row.category }
+        $project = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
+        $rows = @(Get-LocalizationRow -Root $script:RepoRoot -ProjectRoot $project -Locale 'pt-BR' | Where-Object kind -CEQ 'project-scalar')
+        $rows.Count | Should -BeGreaterThan 2
+        if ($manifest.locales.'pt-BR'.status -ceq 'supported') {
+            $sidecar = Get-Content -LiteralPath (Join-Path $project 'globalization/project-locale-source-hashes.json') -Raw | ConvertFrom-Json
+            foreach ($row in $rows) {
+                $entries = @($sidecar.entries | Where-Object { $_.path -ceq $row.context -and $_.fieldPath -ceq $row.pointer -and $_.locale -ceq 'pt-BR' })
+                $entries.Count | Should -Be 1 -Because $row.id
+                $entries[0].sourceHash | Should -BeExactly $row.sourceSha256
+                $entries[0].reviewStatus | Should -BeExactly 'reviewed'
+                $entries[0].reviewer | Should -Not -BeNullOrEmpty
+            }
+            $check = Invoke-Tool -Tool (Join-Path $script:RepoRoot 'tools/Invoke-ProjectLocaleMap.ps1') -Argument @('-ProjectRoot', $project)
+            $check.ExitCode | Should -Be 0 -Because $check.Output
+        } else {
+            $manifest.locales.'pt-BR'.status | Should -BeExactly 'planned'
+            Resolve-SupportedLocale -Tag 'pt-BR' | Should -BeNullOrEmpty
+        }
+    }
+}
+
+Describe 'generated PowerShell data preserves literal text safely' {
+    It 'keeps argument-only messages and selector forms as arrays in every artifact' {
+        $catalog = ConvertFrom-Json -InputObject $script:GoodCatalog -AsHashtable
+        $catalog.messages.'sample.plain'.message = '{detail}'
+        $catalog.messages.'sample.plain'.placeholders = @{ detail = @{ type = 'detail'; trust = 'external'; example = 'outside text' } }
+        $catalog.messages.'sample.counted'.plural.variants = @{ one = '{count}'; other = '{count}' }
+        $catalog.messages.'sample.selected' = @{
+            description = 'A selected argument-only message.'; lifecycle = 'active'
+            placeholders = @{ style = @{ type = 'token'; trust = 'internal'; example = 'compact' }; detail = @{ type = 'detail'; trust = 'external'; example = 'outside text' } }
+            select = @{ selector = 'style'; variants = @{ compact = '{detail}'; other = '{detail}' } }
+        }
+        $root = New-CatalogRoot -Name 'single-segment' -DomainJson (ConvertTo-Json $catalog -Depth 15)
+        $null = Invoke-Compile -Root $root -Update
+        (Invoke-Compile -Root $root).ExitCode | Should -Be 0
+        $table = Import-PowerShellDataFile -Path (Join-Path $root 'generated/powershell/en-US.sample.psd1')
+        ($table.'sample.plain' -is [array]) | Should -BeTrue
+        ($table.'sample.counted'.variants.one -is [array]) | Should -BeTrue
+        ($table.'sample.selected'.variants.compact -is [array]) | Should -BeTrue
+        $table.'sample.plain'.Count | Should -Be 1
+        $go = [IO.File]::ReadAllText((Join-Path $root 'generated/go/catalog/enUS_sample.go'))
+        $json = [regex]::Match($go, '(?s)const DataenUSsample = `(?<json>.*?)`').Groups['json'].Value | ConvertFrom-Json -AsHashtable
+        ($json.'sample.plain' -is [array]) | Should -BeTrue
+        ($json.'sample.counted'.variants.one -is [array]) | Should -BeTrue
+        ($json.'sample.selected'.variants.compact -is [array]) | Should -BeTrue
+        Import-Module (Join-Path $PSScriptRoot 'Test.Catalog.psm1') -Force -DisableNameChecking
+        Format-CatalogMessage -Key 'sample.plain' -Arguments @{ detail = '<outside>' } -Locale en-US -Root (Join-Path $root 'generated/powershell') | Should -BeExactly '<outside>'
+        $javascript = [IO.File]::ReadAllText((Join-Path $root 'generated/browser/en-US.sample.js'))
+        $javascript | Should -Match "'sample\.plain':\[\{'arg':'detail'"
+        $javascript | Should -Match "'compact':\[\{'arg':'detail'"
+    }
+
+    It 'round trips typographic quotes whitespace and expression-shaped text as constants' {
+        $value = 'Host' + [char]0x2019 + 's ' + [char]0x201c + 'quoted' + [char]0x201d + "`n  padded `t" + '$([IO.File]::WriteAllText("unexpected", "unsafe"))'
+        $catalog = ConvertFrom-Json -InputObject $script:GoodCatalog -AsHashtable
+        $catalog.messages.'sample.plain'.message = $value
+        $root = New-CatalogRoot -Name 'literal-quotes' -DomainJson (ConvertTo-Json $catalog -Depth 12)
+        $null = Invoke-Compile -Root $root -Update
+        $file = Join-Path $root 'generated/powershell/en-US.sample.psd1'
+        $errors = $null
+        $null = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+        @($errors).Count | Should -Be 0
+        $table = Import-PowerShellDataFile -Path $file -SkipLimitCheck
+        $table.'sample.plain' | Should -BeExactly $value
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -26,7 +27,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
-    Write-Error "host/macos.utm/guest.windows.11/Get-Image.ps1 only runs on macOS UTM."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b6e237c7cda71c3f')
     exit 1
 }
 
@@ -59,11 +60,11 @@ Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'Fido.ps1') -Force -ErrorActio
 $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11arm64"
 
 Write-Output ""
-Write-Output "== Image Download =="
-Write-Output "Download folder: $downloadDir"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e39505c185df23e7')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_26ff901dc61a1c4c' -Arguments @{ downloadDir = "$downloadDir" })
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The download folder does not exist and could not be created: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_140ee0a4d13c6e47' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
 }
 
@@ -75,7 +76,7 @@ Write-Output ""
 Write-Output "--- Windows 11 ARM64 ISO ---"
 
 if (Test-Path -Path $baseImageFile) {
-    Write-Output "Skipping Windows download since ISO for this host is already present"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b8484d0c8d0f00c6')
     Write-Output "  File: $baseImageFile"
     $windowsOk = $true
 } else {
@@ -84,19 +85,19 @@ if (Test-Path -Path $baseImageFile) {
         Where-Object { $_.Name -match 'Win11.*ARM|Windows.*11.*ARM|ARM.*Win.*11' } |
         Select-Object -First 1
     if ($existingIso) {
-        Write-Output "Found Windows 11 ARM64 ISO: $($existingIso.FullName)"
-        Write-Output "Renaming to: $baseImageFile"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6c2dffba6952556b' -Arguments @{ fullName = "$($existingIso.FullName)" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e7d3ecc0c4541317' -Arguments @{ baseImageFile = "$baseImageFile" })
         $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
         Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
         if (Test-Path $baseImageFile) {
             Move-Item -Path $baseImageFile -Destination $previousFile
-            Write-Output "Previous image preserved as: $previousFile"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
         }
         $existingIsoOriginalPath = $existingIso.FullName
         Move-Item -Path $existingIso.FullName -Destination $baseImageFile
         $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
         Set-Content -Path $baseImageOrigin -Value @($existingIso.Name, [System.Uri]::new($existingIsoOriginalPath).AbsoluteUri)
-        Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_69295e2d532ea585' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
         Write-Output "Done: $baseImageFile"
         $windowsOk = $true
     }
@@ -129,16 +130,16 @@ if (-not $windowsOk) {
                     -ImageKey 'guest.windows.11' -Arch 'arm64' -Variant 'stable' `
                     -StagingPath $agentStagingFile -DeadlineSeconds 7200
             } catch {
-                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the Fido path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57d6aa65fdb2331b' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
             }
             if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
-                Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $agentStagingFile"
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_22010fb874c3c316' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; agentStagingFile = "$agentStagingFile" })
                 $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
                 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
                 if (Test-Path -LiteralPath $baseImageFile) {
                     Move-Item -Path $baseImageFile -Destination $previousFile
-                    Write-Output "  Previous image preserved as: $previousFile"
+                    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_98c81fc58f9efc47' -Arguments @{ previousFile = "$previousFile" })
                 }
                 Move-Item -Path $agentStagingFile -Destination $baseImageFile -Force
                 # The 2-line sidecar (filename + URL) this family has always
@@ -146,12 +147,12 @@ if (-not $windowsOk) {
                 # an asymmetric writer would only produce a shape nothing reads.
                 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
                 Set-Content -Path $baseImageOrigin -Value @([string]$agentResult.filename, [string]$agentResult.sourceUrl)
-                Write-Output "  Recorded source filename and URL to: $baseImageOrigin"
-                Write-Output "  Saved as: $baseImageFile"
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4b8869730ce185b8' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2779f3bf3d45cf09' -Arguments @{ baseImageFile = "$baseImageFile" })
                 $windowsOk = $true
             } elseif ($agentResult -and $agentResult.outcome -eq 'failed') {
                 $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning "Download agent at $agentBaseUrl answered 'failed'$detail; falling back to the Fido path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bd4076d09a36eec5' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; detail = "$detail" })
             } elseif ($agentResult) {
                 # 'unavailable' is what a working agent answers for a family it
                 # does not hold, the documented steady state for Windows 11.
@@ -164,7 +165,7 @@ if (-not $windowsOk) {
 if (-not $windowsOk) {
     # --- REGION: Try Fido (automated)
     Write-Output ""
-    Write-Output "Attempting automated download via Fido..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e4b4e4f1a7d0e41f')
     # Fetched per run into a throwaway directory: the only copy that executes
     # is the one this invocation just fetched, hash-verified and then patched
     # for the platform gate, and no external code -- least of all a patched
@@ -177,7 +178,7 @@ if (-not $windowsOk) {
 
     try {
         New-Item -ItemType Directory -Path $fidoWork -Force -ErrorAction Stop | Out-Null
-        Write-Output "[Step 1/3] Downloading Fido script..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_389e41379c7ea679')
         Write-Output "  URL: $fidoUrl"
         Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
         Unblock-File $fidoScript
@@ -186,7 +187,7 @@ if (-not $windowsOk) {
         # manual download (caught below) instead of executing unverified code.
         $fidoActual = (Get-FileHash -LiteralPath $fidoScript -Algorithm SHA256).Hash
         if ($fidoActual -ine $fidoSha256) {
-            throw "Fido.ps1 hash mismatch (pinned v1.70): expected $fidoSha256, got $fidoActual"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_dd6d74db4a58cc9d' -Arguments @{ fidoSha256 = "$fidoSha256"; fidoActual = "$fidoActual" })
         }
         # Fido refuses to run anywhere but Windows: Get-Platform-Version answers
         # 0.0 off Windows and the command-line path exits 403 ("This feature is
@@ -199,22 +200,22 @@ if (-not $windowsOk) {
             -Value $fidoText.Replace('$winver = Get-Platform-Version', '$winver = 10.0')
         Write-Output "  Done."
 
-        Write-Output "[Step 2/3] Retrieving Windows 11 ARM64 ISO download URL..."
-        Write-Output "  Language: $languageFilter | Architecture: arm64"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6897d3661c2e2fcd')
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e4f3eb0b2275877a' -Arguments @{ languageFilter = "$languageFilter" })
         # -PlatformArch skips Fido's CPU autodetection, which uses Get-CimInstance
         # (WMI) -- a Windows-only cmdlet that fails under macOS/Linux pwsh.
         $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch arm64 -PlatformArch arm64 -GetUrl
 
         if (-not $downloadUrl) {
-            throw "Fido did not return a download URL."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_3229f8d0887eda42')
         }
-        Write-Output "  Download URL: $downloadUrl"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1e8fd043e8ea6df3' -Arguments @{ downloadUrl = "$downloadUrl" })
 
-        Write-Output "[Step 3/3] Downloading Windows 11 ARM64 ISO..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c2ac53c45cd20863')
         $downloadFile = Join-Path $downloadDir "downloaded.iso"
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
         Write-Output "  Destination: $downloadFile"
-        Write-Output "  This may take a while depending on your connection speed..."
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_26d58e13fc858352')
 
         # Use BITS for progress, fall back to Invoke-WebRequest
         try {
@@ -225,13 +226,13 @@ if (-not $windowsOk) {
                     $pct = [math]::Round(($bitsJob.BytesTransferred / $bitsJob.BytesTotal) * 100, 1)
                     $transferredGB = [math]::Round($bitsJob.BytesTransferred / 1GB, 2)
                     $totalGB = [math]::Round($bitsJob.BytesTotal / 1GB, 2)
-                    Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Status "$transferredGB GB / $totalGB GB ($pct%)" -PercentComplete $pct
+                    Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_357cbe83efce827f') -Status (Format-YurunaOperatorMessage -Key 'host.operator_13835229449d2daa' -Arguments @{ transferredGB = "$transferredGB"; totalGB = "$totalGB"; pct = "$pct" }) -PercentComplete $pct
                 } else {
-                    Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Status "Connecting..."
+                    Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_357cbe83efce827f') -Status "Connecting..."
                 }
                 Start-Sleep -Seconds 2
             }
-            Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Completed
+            Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_357cbe83efce827f') -Completed
             if ($bitsJob.JobState -eq "Transferred") {
                 Complete-BitsTransfer -BitsJob $bitsJob
             } else {
@@ -239,36 +240,36 @@ if (-not $windowsOk) {
                 throw "BITS ended in state: $($bitsJob.JobState)"
             }
         } catch {
-            Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_66c7eec66542e844')
             Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
         }
 
         if (-not (Test-Path $downloadFile)) {
-            throw "Download failed: file not found."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_870df3a8573355af')
         }
 
         $fileSize = (Get-Item $downloadFile).Length
-        Write-Output "  Downloaded: $([math]::Round($fileSize / 1GB, 2)) GB"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_efabc01383fdbdc6' -Arguments @{ gB = "$([math]::Round($fileSize / 1GB, 2))" })
         if ($fileSize -lt 1GB) {
-            throw "Downloaded file is suspiciously small (< 1 GB). It may not be a valid ISO."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_88e5a12c10f16189')
         }
 
         $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
         Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
         if (Test-Path $baseImageFile) {
             Move-Item -Path $baseImageFile -Destination $previousFile
-            Write-Output "  Previous image preserved as: $previousFile"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_98c81fc58f9efc47' -Arguments @{ previousFile = "$previousFile" })
         }
         Move-Item -Path $downloadFile -Destination $baseImageFile -Force
         $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
         $originalName = [System.IO.Path]::GetFileName(([System.Uri]$downloadUrl).LocalPath)
         Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)
-        Write-Output "  Recorded source filename and URL to: $baseImageOrigin"
-        Write-Output "  Saved as: $baseImageFile"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4b8869730ce185b8' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2779f3bf3d45cf09' -Arguments @{ baseImageFile = "$baseImageFile" })
         $windowsOk = $true
 
     } catch {
-        Write-Warning "Automated download failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a1f938bc4fb29457' -Arguments @{ value = "$_" })
         if ($downloadFile -and (Test-Path $downloadFile)) {
             Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
         }
@@ -279,77 +280,77 @@ if (-not $windowsOk) {
 
 if (-not $windowsOk) {
     Write-Output ""
-    Write-Output "  Manual download required for Windows 11 ARM64 ISO:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_89c416f7ffc8adfa')
     Write-Output ""
-    Write-Output "    1. Open: $downloadPageUrl"
-    Write-Output "    2. Select 'Windows 11 (multi-edition ISO for ARM64 devices)'"
-    Write-Output "    3. Click Confirm"
-    Write-Output "    4. Select 'English' as the language"
-    Write-Output "    5. Click Confirm"
-    Write-Output "    6. Click the 'ARM64 Download' button"
-    Write-Output "    7. Save the ISO file as: $baseImageFile"
-    Write-Output "       Or save any *ARM*.iso file to: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9ce492cf22a68e03' -Arguments @{ downloadPageUrl = "$downloadPageUrl" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_bd13116ee0d4ceed')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8256d85c6ffcd2b9')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_dee4cbb914cf0c9d')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a8aa4c0e64d394c3')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c3b93b719bddfcc5')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e73bb843561f0649' -Arguments @{ baseImageFile = "$baseImageFile" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_618ffa4947e3742f' -Arguments @{ downloadDir = "$downloadDir" })
     Write-Output ""
-    Write-Output "  Then run this script again to continue."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a63a9ecfe4b9fc7')
 }
 
 # --- REGION: UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
 Write-Output ""
-Write-Output "--- UTM Guest Tools ISO (SPICE + VirtIO drivers for ARM64) ---"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_53718658a3b1e181')
 
 if (Test-Path -Path $spiceImageFile) {
-    Write-Output "Already exists: $spiceImageFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7722c9ef31cf3f93' -Arguments @{ spiceImageFile = "$spiceImageFile" })
     $spiceOk = $true
 } else {
-    Write-Output "Downloading from: $spiceDownloadUrl"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0ca910cd9041c443' -Arguments @{ spiceDownloadUrl = "$spiceDownloadUrl" })
     $spiceDownloadFile = Join-Path $downloadDir "utm-guest-tools-download.iso"
     Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
     try {
         Invoke-WebRequest -Uri $spiceDownloadUrl -OutFile $spiceDownloadFile -ErrorAction Stop
         if (-not (Test-Path $spiceDownloadFile)) {
-            throw "Download failed: file not found."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_870df3a8573355af')
         }
         $spiceSize = (Get-Item $spiceDownloadFile).Length
         if ($spiceSize -lt 1MB) {
-            throw "Downloaded file is too small ($spiceSize bytes). It may not be a valid ISO."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d35eaa0aac5124a8' -Arguments @{ spiceSize = "$spiceSize" })
         }
         $spicePreviousFile = Join-Path $downloadDir "$($spiceImageName -replace '\.iso$','.previous.iso')"
         Remove-Item $spicePreviousFile -Force -ErrorAction SilentlyContinue
         if (Test-Path $spiceImageFile) {
             Move-Item -Path $spiceImageFile -Destination $spicePreviousFile
-            Write-Output "  Previous SPICE image preserved as: $spicePreviousFile"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_dfa60366092971bd' -Arguments @{ spicePreviousFile = "$spicePreviousFile" })
         }
         Move-Item -Path $spiceDownloadFile -Destination $spiceImageFile -Force
         $spiceImageOrigin = Join-Path $downloadDir ([System.IO.Path]::GetFileNameWithoutExtension($spiceImageName) + ".txt")
         $spiceOriginalName = [System.IO.Path]::GetFileName(([System.Uri]$spiceDownloadUrl).LocalPath)
         Set-Content -Path $spiceImageOrigin -Value @($spiceOriginalName, $spiceDownloadUrl)
-        Write-Output "  Recorded source filename and URL to: $spiceImageOrigin"
-        Write-Output "  Saved as: $spiceImageFile"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_718c5db3d22f4ff0' -Arguments @{ spiceImageOrigin = "$spiceImageOrigin" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f86f4d4267851951' -Arguments @{ spiceImageFile = "$spiceImageFile" })
         $spiceOk = $true
     } catch {
-        Write-Warning "Automated download of UTM Guest Tools ISO failed: $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a2b80c19104e45ae' -Arguments @{ value = "$_" })
         Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
     }
 }
 
 if (-not $spiceOk) {
     Write-Output ""
-    Write-Output "  Manual download required for UTM Guest Tools ISO:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_903e4d92fedb0e31')
     Write-Output ""
-    Write-Output "    1. Open: https://docs.getutm.app/guest-support/windows/"
-    Write-Output "    2. Download the UTM Guest Tools ISO linked on that page"
-    Write-Output "       (contains SPICE tools and VirtIO drivers including arm64)"
-    Write-Output "    3. Save the file as: $spiceImageFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_557888cda7f096ec')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e54fbc2821ca7a8f')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_8b41e306b0fd4497')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a2dda9a6a547eba1' -Arguments @{ spiceImageFile = "$spiceImageFile" })
     Write-Output ""
-    Write-Output "  Then run this script again to continue."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a63a9ecfe4b9fc7')
 }
 
 # --- REGION: Completion
 Write-Output ""
 if ($windowsOk -and $spiceOk) {
-    Write-Output "== All images ready =="
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_04e1429d924ce2b6')
     exit 0
 } else {
-    Write-Output "== Some images are missing -- see manual download instructions above =="
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_76d9904f0f26416c')
     exit 1
 }

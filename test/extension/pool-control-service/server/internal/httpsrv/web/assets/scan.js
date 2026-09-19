@@ -26,14 +26,14 @@
 
   function validate(raw) {
     var value = String(raw || '').trim();
-    if (value === '') { return { ok: false, message: 'Enter a network, for example ' + (defaultCidr || '192.168.7.0/24') + '.' }; }
+    if (value === '') { return { ok: false, message: window.YurunaI18n.t("pool.enter_a_network_for_example_value1", {value1: (defaultCidr || '192.168.7.0/24')}) }; }
     var m = CIDR_RE.exec(value);
-    if (!m) { return { ok: false, message: 'Not CIDR notation. Write an address, a slash, and a prefix length: 192.168.7.0/24.' }; }
+    if (!m) { return { ok: false, message: window.YurunaI18n.t("pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19") }; }
     for (var i = 1; i <= 4; i++) {
-      if (Number(m[i]) > 255) { return { ok: false, message: 'Each of the four numbers must be 0 to 255.' }; }
+      if (Number(m[i]) > 255) { return { ok: false, message: window.YurunaI18n.t("pool.each_of_the_four_numbers_must_be_0_to_255") }; }
     }
     var bits = Number(m[5]);
-    if (bits > 32) { return { ok: false, message: 'The prefix length must be 0 to 32.' }; }
+    if (bits > 32) { return { ok: false, message: window.YurunaI18n.t("pool.the_prefix_length_must_be_0_to_32") }; }
     var size = Math.pow(2, 32 - bits);
     if (maxAddresses && size > maxAddresses) {
       return {
@@ -42,14 +42,13 @@
         // project writes. toLocaleString would punctuate from the browser's
         // own locale regardless of the page's, so the same count would be
         // written one way here and another way in the transcript.
-        message: '/' + bits + ' covers ' + num(size) + ' addresses; this service scans at most '
-          + num(maxAddresses) + '. Use a narrower network (a larger prefix length).'
+        message: window.YurunaI18n.t('pool.scan_limit', {prefix: bits, count: size, limit: num(maxAddresses)})
       };
     }
     // Said plainly rather than left to be inferred: the count is what tells an
     // operator whether they typed the network they meant.
     var hosts = bits <= 30 ? size - 2 : size;
-    return { ok: true, message: 'Scans ' + num(hosts) + (hosts === 1 ? ' address.' : ' addresses.') };
+    return { ok: true, message: window.YurunaI18n.t('pool.scan_count', {count: hosts}) };
   }
 
   // One place to reach the shared formatter, so a call site cannot quietly
@@ -84,14 +83,14 @@
     ticker.textContent = '';
     if (!scan || (!scan.running && !scan.startedUtc)) {
       box.className = 'muted';
-      box.textContent = 'No scan has run yet.';
+      box.textContent = window.YurunaI18n.t("pool.no_scan_has_run_yet");
       return;
     }
-    var what = scan.trigger === 'sweep' ? 'Periodic sweep' : 'Scan';
+    var what = window.YurunaI18n.t(scan.trigger === 'sweep' ? 'pool.sweep_label' : 'pool.scan_label');
     if (scan.running) {
       box.className = '';
       box.textContent = '';
-      box.appendChild(Y.el('span', { text: what + ' of ' + scan.cidr + ': ' + scan.done + ' of ' + scan.total + ' addresses. ' }));
+      box.appendChild(Y.el('span', { text: window.YurunaI18n.t("pool.value1_of_value2_value3_of_value4_addresses", {value1: (what), value2: (scan.cidr), value3: (scan.done), value4: (scan.total)}) }));
       box.appendChild(Y.el('progress', { value: String(scan.done), max: String(scan.total) }));
       // The addresses just probed, oldest first, so the line reads left to
       // right the way the scan moved through the range.
@@ -102,11 +101,7 @@
     }
     box.className = 'muted';
     var added = (scan.found || []).length;
-    box.textContent = what + ' of ' + scan.cidr + ' finished ' + fmtTime(scan.finishedUtc) + ': '
-      + scan.done + ' of ' + scan.total + ' addresses probed, '
-      + added + (added === 1 ? ' host added, ' : ' hosts added, ')
-      + scan.alreadyMonitored + ' already monitored.'
-      + (scan.error ? ' ' + scan.error : '');
+    box.textContent = window.YurunaI18n.t('pool.scan_finished', {kind: what, network: scan.cidr, time: fmtTime(scan.finishedUtc), done: scan.done, total: scan.total, count: added, monitored: scan.alreadyMonitored, detail: scan.error || ''});
   }
 
   function renderFound(scan) {
@@ -114,7 +109,7 @@
     body.textContent = '';
     var found = (scan && scan.found) || [];
     if (!found.length) {
-      body.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: 'Nothing new. Every Yuruna host in that range was already monitored.' })]));
+      body.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: window.YurunaI18n.t("pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored") })]));
       return;
     }
     for (var i = 0; i < found.length; i++) {
@@ -133,15 +128,22 @@
   // watching; it is identified by address until it says otherwise, and the
   // blank says which case this is rather than pretending to an id.
   function idCell(hostId) {
-    if (!hostId) { return Y.el('span', { class: 'muted', text: '(no id reported)', title: 'This host answered but its registration record could not be read.' }); }
+    if (!hostId) { return Y.el('span', { class: 'muted', text: window.YurunaI18n.t("pool.no_id_reported"), title: window.YurunaI18n.t("pool.this_host_answered_but_its_registration_record_could_not_be_read") }); }
     return Y.idCell(hostId);
   }
 
   function renderHosts(hosts) {
+    return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/scan.html", "data", function () {
+      return renderHostsMeasured(hosts);
+    });
+  }
+
+
+  function renderHostsMeasured(hosts) {
     var body = $('host-rows');
     body.textContent = '';
     if (!hosts || !hosts.length) {
-      body.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No hosts discovered yet.' })]));
+      body.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: window.YurunaI18n.t("pool.no_hosts_discovered_yet") })]));
       return;
     }
     for (var i = 0; i < hosts.length; i++) { body.appendChild(hostRow(hosts[i])); }
@@ -151,16 +153,16 @@
   // Wiring it from inside a loop body would leave every button aimed at the
   // last host in the table.
   function hostRow(h) {
-    var forget = Y.el('button', { text: 'Forget' });
+    var forget = Y.el('button', { text: window.YurunaI18n.t("pool.forget") });
     forget.addEventListener('click', function () {
-      if (!window.confirm('Stop monitoring ' + h.address + '?\n\nThe next scan of that network will find it again if it is still there.')) { return; }
+      if (!window.confirm(window.YurunaI18n.t("pool.stop_monitoring_value1_the_next_scan_of_that_network_will_find_it", {value1: (h.address)}))) { return; }
       forget.disabled = true;
       Y.clearNotice();
       Y.mutate('/api/scan/forget', { method: 'POST', body: { key: h.hostId || h.address } }).then(function () {
         return load();
       }, function (e) {
         forget.disabled = false;
-        Y.notice('error', 'Could not forget that host: ' + e.message);
+        Y.notice('error', window.YurunaI18n.t("pool.could_not_forget_that_host_value1", {value1: (e.message)}));
       });
     });
     // The address links to the host's own status service, which for a host that
@@ -189,11 +191,9 @@
   }
 
   function sweepSentence(data) {
-    if (!data.sweepSeconds) { return 'The periodic sweep is off; this page is the only way a scan runs.'; }
+    if (!data.sweepSeconds) { return window.YurunaI18n.t("pool.the_periodic_sweep_is_off_this_page_is_the_only_way_a_scan_runs"); }
     var minutes = Math.round(data.sweepSeconds / 60);
-    return 'A sweep of ' + (data.defaultCidr || 'this service\'s own network') + ' runs on its own every '
-      + (minutes >= 1 ? minutes + (minutes === 1 ? ' minute' : ' minutes') : data.sweepSeconds + ' seconds')
-      + ', asking port ' + data.port + ' on every address.';
+    return window.YurunaI18n.t(minutes >= 1 ? 'pool.sweep_minutes' : 'pool.sweep_seconds', {network: data.defaultCidr || window.YurunaI18n.t('pool.own_network'), count: minutes >= 1 ? minutes : data.sweepSeconds, port: data.port});
   }
 
   // --- REGION: Data
@@ -209,7 +209,7 @@
         syncField();
       }
       if (data.storeError) {
-        Y.notice('error', 'Discovered hosts are not being saved: ' + data.storeError);
+        Y.notice('error', window.YurunaI18n.t("pool.discovered_hosts_are_not_being_saved_value1", {value1: (data.storeError)}));
       }
       renderProgress(data.scan);
       renderFound(data.scan);
@@ -218,7 +218,7 @@
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/scan.html', data.hosts && data.hosts.length ? 'data' : 'empty');
       return data;
     }, function (e) {
-      Y.notice('error', 'Could not read the scan status: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("pool.could_not_read_the_scan_status_value1", {value1: (e.message)}));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/scan.html', 'error');
       return null;
     });
@@ -250,13 +250,13 @@
     $('scan').disabled = true;
     return Y.mutate('/api/scan', { method: 'POST', body: { cidr: cidr } }).then(function (res) {
       if (res.alreadyRunning) {
-        Y.notice('ok', 'A scan of ' + (res.scan && res.scan.cidr) + ' is already running; following that one.');
+        Y.notice('ok', window.YurunaI18n.t("pool.a_scan_of_value1_is_already_running_following_that_one", {value1: (res.scan && res.scan.cidr)}));
       }
       renderProgress(res.scan);
       syncField();
       return poll();
     }, function (e) {
-      Y.notice('error', 'Scan refused: ' + e.message);
+      Y.notice('error', window.YurunaI18n.t("pool.scan_refused_value1", {value1: (e.message)}));
       syncField();
     });
   }

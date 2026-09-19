@@ -86,6 +86,2517 @@
           "example": "workload.guest.example"
         }
       }
+    },
+    "pool.board_yuruna_pool_control": {
+      "message": "Board — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.yuruna_pool_control": {
+      "message": "Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.menu": {
+      "message": "Menu",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pages": {
+      "message": "Pages",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.board": {
+      "message": "Board",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.assign": {
+      "message": "Assign",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.hosts": {
+      "message": "Hosts",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pools": {
+      "message": "Pools",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.test_sets": {
+      "message": "Test sets",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.scan": {
+      "message": "Scan",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostics": {
+      "message": "Diagnostics",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.guide": {
+      "message": "Guide",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.time_period": {
+      "message": "Time period",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.label_1h": {
+      "message": "1h",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.label_24h": {
+      "message": "24h",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.label_7d": {
+      "message": "7d",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.label_30d": {
+      "message": "30d",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.no_pools_yet_create_one_from_menu_pools": {
+      "message": "No pools yet. Create one from Menu → Pools.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.assign_test_set": {
+      "message": "Assign test set?",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.cancel": {
+      "message": "Cancel",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.ips": {
+      "message": "IPs:",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.refresh": {
+      "message": "Refresh",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pause": {
+      "message": "Pause",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/board.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostics_yuruna_pool_control": {
+      "message": "Diagnostics — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.service_diagnostics": {
+      "message": "Service diagnostics",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque": {
+      "message": "Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.re_run_checks": {
+      "message": "Re-run checks",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.check": {
+      "message": "Check",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.result": {
+      "message": "Result",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.detail": {
+      "message": "Detail",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.what_to_do": {
+      "message": "What to do",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.intent_read_raw_invocation": {
+      "message": "Intent read — raw invocation",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.stdout": {
+      "message": "stdout",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.runtime_environment": {
+      "message": "Runtime environment",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": {
+      "message": "What the daemon was launched with, and the environment its pwsh child processes inherit.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.process": {
+      "message": "Process",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": {
+      "message": "Which build is actually running, and for how long — establishes whether a fix was deployed at all.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.persisted_health": {
+      "message": "Persisted health",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.hosts_yuruna_pool_control": {
+      "message": "Hosts — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.control": {
+      "message": "Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.moves": {
+      "message": "moves",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.framework": {
+      "message": "Framework",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.project": {
+      "message": "Project",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.re_keyed": {
+      "message": "re-keyed",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.show_hostnames": {
+      "message": "Show hostnames",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.row_number": {
+      "message": "Row number",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_id": {
+      "message": "Host ID",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.hostname": {
+      "message": "Hostname",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.type": {
+      "message": "Type",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.memory": {
+      "message": "Memory",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.cores": {
+      "message": "Cores",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.total_storage": {
+      "message": "Total Storage",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.free_storage": {
+      "message": "Free Storage",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pool": {
+      "message": "Pool",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.assign_yuruna_pool_control": {
+      "message": "Assign — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.assign_test_sets_to_pools": {
+      "message": "Assign test sets to pools",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": {
+      "message": "Each pool tests one test set (a framework + project repo pair).\n      GH_TOKEN stays host-local — never stored in pool intent.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pool_id": {
+      "message": "Pool ID",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.assign_test_set_50fb7bbc": {
+      "message": "Assign test set",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.framework_project": {
+      "message": "Framework / Project",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.members": {
+      "message": "Members *",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.state": {
+      "message": "State",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pools_yuruna_pool_control": {
+      "message": "Pools — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pool_status": {
+      "message": "Pool Status",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.pool_id_66d3d3f3": {
+      "message": "Pool id",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.lowercase_dns_safe": {
+      "message": "lowercase, dns-safe",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.display_name": {
+      "message": "Display name",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.optional": {
+      "message": "optional",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.create_pool": {
+      "message": "Create pool",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.name": {
+      "message": "Name",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.members_1044a4c0": {
+      "message": "Members",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.actions": {
+      "message": "Actions",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.scan_yuruna_pool_control": {
+      "message": "Scan — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.scan_a_network_for_yuruna_hosts": {
+      "message": "Scan a network for Yuruna hosts",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic": {
+      "message": "Asks every address in the network for a Yuruna host status service and adds the ones\n      that answer to the monitored hosts — pooled or not, enrolled or not.\n      Scanning changes nothing on the hosts themselves.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.which_network_cidr_notation": {
+      "message": "Which network? (CIDR notation)",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.network": {
+      "message": "Network",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.use_this_network": {
+      "message": "Use this network",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.progress": {
+      "message": "Progress",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.no_scan_has_run_yet": {
+      "message": "No scan has run yet.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.found_and_added": {
+      "message": "Found and added",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor": {
+      "message": "Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.address": {
+      "message": "Address",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.found": {
+      "message": "Found",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.monitored_by_discovery": {
+      "message": "Monitored by discovery",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.first_seen": {
+      "message": "First seen",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.last_seen": {
+      "message": "Last seen",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.test_sets_yuruna_pool_control": {
+      "message": "Test sets — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.not": {
+      "message": "not",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.framework_url": {
+      "message": "Framework URL",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.project_url": {
+      "message": "Project URL",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.save_test_set": {
+      "message": "Save test set",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.success": {
+      "message": "success",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.cycles": {
+      "message": "cycles",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.failed": {
+      "message": "failed",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.the_hosts_own_projects": {
+      "message": "the hosts' own projects",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.change_test_set": {
+      "message": "Change test set...",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.assign_value1_to_value2": {
+      "message": "Assign \"{value1}\" to {value2}?",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_assign_value1": {
+      "message": "Could not assign: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.live_numbers_unavailable_value1_assigning_still_works": {
+      "message": "Live numbers unavailable ({value1}). Assigning still works.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_load_the_board_value1_retrying_on_the_next_refresh": {
+      "message": "Could not load the board: {value1}. Retrying on the next refresh.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.lab_token": {
+      "message": "Lab token",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.unlock": {
+      "message": "Unlock",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.enter_the_lab_token": {
+      "message": "Enter the Lab token",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "message": "The 6-character code on the Yuruna hosts dashboard's Lab token tile. A code you have just read stays valid for about three minutes, so there is no need to rush it.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": {
+      "message": "All checks passed. pool-control-service {value1} ({value2}), collected {value3}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": {
+      "message": "{value1} of {value2} checks failing. pool-control-service {value3} ({value4}), collected {value5}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value5": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.pass": {
+      "message": "PASS",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.fail": {
+      "message": "FAIL",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.empty": {
+      "message": "(empty)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.persistence_disabled": {
+      "message": "(persistence disabled)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.this_host_has_not_reported_a_name": {
+      "message": "This host has not reported a name.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.unlock_with_the_lab_token_to_see_hostnames": {
+      "message": "Unlock with the Lab token to see hostnames.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.this_host_has_not_reported_hardware_facts": {
+      "message": "This host has not reported hardware facts.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.move_this_host_s_pool_membership_to_value1_the_id_that_answers_at": {
+      "message": "Move this host's pool membership to {value1}, the id that answers at this address, and stop showing this one.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": {
+      "message": "Host {value1} no longer answers at {value2}; {value3} does.\n\nMove the pool membership to that id and forget this one?",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.the_id_that_answers_at_this_address_now": {
+      "message": "The id that answers at this address now.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.open_this_host_s_own_status_page_at_value1_found_by_a_network_sca": {
+      "message": "Open this host's own status page at {value1} (found by a network scan{value2})",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.found_by_a_network_scan_value1": {
+      "message": "Found by a network scan{value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.discovered": {
+      "message": "discovered",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": {
+      "message": "Found by scanning the network; it belongs to no pool and has not registered with the aggregator.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pool_for_host_value1": {
+      "message": "Pool for host {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.none": {
+      "message": "(none)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.move_host_value1_to_value2_value3": {
+      "message": "Move host {value1} to {value2}?{value3}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po": {
+      "message": "This host has not reported an id, so it cannot be assigned to a pool yet.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.no_pools_defined_create_one_on_the_pools_page": {
+      "message": "No pools defined. Create one on the Pools page.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.test_set_for_pool_value1": {
+      "message": "Test set for pool {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.choose_a_test_set": {
+      "message": "(choose a test set)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.value1_host_s": {
+      "message": "{value1} host(s)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.run": {
+      "message": "run",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pool_status_for_value1": {
+      "message": "Pool status for {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.apply_value1_to_all_value2_host_s_in_pool_value3": {
+      "message": "Apply \"{value1}\" to all {value2} host(s) in pool {value3}?",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.no_pools_yet": {
+      "message": "No pools yet.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.hostid_42_30hex": {
+      "message": "hostId (42+30hex)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.host_id_to_add_to_pool_value1": {
+      "message": "Host id to add to pool {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.host": {
+      "message": "+ host",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.delete_pool": {
+      "message": "Delete pool",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.delete_pool_value1": {
+      "message": "Delete pool {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.delete_pool_value1_this_cannot_be_undone": {
+      "message": "Delete pool '{value1}'? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.x": {
+      "message": "x",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.remove_host_value1_from_pool_value2": {
+      "message": "Remove host {value1} from pool {value2}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.remove_host_value1_from_pool_value2_this_cannot_be_undone": {
+      "message": "Remove host {value1} from pool {value2}? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.value1_of_value2_value3_of_value4_addresses": {
+      "message": "{value1} of {value2}: {value3} of {value4} addresses. ",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": {
+      "message": "Nothing new. Every Yuruna host in that range was already monitored.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.no_id_reported": {
+      "message": "(no id reported)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.this_host_answered_but_its_registration_record_could_not_be_read": {
+      "message": "This host answered but its registration record could not be read.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.no_hosts_discovered_yet": {
+      "message": "No hosts discovered yet.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.forget": {
+      "message": "Forget",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.stop_monitoring_value1_the_next_scan_of_that_network_will_find_it": {
+      "message": "Stop monitoring {value1}?\n\nThe next scan of that network will find it again if it is still there.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.no_test_sets_yet": {
+      "message": "No test sets yet.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.edit": {
+      "message": "Edit",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.delete": {
+      "message": "Delete",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.delete_test_set_value1": {
+      "message": "Delete test set {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.delete_test_set_value1_this_cannot_be_undone": {
+      "message": "Delete test set '{value1}'? This cannot be undone.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.running": {
+      "message": "Running: ",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.loading_pools": {
+      "message": "Loading pools...",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.running_checks": {
+      "message": "Running checks...",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.could_not_collect_diagnostics_value1": {
+      "message": "Could not collect diagnostics: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.hand_over_failed_value1": {
+      "message": "Hand over failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.moved_to_value1": {
+      "message": "Moved to {value1}.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.move_failed_value1": {
+      "message": "Move failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.loading_hosts": {
+      "message": "Loading hosts...",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.aggregator_unavailable_value1_control_state_is_unknown_moving_hos": {
+      "message": "Aggregator unavailable ({value1}); control state is unknown. Moving hosts still works.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_load_pool_intent_value1": {
+      "message": "Could not load pool intent: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": {
+      "message": "Pick a test set first (define one on the Test sets page).",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.assigned_value1_to_pool_value2": {
+      "message": "Assigned '{value1}' to pool '{value2}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.assign_failed_value1": {
+      "message": "Assign failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.pool_status_change_failed_value1": {
+      "message": "Pool status change failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.pool_value1_has_no_members_nothing_to_drive": {
+      "message": "Pool '{value1}' has no members; nothing to drive.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.value1_applied_to_value2_host_s_in_pool_value3": {
+      "message": "{value1}: applied to {value2} host(s) in pool '{value3}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.value1_value2_applied_value3_failed_value4": {
+      "message": "{value1}: {value2} applied, {value3} failed -- {value4}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_load_pools_value1": {
+      "message": "Could not load pools: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.added_value1_to_value2": {
+      "message": "Added {value1} to {value2}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.added_value1": {
+      "message": "Added {value1}.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.add_host_failed_value1": {
+      "message": "Add host failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.pool_value1_has_members_remove_them_first": {
+      "message": "Pool '{value1}' has members; remove them first.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.deleted_pool_value1": {
+      "message": "Deleted pool '{value1}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.delete_failed_value1": {
+      "message": "Delete failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.remove_host_failed_value1": {
+      "message": "Remove host failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.remove_failed_value1": {
+      "message": "Remove failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.enter_a_pool_id": {
+      "message": "Enter a pool id.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.created_pool_value1": {
+      "message": "Created pool '{value1}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.create_failed_value1": {
+      "message": "Create failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_forget_that_host_value1": {
+      "message": "Could not forget that host: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.discovered_hosts_are_not_being_saved_value1": {
+      "message": "Discovered hosts are not being saved: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.could_not_read_the_scan_status_value1": {
+      "message": "Could not read the scan status: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.a_scan_of_value1_is_already_running_following_that_one": {
+      "message": "A scan of {value1} is already running; following that one.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.scan_refused_value1": {
+      "message": "Scan refused: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.loading_test_sets": {
+      "message": "Loading test sets...",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.could_not_load_test_sets_value1": {
+      "message": "Could not load test sets: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.deleted_value1": {
+      "message": "Deleted '{value1}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.name_frameworkurl_and_projecturl_are_all_required": {
+      "message": "name, frameworkUrl and projectUrl are all required.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.saved_test_set_value1": {
+      "message": "Saved test set '{value1}'.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.save_failed_value1": {
+      "message": "Save failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.holds_this_lab_s_token_clock_agrees": {
+      "message": "Holds this lab's token; clock agrees.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": {
+      "message": "Never enrolled a lab token -- run Set-LabToken.ps1 on the host.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.holds_a_different_token_re_enroll_against_this_proxy": {
+      "message": "Holds a DIFFERENT token -- re-enroll against this proxy.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": {
+      "message": "Token is right but the clock is off -- fix the host clock.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": {
+      "message": "Not answered yet, or the proxy holds no token of its own.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": {
+      "message": "This id no longer answers at this address; the id beside it does. One machine, two ids -- it was reimaged or re-cloned. Any pool membership is still recorded against THIS id, so the live host is doing the work outside the pool.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.continue": {
+      "message": "Continue",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pause_after_cycle": {
+      "message": "Pause after cycle",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pause_after_step": {
+      "message": "Pause after step",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.mixed": {
+      "message": "Mixed",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.paused_after_cycle_and_step": {
+      "message": "Paused after cycle and step",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.the_periodic_sweep_is_off_this_page_is_the_only_way_a_scan_runs": {
+      "message": "The periodic sweep is off; this page is the only way a scan runs.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo": {
+      "message": "The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on stdout, so stdout is usually where the real message is.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "pool.the_same_document_command1_serves_from_the_state_dir_on_the_pool_": {
+      "message": "The same document {command1} serves, from the state dir on the pool NAS.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "/healthz"
+        }
+      }
+    },
+    "pool.loaded": {
+      "message": "Loaded:",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": {
+      "message": "{command1} scans {command2} through {command3}; a smaller prefix number covers more addresses ({command4} is 65,536), a larger one fewer ({command5} is one machine). An address inside the network means the same subnet: {command6} equals {command7}.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/scan.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "192.168.7.0/24"
+        },
+        "command2": {
+          "type": "token",
+          "trust": "internal",
+          "example": "192.168.7.1"
+        },
+        "command3": {
+          "type": "token",
+          "trust": "internal",
+          "example": "192.168.7.254"
+        },
+        "command4": {
+          "type": "token",
+          "trust": "internal",
+          "example": "/16"
+        },
+        "command5": {
+          "type": "token",
+          "trust": "internal",
+          "example": "/32"
+        },
+        "command6": {
+          "type": "token",
+          "trust": "internal",
+          "example": "192.168.7.34/24"
+        },
+        "command7": {
+          "type": "token",
+          "trust": "internal",
+          "example": "192.168.7.0/24"
+        }
+      }
+    },
+    "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": {
+      "message": "A test set is a framework + project repo pair. GH_TOKEN is not stored here — it stays host-local on each host's test.config.yml / vault.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": {
+      "message": "* A pool's members are meant to be configured alike. To copy one peer's configuration onto another host, run on that host: {command1}",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <peer-ip>"
+        }
+      }
+    },
+    "pool.every_host_the_aggregator_knows_control_command1_this_lab_s_token": {
+      "message": "Every host the aggregator knows. Control: {command1} (this lab's token, clock agrees — only these auto-enroll), {command2} (different token), {command3} (clock problem), {command4} (never enrolled). Choosing a pool moves the host — a host belongs to at most one. Framework and Project are the repos the host reports, linked to their source; {command5} means it cannot read the one configured. A re-keyed row is one machine's old identity: it was reimaged or re-cloned, so the live host answers under the id shown beside it while any pool membership stays on the old one — hand it over from that row. Hostnames appear once this browser is unlocked.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "ready"
+        },
+        "command2": {
+          "type": "token",
+          "trust": "internal",
+          "example": "mismatch"
+        },
+        "command3": {
+          "type": "token",
+          "trust": "internal",
+          "example": "skew"
+        },
+        "command4": {
+          "type": "token",
+          "trust": "internal",
+          "example": "none"
+        },
+        "command5": {
+          "type": "token",
+          "trust": "internal",
+          "example": "No access"
+        }
+      }
+    },
+    "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": {
+      "message": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.",
+      "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "pool.state_ready": {
+      "message": "ready",
+      "description": "Display label for the stable ready state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_none": {
+      "message": "none",
+      "description": "Display label for the stable none state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_mismatch": {
+      "message": "mismatch",
+      "description": "Display label for the stable mismatch state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_skew": {
+      "message": "skew",
+      "description": "Display label for the stable skew state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_unknown": {
+      "message": "unknown",
+      "description": "Display label for the stable unknown state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_running": {
+      "message": "running",
+      "description": "Display label for the stable running state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_stopped": {
+      "message": "stopped",
+      "description": "Display label for the stable stopped state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_paused": {
+      "message": "paused",
+      "description": "Display label for the stable paused state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_idle": {
+      "message": "idle",
+      "description": "Display label for the stable idle state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_pass": {
+      "message": "pass",
+      "description": "Display label for the stable pass state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.state_fail": {
+      "message": "fail",
+      "description": "Display label for the stable fail state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "pool.hosts_reporting": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "reporting": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host - {reporting} reporting",
+          "other": "{count} hosts - {reporting} reporting"
+        }
+      }
+    },
+    "pool.hosts_project_denied": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host cannot read the assigned project. Grant its token access, or assign a different test set.",
+          "other": "{count} hosts cannot read the assigned project. Grant its token access, or assign a different test set."
+        }
+      }
+    },
+    "pool.hosts_switch_project": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "project": {
+          "type": "detail",
+          "trust": "external",
+          "example": "example"
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host will switch to {project} on their next cycle.",
+          "other": "{count} hosts will switch to {project} on their next cycle."
+        }
+      }
+    },
+    "pool.hosts_switch_assigned": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host will switch to the assigned project on their next cycle.",
+          "other": "{count} hosts will switch to the assigned project on their next cycle."
+        }
+      }
+    },
+    "pool.exit_code": {
+      "message": "exit code",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.duration": {
+      "message": "duration",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pwsh_pwsh_flag": {
+      "message": "pwsh (--pwsh flag)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pwsh_resolved": {
+      "message": "pwsh (resolved)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.repo_dir": {
+      "message": "repo dir",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.framework_version": {
+      "message": "framework version",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.framework_revision": {
+      "message": "framework revision",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.state_dir": {
+      "message": "state dir",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.intent_git_url": {
+      "message": "intent git URL",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.aggregator_url": {
+      "message": "aggregator URL",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.host_id_7b624c8f": {
+      "message": "host id",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.service_user": {
+      "message": "service user",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.path": {
+      "message": "PATH",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.home": {
+      "message": "HOME",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.version": {
+      "message": "version",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.go": {
+      "message": "go",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.platform": {
+      "message": "platform",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pid": {
+      "message": "pid",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.listen_addr": {
+      "message": "listen addr",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.started_at": {
+      "message": "started at",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.uptime": {
+      "message": "uptime",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.hand_over": {
+      "message": "Hand over",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.pool_membership_moved_to_value1": {
+      "message": "Pool membership moved to {value1}.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.nothing_to_move_the_live_id_already_has_the_pool_it_should": {
+      "message": "Nothing to move: the live id already has the pool it should.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.last_seen_value1": {
+      "message": ", last seen {value1}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": {
+      "message": "\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.enter_a_network_for_example_value1": {
+      "message": "Enter a network, for example {value1}.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19": {
+      "message": "Not CIDR notation. Write an address, a slash, and a prefix length: 192.168.7.0/24.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.each_of_the_four_numbers_must_be_0_to_255": {
+      "message": "Each of the four numbers must be 0 to 255.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.the_prefix_length_must_be_0_to_32": {
+      "message": "The prefix length must be 0 to 32.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.scan_limit": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "/{prefix} covers {count} addresses; this service scans at most {limit}. Use a narrower network (a larger prefix length).",
+      "placeholders": {
+        "prefix": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "limit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.scan_count": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "Scans {count} address.",
+          "other": "Scans {count} addresses."
+        }
+      },
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "pool.scan_label": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Scan"
+    },
+    "pool.sweep_label": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Periodic sweep"
+    },
+    "pool.own_network": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "this service's own network"
+    },
+    "pool.scan_finished": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{kind} of {network} finished {time}: {done} of {total} addresses probed, {count} host added, {monitored} already monitored. {detail}",
+          "other": "{kind} of {network} finished {time}: {done} of {total} addresses probed, {count} hosts added, {monitored} already monitored. {detail}"
+        }
+      },
+      "placeholders": {
+        "kind": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "network": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "time": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "done": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "total": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "monitored": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.sweep_minutes": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "A sweep of {network} runs on its own every {count} minute, asking port {port}.",
+          "other": "A sweep of {network} runs on its own every {count} minutes, asking port {port}."
+        }
+      },
+      "placeholders": {
+        "network": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.sweep_seconds": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "A sweep of {network} runs on its own every {count} second, asking port {port}.",
+          "other": "A sweep of {network} runs on its own every {count} seconds, asking port {port}."
+        }
+      },
+      "placeholders": {
+        "network": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "port": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.enrollment_target": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "{pool} -- auto-enrollment target",
+      "placeholders": {
+        "pool": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.unsupported_range": {
+      "message": "unsupported range; use 1h, 24h, 7d or 30d",
+      "description": "Invalid statistics range; the listed tokens are the accepted protocol query values.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_no_output": {
+      "message": "no output",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_install_pwsh": {
+      "message": "Install PowerShell in the guest. packages.microsoft.com has no powershell package for this Ubuntu release; use the GitHub-release tarball, then restart pool-control-service.service.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_install_git": {
+      "message": "The pool-admin CLIs clone and push pool intent; install git in the guest.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_empty": {
+      "message": "empty: no intent store resolved from the launch flag or the config file",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_configure": {
+      "message": "The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_raw_invocation": {
+      "message": "See the raw invocation below for the CLI's own output; the checks above name any missing dependency.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_revision_corrupt": {
+      "message": "The revision sidecar is corrupt, so the deployed commit is unprovable. Re-fetch the framework archive from the status service and restart pool-control-service.service.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_revision_mixed": {
+      "message": "The checkout and its revision sidecar describe different commits; the tree is a mix of sources. Re-fetch the framework archive from the status service and restart pool-control-service.service.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_revision_missing": {
+      "message": "Nothing in the checkout names a commit, so this deployment cannot be tied to reviewed source. Re-fetch the framework archive from the status service and restart pool-control-service.service.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_not_configured": {
+      "message": "not configured",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_configure_repo": {
+      "message": "Pass --repo-dir pointing at the yuruna framework checkout.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_repo_missing": {
+      "message": "The framework checkout is missing; re-run the guest bring-up script.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_repo_partial": {
+      "message": "The checkout is stale or partial; re-fetch the framework archive.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_absent": {
+      "message": "no intent URL to check",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_pull_only": {
+      "message": "An http(s) intent store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_remote": {
+      "message": "remote URL; reachability is covered by intent-read",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_initialize": {
+      "message": "The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_intent_permission": {
+      "message": "Writes will fail at push. Check the pool NAS mount's uid/gid against the service user.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_disabled": {
+      "message": "persistence disabled (no state dir configured)",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_logs_missing": {
+      "message": "The audit log and status.json are not being written; the pool NAS mount is what supplies this dir.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_unknown": {
+      "message": "store is enabled but no state dir was reported to the server",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_configure": {
+      "message": "Pass Options.StateDir alongside Options.Store so this check can probe the real path.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_nas_missing": {
+      "message": "The pool NAS mount is absent; the audit log is not durable.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_persistence_permission": {
+      "message": "Check the mount's uid/gid options against the service user.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
+    },
+    "pool.diagnostic_pwsh_execution": {
+      "message": "pwsh exists at {path} but did not run; check its shared-library dependencies.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_pwsh_not_found": {
+      "message": "not found: {detail}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_git_not_found": {
+      "message": "not found on PATH: {detail}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_intent_override": {
+      "message": "  (config file overrides the launch flag {flag})",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "flag": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_revision_conflict": {
+      "message": "git reports {git} but {file} records {sidecar}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "git": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "sidecar": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_revision_git": {
+      "message": "{revision} (Git checkout)",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "revision": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_revision_archive": {
+      "message": "{revision} ({file}, archive-only checkout)",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "revision": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_revision_no_source": {
+      "message": "no Git checkout and no {file}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_repo_missing_files": {
+      "message": "{path}: missing {files}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "files": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_repo_complete": {
+      "message": "{path}: all {count} pool-admin CLIs present",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "count": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_intent_not_bare": {
+      "message": "{path}: not a bare git repo ({detail})",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_intent_not_writable": {
+      "message": "{path}: bare repo present but NOT writable: {detail}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_intent_writable": {
+      "message": "{path}: bare repo, writable",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_state_not_writable": {
+      "message": "{path}: not writable: {detail}",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_state_writable": {
+      "message": "{path}: writable",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "pool.diagnostic_auto_enrollment_assignment": {
+      "message": "Hosts land here automatically and keep running their own project.",
+      "description": "Operator-facing dependency diagnostic. Identifiers, commands and raw external details remain data.",
+      "lifecycle": "active"
     }
   }
 }

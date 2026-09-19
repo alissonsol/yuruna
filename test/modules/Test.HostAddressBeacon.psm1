@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,7 @@
     outcome of a total failure is the behavior that exists today.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Set-StrictMode -Version Latest
 
 # Wall-clock caps, seconds. Backstops for an unreachable proxy, not
@@ -132,7 +133,7 @@ function Reset-HostAddressBeaconState {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param()
-    if ($PSCmdlet.ShouldProcess('host address beacon', 'reset last-announced state')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_96766746c16f798c'), (Format-YurunaOperatorMessage -Key 'runner.operator_7db4aeb6bf98dc0d'))) {
         $script:LastRecordedAddress  = ''
         $script:LastAnnouncedAddress = ''
         $script:LastAnnounceUtc      = [datetime]::MinValue
@@ -164,7 +165,7 @@ function Write-HostAddressRecord {
         [Parameter(Mandatory)][string]$Address
     )
     $path = Join-Path $RuntimeDir 'ipaddresses.txt'
-    if (-not $PSCmdlet.ShouldProcess($path, "Record host address $Address")) { return }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_c4a809d3c92bbba1' -Arguments @{ address = "$Address" }))) { return }
     try {
         $v6 = @()
         try {
@@ -247,7 +248,7 @@ function Invoke-HostAddressSquidNudge {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param([Parameter(Mandatory)][string]$CacheAddress)
-    if (-not $PSCmdlet.ShouldProcess($CacheAddress, 'nudge squid access log')) { return }
+    if (-not $PSCmdlet.ShouldProcess($CacheAddress, (Format-YurunaOperatorMessage -Key 'runner.operator_ad8f5b4a429b9d82'))) { return }
     try {
         $null = Invoke-WebRequest -Uri "http://$CacheAddress/squid-meta" `
             -Proxy "http://${CacheAddress}:$($script:SquidPort)" `
@@ -290,7 +291,7 @@ function Write-HostAddressChangeRecord {
         [Parameter(Mandatory)][string]$ChangedAtUtc
     )
     $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
-    if (-not $PSCmdlet.ShouldProcess($path, "Record address change to $Current")) { return }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_b12fd41a06f7b780' -Arguments @{ current = "$Current" }))) { return }
     try {
         $row = [ordered]@{
             event        = 'host_address_change'
@@ -341,7 +342,7 @@ function Write-HostAddressBaselineRecord {
         [Parameter(Mandatory)][string]$ObservedAtUtc
     )
     $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
-    if (-not $PSCmdlet.ShouldProcess($path, "Record address baseline $Current")) { return }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_dd530193911d7db3' -Arguments @{ current = "$Current" }))) { return }
     try {
         $row = [ordered]@{
             event        = 'host_address_baseline'
@@ -538,7 +539,7 @@ function Get-HostBridgeDhcpIdentity {
     param([string]$BridgeName = 'yuruna-br0')
     $result = @{ backend = 'unknown'; pinned = $null; detail = ''; remedy = '' }
     if (-not $IsLinux) {
-        $result.detail = 'not a Linux host; the bridge DHCP identity is a KVM-host concept.'
+        $result.detail = (Format-YurunaOperatorMessage -Key 'runner.operator_5d36b901e44d2e5b')
         return $result
     }
     if (Get-Command nmcli -ErrorAction SilentlyContinue) {
@@ -550,7 +551,7 @@ function Get-HostBridgeDhcpIdentity {
             # nmcli prints '--' for an unset property. Unset means NM's default,
             # which is a machine-id-derived DUID, not the MAC.
             $result.pinned = ($value -and $value -ne '--' -and $value -ne 'default')
-            $result.detail = "NetworkManager profile '$BridgeName': ipv4.dhcp-client-id = $(if ($value) { $value } else { '(absent)' })."
+            $result.detail = (Format-YurunaOperatorMessage -Key 'runner.operator_f3eacab83412aa17' -Arguments @{ bridgeName = "$BridgeName"; absent = "$(if ($value) { $value } else { '(absent)' })" })
             $result.remedy = "sudo nmcli connection modify '$BridgeName' ipv4.dhcp-client-id mac ipv4.dhcp-iaid mac ipv4.dhcp-send-release yes"
             return $result
         }
@@ -563,10 +564,10 @@ function Get-HostBridgeDhcpIdentity {
         catch { $text = [string](& sudo cat $netplanPath 2>$null) }
         $result.pinned = ($text -match '(?m)^\s*dhcp-identifier:\s*mac\s*$')
         $result.detail = "netplan '$netplanPath': dhcp-identifier: mac $(if ($result.pinned) { 'present' } else { 'absent' })."
-        $result.remedy = "re-run the host network setup so '$netplanPath' is regenerated with 'dhcp-identifier: mac', then: sudo netplan apply"
+        $result.remedy = (Format-YurunaOperatorMessage -Key 'runner.operator_a6cbc2c740a476c8' -Arguments @{ netplanPath = "$netplanPath" })
         return $result
     }
-    $result.detail = "no NetworkManager profile and no '$netplanPath' for '$BridgeName'."
+    $result.detail = (Format-YurunaOperatorMessage -Key 'runner.operator_2f3dff9dbc1661c2' -Arguments @{ netplanPath = "$netplanPath"; bridgeName = "$BridgeName" })
     return $result
 }
 
@@ -609,20 +610,20 @@ function Set-HostBridgeDhcpIdentity {
     $before = Get-HostBridgeDhcpIdentity -BridgeName $BridgeName
     $result.detail = $before.detail
     if ($before.backend -ne 'networkmanager') {
-        $result.reason = "the bridge is not NetworkManager-managed (backend '$($before.backend)'), and the other backends are not safe to change unattended."
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_593fb0aba9fb27f3' -Arguments @{ backend = "$($before.backend)" })
         return $result
     }
     if ($before.pinned -ne $false) {
-        $result.reason = 'already pinned.'
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_0c0632bc212704dc')
         $result.verified = [bool]$before.pinned
         return $result
     }
     if (-not (Get-Command Invoke-YurunaSudo -ErrorAction SilentlyContinue)) {
-        $result.reason = 'the shared sudo wrapper is unavailable in this session.'
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_04e4f7a2a65ad054')
         return $result
     }
-    if (-not $PSCmdlet.ShouldProcess($BridgeName, 'Pin the DHCP client identity to the NIC MAC')) {
-        $result.reason = 'skipped by -WhatIf.'
+    if (-not $PSCmdlet.ShouldProcess($BridgeName, (Format-YurunaOperatorMessage -Key 'runner.operator_953126aa8e69c6f1'))) {
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_568cbdda28254bb2')
         return $result
     }
     try {
@@ -644,11 +645,11 @@ function Set-HostBridgeDhcpIdentity {
             return $result
         }
         if ($r.ExitCode -ne 0) {
-            $result.reason = "nmcli exited $($r.ExitCode): $(($r.Output -join ' ').Trim())"
+            $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e490c341fb85216e' -Arguments @{ exitCode = "$($r.ExitCode)"; trim = "$(($r.Output -join ' ').Trim())" })
             return $result
         }
     } catch {
-        $result.reason = "the modify call failed: $($_.Exception.Message)"
+        $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_45ff11c036d9f937' -Arguments @{ message = "$($_.Exception.Message)" })
         return $result
     }
     $result.applied = $true
@@ -660,9 +661,9 @@ function Set-HostBridgeDhcpIdentity {
     $result.verified = ($after.pinned -eq $true)
     $result.detail   = $after.detail
     $result.reason   = if ($result.verified) {
-        'pinned; it takes effect at the next activation of the profile, so the address in use now is unchanged.'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_c7babaac36a0b554')
     } else {
-        'nmcli accepted the change but the profile does not read back as pinned.'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_0069e1e9dde926cf')
     }
     return $result
 }
@@ -724,14 +725,9 @@ function Get-HostAddressStabilityReport {
             # the claim about the pool is withdrawn.
             $report.severity = 'warning'
             if ($churn.distinctAddresses -le 1) {
-                $base = ("This host LOSES AND REACQUIRES one address on a timer: $($churn.changes) changes " +
-                         "in the last $($churn.lookbackHours)h, one every $($churn.medianIntervalMinutes) min, " +
-                         'but only ever on a single address. No lease is being leaked and the pool is not ' +
-                         'draining, so the address itself is not the problem -- something is resetting this ' +
-                         'link on a clock, and every guest behind it loses the wire each time even though ' +
-                         'nothing renumbers. That is invisible in a guest log, which shows only the outage.')
-                $report.message = "$base Look at the link and the renewal path, not at the DHCP identity."
-                $report.remedy  = "confirm whether the interface drops carrier or the address at each tick; see docs/network.md, 'Pinning the host address'."
+                $base = ((Format-YurunaOperatorMessage -Key 'runner.operator_f2fdee4ed81b87e5' -Arguments @{ changes = "$($churn.changes)"; lookbackHours = "$($churn.lookbackHours)"; medianIntervalMinutes = "$($churn.medianIntervalMinutes)" }))
+                $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_67655409103c7b63' -Arguments @{ base = "$base" })
+                $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_435a402b4a3ee605')
                 return $report
             }
             # Reports the rate and stops there. Turning "N addresses a day" into
@@ -742,26 +738,18 @@ function Get-HostAddressStabilityReport {
             # guess wearing the costume of a measurement, and it sends whoever
             # reads it to the DHCP server to fix a pool that may be mostly free.
             # State the observation; name the two numbers that would settle it.
-            $base = ("This host re-addresses on a short clock: $($churn.changes) changes " +
-                     "in the last $($churn.lookbackHours)h, one every $($churn.medianIntervalMinutes) min, " +
-                     "$($churn.distinctAddresses) distinct addresses -- about $rate a day. Whether that " +
-                     'is harmless or is draining the pool depends on the lease period and the scope size, ' +
-                     'which are facts about the DHCP server and are not visible from this host: at a ' +
-                     'lease of L hours each address is held L hours, so roughly rate x L / 24 are held ' +
-                     'at once. Compare that against the free-lease count on the server before treating ' +
-                     'this as a pool problem. What IS certain from here is the churn itself -- an address ' +
-                     'changing on a clock breaks every guest behind it each time it moves.')
+            $base = ((Format-YurunaOperatorMessage -Key 'runner.operator_25862eb778ae3d35' -Arguments @{ changes = "$($churn.changes)"; lookbackHours = "$($churn.lookbackHours)"; medianIntervalMinutes = "$($churn.medianIntervalMinutes)"; distinctAddresses = "$($churn.distinctAddresses)"; rate = "$rate" }))
             if ($identity.pinned -eq $false) {
-                $report.message = "$base The bridge's DHCP identity is not pinned, so every renewal presents a client the server has not seen before."
+                $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_446ea43d3a126c3d' -Arguments @{ base = "$base" })
                 $report.remedy  = $identity.remedy
             } elseif ($identity.pinned -eq $true) {
-                $report.message = "$base The bridge's DHCP identity IS pinned, so the server is not keying leases on it. A pin cannot fix this."
-                $report.remedy  = "find what re-requests the lease on this clock (a renewal timer would fire at half the lease, so a much shorter period is something restarting the connection); a DHCP reservation for the bridge MAC, or a static address, makes the address stable regardless -- see docs/network.md, 'Pinning the host address'."
+                $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_be1897d75025587a' -Arguments @{ base = "$base" })
+                $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_9535dff9173f8582')
             } else {
-                $report.message = "$base The bridge's DHCP identity could not be read ($($identity.detail))."
-                $report.remedy  = "see docs/network.md, 'Pinning the host address'."
+                $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_742e7474bc090258' -Arguments @{ base = "$base"; detail = "$($identity.detail)" })
+                $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_76a1965f795c7fff')
             }
-            $report.message += " Unless this host is one the lab renumbers on purpose, in which case leave it be."
+            $report.message += (Format-YurunaOperatorMessage -Key 'runner.operator_159b4f69153f8e49')
             return $report
         }
         'moved' {
@@ -778,30 +766,20 @@ function Get-HostAddressStabilityReport {
                 $every = if ($churn.medianIntervalMinutes -gt 0) {
                     " about every $($churn.medianIntervalMinutes) min"
                 } else { '' }
-                $report.message = ("This host recorded $($churn.changes) address change(s) in the last " +
-                    "$($churn.lookbackHours)h but was only ever observed on ONE address, so it did not " +
-                    "renumber and took no extra lease from the pool: it kept losing that address and " +
-                    "getting it back$every. Address-mobility questions do not apply -- the thing to look at " +
-                    'is why the address keeps dropping, which is a link or renewal event rather than a move. ' +
-                    'A guest that fails with no IPv4 while this host looks healthy is the symptom to expect.')
+                $report.message = ((Format-YurunaOperatorMessage -Key 'runner.operator_550e031abdfa3c3d' -Arguments @{ changes = "$($churn.changes)"; lookbackHours = "$($churn.lookbackHours)"; every = "$every" }))
                 return $report
             }
-            $report.message  = ("This host changed address $($churn.changes) time(s) across " +
-                "$($churn.distinctAddresses) distinct addresses in the last " +
-                "$($churn.lookbackHours)h, at no fixed interval -- consistent with reboots or link events " +
-                'rather than a renewal that is not being honored. The discovery path absorbs this.')
+            $report.message  = ((Format-YurunaOperatorMessage -Key 'runner.operator_13a941989b043d74' -Arguments @{ changes = "$($churn.changes)"; distinctAddresses = "$($churn.distinctAddresses)"; lookbackHours = "$($churn.lookbackHours)" }))
             return $report
         }
         'stable' {
             if ($identity.pinned -eq $false) {
                 $report.severity = 'advisory'
-                $report.message  = ("This host has held one address for the last $($churn.lookbackHours)h, but its " +
-                    'bridge DHCP identity is not pinned -- it is holding the address by the DHCP server''s ' +
-                    'goodwill, and a server restart or a lease-table eviction renumbers it.')
+                $report.message  = ((Format-YurunaOperatorMessage -Key 'runner.operator_1cac1c8beb8ad33e' -Arguments @{ lookbackHours = "$($churn.lookbackHours)" }))
                 $report.remedy   = $identity.remedy
                 return $report
             }
-            $report.message = "This host has held one address for the last $($churn.lookbackHours)h. $($identity.detail)"
+            $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_4e04f249fa65f3d5' -Arguments @{ lookbackHours = "$($churn.lookbackHours)"; detail = "$($identity.detail)" })
             return $report
         }
         default {
@@ -822,16 +800,11 @@ function Get-HostAddressStabilityReport {
             $serviceMarker = Join-Path $RuntimeDir '.status-service.ps1'
             if (Test-Path -LiteralPath $serviceMarker) {
                 $report.severity = 'warning'
-                $report.message  = ('This host has no address history even though its status service has been ' +
-                    'started before (runtime/hostaddress.changes.ndjson was never written), so whether it ' +
-                    'keeps or changes its network address over time cannot be checked.')
-                $report.remedy   = 'start the status service and confirm runtime/hostaddress.changes.ndjson appears; see docs/network.md, ''Host address stability''.'
+                $report.message  = ((Format-YurunaOperatorMessage -Key 'runner.operator_65f8d9dea572a6b6'))
+                $report.remedy   = (Format-YurunaOperatorMessage -Key 'runner.operator_00c73542efa24411')
             } else {
                 $report.severity = 'advisory'
-                $report.message  = ('No address history to check yet: it is recorded by this host''s status ' +
-                    'service, which has never started here. The first cycle starts it automatically when ' +
-                    'statusService.enabled keeps its default -- nothing to do now. A host deliberately run ' +
-                    'with the status service disabled stays unmeasured by that choice.')
+                $report.message  = ((Format-YurunaOperatorMessage -Key 'runner.operator_debb68d8c02481c1'))
             }
             return $report
         }
@@ -880,14 +853,9 @@ function Assert-HostAddressStability {
     # sentence and stops the warning training that operator to ignore it --
     # which is the failure mode of advice that is confidently wrong a fraction
     # of the time.
-    $hint = if ($mac) { " Reserve $mac on the DHCP server, or give the bridge a static address." }
-            else { ' Reserve this host''s bridge MAC on the DHCP server, or give it a static address.' }
-    Write-Warning ("This host has changed address $($script:AddressChangeCount) times in under " +
-        "$($script:ChurnWindowMinutes) minutes. Guests are repairing their coordinates through the pool " +
-        "directory, which works but is not free, and a guest with no route to that directory cannot " +
-        "recover at all.$hint Unless this host is one the lab keeps renumbering on purpose, in which " +
-        "case leave it be: the number of changes that landed inside each cycle is recorded on its " +
-        "cycle_end event. See docs/network.md, 'Host address stability'.")
+    $hint = if ($mac) { (Format-YurunaOperatorMessage -Key 'runner.operator_71bee2ba8d1ee0f5' -Arguments @{ mac = "$mac" }) }
+            else { (Format-YurunaOperatorMessage -Key 'runner.operator_da336cd034d71cf1') }
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_b064cd20fb7eddb1' -Arguments @{ addressChangeCount = "$($script:AddressChangeCount)"; churnWindowMinutes = "$($script:ChurnWindowMinutes)"; hint = "$hint" }))
 }
 
 function Invoke-HostAddressBeaconTick {
@@ -934,7 +902,7 @@ function Invoke-HostAddressBeaconTick {
     $due     = ((Get-Date).ToUniversalTime() - $script:LastAnnounceUtc).TotalSeconds -ge $script:BeaconIntervalSeconds
     if (-not $changed -and -not $due) { return $false }
 
-    if (-not $PSCmdlet.ShouldProcess($CurrentAddress, 'publish host address')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($CurrentAddress, (Format-YurunaOperatorMessage -Key 'runner.operator_8b904957fa8224c0'))) { return $false }
 
     if ($moved) {
         # Logged at a level the operator sees, because a host renumbering
@@ -952,9 +920,9 @@ function Invoke-HostAddressBeaconTick {
         # would book another one.
         $isBaseline = [string]::IsNullOrWhiteSpace($script:LastRecordedAddress)
         if ($isBaseline) {
-            Write-Information "[$changedAtUtc] Host address baseline: '$CurrentAddress'. Recording it so a stable host is distinguishable from an unwatched one." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e1ac35d894079220' -Arguments @{ changedAtUtc = "$changedAtUtc"; currentAddress = "$CurrentAddress" }) -InformationAction Continue
         } else {
-            Write-Information "[$changedAtUtc] Host address changed: '$($script:LastRecordedAddress)' -> '$CurrentAddress'. Refreshing records and republishing to the pool directory." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c706117c4682909a' -Arguments @{ changedAtUtc = "$changedAtUtc"; lastRecordedAddress = "$($script:LastRecordedAddress)"; currentAddress = "$CurrentAddress" }) -InformationAction Continue
         }
         Write-HostAddressRecord -RuntimeDir $RuntimeDir -Address $CurrentAddress
         if ($isBaseline) {

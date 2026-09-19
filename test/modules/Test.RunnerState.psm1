@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42507b72-36d6-40f8-9a02-4a16e5a058b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,7 @@
     telemetry.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNameChecking -Global
 
 # State enum -- kept in sync with the runnerStateEnum in
@@ -289,7 +290,7 @@ function Set-RunnerState {
         [string]$Reason = ''
     )
     if (-not ($script:StateEnum -contains $To)) {
-        Write-Warning "Set-RunnerState: '$To' is not in the canonical state enum ($($script:StateEnum -join ', ')); refusing the write."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4cdd48c5eb786816' -Arguments @{ to = "$To"; join = "$($script:StateEnum -join ', ')" })
         return $null
     }
     if (-not $PSCmdlet.ShouldProcess('runner.state.json', "Set-RunnerState -To $To")) { return $null }
@@ -303,7 +304,7 @@ function Set-RunnerState {
     }
     $fromState = [string]$cur['current']
     if (-not (Test-RunnerStateTransition -From $fromState -To $To)) {
-        Write-Warning "Set-RunnerState: '$fromState' -> '$To' is not in the canonical adjacency map; recording anyway so the drift is visible."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fac625745e7555e3' -Arguments @{ fromState = "$fromState"; to = "$To" })
     }
     $now = (Get-Date).ToUniversalTime().ToString('o')
     $transition = @{ from = $fromState; to = $To; at = $now }

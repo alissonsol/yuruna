@@ -8,7 +8,7 @@ package i18n
 // generatedSupported decides that.
 var generatedLocaleData = map[string]LocaleData{
 	"en-US":     {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "ltr"},
-	"pt-BR":     {Group: ".", Decimal: ",", GroupSize: 3, PluralRule: "", Direction: "ltr"},
+	"pt-BR":     {Group: ".", Decimal: ",", GroupSize: 3, PluralRule: "pt-cardinal-cldr46", Direction: "ltr"},
 	"qps-Ploc":  {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "ltr"},
 	"qps-Plocm": {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "rtl"},
 }
@@ -40,5 +40,5 @@ const generatedDefault = "en-US"
 const generatedMaxTagLength = 35
 const generatedMaxHeaderLength = 512
 
-const generatedCatalogVersion = "2026.09.13"
-const generatedCatalogHash = "217157429f826826cddc5194725fe5b46f8c6457095a4819517a8a344057e91c"
+const generatedCatalogVersion = "2026.09.18"
+const generatedCatalogHash = "f58ea322317a63eb2192f670380452c7a4292933df42aac75b2085ea725ea78c"

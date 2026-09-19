@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 # Test-YurunaCanPrompt: whether a question asked from this process can reach a
 # person. One block here needs an interactive account password on top of root,
 # and that is a different question from "can this process elevate".
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 function Get-MacPmsetGuardList {
@@ -272,18 +273,56 @@ function Confirm-MacDefaultWrite {
         [string]$WriteValue,
         [string]$ExpectRead
     )
-    & defaults @(Get-MacDefaultsCommandArgument -Verb 'write' -DefaultsArgs $DefaultsArgs -Trailing @($WriteType, $WriteValue)) 2>$null | Out-Null
-    $writeExit = $LASTEXITCODE
-    $readBack = & defaults @(Get-MacDefaultsCommandArgument -Verb 'read' -DefaultsArgs $DefaultsArgs) 2>$null
-    $readOk = ($LASTEXITCODE -eq 0)
+    # A non-zero exit from `defaults` is the measurement here, not an error to
+    # raise -- the whole function exists to report one. The bounded runner below
+    # returns that code as data, so no native-error preference has to be bent
+    # out of shape to keep it from throwing.
+    $writeArgs = @(Get-MacDefaultsCommandArgument -Verb 'write' -DefaultsArgs $DefaultsArgs -Trailing @($WriteType, $WriteValue))
+    $readArgs  = @(Get-MacDefaultsCommandArgument -Verb 'read'  -DefaultsArgs $DefaultsArgs)
+
+    # Bounded: the domains this writes include a sandboxed application's
+    # container, so the call reaches cfprefsd and that application rather than
+    # just a file. Both stream and exit code are still the measurement -- when
+    # `defaults` refuses a write it says why on stderr, and that sentence IS the
+    # diagnosis (a container this process may not touch, a managed domain, a
+    # path that does not exist). An exit code alone cannot tell those apart.
+    $writeOutcome = Invoke-BoundedNativeCommand -FilePath 'defaults' -ArgumentList $writeArgs -TimeoutSeconds 15
+    $writeOutput  = (@(Get-BoundedNativeOutputLine -Result $writeOutcome -IncludeError)) -join ' '
+    $writeExit    = [int]$writeOutcome.ExitCode
+
+    $readOutcome = Invoke-BoundedNativeCommand -FilePath 'defaults' -ArgumentList $readArgs -TimeoutSeconds 15
+    $readBack    = (@(Get-BoundedNativeOutputLine -Result $readOutcome)) -join "`n"
+    $readOk      = ($readOutcome.ExitCode -eq 0)
     if ($readOk -and "$readBack".Trim() -eq $ExpectRead) { return $true }
-    $actual = if ($readOk) { "$readBack".Trim() } else { '<unset>' }
+
+    # "could not be read", "is not set" and "nothing answered" are three
+    # different hosts with three different errands, and reporting any of them as
+    # another is what sends the reader looking for a value to correct instead of
+    # for the access that was refused -- or for a daemon that has stopped.
+    $readWhy = ''
+    $actual  = '<unset>'
+    if ($readOk) {
+        $actual = "$readBack".Trim()
+    } elseif ($readOutcome.TimedOut -or $writeOutcome.TimedOut) {
+        $actual  = '<no answer>'
+        $readWhy = 'the defaults command did not return within its time limit, so the preference service behind this domain is not answering.'
+    } else {
+        $readWhy = (@(Get-BoundedNativeOutputLine -Result $readOutcome -IncludeError)) -join ' '
+        if ($readWhy) { $actual = '<could not be read>' }
+    }
+
     # The write's own exit code is part of the diagnosis: a rejected argument
     # vector and an MDM-reverted value both read back wrong, and only the code
     # separates "defaults refused the command" from "defaults accepted it and
     # something else put the value back".
-    $why = if ($writeExit -ne 0) { " The write itself exited $writeExit." } else { ' The domain may be locked or MDM-managed.' }
-    Write-Warning ("defaults write {0} {1} {2} did not take (read back '{3}', wanted '{4}').{5}" -f ($DefaultsArgs -join ' '), $WriteType, $WriteValue, $actual, $ExpectRead, $why)
+    $why = if ($writeExit -ne 0) {
+        $said = if ($writeOutput) { " defaults said: $writeOutput" } else { '' }
+        " The write itself exited $writeExit.$said"
+    } else {
+        ' The domain may be locked or MDM-managed.'
+    }
+    if ($readWhy) { $why += " The read-back said: $readWhy" }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_250ab0eb0fc444e4' -FormatValues (($DefaultsArgs -join ' '), $WriteType, $WriteValue, $actual, $ExpectRead, $why) -FormatBindings @{ join = '0'; writeType = '1'; writeValue = '2'; actual = '3'; expectRead = '4'; why = '5' })
     return $false
 }
 
@@ -365,7 +404,7 @@ function Get-MacScreenLockIssue {
         $displayValues = @(Get-MacPmsetKeyValue -PmsetCustom (& pmset -g custom 2>$null) -Key 'displaysleep' |
             Where-Object { [int]$_ -ne 0 })
         if ($displayValues.Count -gt 0) {
-            $issues += "Display sleep is set to $(($displayValues | Sort-Object -Unique) -join '/') minute(s)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_8b0fa5c2b5f17046' -Arguments @{ join = "$(($displayValues | Sort-Object -Unique) -join '/')" })
         }
     } catch {
         Write-Debug "pmset check failed: $_"
@@ -383,14 +422,14 @@ function Get-MacScreenLockIssue {
         $idleTimeHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
         $idleTimeHostHead = $LASTEXITCODE
         if ($idleTimeHead -ne 0) {
-            $issues += "Screen saver idleTime is unset (user domain) -- macOS default applies (~20 min)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_1b62f363a67c071e')
         } elseif ("$idleTime".Trim() -ne "0") {
-            $issues += "Screen saver activates after $($idleTime.Trim()) second(s) (user domain)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_56cf123c3865f686' -Arguments @{ trim = "$($idleTime.Trim())" })
         }
         if ($idleTimeHostHead -ne 0) {
-            $issues += "Screen saver idleTime is unset (currentHost) -- macOS default applies (~20 min)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_e2e9e0a96208388d')
         } elseif ("$idleTimeHost".Trim() -ne "0") {
-            $issues += "Screen saver activates after $($idleTimeHost.Trim()) second(s) (currentHost)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_7b67c3902dc07998' -Arguments @{ trim = "$($idleTimeHost.Trim())" })
         }
     } catch {
         Write-Debug "Screen saver check failed: $_"
@@ -405,14 +444,14 @@ function Get-MacScreenLockIssue {
         $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
         $askPwHostHead = $LASTEXITCODE
         if ($askPwHead -ne 0) {
-            $issues += "Screen lock askForPassword is unset (user domain) -- macOS default may be 1."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_da2350792e4dd706')
         } elseif ("$askPw".Trim() -eq "1") {
-            $issues += "Screen lock (password after screen saver) is enabled (user domain)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_549959e2a2a1d0ef')
         }
         if ($askPwHostHead -ne 0) {
-            $issues += "Screen lock askForPassword is unset (currentHost) -- macOS default may be 1."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_2b015b728a7bdc6a')
         } elseif ("$askPwHost".Trim() -eq "1") {
-            $issues += "Screen lock (password after screen saver) is enabled (currentHost)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_bf9d6d4e7f4db662')
         }
     } catch {
         Write-Debug "Screen lock password check failed: $_"
@@ -428,7 +467,7 @@ function Get-MacScreenLockIssue {
             if ($LASTEXITCODE -eq 0) {
                 $valTrim = "$val".Trim()
                 if ($dangerousCorners.ContainsKey($valTrim)) {
-                    $issues += "Hot corner '$corner' triggers '$($dangerousCorners[$valTrim])'."
+                    $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_d65c1830c2c11e5f' -Arguments @{ corner = "$corner"; valTrim = "$($dangerousCorners[$valTrim])" })
                 }
             }
         }
@@ -436,32 +475,7 @@ function Get-MacScreenLockIssue {
         Write-Debug "Hot-corner check failed: $_"
     }
 
-    # 5. App Nap suppressed for UTM.app -- else macOS throttles UTM's UI
-    #    thread and drops its window from CGWindowList even while the VM
-    #    runs. Matches "UTM window for '<vm>' not found" symptom.
-    try {
-        $nap = & defaults read com.utmapp.UTM NSAppSleepDisabled 2>$null
-        if ($LASTEXITCODE -ne 0 -or "$nap".Trim() -ne '1') {
-            $issues += "App Nap is not suppressed for UTM.app (com.utmapp.UTM NSAppSleepDisabled not set to 1)."
-        }
-    } catch {
-        Write-Debug "App Nap check failed: $_"
-    }
-
-    # 5b. UTM outlives its last window. Without this, closing the last
-    #     window terminates UTM, and UTM's termination path saves the
-    #     state of every running VM -- the service VMs the cycle depends
-    #     on come back `suspended` instead of running.
-    try {
-        $keepRunning = & defaults read com.utmapp.UTM KeepRunningAfterLastWindowClosed 2>$null
-        if ($LASTEXITCODE -ne 0 -or "$keepRunning".Trim() -ne '1') {
-            $issues += "UTM.app quits with its last window (com.utmapp.UTM KeepRunningAfterLastWindowClosed not set to 1); closing a VM window would suspend every running VM."
-        }
-    } catch {
-        Write-Debug "UTM last-window-closed check failed: $_"
-    }
-
-    # 6. sysadminctl unified screen lock (Ventura+). Overrides legacy
+    # 5. sysadminctl unified screen lock (Ventura+). Overrides legacy
     #    askForPassword* keys -- the machine can still lock even when
     #    every individual defaults key is "safe". Accepted "disabled"
     #    forms from sysadminctl -screenLock status:
@@ -477,24 +491,24 @@ function Get-MacScreenLockIssue {
         Write-Debug "sysadminctl -screenLock check failed: $_"
     }
 
-    # 7. Auto-logout after inactivity ("Log out after N minutes" in
+    # 6. Auto-logout after inactivity ("Log out after N minutes" in
     #    Security / Advanced). Kicks user to loginwindow -- same
     #    password-demand symptom as a lock. System-level pref;
     #    world-readable, no sudo.
     try {
         $autoLogout = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
         if ($LASTEXITCODE -eq 0 -and "$autoLogout".Trim() -ne "0") {
-            $issues += "Auto-logout is active after $($autoLogout.Trim())s of inactivity (AutoLogOutDelay)."
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_225df9df5b487f6f' -Arguments @{ trim = "$($autoLogout.Trim())" })
         }
     } catch {
         Write-Debug "AutoLogOutDelay check failed: $_"
     }
 
-    # 8. System sleep + disk sleep -> Never. Display sleep alone (the "Display sleep -> Never" region) isn't
+    # 7. System sleep + disk sleep -> Never. Display sleep alone (the "Display sleep -> Never" region) isn't
     #    enough: a system/disk-sleep wake re-locks the screen on Ventura+
     #    regardless of screensaver settings. Set-MacHostConditionSet disables
     #    both, so the gate must re-verify them.
-    # 9. Extended pmset guards (Power Nap, standby, autopoweroff, hibernate, ...)
+    # 8. Extended pmset guards (Power Nap, standby, autopoweroff, hibernate, ...)
     #    that Set-MacHostConditionSet applies. The gate re-verifies them from the
     #    same Get-MacPmsetGuardList Set- applies, so the asserted set is exactly
     #    the applied set and a drifted host fails here instead of blanking UTM
@@ -511,14 +525,14 @@ function Get-MacScreenLockIssue {
             $bad = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustom -Key $g.Key |
                 Where-Object { [int]$_ -ne $g.Want })
             if ($bad.Count -gt 0) {
-                $issues += "$($g.Key) is set to $(($bad | Sort-Object -Unique) -join '/') minute(s) -- a wake re-locks the screen (should be 0 / Never)."
+                $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_91d49c77ecc35364' -Arguments @{ key = "$($g.Key)"; join = "$(($bad | Sort-Object -Unique) -join '/')" })
             }
         }
         foreach ($g in (Get-MacPmsetGuardList)) {
             $gBad = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustom -Key $g.Key |
                 Where-Object { [int]$_ -ne $g.Want })
             if ($gBad.Count -gt 0) {
-                $issues += "pmset $($g.Key) is $(($gBad | Sort-Object -Unique) -join '/') (should be $($g.Want))."
+                $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_0be72af605d7b720' -Arguments @{ key = "$($g.Key)"; join = "$(($gBad | Sort-Object -Unique) -join '/')"; want = "$($g.Want)" })
             }
         }
     } catch {
@@ -543,30 +557,149 @@ function Assert-ScreenLock {
     if ($issues.Count -eq 0) { return $true }
 
     Write-Warning "========"
-    Write-Warning " Screen lock / display sleep settings will blank the VM display."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21416a6b53e4ffb2')
     Write-Warning ""
     foreach ($issue in $issues) {
         Write-Warning "  * $issue"
     }
     Write-Warning ""
-    Write-Warning " When the display blanks, UTM screen captures return a black"
-    Write-Warning " image and OCR-based waitForText steps will time out."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ba03da18c56e7e6c')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1a6b347dfa6f5220')
     Write-Warning ""
     # The host-neutral entry point, not host/macos.utm/: it detects the host and
     # runs that host's script, so the same line stays correct on every host and
     # an operator who has it in their notes cannot carry a path that only worked
     # on the machine they first read it from.
-    Write-Warning " Quick fix -- run from the repo root:"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_727155cdaaf4a2e9')
     Write-Warning "   pwsh test/lab/Enable-TestAutomation.ps1"
     Write-Warning ""
-    Write-Warning " Or manually in System Settings:"
-    Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
-    Write-Warning "      the display is off  -> ON"
-    Write-Warning "   2. Lock Screen > Start Screen Saver when inactive -> Never"
-    Write-Warning "   3. Lock Screen > Require password after screen saver -> OFF"
-    Write-Warning "   4. Energy > Turn display off -> Never  (or run:"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_322e4560531bee63')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b3cec2b8f64a5afb')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0750f56fb6389370')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0718f6c9a5b48f4e')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f9c8c814665f1484')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bab0474eb5290161')
     Write-Warning "        sudo pmset -c displaysleep 0"
     Write-Warning "        sudo pmset -b displaysleep 0 )"
+    Write-Warning "========"
+    return $false
+}
+
+function Get-MacUtmLifetimeIssue {
+    <#
+    .SYNOPSIS
+    Every UTM.app lifetime setting on THIS Mac that would take the running VMs
+    down mid-cycle, as one operator-readable line each.
+    .DESCRIPTION
+    Neither of these is a screen setting, and neither needs sudo: both are
+    preferences in UTM's own domain that an Enable run writes without
+    elevation. They are reported apart from the screen-lock findings so the
+    remedy printed beside them is the one that applies -- a UTM preference
+    shown under a screen-lock heading, next to a fix that announces it will ask
+    for a password, sends the operator into System Settings hunting a knob that
+    is not there.
+
+    The probing half of Assert-MacUtmLifetime, split out for the same reason
+    Get-MacScreenLockIssue is: the health report and the gate that refuses the
+    cycle have to describe the host in the same words, or the operator meets
+    two accounts of one host with nothing to say which is stale.
+
+    UTM reads both at launch, so a UTM already running keeps its old behavior
+    until it is next started.
+    .OUTPUTS
+    [string[]] one line per issue; empty when the host is ready.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+
+    $issues = @()
+
+    # Access before values. UTM is sandboxed and its domain lives in a
+    # container macOS gates behind a privacy grant, so a `defaults read` that
+    # exits non-zero means EITHER the knob is off OR this process may not open
+    # the file -- and the two have different fixes. Reported as the first, the
+    # second sends the operator to re-run a host setup that is refused in
+    # exactly the same way and reports the same two lines again. The grant
+    # itself is named, and its repair rendered, by the operator-grant registry.
+    if ((Test-MacUtmAppDataGrant) -eq 'denied') {
+        return [string[]]@(
+            ("UTM's preferences cannot be read from here, so App Nap suppression and the last-window-closed setting can be neither checked nor applied: " +
+             "macOS gates access to another app's container data and $(Get-MacTccSubjectName) does not hold it. " +
+             'Fix the "Full Disk Access (UTM container data)" grant reported above -- until it is in place, no host setup run can write these two knobs.')
+        )
+    }
+
+    # Both reads below are bounded, and a read that does not return reports
+    # that instead of a value. The access check above already separated "the
+    # container is closed to us" from "the knob is off"; a preference service
+    # that has stopped answering is a third state, and claiming either of the
+    # first two over it sends the operator to a grant or a setting that is
+    # already correct.
+    $napProbe = Invoke-MacBoundedTool -Tool 'defaults' `
+        -Arguments @('read', 'com.utmapp.UTM', 'NSAppSleepDisabled') -Context 'UTM App Nap check'
+    $keepProbe = Invoke-MacBoundedTool -Tool 'defaults' `
+        -Arguments @('read', 'com.utmapp.UTM', 'KeepRunningAfterLastWindowClosed') -Context 'UTM last-window check'
+    if ($napProbe.TimedOut -or $keepProbe.TimedOut) {
+        return [string[]]@(
+            ("UTM's preferences could not be read: the defaults command did not return within its time limit, so macOS's preference service or UTM itself has stopped answering. " +
+             'App Nap suppression and the last-window-closed setting are undetermined, not known to be off. Quit and relaunch UTM.app, then re-run this check.')
+        )
+    }
+
+    # 1. App Nap suppressed for UTM.app -- else macOS throttles UTM's UI
+    #    thread and drops its window from CGWindowList even while the VM
+    #    runs. Matches "UTM window for '<vm>' not found" symptom.
+    if ($napProbe.Text -ne '1') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_6bbc1d39ab2e181f')
+    }
+
+    # 2. UTM outlives its last window. Without this, closing the last
+    #    window terminates UTM, and UTM's termination path saves the
+    #    state of every running VM -- the service VMs the cycle depends
+    #    on come back `suspended` instead of running.
+    if ($keepProbe.Text -ne '1') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_3263486b5384197b')
+    }
+
+    return [string[]]@($issues)
+}
+
+function Assert-MacUtmLifetime {
+    <#
+    .SYNOPSIS
+    macOS: verify UTM.app will stay awake and outlive its last window. Returns
+    $true when it will (or when this is not a macOS UTM host). Prints
+    instructions and returns $false otherwise.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    $issues = @(Get-MacUtmLifetimeIssue)
+    if ($issues.Count -eq 0) { return $true }
+
+    Write-Warning "========"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ebc4945da644f501')
+    Write-Warning ""
+    foreach ($issue in $issues) {
+        Write-Warning "  * $issue"
+    }
+    Write-Warning ""
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2b35fd3a941850be')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aee3b804c4bced6a')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5b9a482c08413c57')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cdf72daf2ace449e')
+    Write-Warning ""
+    # The host-neutral entry point, for the same reason Assert-ScreenLock names
+    # it: the line stays correct on every host, so an operator who copies it
+    # into their notes is not carrying a path that worked on one machine.
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e2ba9723aa8415b4')
+    Write-Warning "   pwsh test/lab/Enable-TestAutomation.ps1"
+    Write-Warning ""
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1a88a78acf018f09')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1b782afe8f41a112')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_27eaa0356fa34dd9')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f229e20d7ec068e7')
     Write-Warning "========"
     return $false
 }
@@ -722,14 +855,14 @@ function Get-MacDisplayScaleIssue {
         $name = if ($target.Name) { $target.Name } else { 'the main display' }
         return [pscustomobject]@{
             Status = 'Issue'
-            Issue  = @("The main display '$name' has no HiDPI mode: macOS renders $($target.PixelWidth)x$($target.PixelHeight) pixels for $($target.PointWidth)x$($target.PointHeight) points, which is half the pixels per glyph a window capture normally carries.")
-            Detail = 'The main display renders one pixel per point.'
+            Issue  = @((Format-YurunaOperatorMessage -Key 'runner.operator_1181aab1d5f7aea0' -Arguments @{ name = "$name"; pixelWidth = "$($target.PixelWidth)"; pixelHeight = "$($target.PixelHeight)"; pointWidth = "$($target.PointWidth)"; pointHeight = "$($target.PointHeight)" }))
+            Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_83094cd27a11ebc6')
         }
     }
     return [pscustomobject]@{
         Status = 'Clean'
         Issue  = @()
-        Detail = 'The main display renders two pixels per point.'
+        Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_709fa8cac26110bf')
     }
 }
 
@@ -834,7 +967,7 @@ function Initialize-SudoCache {
         Write-Verbose "Initialize-SudoCache: id command unavailable -- assuming non-root and proceeding."
     }
     if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) {
-        Write-Warning "Initialize-SudoCache: sudo not on PATH; downstream elevation will fail."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a889a69a513cc1af')
         return $false
     }
     # Cache already warm? Silent fast path -- no notice, no prompt.
@@ -877,7 +1010,7 @@ function Initialize-SudoCache {
     # never fire on the cold path.
     Write-Host ""
     Write-Host "  +---------------------------------------------------------------+"
-    Write-Host "  | This script needs sudo for:                                   |"
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_c88e562e75b59971')
     if ($Reasons.Count -gt 0) {
         foreach ($r in $Reasons) {
             $line = "    * $r"
@@ -885,9 +1018,9 @@ function Initialize-SudoCache {
             Write-Host ("  | {0,-61} |" -f $line)
         }
     } else {
-        Write-Host "  |     (host configuration commands)                             |"
+        Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_83d80b6c49723386')
     }
-    Write-Host "  | You will be prompted for your password ONCE, below.           |"
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_5c7f305d982ab7e1')
     Write-Host "  +---------------------------------------------------------------+"
     Write-Host ""
     & sudo -v
@@ -1023,12 +1156,12 @@ function Set-MacScreenLockState {
     if (-not (Test-YurunaCanPrompt)) {
         return @{ Attempted = $false; ExitCode = -1; Output = 'the account password can only come from a person, and nothing in this run can ask one' }
     }
-    if (-not $PSCmdlet.ShouldProcess("sysadminctl -screenLock $State", 'Run with the macOS account password')) {
+    if (-not $PSCmdlet.ShouldProcess("sysadminctl -screenLock $State", (Format-YurunaOperatorMessage -Key 'runner.operator_178c3e3e74ce7999'))) {
         return @{ Attempted = $false; ExitCode = 0; Output = 'preview only' }
     }
 
     $account = if ($env:USER) { $env:USER } else { "$(& id -un)" }
-    $secure = Read-Host -Prompt "macOS account password for $account (sysadminctl needs it to $Reason; typing is hidden)" -AsSecureString
+    $secure = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_d785c34c2c63f9b5' -Arguments @{ account = "$account"; reason = "$Reason" }) -AsSecureString
     if (-not $secure -or $secure.Length -eq 0) {
         return @{ Attempted = $false; ExitCode = -1; Output = 'no password entered' }
     }
@@ -1106,29 +1239,29 @@ function Set-MacUtmctlLink {
     if (-not $IsMacOS) { return $true }
 
     if (Get-Command utmctl -ErrorAction SilentlyContinue) {
-        Write-Information "utmctl is already on PATH."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2a4019b4401fdcac')
         return $true
     }
 
     if (-not (Test-Path -LiteralPath $script:MacUtmctlBundlePath)) {
         if (Test-Path -LiteralPath $script:MacUtmAppPath) {
-            Write-Warning "UTM is installed at $script:MacUtmAppPath but does not carry $script:MacUtmctlBundlePath -- the bundle is incomplete. Reinstall it: brew reinstall --cask utm"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_922603923910bf11' -Arguments @{ macUtmAppPath = "$script:MacUtmAppPath"; macUtmctlBundlePath = "$script:MacUtmctlBundlePath" })
         } else {
-            Write-Warning "UTM is not installed at $script:MacUtmAppPath, so there is no utmctl to link. Install it: brew install --cask utm (or https://mac.getutm.app)."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7b20fdf5c4b1b05e' -Arguments @{ macUtmAppPath = "$script:MacUtmAppPath" })
         }
         return $false
     }
 
     if (-not (Test-MacSudoAvailable)) {
-        Write-Warning "utmctl is not on PATH and root is not reachable without a password. Run: $(Get-MacUtmctlRemediation)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1f583cffda1587c' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
         return $false
     }
 
-    if (-not $PSCmdlet.ShouldProcess($script:MacUtmctlLinkPath, "Link to $script:MacUtmctlBundlePath so utmctl is on PATH")) {
+    if (-not $PSCmdlet.ShouldProcess($script:MacUtmctlLinkPath, (Format-YurunaOperatorMessage -Key 'runner.operator_96567547a8a02b12' -Arguments @{ macUtmctlBundlePath = "$script:MacUtmctlBundlePath" }))) {
         return $true
     }
 
-    Write-Information "Linking $script:MacUtmctlLinkPath -> $script:MacUtmctlBundlePath so utmctl is on PATH..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_14e93d33242f3b57' -Arguments @{ macUtmctlLinkPath = "$script:MacUtmctlLinkPath"; macUtmctlBundlePath = "$script:MacUtmctlBundlePath" })
     # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
     # DIRECTORY makes ln create the new link inside it instead of replacing it.
     $ok = Invoke-MacPrivilegedSetting -Argument @('mkdir', '-p', $script:MacUtmctlLinkDir)
@@ -1136,7 +1269,7 @@ function Set-MacUtmctlLink {
         $ok = Invoke-MacPrivilegedSetting -Argument @('ln', '-sfn', $script:MacUtmctlBundlePath, $script:MacUtmctlLinkPath)
     }
     if (-not $ok) {
-        Write-Warning "Could not link utmctl. Run: $(Get-MacUtmctlRemediation)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_132376d3245c659c' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
         return $false
     }
 
@@ -1146,7 +1279,7 @@ function Set-MacUtmctlLink {
     # process will not see. The directory membership is the durable fact.
     $onPath = @(("$env:PATH" -split ':') | Where-Object { $_ -eq $script:MacUtmctlLinkDir }).Count -gt 0
     if (-not $onPath) {
-        Write-Warning "Linked $script:MacUtmctlLinkPath, but $script:MacUtmctlLinkDir is not in PATH for this session, so utmctl still will not resolve by name. Add it (it is in the stock /etc/paths, so an edited PATH or a shell profile is dropping it) and start a new shell."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3768ceccbf8736f1' -Arguments @{ macUtmctlLinkPath = "$script:MacUtmctlLinkPath"; macUtmctlLinkDir = "$script:MacUtmctlLinkDir" })
         return $false
     }
     return $true
@@ -1173,7 +1306,7 @@ function Set-MacHostConditionSet {
     param()
 
     if (-not $IsMacOS) {
-        Write-Warning "Set-MacHostConditionSet is only supported on macOS."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c458fd938809ccbc')
         return 0
     }
 
@@ -1211,7 +1344,7 @@ function Set-MacHostConditionSet {
     # both the cycle gate and Test-Config refuse a host without it. Doing it
     # here is what makes the remediation those two print -- "rerun
     # Enable-TestAutomation.ps1" -- true.
-    if (-not (Set-MacUtmctlLink)) { $unmet.Add('utmctl on PATH') }
+    if (-not (Set-MacUtmctlLink)) { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_0f623ab3104195e4')) }
 
     # --- REGION: Display sleep -> Never (requires sudo)
     # `pmset -g custom` reports the active profile; the writes below cover
@@ -1238,18 +1371,18 @@ function Set-MacHostConditionSet {
         # Required: Assert-ScreenLock refuses a host whose displaysleep is not 0,
         # so leaving it is a cycle that cannot start rather than a cosmetic gap.
         if (-not (Test-MacSudoAvailable)) {
-            Write-Warning "Display sleep is '$currentSleep' (expected 0) and root is not reachable without a password. Run 'sudo pmset -c displaysleep 0; sudo pmset -b displaysleep 0' to fix."
-            $unmet.Add('display sleep')
-        } elseif ($PSCmdlet.ShouldProcess("Display sleep (currently $currentSleep min)", "Set to 0 (Never) via sudo pmset")) {
-            Write-Information "Setting display sleep to Never$(if ($hasBattery) { ' (AC and battery)' } else { ' (AC)' })..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a4f38a1452f4234d' -Arguments @{ currentSleep = "$currentSleep" })
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_1954d778c27fb259'))
+        } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_1c5a3042a31dae5a' -Arguments @{ currentSleep = "$currentSleep" }), (Format-YurunaOperatorMessage -Key 'runner.operator_e375cb38fde2d093'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8e46b8495359aca2' -Arguments @{ aC = "$(if ($hasBattery) { ' (AC and battery)' } else { ' (AC)' })" })
             $sleepOk = Invoke-MacPrivilegedSetting -Argument @('pmset', '-c', 'displaysleep', '0')
             if ($hasBattery) {
                 $sleepOk = (Invoke-MacPrivilegedSetting -Argument @('pmset', '-b', 'displaysleep', '0')) -and $sleepOk
             }
-            if ($sleepOk) { $changed = $true } else { $unmet.Add('display sleep') }
+            if ($sleepOk) { $changed = $true } else { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_1954d778c27fb259')) }
         }
     } else {
-        Write-Information "Display sleep is already set to Never."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_144c4b5176e7c3c4')
     }
 
     # --- REGION: Screen saver idle time -> 0 (disabled)
@@ -1260,11 +1393,11 @@ function Set-MacHostConditionSet {
     $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
     $ssIdleRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {
-        Write-Information "Screen saver idle activation is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_018abd0c53f4a963')
     } else {
         $label = if (-not $ssIdleRead) { 'unset -- macOS default applies' } else { "$($ssIdle.Trim())s" }
-        if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $label)", "Set to 0 (disabled)")) {
-            Write-Information "Disabling screen saver idle activation (was $label)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_cdde6c87572b7ecf' -Arguments @{ label = "$label" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8d9262bf2ef85c0' -Arguments @{ label = "$label" })
             & defaults write com.apple.screensaver idleTime -int 0 | Out-Null
             $changed = $true
         }
@@ -1276,11 +1409,11 @@ function Set-MacHostConditionSet {
     $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
     $askPwRead = ($LASTEXITCODE -eq 0)
     if ($askPwRead -and "$askPw".Trim() -eq "0") {
-        Write-Information "Screen lock password is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d43ef9ad8699ec93')
     } else {
         $label = if (-not $askPwRead) { 'unset -- macOS default applies' } else { "$($askPw.Trim())" }
-        if ($PSCmdlet.ShouldProcess("Screen lock password (currently $label)", "Disable (askForPassword -> 0)")) {
-            Write-Information "Disabling screen lock password requirement (was $label)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2af7f51cb4e29b22' -Arguments @{ label = "$label" }), "Disable (askForPassword -> 0)")) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9acdbcef94ff7275' -Arguments @{ label = "$label" })
             & defaults write com.apple.screensaver askForPassword -int 0 | Out-Null
             $changed = $true
         }
@@ -1294,11 +1427,11 @@ function Set-MacHostConditionSet {
     $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
     $ssIdleHostRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
-        Write-Information "Screen saver idle activation (currentHost) is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c83f353523e76b4')
     } else {
         $label = if (-not $ssIdleHostRead) { 'unset -- macOS default applies' } else { "$($ssIdleHost.Trim())s" }
-        if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $label)", "Set to 0 (disabled)")) {
-            Write-Information "Disabling screen saver idle activation, currentHost (was $label)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c5c26de7d212a326' -Arguments @{ label = "$label" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d1c18cc7ccfc3eb0' -Arguments @{ label = "$label" })
             & defaults -currentHost write com.apple.screensaver idleTime -int 0 | Out-Null
             $changed = $true
         }
@@ -1309,11 +1442,11 @@ function Set-MacHostConditionSet {
     $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
     $askPwHostRead = ($LASTEXITCODE -eq 0)
     if ($askPwHostRead -and "$askPwHost".Trim() -eq "0") {
-        Write-Information "Screen lock password (currentHost) is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_06d926b8e7ee2f1f')
     } else {
         $label = if (-not $askPwHostRead) { 'unset -- macOS default applies' } else { "$($askPwHost.Trim())" }
-        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost] (currently $label)", "Disable (askForPassword -> 0)")) {
-            Write-Information "Disabling screen lock password requirement, currentHost (was $label)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_7a9a056cfb0c4479' -Arguments @{ label = "$label" }), "Disable (askForPassword -> 0)")) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2506e0e83c402248' -Arguments @{ label = "$label" })
             & defaults -currentHost write com.apple.screensaver askForPassword -int 0 | Out-Null
             $changed = $true
         }
@@ -1329,7 +1462,7 @@ function Set-MacHostConditionSet {
         @{ Args = @('com.apple.screensaver', 'askForPasswordDelay')               ; Label = 'user' }
         @{ Args = @('-currentHost', 'com.apple.screensaver', 'askForPasswordDelay'); Label = 'currentHost' }
     )) {
-        if ($PSCmdlet.ShouldProcess("Screen lock password delay [$($domainArgs.Label)]", 'Set to 2147483647 (effectively never)')) {
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_168924d252881cdf' -Arguments @{ label = "$($domainArgs.Label)" }), (Format-YurunaOperatorMessage -Key 'runner.operator_3123d915dbf83861'))) {
             # Advisory, not required: no gate reads this key. sysadminctl's
             # unified lock overrides the legacy askForPassword* pair on
             # Ventura+ (see 3j), which is why Assert-ScreenLock checks that
@@ -1363,20 +1496,20 @@ function Set-MacHostConditionSet {
         # Required for the same reason as display sleep: Assert-ScreenLock
         # refuses a host whose sleep / disksleep are non-zero.
         if (-not (Test-MacSudoAvailable)) {
-            Write-Warning "Still non-zero: $pendingNames (expected 0 / Never), and root is not reachable without a password. Run '$(($sleepPending | ForEach-Object { "sudo pmset -a $($_.Key) $($_.Want)" }) -join '; ')' to fix."
-            $unmet.Add('system sleep')
-        } elseif ($PSCmdlet.ShouldProcess("System sleep ($pendingNames)", "Set to 0 (Never) via sudo pmset")) {
-            Write-Information "Setting $pendingNames to Never (all power sources)..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5cab110782656800' -Arguments @{ pendingNames = "$pendingNames"; join = "$(($sleepPending | ForEach-Object { "sudo pmset -a $($_.Key) $($_.Want)" }) -join '; ')" })
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_7b890048b582344e'))
+        } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_13ff86d8da9f279c' -Arguments @{ pendingNames = "$pendingNames" }), (Format-YurunaOperatorMessage -Key 'runner.operator_e375cb38fde2d093'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ef6b6809ccae94e1' -Arguments @{ pendingNames = "$pendingNames" })
             # -a covers AC + battery + UPS. Writing only -c leaves a laptop on
             # battery with the setting it had.
             $sleepOkAll = $true
             foreach ($g in $sleepPending) {
                 if (-not (Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', "$($g.Key)", "$($g.Want)"))) { $sleepOkAll = $false }
             }
-            if ($sleepOkAll) { $changed = $true } else { $unmet.Add('system sleep') }
+            if ($sleepOkAll) { $changed = $true } else { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_7b890048b582344e')) }
         }
     } else {
-        Write-Information "System sleep and disk sleep are already set to Never."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_673feb2be608f80e')
     }
 
     # --- REGION: Extended pmset guards
@@ -1388,12 +1521,12 @@ function Set-MacHostConditionSet {
     $pmsetGuards  = Get-MacPmsetGuardList
     $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
     if ($pmsetPending.Count -eq 0) {
-        Write-Information "Extended pmset guards verified (no mismatched keys in 'pmset -g custom')."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3e04ef0941c09bf2')
     } elseif (-not (Test-MacSudoAvailable)) {
         # Name the exact commands: the operator has to run them by hand here,
         # and a generic "there is a mismatch" leaves them reading pmset output
         # against a guard list they can't see.
-        Write-Warning "Extended pmset guards are not applied and root is not reachable without a password. Run these yourself before starting tests:"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_abbe8868b3ec0818')
         foreach ($g in $pmsetPending) { Write-Warning "  sudo pmset -a $($g.Key) $($g.Want)" }
         # Deliberately advisory. A key absent from `pmset -g custom` is pending
         # only because AlwaysApply says absence proves nothing, and a lidless
@@ -1401,7 +1534,7 @@ function Set-MacHostConditionSet {
         # skips exactly those keys for the same reason. Counting them would
         # report a healthy desktop host as degraded on every single run.
         Write-Verbose "Extended pmset guards are advisory here; Assert-ScreenLock re-checks the keys this macOS actually surfaces."
-    } elseif ($PSCmdlet.ShouldProcess("Extended pmset guards", "Apply via sudo pmset -a")) {
+    } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_3199b16cc2a02d2f'), (Format-YurunaOperatorMessage -Key 'runner.operator_8e9f4c5eac279bde'))) {
         # ONLY the pending keys. `pmset` has no delete, so a key this host never
         # carried can never be taken back off it: the pre-automation capture
         # records it as absent, and the restore has nothing to write except a
@@ -1413,7 +1546,7 @@ function Set-MacHostConditionSet {
         # one buys nothing but a host setting that outlives the automation.
         # Key names come from the pending set so this message cannot drift away
         # from what is actually written.
-        Write-Information "Applying extended pmset guards ($(($pmsetPending | ForEach-Object { $_.Key }) -join ', '))..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_72681edc6111b737' -Arguments @{ join = "$(($pmsetPending | ForEach-Object { $_.Key }) -join ', ')" })
         # Warnings are suppressed per key and the rejected set is reported once,
         # because the two causes need different words and only a probe tells
         # them apart: a name this release dropped says nothing about the host,
@@ -1428,7 +1561,7 @@ function Set-MacHostConditionSet {
             if (Test-MacSudoAvailable) {
                 Write-Verbose "pmset rejected: $($rejected -join ', ') -- this macOS may not carry those keys."
             } else {
-                Write-Warning "Root stopped being reachable without a password part-way through the extended pmset guards. Run these yourself before starting tests:"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11d1149a0fb16062')
                 foreach ($k in $rejected) {
                     $want = @($pmsetPending | Where-Object { $_.Key -eq $k })[0].Want
                     Write-Warning "  sudo pmset -a $k $want"
@@ -1438,13 +1571,13 @@ function Set-MacHostConditionSet {
         $changed = $true
         $stillPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
         if ($stillPending.Count -eq 0) {
-            Write-Information "Extended pmset guards verified after applying."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_40166e264a276e0a')
         } else {
             # Not a warning: a Mac with no lid never surfaces disablesleep no
             # matter how often it is written, and Assert-ScreenLock skips
             # exactly those keys. Saying so once, where the write happened, is
             # the only place the state is ever observable.
-            Write-Information "  'pmset -g custom' still does not report: $(($stillPending | ForEach-Object { $_.Key }) -join ', '). macOS lists a guard only on hardware that has it."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5c0ac9f990338489' -Arguments @{ join = "$(($stillPending | ForEach-Object { $_.Key }) -join ', ')" })
         }
     }
 
@@ -1465,8 +1598,8 @@ function Set-MacHostConditionSet {
             $valTrim = "$val".Trim()
             if ($dangerousCorners.ContainsKey($valTrim)) {
                 $action = $dangerousCorners[$valTrim]
-                if ($PSCmdlet.ShouldProcess("Hot corner $corner (currently '$action' = $valTrim)", "Set to 0 (none)")) {
-                    Write-Information "Neutralizing hot corner '$corner' ($action -> none)..."
+                if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_3fe39c3d9a1ca872' -Arguments @{ corner = "$corner"; action = "$action"; valTrim = "$valTrim" }), (Format-YurunaOperatorMessage -Key 'runner.operator_d4f9111adb74121b'))) {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_92ded38c868fff00' -Arguments @{ corner = "$corner"; action = "$action" })
                     $cornerCleared = Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.dock', $key) -WriteType '-int' -WriteValue '0' -ExpectRead '0'
                     # Clear the modifier too -- otherwise the corner is
                     # merely hidden behind a modifier a wandering cursor
@@ -1485,7 +1618,7 @@ function Set-MacHostConditionSet {
         # takes effect immediately (Dock auto-relaunches).
         & killall Dock 2>$null | Out-Null
     } else {
-        Write-Information "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5ec100a74f28c9e9')
     }
 
     # --- REGION: UTM.app lifetime: App Nap + last-window-closed
@@ -1495,17 +1628,24 @@ function Set-MacHostConditionSet {
     # -- exactly the "UTM window for '<vm>' not found" symptom even when
     # the VM is fine. Opt UTM out unconditionally.
     $utmBundleId = 'com.utmapp.UTM'
-    $napState = & defaults read $utmBundleId NSAppSleepDisabled 2>$null
-    $napAlreadyOff = ($LASTEXITCODE -eq 0 -and "$napState".Trim() -eq '1')
+    # Bounded, like every other read of this container: a preference service
+    # that has stopped answering must not stall a host-setup run. A read that
+    # does not return leaves the state unknown, which falls through to the
+    # write below -- the write is idempotent and bounded in its own right, so
+    # attempting it costs a few seconds where skipping it would leave the knob
+    # unset on a host that merely blinked.
+    $napProbe = Invoke-MacBoundedTool -Tool 'defaults' `
+        -Arguments @('read', $utmBundleId, 'NSAppSleepDisabled') -Context 'UTM App Nap state'
+    $napAlreadyOff = ($napProbe.Text -eq '1')
     if (-not $napAlreadyOff) {
-        if ($PSCmdlet.ShouldProcess("App Nap for $utmBundleId", "Disable (NSAppSleepDisabled = YES)")) {
-            Write-Information "Disabling App Nap for UTM.app ($utmBundleId)..."
+        if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2bbf6a84911b853e' -Arguments @{ utmBundleId = "$utmBundleId" }), "Disable (NSAppSleepDisabled = YES)")) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_005c437d3c3a955c' -Arguments @{ utmBundleId = "$utmBundleId" })
             if (Confirm-MacDefaultWrite -DefaultsArgs @($utmBundleId, 'NSAppSleepDisabled') -WriteType '-bool' -WriteValue 'YES' -ExpectRead '1') {
                 $changed = $true
             }
         }
     } else {
-        Write-Information "App Nap for UTM.app is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4dbf665405806d36')
     }
 
     # UTM's default is to terminate once its last window closes, and its
@@ -1518,17 +1658,18 @@ function Set-MacHostConditionSet {
     # stash then fails. Keeping the app resident removes the window-close
     # route into that state. UTM reads this at launch, so a UTM already
     # running keeps its old behavior until it is next started.
-    $keepRunningState = & defaults read $utmBundleId KeepRunningAfterLastWindowClosed 2>$null
-    $keepRunningAlready = ($LASTEXITCODE -eq 0 -and "$keepRunningState".Trim() -eq '1')
+    $keepProbe = Invoke-MacBoundedTool -Tool 'defaults' `
+        -Arguments @('read', $utmBundleId, 'KeepRunningAfterLastWindowClosed') -Context 'UTM last-window state'
+    $keepRunningAlready = ($keepProbe.Text -eq '1')
     if (-not $keepRunningAlready) {
-        if ($PSCmdlet.ShouldProcess("UTM.app ($utmBundleId)", "Keep running after last window closed (KeepRunningAfterLastWindowClosed = YES)")) {
-            Write-Information "Keeping UTM.app alive after its last window closes ($utmBundleId)..."
+        if ($PSCmdlet.ShouldProcess("UTM.app ($utmBundleId)", (Format-YurunaOperatorMessage -Key 'runner.operator_b997e21f331391d1'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6a6ff8c7e20e3fa6' -Arguments @{ utmBundleId = "$utmBundleId" })
             if (Confirm-MacDefaultWrite -DefaultsArgs @($utmBundleId, 'KeepRunningAfterLastWindowClosed') -WriteType '-bool' -WriteValue 'YES' -ExpectRead '1') {
                 $changed = $true
             }
         }
     } else {
-        Write-Information "UTM.app already stays running after its last window closes."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fcce2b9faeb7759a')
     }
 
     # --- REGION: Clear any stuck ScreenSaverEngine
@@ -1565,24 +1706,24 @@ function Set-MacHostConditionSet {
         # never possible. Name the one-time command instead.
         if (-not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
             Write-Warning "========"
-            Write-Warning " sysadminctl unified screen lock is NOT yet disabled (status:"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d4a3976712d1018c')
             Write-Warning "   $slStatus)"
             Write-Warning ""
-            Write-Warning " Run this ONE-TIME command yourself before starting tests:"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e61bca5dfa1a4c8b')
             Write-Warning ""
             Write-Warning "   $(Get-MacScreenLockManualCommand -State 'off')"
             Write-Warning ""
-            Write-Warning " sysadminctl wants your ACCOUNT password, not sudo's, and reads it"
-            Write-Warning " from stdin without turning terminal echo off -- so it is piped in"
-            Write-Warning " above rather than typed at its prompt, where it would be visible."
-            Write-Warning " State is persistent across reboots, so this warning will not"
-            Write-Warning " reappear once it succeeds."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_825e32e1263c25c1')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_10d9063db101622b')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_818b4b904d662e34')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_31a4d8fb29cd7c0c')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0ef5e953ff63fa01')
             Write-Warning "========"
             # Required: Assert-ScreenLock refuses a host whose unified lock is
             # active, and that lock overrides every legacy key above it.
-            $unmet.Add('sysadminctl unified screen lock')
-        } elseif ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
-            Write-Information "Disabling sysadminctl unified screen lock (it needs your macOS ACCOUNT password, which sudo cannot supply)..."
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_797700a687a800ce'))
+        } elseif ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", (Format-YurunaOperatorMessage -Key 'runner.operator_55420bdecd564874'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1e335c9c41a51b2a')
             # Through the shared helper, which reads that password masked and
             # pipes it in. Typing it at sysadminctl's own prompt puts it on the
             # screen in the clear: that prompt is a plain stdin read with no
@@ -1594,17 +1735,17 @@ function Set-MacHostConditionSet {
             # keys won't save them.
             $slAfterParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
             if ($slAfterParsed.Disabled) {
-                Write-Information "sysadminctl screen lock is now disabled."
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b9ae4e6cd33819d9')
                 $changed = $true
             } else {
-                Write-Warning "sysadminctl screen lock is STILL active after attempt: $($slAfterParsed.Status)"
-                Write-Warning "  If this Mac is MDM-managed, a Configuration Profile may be"
-                Write-Warning "  enforcing screen lock; check: profiles list ; profiles show -type configuration"
-                $unmet.Add('sysadminctl unified screen lock')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0cd364e6b88ded33' -Arguments @{ status = "$($slAfterParsed.Status)" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_926e57287853be11')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_43278e033cc67db4')
+                $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_797700a687a800ce'))
             }
         }
     } else {
-        Write-Information "sysadminctl unified screen lock is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7355393da83a4825')
     }
 
     # --- REGION: Auto-logout after inactivity (Security -> Advanced)
@@ -1624,18 +1765,18 @@ function Set-MacHostConditionSet {
         # It kicks the session to loginwindow mid-cycle, which looks exactly
         # like a lock and no screen-saver or pmset key prevents it.
         if (-not (Test-MacSudoAvailable)) {
-            Write-Warning "AutoLogOutDelay is '$($autoLogoutDelay.Trim())' (expected 0) and root is not reachable without a password. Run 'sudo defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0' to fix."
-            $unmet.Add('auto-logout delay')
-        } elseif ($PSCmdlet.ShouldProcess("Auto-logout delay (currently $($autoLogoutDelay.Trim())s)", "Set to 0 (disabled)")) {
-            Write-Information "Disabling auto-logout after inactivity..."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3e8ed1eb930028a7' -Arguments @{ trim = "$($autoLogoutDelay.Trim())" })
+            $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_8757c94f54a9c89f'))
+        } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_f1d7f8289fd8e0fa' -Arguments @{ trim = "$($autoLogoutDelay.Trim())" }), (Format-YurunaOperatorMessage -Key 'runner.operator_b59a0fa6f31574c0'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a1687c6e70618df5')
             if (Invoke-MacPrivilegedSetting -Argument @('defaults', 'write', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay', '-int', '0')) {
                 $changed = $true
             } else {
-                $unmet.Add('auto-logout delay')
+                $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_8757c94f54a9c89f'))
             }
         }
     } else {
-        Write-Information "Auto-logout after inactivity is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b3e21ed4f09c30ff')
     }
 
     # --- REGION: Spaces "switch to a Space with open windows" toggle
@@ -1651,15 +1792,15 @@ function Set-MacHostConditionSet {
     $spacesAutoSwitch = & defaults read NSGlobalDomain AppleSpacesSwitchOnActivation 2>$null
     $spacesAutoSwitchOff = ($LASTEXITCODE -eq 0 -and "$spacesAutoSwitch".Trim() -eq "0")
     if (-not $spacesAutoSwitchOff) {
-        if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", "Set to false (don't switch Spaces on app activation)")) {
-            Write-Information "Disabling 'switch to a Space with open windows' on app activation..."
+        if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", (Format-YurunaOperatorMessage -Key 'runner.operator_39e5847dbcba5b40'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_73b483ef7463dc84')
             if (Confirm-MacDefaultWrite -DefaultsArgs @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation') -WriteType '-bool' -WriteValue 'false' -ExpectRead '0') {
                 & killall Dock 2>$null | Out-Null
                 $changed = $true
             }
         }
     } else {
-        Write-Information "Spaces auto-switch on app activation is already disabled."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c21f61a3f402c640')
     }
 
     # Pinning UTM.app to "All Desktops" (right-click Dock icon -> Options ->
@@ -1667,9 +1808,9 @@ function Set-MacHostConditionSet {
     # debugging seamless -- but it's stored deep inside com.apple.spaces
     # app-bindings plist and is fragile to script. Left as a one-time
     # manual step; flagged here so the operator knows it exists.
-    Write-Information "Tip (manual): right-click UTM in the Dock -> Options -> Assign To -> All Desktops."
-    Write-Information "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
-    Write-Information "      Start-TestRunner activate UTM without yanking the operator off VS Code."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2f1c7d1f94014e30')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7c689f7c74ae4f97')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_09b3d3a9a05974c3')
 
     # --- REGION: Managed Configuration Profile detection (MDM override)
     # If MDM-managed, a Configuration Profile can enforce screen lock /
@@ -1682,12 +1823,12 @@ function Set-MacHostConditionSet {
         $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
         if ($hasProfiles) {
             Write-Warning "========"
-            Write-Warning " Configuration Profile(s) detected on this Mac. If any profile"
-            Write-Warning " enforces screen-lock / password / auto-logout policy, the settings"
-            Write-Warning " applied by this script will be overridden. Inspect with:"
-            Write-Warning "   profiles list"
-            Write-Warning "   profiles show -type configuration"
-            Write-Warning " Policy keys to look for: screenSaverPasswordDelay, askForPassword,"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_69026426aeb39009')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5da920a2ed6994e4')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_78d1288b67fb0898')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67c4681ce97d3eb0')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fc89504fc8d2deab')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_177b59256c20d7e5')
             Write-Warning " loginWindowIdleTime, AutoLogOutDelay, forceLockOnSleep."
             Write-Warning "========"
         }
@@ -1701,7 +1842,7 @@ function Set-MacHostConditionSet {
     # wait and re-read so the outcome is confirmed. What is still missing after
     # that is an unmet condition, which is what makes this script's exit 2 mean
     # "a person has to click something" rather than "look through the log".
-    foreach ($grantId in @(Invoke-MacOperatorGrantAssist)) { $unmet.Add("$grantId permission") }
+    foreach ($grantId in @(Invoke-MacOperatorGrantAssist)) { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ce67c4c9f3cfdb1a' -Arguments @{ grantId = "$grantId" })) }
 
     # --- REGION: Host clock
     # Guests inherit this clock at power-on; see Sync-MacHostClock for what
@@ -1709,19 +1850,19 @@ function Set-MacHostConditionSet {
     # timestamp reports rather than prompts.
     $clock = Sync-MacHostClock
     if ($clock.Succeeded) {
-        Write-Information "Host clock: $($clock.Message)"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bde543092a1bb8a4' -Arguments @{ message = "$($clock.Message)" })
         $changed = $true
     } else {
         # Advisory: Assert-MacHostConditionSet reports clock drift and never
         # refuses on it, because the repair needs a credential the asserting
         # process cannot ask for. Degrading the whole step on it would make
         # that decision twice, in opposite directions.
-        Write-Warning "Host clock not disciplined: $($clock.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_51cb27fe73da4e73' -Arguments @{ message = "$($clock.Message)" })
     }
 
     if ($changed) {
         Write-Information ""
-        Write-Information "Settings updated. Re-run Assert-MacHostConditionSet to verify:"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_21f984bad0cf171b')
         Write-Information "  Assert-MacHostConditionSet -HostType 'host.macos.utm'"
     }
 
@@ -1731,7 +1872,7 @@ function Set-MacHostConditionSet {
     if ($WhatIfPreference) { return 0 }
 
     if ($unmet.Count -gt 0) {
-        Write-Warning "Host settings applied with $($unmet.Count) condition(s) still unmet: $($unmet -join ', ')."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e02f5f51fe94b8cb' -Arguments @{ count = "$($unmet.Count)"; join = "$($unmet -join ', ')" })
     }
     return $unmet.Count
 }
@@ -1822,6 +1963,65 @@ function Get-MacTccSubjectName {
     }
 }
 
+function Invoke-MacBoundedTool {
+    <#
+    .SYNOPSIS
+    Run a macOS command-line tool under a wall-clock cap and return its
+    trimmed first answer, or '' when it could not be asked.
+    .DESCRIPTION
+    Every probe below asks a system service a question through a small tool:
+    `osascript` reaches tccd and the Apple Events daemon, `utmctl` reaches UTM,
+    `defaults` reaches cfprefsd or a sandboxed application's container. On a
+    healthy host each answers in milliseconds; none of them carries a timeout
+    of its own; and when the service behind one stops answering, the tool waits
+    with it. These probes run inside the cycle preamble, which is itself
+    watched for progress, so an unbounded wait there costs the whole cycle over
+    a question that was never load-bearing.
+
+    Bounding the call lets a wedged service read as "could not be asked". What
+    that means is the caller's decision -- for a grant probe it has to mean
+    'unknown', never 'denied', because the two send an operator to opposite
+    ends of the machine.
+    .PARAMETER Tool
+    The tool to run, resolved on PATH.
+    .PARAMETER Arguments
+    Arguments passed verbatim.
+    .PARAMETER TimeoutSeconds
+    Wall-clock cap for the call.
+    .PARAMETER Context
+    Short name for the probe, used in the timeout warning so the operator reads
+    which question went unanswered rather than which binary was killed.
+    .PARAMETER IncludeError
+    Fall back to stderr when the tool wrote its answer there.
+    .OUTPUTS
+    [pscustomobject] Text (trimmed output, '' when there was none), TimedOut,
+    Started. TimedOut is returned separately from an empty Text because a tool
+    that answered nothing and a tool that never answered are different hosts,
+    and only the caller knows which of its verdicts each one maps to.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Tool,
+        [string[]]$Arguments = @(),
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 10,
+        [string]$Context = '',
+        [switch]$IncludeError
+    )
+    $label = if ($Context) { $Context } else { $Tool }
+    $outcome = Invoke-BoundedNativeCommand -FilePath $Tool -ArgumentList $Arguments -TimeoutSeconds $TimeoutSeconds
+    if ($outcome.TimedOut) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4775b1b7fa5ca368' -Arguments @{ label = "${label}"; tool = "$Tool"; timeoutSeconds = "${TimeoutSeconds}" })
+        return [pscustomobject]@{ Text = ''; TimedOut = $true; Started = $true }
+    }
+    if (-not $outcome.Started) {
+        return [pscustomobject]@{ Text = ''; TimedOut = $false; Started = $false }
+    }
+    $text = [string]$outcome.StdOut
+    if ($IncludeError -and -not "$text".Trim() -and $outcome.StdErr) { $text = [string]$outcome.StdErr }
+    return [pscustomobject]@{ Text = "$text".Trim(); TimedOut = $false; Started = $true }
+}
+
 function Test-MacAccessibilityGrant {
     <#
     .SYNOPSIS
@@ -1831,6 +2031,10 @@ function Test-MacAccessibilityGrant {
     current answer and never raises the consent dialog. Its prompting sibling,
     AXIsProcessTrustedWithOptions, belongs in the assist path where somebody is
     present to answer.
+
+    A probe that cannot be completed answers 'unknown'. 'denied' would name a
+    permission the operator must go and grant, which is the wrong errand when
+    the truth is that the daemon holding the answer never replied.
     .OUTPUTS
     [string]
     #>
@@ -1840,10 +2044,12 @@ function Test-MacAccessibilityGrant {
     if (-not $IsMacOS) { return 'unknown' }
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
-        $result = ("$(& osascript -l JavaScript -e $jxa 2>&1)").Trim()
-        if ($result -eq 'true')  { return 'granted' }
-        if ($result -eq 'false') { return 'denied' }
-        Write-Debug "AXIsProcessTrusted returned '$result'"
+        $probe = Invoke-MacBoundedTool -Tool 'osascript' -Arguments @('-l', 'JavaScript', '-e', $jxa) `
+            -Context 'Accessibility grant probe' -IncludeError
+        if ($probe.TimedOut) { return 'unknown' }
+        if ($probe.Text -eq 'true')  { return 'granted' }
+        if ($probe.Text -eq 'false') { return 'denied' }
+        Write-Debug "AXIsProcessTrusted returned '$($probe.Text)'"
     } catch {
         Write-Debug "Accessibility probe failed: $_"
     }
@@ -1864,6 +2070,12 @@ function Test-MacScreenRecordingGrant {
     answer. It requires titles from at least TWO foreign owners: a single
     permissive-NSWindowSharingType window is visible to every process, so one
     hit would claim a grant that is not there.
+
+    'denied' is the answer only when a probe ran and said so. A probe that
+    could not be completed yields 'unknown': the closing verdict here is
+    reached by falling through both attempts, and letting a stopped daemon
+    fall through to it would report a revoked permission on a host whose
+    permission is intact.
     .OUTPUTS
     [string]
     #>
@@ -1877,10 +2089,13 @@ try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch
 var r = `$.CGPreflightScreenCaptureAccess();
 (r === true || r === 1) ? 'true' : 'false'
 "@
+    $undetermined = $false
     try {
-        $result = (& osascript -l JavaScript -e $jxaPre 2>&1 | Out-String).Trim()
-        Write-Debug "Test-MacScreenRecordingGrant: CGPreflight returned '$result'"
-        if ($result -eq 'true') { return 'granted' }
+        $probe = Invoke-MacBoundedTool -Tool 'osascript' -Arguments @('-l', 'JavaScript', '-e', $jxaPre) `
+            -Context 'Screen Recording grant probe' -IncludeError
+        if ($probe.TimedOut) { $undetermined = $true }
+        Write-Debug "Test-MacScreenRecordingGrant: CGPreflight returned '$($probe.Text)'"
+        if ($probe.Text -eq 'true') { return 'granted' }
     } catch {
         Write-Debug "CGPreflight check failed: $_"
     }
@@ -1905,13 +2120,81 @@ if (!list) { 'false' } else {
 }
 "@
     try {
-        $result = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
-        Write-Debug "Test-MacScreenRecordingGrant: enumeration fallback returned '$result'"
-        if ($result -eq 'true') { return 'granted' }
+        $probe = Invoke-MacBoundedTool -Tool 'osascript' -Arguments @('-l', 'JavaScript', '-e', $jxa) `
+            -Context 'Screen Recording window enumeration' -IncludeError
+        if ($probe.TimedOut) { $undetermined = $true }
+        Write-Debug "Test-MacScreenRecordingGrant: enumeration fallback returned '$($probe.Text)'"
+        if ($probe.Text -eq 'true') { return 'granted' }
     } catch {
         Write-Debug "Window-title enumeration failed: $_"
     }
+    if ($undetermined) { return 'unknown' }
     return 'denied'
+}
+
+function Get-MacUtmContainerPreferencePath {
+    <#
+    .SYNOPSIS
+    Where UTM actually keeps its preferences.
+    .DESCRIPTION
+    UTM is sandboxed, so its domain lives inside its container and NOT in
+    ~/Library/Preferences. `defaults com.utmapp.UTM` resolves to this same file
+    -- its own error text names it -- which is why a bare-domain call and a
+    path call succeed and fail together. Named once here because the probe
+    below and Rename-VM's on-disk surgery have to address the same file.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return (Join-Path $HOME 'Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist')
+}
+
+function Test-MacUtmAppDataGrant {
+    <#
+    .SYNOPSIS
+    Whether this process can open UTM's preference container: 'granted',
+    'denied' or 'unknown'.
+    .DESCRIPTION
+    macOS gates one application's access to another's container data behind a
+    privacy grant held by the terminal application. The POSIX mode says nothing
+    about it: the container plist is owned by the account at mode 600, and a
+    process without the grant still cannot open it.
+
+    Stat and open answer different questions, and only the second one is this
+    question. A stat that succeeds on a file whose contents will not open is
+    exactly the shape this refusal takes, so reading a successful stat as
+    access is how a blocked host reads as a host whose settings are merely
+    unset -- which sends the operator to re-run a script that is refused in
+    exactly the same way.
+
+    No container, or no UTM, is 'unknown': there is nothing to conclude about a
+    grant from a file that was never created.
+    .OUTPUTS
+    [string] granted / denied / unknown
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $IsMacOS) { return 'unknown' }
+
+    $plist = Get-MacUtmContainerPreferencePath
+    # [IO.FileInfo] rather than Test-Path: the probe must not inherit a
+    # provider's opinion about what it will show, and the distinction between
+    # "absent" and "present but closed to us" is the whole measurement.
+    if (-not ([IO.FileInfo]::new($plist)).Exists) { return 'unknown' }
+
+    try {
+        $stream = [IO.File]::Open($plist, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $stream.Dispose()
+        return 'granted'
+    } catch [System.UnauthorizedAccessException] {
+        return 'denied'
+    } catch {
+        Write-Debug "UTM container preference probe failed: $_"
+        return 'unknown'
+    }
 }
 
 function Get-MacOperatorGrant {
@@ -1919,9 +2202,9 @@ function Get-MacOperatorGrant {
     .SYNOPSIS
     Every macOS permission the harness needs that only a person can give.
     .DESCRIPTION
-    Data, not behavior, so the config gate and the per-cycle assertion render
-    the SAME sentences from the SAME fields, and a fourth consumer needs no new
-    code. Adding a grant here is the whole change.
+    The registry binds stable grant identities to their presentation and
+    consent handlers. The config gate and the per-cycle assertion render the
+    same fields, so another consumer does not need its own grant wording.
 
     Fields:
       Id          stable key, used by callers and reported in unmet counts
@@ -1933,6 +2216,7 @@ function Get-MacOperatorGrant {
       Probe       reads the current state WITHOUT prompting; $null when macOS
                   offers no way to ask that does not raise a dialog
       Prompt      raises the system consent dialog; run only with an operator
+      EnableStep  trusted renderer accepting the terminal application name
       Relaunch    'always' when macOS refuses to honor a fresh grant in an
                   already-running process, 'if-still-denied' otherwise
       SkipEnvVar  environment variable that forces the check to pass
@@ -1948,9 +2232,9 @@ function Get-MacOperatorGrant {
         [pscustomobject]@{
             Id         = 'Accessibility'
             Title      = 'Accessibility'
-            Pane       = 'System Settings > Privacy & Security > Accessibility'
+            Pane       = (Format-YurunaOperatorMessage -Key 'runner.operator_e51b92ce884c8a7d')
             DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
-            Why        = 'the harness posts keystrokes into UTM guest windows without holding focus. Without it every keystroke step needs UTM frontmost, and any window change loses input mid-sequence.'
+            Why        = (Format-YurunaOperatorMessage -Key 'runner.operator_90f52d873e84afab')
             Blocking   = $true
             Probe      = { Test-MacAccessibilityGrant }
             Prompt     = {
@@ -1967,17 +2251,17 @@ var key = `$.CFStringCreateWithCString(null, 'AXTrustedCheckOptionPrompt', 0);
 "@
                 & osascript -l JavaScript -e $jxaPrompt 2>&1 | Out-Null
             }
-            EnableStep = 'Add and enable {0} -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing'
+            EnableStep = { param([string]$Application) Format-YurunaOperatorMessage -Key 'runner.mac_permission_enable_terminal' -Arguments @{ application = $Application } }
             Relaunch   = 'if-still-denied'
             SkipEnvVar = $null
             Diagnostic = @()
         },
         [pscustomobject]@{
             Id         = 'ScreenRecording'
-            Title      = 'Screen Recording'
-            Pane       = 'System Settings > Privacy & Security > Screen Recording'
+            Title      = (Format-YurunaOperatorMessage -Key 'runner.operator_148f980a1387c014')
+            Pane       = (Format-YurunaOperatorMessage -Key 'runner.operator_4a5f5a802ecbecf1')
             DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
-            Why        = 'CGWindowList returns window TITLES only to a process holding this grant, and the harness finds UTM''s per-VM window by title before capturing it with screencapture -l. Without it, tapOn loops on "UTM window for <vm> not found".'
+            Why        = (Format-YurunaOperatorMessage -Key 'runner.operator_97cd7aeae7eea571')
             Blocking   = $true
             Probe      = { Test-MacScreenRecordingGrant }
             Prompt     = {
@@ -1988,20 +2272,20 @@ try { ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]); } catch (
 "@
                 & osascript -l JavaScript -e $jxa 2>&1 | Out-Null
             }
-            EnableStep = 'Add and enable {0} -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing'
+            EnableStep = { param([string]$Application) Format-YurunaOperatorMessage -Key 'runner.mac_permission_enable_terminal' -Arguments @{ application = $Application } }
             Relaunch   = 'always'
             SkipEnvVar = 'YURUNA_SKIP_SCREEN_RECORDING_CHECK'
             Diagnostic = @(
-                'If the toggle IS on and the terminal was relaunched, run this and report the output:',
+                (Format-YurunaOperatorMessage -Key 'runner.operator_f000f5c0b0de353b'),
                 '  osascript -l JavaScript -e ''ObjC.import("CoreGraphics"); ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool",[]]); $.CGPreflightScreenCaptureAccess();'''
             )
         },
         [pscustomobject]@{
             Id         = 'AutomationUtm'
-            Title      = 'Automation -> UTM'
-            Pane       = 'System Settings > Privacy & Security > Automation'
+            Title      = (Format-YurunaOperatorMessage -Key 'runner.mac_automation_utm_title')
+            Pane       = (Format-YurunaOperatorMessage -Key 'runner.operator_46f30de3d812ddd8')
             DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
-            Why        = 'utmctl drives UTM over Apple Events. Without it every VM operation fails with OSStatus -1743, which reads as a broken UTM rather than as a missing permission.'
+            Why        = (Format-YurunaOperatorMessage -Key 'runner.operator_905e4d1aed94a11d')
             # Not blocking, and deliberately not probed: macOS offers no way to
             # READ this grant that does not itself raise the dialog, and a gate
             # that pops a modal before every cycle would hang an unattended host
@@ -2016,11 +2300,39 @@ try { ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]); } catch (
                     & utmctl list 2>&1 | Out-Null
                 }
             }
-            EnableStep = 'Find {0} in the list and turn ON the UTM row underneath it. This pane has no + button -- an application appears in it only after it has asked once, which is exactly what the first utmctl call does.'
+            EnableStep = { param([string]$Application) Format-YurunaOperatorMessage -Key 'runner.mac_permission_enable_utm' -Arguments @{ application = $Application } }
             Relaunch   = 'if-still-denied'
             SkipEnvVar = $null
             Diagnostic = @(
-                'macOS asks for this the first time utmctl talks to UTM. Answer OK, not "Don''t Allow" -- a refusal is remembered, and only this pane can undo it.'
+                (Format-YurunaOperatorMessage -Key 'runner.operator_0dd03afa72233a06')
+            )
+        },
+        [pscustomobject]@{
+            Id         = 'UtmAppData'
+            Title      = (Format-YurunaOperatorMessage -Key 'runner.operator_4affb6c1114cc0c5')
+            Pane       = (Format-YurunaOperatorMessage -Key 'runner.operator_b609983c1c6bbb53')
+            DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
+            Why        = (Format-YurunaOperatorMessage -Key 'runner.operator_d3562959a11587fe')
+            Blocking   = $true
+            Probe      = { Test-MacUtmAppDataGrant }
+            Prompt     = {
+                # Opening the container is what raises the request; the probe
+                # performs the same access the harness already performs every
+                # cycle, so this adds no exposure the gate did not have.
+                $plist = Get-MacUtmContainerPreferencePath
+                try {
+                    $stream = [IO.File]::Open($plist, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                    $stream.Dispose()
+                } catch {
+                    Write-Debug "UTM container prompt attempt: $_"
+                }
+            }
+            EnableStep = { param([string]$Application) Format-YurunaOperatorMessage -Key 'runner.mac_permission_enable_terminal' -Arguments @{ application = $Application } }
+            Relaunch   = 'always'
+            SkipEnvVar = $null
+            Diagnostic = @(
+                (Format-YurunaOperatorMessage -Key 'runner.operator_882454ce86f9f21d'),
+                (Format-YurunaOperatorMessage -Key 'runner.operator_41f61f1ccd55022c')
             )
         }
     )
@@ -2082,17 +2394,17 @@ function Get-MacOperatorGrantInstruction {
     )
     $app = Get-MacTccSubjectName
     $relaunch = if ($Grant.Relaunch -eq 'always') {
-        'then FULLY QUIT the terminal (Cmd-Q) and relaunch it -- macOS does not honor this grant in an already-running process'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_e12a48a14c9f7949')
     } else {
-        'then re-run; if it still reports denied, quit and relaunch the terminal'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_1ba851d822cab45b')
     }
     # An entry with no probe was never read, so a headline asserting it is
     # missing would be a claim this code cannot support. Derived rather than
     # stored: the presence of a probe already IS the distinction.
     $headline = if ($Grant.Probe) {
-        "$($Grant.Title) is NOT granted to $app."
+        (Format-YurunaOperatorMessage -Key 'runner.operator_45a00aa56e885c3a' -Arguments @{ title = "$($Grant.Title)"; app = "$app" })
     } else {
-        "$($Grant.Title) cannot be read without raising its own dialog, so it is reported here rather than tested. macOS asks $app for it once, at the first UTM operation."
+        (Format-YurunaOperatorMessage -Key 'runner.operator_826fea378df49d89' -Arguments @{ title = "$($Grant.Title)"; app = "$app" })
     }
 
     if ($Compact) {
@@ -2101,16 +2413,16 @@ function Get-MacOperatorGrantInstruction {
 
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add($headline)
-    $lines.Add("Needed because $($Grant.Why)")
-    $lines.Add('To fix:')
+    $lines.Add((Format-YurunaOperatorMessage -Key 'runner.operator_e386d473d982ffc7' -Arguments @{ why = "$($Grant.Why)" }))
+    $lines.Add((Format-YurunaOperatorMessage -Key 'runner.operator_b62d4b6dafecf45f'))
     $lines.Add("  1. Open $($Grant.Pane)")
     $lines.Add("     shortcut: open '$($Grant.DeepLink)'")
-    $lines.Add("  2. $($Grant.EnableStep -f $app)")
+    $lines.Add("  2. $(& $Grant.EnableStep $app)")
     $lines.Add("  3. $($relaunch.Substring(0, 1).ToUpperInvariant())$($relaunch.Substring(1))")
-    $lines.Add('  4. Re-check with: pwsh test/Test-Config.ps1')
+    $lines.Add((Format-YurunaOperatorMessage -Key 'runner.operator_a883b55009624378'))
     foreach ($d in @($Grant.Diagnostic)) { $lines.Add($d) }
     if ($Grant.SkipEnvVar) {
-        $lines.Add("Override, last resort and only after confirming the grant really is in place: `$Env:$($Grant.SkipEnvVar) = '1'")
+        $lines.Add((Format-YurunaOperatorMessage -Key 'runner.operator_6cfe344f4847aefc' -Arguments @{ skipEnvVar = "$($Grant.SkipEnvVar)" }))
     }
     return [string[]]$lines.ToArray()
 }
@@ -2142,14 +2454,14 @@ function Assert-MacOperatorGrant {
         'granted'    { return $true }
         'unprobed'   { return $true }
         'overridden' {
-            Write-Warning "$($s.Grant.SkipEnvVar)=1 -- $($s.Title) reads as not granted; proceeding anyway."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_151a488a4380eb3b' -Arguments @{ skipEnvVar = "$($s.Grant.SkipEnvVar)"; title = "$($s.Title)" })
             return $true
         }
     }
     if (-not $s.Blocking) { return $true }
 
     if ((Get-MacSessionKind) -eq 'Remote') {
-        Write-Warning "$($s.Title) cannot be held by a remote session, so this process cannot confirm it. Run from the desktop session that runs the harness to get a real answer."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bc1be21bde91d7e8' -Arguments @{ title = "$($s.Title)" })
         return $true
     }
 
@@ -2186,22 +2498,22 @@ function Invoke-MacOperatorGrantAssist {
 
     foreach ($s in (Get-MacOperatorGrantState)) {
         if ($s.State -eq 'granted') {
-            Write-Information "$($s.Title): already granted."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3a70f39b2e2ca281' -Arguments @{ title = "$($s.Title)" })
             continue
         }
         if ($s.State -eq 'overridden') {
-            Write-Warning "$($s.Title): not granted, but $($s.Grant.SkipEnvVar)=1 is forcing it through."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_273821147517ea00' -Arguments @{ title = "$($s.Title)"; skipEnvVar = "$($s.Grant.SkipEnvVar)" })
             continue
         }
         if ($session -eq 'Remote') {
-            Write-Warning "$($s.Title): a remote session can neither hold this grant nor raise its dialog. Run this from the desktop session."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9a906edf3669e30d' -Arguments @{ title = "$($s.Title)" })
             if ($s.Blocking) { $pending.Add($s.Id) }
             continue
         }
-        if (-not $PSCmdlet.ShouldProcess($s.Title, 'Request the macOS privacy grant')) { continue }
+        if (-not $PSCmdlet.ShouldProcess($s.Title, (Format-YurunaOperatorMessage -Key 'runner.operator_650e4cc82dcb00bb'))) { continue }
 
         if ($s.Grant.Prompt) {
-            Write-Information "Requesting $($s.Title) (a system dialog should appear)..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a10541ad5512dba6' -Arguments @{ title = "$($s.Title)" })
             try { & $s.Grant.Prompt } catch { Write-Debug "$($s.Id) prompt failed: $_" }
         }
         if ($canPrompt) {
@@ -2212,7 +2524,7 @@ function Invoke-MacOperatorGrantAssist {
         foreach ($line in (Get-MacOperatorGrantInstruction -Grant $s.Grant)) { Write-Information "  $line" }
 
         if (-not $s.Grant.Probe) {
-            Write-Information "  $($s.Title): macOS offers no way to read this grant without raising its dialog, so it cannot be confirmed from here. It is answered once, at the first UTM operation."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_21ee19f37a1668e0' -Arguments @{ title = "$($s.Title)" })
             continue
         }
         if (-not $canPrompt) {
@@ -2220,7 +2532,7 @@ function Invoke-MacOperatorGrantAssist {
             continue
         }
 
-        Write-Information "  Waiting up to $WaitSeconds s for $($s.Title) to be granted..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f74d9ff6d340a6a8' -Arguments @{ waitSeconds = "$WaitSeconds"; title = "$($s.Title)" })
         $deadline = (Get-Date).AddSeconds($WaitSeconds)
         $granted = $false
         while ((Get-Date) -lt $deadline) {
@@ -2230,7 +2542,7 @@ function Invoke-MacOperatorGrantAssist {
         if ($granted) {
             Write-Information "  $($s.Title): granted."
         } else {
-            Write-Warning "$($s.Title) is still not granted. $((Get-MacOperatorGrantInstruction -Grant $s.Grant -Compact)[0])"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d2c83bbe84cd06f9' -Arguments @{ title = "$($s.Title)"; compact = "$((Get-MacOperatorGrantInstruction -Grant $s.Grant -Compact)[0])" })
             if ($s.Blocking) { $pending.Add($s.Id) }
         }
     }
@@ -2253,6 +2565,24 @@ function Assert-Accessibility {
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
     return (Assert-MacOperatorGrant -Id 'Accessibility')
+}
+
+function Assert-MacUtmAppData {
+    <#
+    .SYNOPSIS
+    macOS: gate on the grant that lets this process open UTM's preference
+    container. $true when granted (or not on host.macos.utm); $false with the
+    shared instructions otherwise.
+    .DESCRIPTION
+    Gated ahead of the UTM lifetime settings it makes readable: without it
+    those two knobs can be neither verified nor written, and refusing on them
+    instead names a symptom whose remedy cannot work.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+    return (Assert-MacOperatorGrant -Id 'UtmAppData')
 }
 
 function Assert-ScreenRecording {
@@ -2301,10 +2631,10 @@ function Sync-MacHostClock {
     param([string]$TimeServer = 'time.apple.com')
 
     if (-not $IsMacOS) {
-        return @{ Succeeded = $false; Message = 'Sync-MacHostClock is only supported on macOS.' }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_a700f6f3be44e1c2') }
     }
-    $manual = "Fix by hand: sudo systemsetup -setusingnetworktime on; sudo sntp -sS $TimeServer"
-    if (-not $PSCmdlet.ShouldProcess('Host clock', "Enable network time and resynchronize against $TimeServer")) {
+    $manual = (Format-YurunaOperatorMessage -Key 'runner.operator_c20507412394127a' -Arguments @{ timeServer = "$TimeServer" })
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_ab78290b0162b326'), (Format-YurunaOperatorMessage -Key 'runner.operator_79e728bfd11cbb39' -Arguments @{ timeServer = "$TimeServer" }))) {
         return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
     }
 
@@ -2315,16 +2645,16 @@ function Sync-MacHostClock {
     if ($LASTEXITCODE -eq 0) {
         $steps += 'network time on'
     } else {
-        return @{ Succeeded = $false; Message = "systemsetup -setusingnetworktime failed: $(($netTimeOut | Out-String).Trim()). $manual" }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_47e0e256f6066364' -Arguments @{ trim = "$(($netTimeOut | Out-String).Trim())"; manual = "$manual" }) }
     }
     # -s steps the clock, -S sets it even for a large offset; timesyncd-
     # style slewing would take hours to close a multi-minute gap.
     $sntpOut = & sudo -n sntp -sS $TimeServer 2>&1
     if ($LASTEXITCODE -ne 0) {
-        return @{ Succeeded = $false; Message = "sntp -sS $TimeServer failed: $(($sntpOut | Out-String).Trim()). $manual" }
+        return @{ Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_8f973860bf2a0a66' -Arguments @{ timeServer = "$TimeServer"; trim = "$(($sntpOut | Out-String).Trim())"; manual = "$manual" }) }
     }
     $steps += "stepped against $TimeServer"
-    return @{ Succeeded = $true; Message = "Host clock: $($steps -join ', ')." }
+    return @{ Succeeded = $true; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_e8c769a3703de6a4' -Arguments @{ join = "$($steps -join ', ')" }) }
 }
 
 function Assert-MacHostConditionSet {
@@ -2343,6 +2673,8 @@ function Assert-MacHostConditionSet {
     if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
+    if (-not (Assert-MacUtmAppData    -HostType $HostType)) { return $false }
+    if (-not (Assert-MacUtmLifetime   -HostType $HostType)) { return $false }
     # --- REGION: https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
@@ -2372,14 +2704,14 @@ function Test-MacHostMinimum {
     param()
     $ok = $true
     if (-not (Test-Path -LiteralPath $script:MacUtmAppPath)) {
-        Write-Warning "$script:MacUtmAppPath not found. Install UTM: brew install --cask utm (or https://mac.getutm.app)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d0c8ce37190979f' -Arguments @{ macUtmAppPath = "$script:MacUtmAppPath" })
         $ok = $false
     }
     if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
-        Write-Warning "utmctl not found on PATH. UTM keeps it inside the app bundle, which is on nobody's PATH. Fix it with either of: pwsh test/lab/Enable-TestAutomation.ps1  --  or  --  $(Get-MacUtmctlRemediation)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2fa4cedf7071e22b' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
         $ok = $false
     }
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue
+Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Invoke-MacBoundedTool

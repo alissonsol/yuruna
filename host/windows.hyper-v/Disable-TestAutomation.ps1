@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42639d1d-6649-49d9-82a8-a37f8410ebbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,12 +40,13 @@ param(
     [switch]$StopServices
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
-    Write-Error 'Disable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.'
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_8c0479442a041d98')
     exit 1
 }
 
@@ -63,10 +64,10 @@ if (-not (Assert-SafeToDisable)) { exit 1 }
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
-    Write-Information "Restoring from the capture taken at $($state.capturedUtc)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_97b7a77dbbb6e9c9' -Arguments @{ capturedUtc = "$($state.capturedUtc)" })
 } else {
-    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
-    Write-Warning 'Only what is provably ours will be removed: the status-port rule and the Yuruna ICMP rule. Everything else is reported, not guessed at.'
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b151e82086a9c67b')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0949a2e9ce231a20')
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
@@ -98,7 +99,7 @@ foreach ($scheme in @('AC', 'DC')) {
         & powercfg $flag SCHEME_CURRENT SUB_NONE CONSOLELOCK ([int]$v)
     }.GetNewClosure()
 }
-if ($restored.Count -gt 0 -and $PSCmdlet.ShouldProcess('Active power scheme', 'Re-apply so the restored indices take effect')) {
+if ($restored.Count -gt 0 -and $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_8a80424abbee4c3a'), (Format-YurunaOperatorMessage -Key 'host.operator_69289c4188f77d5e'))) {
     # powercfg writes the index into the scheme but does not activate it; without
     # this the restored values sit in the registry and the live scheme keeps the
     # automation values.
@@ -132,11 +133,11 @@ if ($dpiKnob -and $dpiKnob.present) {
             continue
         }
         if ($prior -eq 'absent') {
-            if ($PSCmdlet.ShouldProcess("Display scaling for '$monitor'", 'Remove DpiValue (was unset)')) {
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_7508ef45e94fa220' -Arguments @{ monitor = "$monitor" }), (Format-YurunaOperatorMessage -Key 'host.operator_a22ecf5c7e7a413e'))) {
                 Remove-ItemProperty -LiteralPath $subKey -Name 'DpiValue' -ErrorAction SilentlyContinue
                 $restored.Add("Display scaling '$monitor' -> removed (was unset)")
             }
-        } elseif ($PSCmdlet.ShouldProcess("Display scaling for '$monitor'", "Restore DpiValue to $prior")) {
+        } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_7508ef45e94fa220' -Arguments @{ monitor = "$monitor" }), (Format-YurunaOperatorMessage -Key 'host.operator_33cb4ea4e0ebc428' -Arguments @{ prior = "$prior" }))) {
             Set-ItemProperty -LiteralPath $subKey -Name 'DpiValue' -Value ([int]$prior) -Type DWord
             $restored.Add("Display scaling '$monitor' -> $prior")
         }
@@ -177,7 +178,7 @@ $metricsRuleName = Get-YurunaHostMetricsFirewallRuleName -Port (Get-YurunaHostMe
 foreach ($ruleName in @($statusRuleName, $metricsRuleName, 'Yuruna: Allow ICMPv4 Echo Request')) {
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
     if (-not $existing) { Write-Verbose "firewall rule '$ruleName' is already absent."; continue }
-    if ($PSCmdlet.ShouldProcess($ruleName, 'Remove the firewall rule Yuruna created')) {
+    if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'host.operator_b15dd410559b0438'))) {
         Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         $restored.Add("Firewall rule removed: $ruleName")
     }
@@ -193,7 +194,7 @@ if ($icmpKnob -and $icmpKnob.present) {
         $rule = Get-NetFirewallRule -Name $prop.Name -ErrorAction SilentlyContinue
         if (-not $rule) { $skipped.Add("Built-in ICMPv4 rule '$($prop.Name)' (no longer present)"); continue }
         if ($rule.Enabled -ne 'True') { continue }
-        if ($PSCmdlet.ShouldProcess($rule.DisplayName, 'Disable (it was disabled before automation)')) {
+        if ($PSCmdlet.ShouldProcess($rule.DisplayName, (Format-YurunaOperatorMessage -Key 'host.operator_7d0283f1761a3fa6'))) {
             Disable-NetFirewallRule -Name $prop.Name -ErrorAction SilentlyContinue
             $restored.Add("Built-in ICMPv4 rule disabled again: $($rule.DisplayName)")
         }
@@ -203,10 +204,10 @@ if ($icmpKnob -and $icmpKnob.present) {
 }
 
 # --- REGION: Host clock
-Restore-Knob -Name 'service/W32Time' -Description 'Windows Time service (W32Time)' -Apply {
+Restore-Knob -Name 'service/W32Time' -Description (Format-YurunaOperatorMessage -Key 'host.clock_service_description') -Apply {
     param($v)
     $svc = Get-Service -Name 'W32Time' -ErrorAction SilentlyContinue
-    if (-not $svc) { throw 'the Windows Time service is not present on this host' }
+    if (-not $svc) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_a64eb0bfe41b92f6') }
     $priorStart = [string]$v.StartType
     if ($priorStart -and $svc.StartType -ne $priorStart) {
         Set-Service -Name 'W32Time' -StartupType $priorStart -ErrorAction Stop
@@ -228,12 +229,12 @@ if ($StopServices) {
 Write-DisableReport -Platform 'windows.hyper-v' -Restored $restored -Skipped $skipped
 
 Write-Output ''
-Write-Output 'NOT reversed (deliberately) -- run these yourself if you want them gone:'
-Write-DisableManualStep -What 'Installed packages and PSGallery modules (powershell-yaml, PSScriptAnalyzer)' -Command @(
-    'Uninstall-Module powershell-yaml, PSScriptAnalyzer'
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_87f50089fdd7e8c5')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_86f7c664d47e8d92') -Command @(
+    (Format-YurunaOperatorMessage -Key 'host.operator_8da23b13d6bee38a')
 )
-Write-DisableManualStep -What 'Hyper-V and vmms service state (the bootstrapper enabled these, not Enable-TestAutomation)'
-Write-DisableManualStep -What 'Cloned repos, VM images and run history under ~/yuruna'
-Write-DisableManualStep -What 'networkStorage configuration, the vaulted credential and any mounts' `
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_4449d0e3b35c0780')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_51ad715d8bf6eabf')
+Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'host.operator_c65c4b6881513631') `
     -Command (Get-PoolStorageManualTeardown -RepoRoot $RepoRoot)
 Write-DisableCommonEpilogue -StateCaptured ([bool]$state) -StopServices ([bool]$StopServices)

@@ -10,77 +10,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Hosts &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.hosts_yuruna_pool_control">Hosts &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign">Assign</a>
-        <a href="/hosts" aria-current="page">Hosts</a>
-        <a href="/pools">Pools</a>
-        <a href="/test-sets">Test sets</a>
-        <a href="/scan">Scan</a>
-        <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" aria-current="page" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Hosts</h1>
-    <p class="muted">
-      Every host the aggregator knows. <strong>Control</strong>:
-      <code>ready</code> (this lab's token, clock agrees &mdash; only these auto-enroll),
-      <code>mismatch</code> (different token), <code>skew</code> (clock problem),
-      <code>none</code> (never enrolled).
-      Choosing a pool <em>moves</em> the host &mdash; a host belongs to at most one.
-      <strong>Framework</strong> and <strong>Project</strong> are the repos the host
-      reports, linked to their source; <code>No access</code> means it cannot read the
-      one configured. A <strong>re-keyed</strong> row is one machine's old identity:
-      it was reimaged or re-cloned, so the live host answers under the id shown
-      beside it while any pool membership stays on the old one &mdash; hand it over
-      from that row. Hostnames appear once this browser is unlocked.
-    </p>
+    <h1 data-i18n="pool.hosts">Hosts</h1>
+    <p class="muted" data-i18n="pool.every_host_the_aggregator_knows_control_command1_this_lab_s_token" data-i18n-args="{&quot;command1&quot;: &quot;ready&quot;, &quot;command2&quot;: &quot;mismatch&quot;, &quot;command3&quot;: &quot;skew&quot;, &quot;command4&quot;: &quot;none&quot;, &quot;command5&quot;: &quot;No access&quot;}">Every host the aggregator knows. Control : ready (this lab&#x27;s token, clock agrees — only these auto-enroll), mismatch (different token), skew (clock problem), none (never enrolled). Choosing a pool moves the host — a host belongs to at most one. Framework and Project are the repos the host reports, linked to their source; No access means it cannot read the one configured. A re-keyed row is one machine&#x27;s old identity: it was reimaged or re-cloned, so the live host answers under the id shown beside it while any pool membership stays on the old one — hand it over from that row. Hostnames appear once this browser is unlocked.</p>
     <div id="notice" role="alert" class="notice"></div>
     <div class="row">
-      <button id="refresh">Refresh</button>
-      <button id="show-hostnames" hidden>Show hostnames</button>
+      <button id="refresh" data-i18n="pool.refresh">Refresh</button>
+      <button id="show-hostnames" hidden data-i18n="pool.show_hostnames">Show hostnames</button>
     </div>
     <table>
       <thead>
         <tr>
-          <th class="rownum" aria-label="Row number">#</th>
-          <th data-sort="hostId" aria-sort="ascending"><button type="button" class="sort">Host ID</button></th>
-          <th data-sort="hostname"><button type="button" class="sort">Hostname</button></th>
-          <th data-sort="type"><button type="button" class="sort">Type</button></th>
-          <th data-sort="memory"><button type="button" class="sort">Memory</button></th>
-          <th data-sort="cores"><button type="button" class="sort">Cores</button></th>
-          <th data-sort="storageTotal"><button type="button" class="sort">Total Storage</button></th>
-          <th data-sort="storageFree"><button type="button" class="sort">Free Storage</button></th>
-          <th data-sort="control"><button type="button" class="sort">Control</button></th>
-          <th data-sort="frameworkAccess"><button type="button" class="sort">Framework</button></th>
-          <th data-sort="projectAccess"><button type="button" class="sort">Project</button></th>
-          <th data-sort="pool"><button type="button" class="sort">Pool</button></th>
+          <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
+          <th data-sort="hostId" aria-sort="ascending"><button type="button" class="sort" data-i18n="pool.host_id">Host ID</button></th>
+          <th data-sort="hostname"><button type="button" class="sort" data-i18n="pool.hostname">Hostname</button></th>
+          <th data-sort="type"><button type="button" class="sort" data-i18n="pool.type">Type</button></th>
+          <th data-sort="memory"><button type="button" class="sort" data-i18n="pool.memory">Memory</button></th>
+          <th data-sort="cores"><button type="button" class="sort" data-i18n="pool.cores">Cores</button></th>
+          <th data-sort="storageTotal"><button type="button" class="sort" data-i18n="pool.total_storage">Total Storage</button></th>
+          <th data-sort="storageFree"><button type="button" class="sort" data-i18n="pool.free_storage">Free Storage</button></th>
+          <th data-sort="control"><button type="button" class="sort" data-i18n="pool.control">Control</button></th>
+          <th data-sort="frameworkAccess"><button type="button" class="sort" data-i18n="pool.framework">Framework</button></th>
+          <th data-sort="projectAccess"><button type="button" class="sort" data-i18n="pool.project">Project</button></th>
+          <th data-sort="pool"><button type="button" class="sort" data-i18n="pool.pool">Pool</button></th>
         </tr>
       </thead>
       <tbody id="host-rows"></tbody>
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

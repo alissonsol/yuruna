@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
 
 # The service VM name the local-VM rung of the ladder asks the driver about, and
 # the extension area slug the pool rung asks the aggregator about.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DownloadAgentVmName = 'yuruna-download-agent-service'
 $script:DownloadAgentArea   = 'download-agent-service'
 
@@ -559,7 +560,7 @@ function Save-DownloadAgentArtifact {
         }
     } finally {
         $client.Dispose()
-        Write-Progress -Activity "Fetching $Uri from the download agent" -Completed
+        Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_90cb61bda0fc16e4' -Arguments @{ uri = "$Uri" }) -Completed
     }
 
     if ($ExpectedByteCount -gt 0 -and $written -lt $ExpectedByteCount) {
@@ -614,7 +615,7 @@ function Copy-DownloadAgentStream {
             return (Get-Item -LiteralPath $OutFile).Length
         }
         if (-not $response.IsSuccessStatusCode) {
-            throw "HTTP $status $($response.ReasonPhrase) for $Uri"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_5e82d7a32d22a269' -Arguments @{ status = "$status"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" })
         }
         # A server that answers 200 to a ranged request ignored the range and is
         # sending the whole artifact again; appending would splice two copies.
@@ -636,9 +637,9 @@ function Copy-DownloadAgentStream {
                         if ($ExpectedByteCount -gt 0) {
                             $percent = [Math]::Min(100, [Math]::Round($total * 100.0 / $ExpectedByteCount, 1))
                             Write-Progress -Activity $activity -PercentComplete $percent `
-                                -Status ("{0:N1} / {1:N1} MB ({2}%)" -f ($total / 1MB), ($ExpectedByteCount / 1MB), $percent)
+                                -Status (Format-YurunaOperatorMessage -Key 'host.operator_c67e69b1dce2a237' -FormatValues (($total / 1MB), ($ExpectedByteCount / 1MB), $percent) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; percent = '2' })
                         } else {
-                            Write-Progress -Activity $activity -Status ("{0:N1} MB" -f ($total / 1MB))
+                            Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_a9dcf6d3662588bf' -FormatValues (($total / 1MB)) -FormatBindings @{ mB = '0:N1' })
                         }
                         $next = [datetime]::UtcNow.AddSeconds(2)
                     }
@@ -952,15 +953,15 @@ function Request-DownloadAgentImage {
         $totalBytes = [int64]$body.bytesTotal
         if ($totalBytes -gt 0) {
             $percent = [Math]::Min(100, [Math]::Round($done * 100.0 / $totalBytes, 1))
-            Write-Progress -Activity "Download agent is fetching $identity" -PercentComplete $percent `
-                -Status ("{0:N1} / {1:N1} MB ({2}%)" -f ($done / 1MB), ($totalBytes / 1MB), $percent)
+            Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_c9fdc637e88b4b29' -Arguments @{ identity = "$identity" }) -PercentComplete $percent `
+                -Status (Format-YurunaOperatorMessage -Key 'host.operator_903fd0cd1bbdfa50' -FormatValues (($done / 1MB), ($totalBytes / 1MB), $percent) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; percent = '2' })
         } else {
-            Write-Progress -Activity "Download agent is fetching $identity" -Status 'starting'
+            Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_c9fdc637e88b4b29' -Arguments @{ identity = "$identity" }) -Status 'starting'
         }
         Start-Sleep -Seconds ([int][Math]::Min($pollSeconds, [Math]::Max(1, $remaining)))
         $pollSeconds = [Math]::Min($script:PollMaxSeconds, $pollSeconds * 2)
     }
-    Write-Progress -Activity "Download agent is fetching $identity" -Completed
+    Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_c9fdc637e88b4b29' -Arguments @{ identity = "$identity" }) -Completed
 
     if ($null -eq $image) {
         $result.error = "the agent reported $identity ready but sent no metadata"

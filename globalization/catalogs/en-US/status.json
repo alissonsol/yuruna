@@ -22,7 +22,11 @@
       "description": "Summary above the host table. Counts hosts the pool currently reaches.",
       "lifecycle": "active",
       "placeholders": {
-        "count": { "type": "integer", "trust": "internal", "example": 3 }
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
       },
       "plural": {
         "selector": "count",
@@ -42,7 +46,11 @@
       "description": "Total wall-clock time of the cycle, shown under the timing breakdown.",
       "lifecycle": "active",
       "placeholders": {
-        "elapsed": { "type": "duration", "trust": "internal", "example": 5400 }
+        "elapsed": {
+          "type": "duration",
+          "trust": "internal",
+          "example": 5400
+        }
       }
     },
     "status.external_detail": {
@@ -50,7 +58,11 @@
       "description": "Frames text produced by a program outside Yuruna. The detail is shown as given and is never read back as state.",
       "lifecycle": "active",
       "placeholders": {
-        "detail": { "type": "detail", "trust": "external", "example": "Connection refused" }
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Connection refused"
+        }
       }
     },
     "status.directory_index_title": {
@@ -58,7 +70,11 @@
       "description": "Title and heading on a generated status-service directory listing.",
       "lifecycle": "active",
       "placeholders": {
-        "path": { "type": "detail", "trust": "external", "example": "/log/cycle/" }
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/log/cycle/"
+        }
       }
     },
     "status.directory_contents_caption": {
@@ -66,7 +82,11 @@
       "description": "Accessible caption on a generated status-service directory listing.",
       "lifecycle": "active",
       "placeholders": {
-        "path": { "type": "detail", "trust": "external", "example": "/log/cycle/" }
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/log/cycle/"
+        }
       }
     },
     "status.directory_column_name": {
@@ -94,7 +114,11 @@
       "description": "A directory-listing file size below one kibibyte.",
       "lifecycle": "active",
       "placeholders": {
-        "size": { "type": "text", "trust": "internal", "example": "512" }
+        "size": {
+          "type": "text",
+          "trust": "internal",
+          "example": "512"
+        }
       }
     },
     "status.file_size_kilobytes": {
@@ -102,7 +126,11 @@
       "description": "A directory-listing file size expressed in kibibytes.",
       "lifecycle": "active",
       "placeholders": {
-        "size": { "type": "text", "trust": "internal", "example": "1.5" }
+        "size": {
+          "type": "text",
+          "trust": "internal",
+          "example": "1.5"
+        }
       }
     },
     "status.file_size_megabytes": {
@@ -110,7 +138,11 @@
       "description": "A directory-listing file size expressed in mebibytes.",
       "lifecycle": "active",
       "placeholders": {
-        "size": { "type": "text", "trust": "internal", "example": "3.3" }
+        "size": {
+          "type": "text",
+          "trust": "internal",
+          "example": "3.3"
+        }
       }
     },
     "status.file_size_gigabytes": {
@@ -118,7 +150,11 @@
       "description": "A directory-listing file size expressed in gibibytes.",
       "lifecycle": "active",
       "placeholders": {
-        "size": { "type": "text", "trust": "internal", "example": "2.0" }
+        "size": {
+          "type": "text",
+          "trust": "internal",
+          "example": "2.0"
+        }
       }
     },
     "status.error_file_too_large": {
@@ -130,6 +166,2392 @@
       "message": "Not found",
       "description": "Plain-text status-service response when a requested path does not exist.",
       "lifecycle": "active"
+    },
+    "status.test_config_yml_yuruna": {
+      "message": "test.config.yml — Yuruna",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.menu": {
+      "message": "Menu",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.pages": {
+      "message": "Pages",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.status": {
+      "message": "Status",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.config": {
+      "message": "Config",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.performance": {
+      "message": "Performance",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.diagnostics": {
+      "message": "Diagnostics",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.guide": {
+      "message": "Guide",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.loading": {
+      "message": "Loading…",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.test_config_yml": {
+      "message": "test.config.yml",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.save_and_start_cycle": {
+      "message": "Save and start cycle",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.discard": {
+      "message": "Discard",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.save": {
+      "message": "Save",
+      "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.diagnostics_yuruna": {
+      "message": "Diagnostics — Yuruna",
+      "description": "Visible text in test/status/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.host_diagnostics": {
+      "message": "Host diagnostics",
+      "description": "Visible text in test/status/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.yuruna_status": {
+      "message": "Yuruna Status",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.dashboards": {
+      "message": "Dashboards",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.no_dashboard_server": {
+      "message": "No dashboard server",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.yuruna_host_status": {
+      "message": "Yuruna host status",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.latest_cycle": {
+      "message": "Latest Cycle",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.pause_after_cycle": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Pause after cycle"
+    },
+    "status.cycle_start_utc": {
+      "message": "Cycle start (UTC)",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.started": {
+      "message": "Started",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.commit": {
+      "message": "Commit",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.images_refresh": {
+      "message": "Images refresh",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.test_sequences": {
+      "message": "Test sequences",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.pause_after_step": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Pause after step"
+    },
+    "status.recent_cycles": {
+      "message": "Recent Cycles",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.duration": {
+      "message": "Duration",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.sequences": {
+      "message": "Sequences",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.no_test_data_yet": {
+      "message": "No test data yet",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.ips": {
+      "message": "IPs:",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.host_ip_addresses": {
+      "message": "Host IP addresses",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.refresh": {
+      "message": "Refresh",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.pause": {
+      "message": "Pause",
+      "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.perf_yuruna": {
+      "message": "Perf — Yuruna",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.recalculate": {
+      "message": "Recalculate",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart": {
+      "message": "Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.cycle_performance": {
+      "message": "Cycle performance",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_": {
+      "message": "Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.loading_perf_aggregates": {
+      "message": "Loading perf aggregates…",
+      "description": "Visible text in test/status/performance.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.share_cycle_yuruna": {
+      "message": "Share cycle — Yuruna",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.share_cycle_results": {
+      "message": "Share cycle results",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.host": {
+      "message": "Host",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.cycle": {
+      "message": "Cycle",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.started_utc": {
+      "message": "Started (UTC)",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.archive": {
+      "message": "Archive",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.pack_and_download_the_cycle_results": {
+      "message": "Pack and download the cycle results",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.download_the_archive": {
+      "message": "Download the archive",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.open_the_email_draft": {
+      "message": "Open the email draft",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.draft_emails_cannot_automatically_include_attachments_so_please_m": {
+      "message": "Draft emails cannot automatically include attachments, so please\n      manually attach the downloaded file before you send it.",
+      "description": "Visible text in test/status/share-cycle.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.resume": {
+      "message": "Resume",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.paused": {
+      "message": "Test paused",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.value1_yuruna_status": {
+      "message": "{value1} — Yuruna status",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.status_unavailable": {
+      "message": "Status unavailable",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.run_start_testrunner_ps1_to_start_a_test_cycle": {
+      "message": "Run Start-TestRunner.ps1 to start a test cycle.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.could_not_load_test_status_refresh_to_retry": {
+      "message": "Could not load test status. Refresh to retry.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.never": {
+      "message": "never",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.open_cycle_data_folder": {
+      "message": "Open cycle data folder",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_cycle_folder_recorded_for_this_cycle": {
+      "message": "No cycle folder recorded for this cycle",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": {
+      "message": "Invocation inferred from legacy step order; concurrent or incomplete runs may remain combined.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st": {
+      "message": "Elapsed interval: {value1}\nSummed top-level work: {value2}\nTop-level steps: {value3}\nFailed retry children: {value4}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.value1_work_value2": {
+      "message": "{value1}\nWork · {value2}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.no_data": {
+      "message": "(no data)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_aggregates_available": {
+      "message": "No aggregates available.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_perf_data_yet_run_at_least_one_test_cycle": {
+      "message": "No perf data yet — run at least one test cycle.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.recalculating": {
+      "message": "Recalculating…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.recalculating_perf_aggregates": {
+      "message": "Recalculating perf aggregates…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.could_not_load_aggregates_value1": {
+      "message": "Could not load aggregates: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.unknown": {
+      "message": "(unknown)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.unavailable": {
+      "message": "(unavailable)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_output": {
+      "message": "(no output)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.could_not_load_value1": {
+      "message": "Could not load: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": {
+      "message": "Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": {
+      "message": "Control proof expires in {value1}s -- save soon, or re-open this host from the dashboard link for a fresh one.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.could_not_load_config_value1": {
+      "message": "Could not load config: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.discard_unsaved_config_changes_and_return_to_status": {
+      "message": "Discard unsaved config changes and return to status?",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.delete_item_value1": {
+      "message": "Delete item {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.empty_array": {
+      "message": "(empty array)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.add_item_all_guests_added": {
+      "message": "+ add item (all guests added)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.every_guest_folder_under_this_host_is_already_in_the_list": {
+      "message": "Every guest folder under this host is already in the list",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.add_item": {
+      "message": "+ add item",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.empty_object": {
+      "message": "(empty object)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.null": {
+      "message": "null",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.true": {
+      "message": "True",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.false": {
+      "message": "False",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d": {
+      "message": "e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected": {
+      "message": "Not a valid IPv4 or IPv6 address. Save will be rejected.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.process_environment_value_the_status_service_inherited_at_startup": {
+      "message": "Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi": {
+      "message": "Enter a valid IP address to test caching-proxy-service connectivity from host.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.could_not_serialize_value1": {
+      "message": "Could not serialize: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.saving": {
+      "message": "Saving…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.save_failed_value1": {
+      "message": "Save failed: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.saved_returning_to_status": {
+      "message": "Saved. Returning to status…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy": {
+      "message": "A cycle is currently running. Save the config, abort the running cycle, and start a new one? In-progress VMs are removed first -- this is not instant: each running VM is given up to ~30 seconds to shut down (macOS/UTM is the slowest), so with several VMs up the new cycle can take a minute or two to begin.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.could_not_determine_runner_status_value1_save_and_start_cycle_any": {
+      "message": "Could not determine runner status ({value1}). Save and start cycle anyway? In-progress VMs (if any) are removed first -- up to ~30 seconds per running VM (macOS/UTM is the slowest), so the new cycle may take a minute or two to begin.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.saving_config": {
+      "message": "Saving config…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_": {
+      "message": "Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.value1_returning_to_status_in_6_seconds": {
+      "message": "{value1}. Returning to status in 6 seconds…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.save_and_start_cycle_failed_value1": {
+      "message": "Save and start cycle failed: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.download_value1": {
+      "message": "Download {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.loading_47d2a515": {
+      "message": "Loading...",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.working": {
+      "message": "Working...",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.show_the_full_id": {
+      "message": "Show the full id",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.show_only_the_first_8_characters": {
+      "message": "Show only the first 8 characters",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.host_value1": {
+      "message": "Host: {value1}",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.auto_refresh_paused": {
+      "message": "Auto-refresh paused",
+      "description": "Operator-facing browser message in test/extension/extension-sdk/webui/assets/yuruna.core.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_ip_set_nothing_to_test": {
+      "message": "No IP set — nothing to test.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.not_a_valid_ipv4_or_ipv6_address_test_skipped": {
+      "message": "Not a valid IPv4 or IPv6 address — test skipped.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.leave_the_field_to_test_caching_proxy_service_from_host": {
+      "message": "Leave the field to test caching-proxy service from host.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.testing_caching_proxy_service_from_host": {
+      "message": "Testing caching-proxy service from host…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": {
+      "message": "Caching-proxy test timed out (15 s) - not reachable from this host?",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.server_reports_ip_not_valid_test_skipped": {
+      "message": "Server reports IP not valid — test skipped.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2": {
+      "message": "Test caching-proxy service from host succeeded ({value1} pass{value2}).",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va": {
+      "message": "Test caching-proxy service from host failed ({value1} fail{value2}{value3}).",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65": {
+      "message": "Caching-proxy test timed out (15 s) — not reachable from this host?",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.caching_proxy_test_endpoint_unavailable_value1": {
+      "message": "Caching-proxy test endpoint unavailable: {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y": {
+      "message": "No cycle to share. Open this page from the cycle timeline on the Yuruna hosts dashboard.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w": {
+      "message": "This cycle is still running. The archive will hold what has been written so far.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.packing_value1": {
+      "message": "Packing {value1}…",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot": {
+      "message": "This host will not pack {value1} (HTTP {value2}). The cycle may have rotated out of the retained log history.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.could_not_check_the_cycle_folder_first": {
+      "message": "Could not check the cycle folder first. ",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.shared_value1_value2": {
+      "message": "Shared {value1} ({value2}).",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.sharing_canceled": {
+      "message": "Sharing canceled.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.the_share_sheet_expired_while_the_host_packed_the_folder": {
+      "message": "The share sheet expired while the host packed the folder. ",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.this_browser_could_not_attach_the_file_to_a_message_itself": {
+      "message": "This browser could not attach the file to a message itself. ",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.banner_idle": {
+      "message": "No test data available",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_running": {
+      "message": "Test in progress",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_pass": {
+      "message": "All guests operational",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_fail": {
+      "message": "Incident detected — see status",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_stopped": {
+      "message": "Test runner stopped",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_incident_details": {
+      "message": "Incident detected — see details below",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.pausing_after_step": {
+      "message": "Test pausing (after step)",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.pausing_after_cycle": {
+      "message": "Test pausing (after cycle)",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.paused_age": {
+      "message": "Test paused -- {age}",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "age": {
+          "type": "text",
+          "trust": "internal",
+          "example": "5m+"
+        }
+      }
+    },
+    "status.paused_guest": {
+      "message": "Test paused -- guest {guest} running",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "guest": {
+          "type": "detail",
+          "trust": "external",
+          "example": "example"
+        }
+      }
+    },
+    "status.paused_age_guest": {
+      "message": "Test paused -- {age}, guest {guest} running",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "age": {
+          "type": "text",
+          "trust": "internal",
+          "example": "5m+"
+        },
+        "guest": {
+          "type": "detail",
+          "trust": "external",
+          "example": "example"
+        }
+      }
+    },
+    "status.lab_hold": {
+      "message": "Lab hold -- waiting for {areas}",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "areas": {
+          "type": "detail",
+          "trust": "external",
+          "example": "example"
+        }
+      }
+    },
+    "status.lab_hold_unspecified": {
+      "message": "Lab hold -- waiting for a lab service",
+      "description": "Status banner. The reported state/code decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": {
+      "message": "The control proof expired. Re-open this host from the dashboard link to get a fresh one.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.no_control_proof_was_presented_reach_this_page_through_the_dashbo": {
+      "message": "No control proof was presented. Reach this page through the dashboard link, or use http://localhost:{value1}/ on the host itself.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": {
+      "message": "The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": {
+      "message": "The host could not load its control-proof verifier; check the status service log.",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.http_value1": {
+      "message": "HTTP {value1}",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.setup": {
+      "message": "(setup)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.unnamed": {
+      "message": "(unnamed)",
+      "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "status.user_account": {
+      "message": "User account:",
+      "description": "Complete paragraph or standalone label in test/status/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": {
+      "message": "The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.",
+      "description": "Complete paragraph or standalone label in test/status/share-cycle.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "status.run_command1_to_start_a_test_cycle": {
+      "message": "Run {command1} to start a test cycle.",
+      "description": "Complete paragraph or standalone label in test/status/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Start-TestRunner.ps1"
+        }
+      }
+    },
+    "status.loaded": {
+      "message": "Loaded:",
+      "description": "Complete paragraph or standalone label in test/status/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "status.latest_runs": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "shown": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "latest {shown} of {count} run",
+          "other": "latest {shown} of {count} runs"
+        }
+      }
+    },
+    "status.latest_runs_failures": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "shown": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "failed": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "latest {shown} of {count} run · {failed} with failures",
+          "other": "latest {shown} of {count} runs · {failed} with failures"
+        }
+      }
+    },
+    "status.aggregate_summary": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "cycles": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "generated": {
+          "type": "detail",
+          "trust": "external",
+          "example": "example"
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} sequence · latest {cycles} cycles each · generated {generated}",
+          "other": "{count} sequences · latest {cycles} cycles each · generated {generated}"
+        }
+      }
+    },
+    "status.skip_suffix": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": " (skip)"
+    },
+    "status.quarantined": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "quarantined"
+    },
+    "status.quarantine_reason": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Quarantined after repeated same-class failures"
+    },
+    "status.resume_in_place": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Resume the sequence in place (no snapshot restore)"
+    },
+    "status.empty_value": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "(empty)"
+    },
+    "status.control_routes": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "control-route setup"
+    },
+    "status.control_refused": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Control refused."
+    },
+    "status.control_instructions": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This host accepts control only from a browser on the host itself ({address}), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run {command} with the code from the dashboard’s Lab token tile.",
+      "placeholders": {
+        "address": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "command": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.config_loading": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Loading…"
+    },
+    "status.snapshot_restore": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Restore snapshot id {snapshot}, restart the VM, then resume the sequence",
+      "placeholders": {
+        "snapshot": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.vm_name": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "VM: {name}",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.elapsed_duration": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Duration: {duration}",
+      "placeholders": {
+        "duration": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.results_folder": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Open results folder for {name}",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.transcript_for": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Open transcript for {name}",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.quarantine_pinned": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Quarantined after repeated same-class failures (skipped until a new commit; pinned at {commit})",
+      "placeholders": {
+        "commit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.failure_severity": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "severity: {severity}",
+      "placeholders": {
+        "severity": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.failure_sequence": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "sequence: {sequence}",
+      "placeholders": {
+        "sequence": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.failure_sequence_step": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "sequence: {sequence} (step {step})",
+      "placeholders": {
+        "sequence": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "step": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.guest_not_found": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "{guest} (not under host folder)",
+      "placeholders": {
+        "guest": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.enum_invalid": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "{value} (invalid — pick one)",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.control_proof_missing": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This page was opened without a control token, so none was sent."
+    },
+    "status.control_proof_expired": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This page’s control token has expired (they last 15 minutes)."
+    },
+    "status.control_proof_invalid": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll."
+    },
+    "status.control_host_token_missing": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This host holds no lab token yet."
+    },
+    "status.control_verifier_unavailable": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "This host’s status service could not load its token verifier (check test/status/runtime/server.err on the host)."
+    },
+    "status.config_field_alwaysredownload": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "alwaysRedownload"
+    },
+    "status.config_field_armwindowhours": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "armWindowHours"
+    },
+    "status.config_field_autorefreshafterstalls": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "autoRefreshAfterStalls"
+    },
+    "status.config_field_autoremediation": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "autoRemediation"
+    },
+    "status.config_field_autoseed": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "autoSeed"
+    },
+    "status.config_field_bootdelayseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "bootDelaySeconds"
+    },
+    "status.config_field_cachingproxyip": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "cachingProxyIp"
+    },
+    "status.config_field_chardelayms": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "charDelayMs"
+    },
+    "status.config_field_cleanupvmnameprefixes": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "cleanupVmNamePrefixes"
+    },
+    "status.config_field_configservice": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "configService"
+    },
+    "status.config_field_cycledelayseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "cycleDelaySeconds"
+    },
+    "status.config_field_discoveryintervalseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "discoveryIntervalSeconds"
+    },
+    "status.config_field_downloadagentservice": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "downloadAgentService"
+    },
+    "status.config_field_enabled": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "enabled"
+    },
+    "status.config_field_failuresbeforealert": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "failuresBeforeAlert"
+    },
+    "status.config_field_failurestoquarantine": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "failuresToQuarantine"
+    },
+    "status.config_field_frameworkurl": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "frameworkUrl"
+    },
+    "status.config_field_freshnessseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "freshnessSeconds"
+    },
+    "status.config_field_ghtoken": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "ghToken"
+    },
+    "status.config_field_guestquarantine": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "guestQuarantine"
+    },
+    "status.config_field_guestsequence": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "guestSequence"
+    },
+    "status.config_field_intentgiturl": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "intentGitUrl"
+    },
+    "status.config_field_labhealth": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "labHealth"
+    },
+    "status.config_field_language": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "language"
+    },
+    "status.config_field_localclonepath": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "localClonePath"
+    },
+    "status.config_field_loglevel": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "logLevel"
+    },
+    "status.config_field_maxattempts": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "maxAttempts"
+    },
+    "status.config_field_maxattemptspercycle": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "maxAttemptsPerCycle"
+    },
+    "status.config_field_maxholdattempts": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "maxHoldAttempts"
+    },
+    "status.config_field_minintervalseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "minIntervalSeconds"
+    },
+    "status.config_field_movelogstopoolstorage": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "moveLogsToPoolStorage"
+    },
+    "status.config_field_networkstorage": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "networkStorage"
+    },
+    "status.config_field_notification": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "notification"
+    },
+    "status.config_field_perflog": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "perfLog"
+    },
+    "status.config_field_pollseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "pollSeconds"
+    },
+    "status.config_field_pool": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "pool"
+    },
+    "status.config_field_poolstoragelocalpath": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "poolStorageLocalPath"
+    },
+    "status.config_field_poolstoragenetworkpath": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "poolStorageNetworkPath"
+    },
+    "status.config_field_poolstoragenetworkuser": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "poolStorageNetworkUser"
+    },
+    "status.config_field_port": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "port"
+    },
+    "status.config_field_preambletimeoutseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "preambleTimeoutSeconds"
+    },
+    "status.config_field_prefetchleadseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "prefetchLeadSeconds"
+    },
+    "status.config_field_projecturl": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "projectUrl"
+    },
+    "status.config_field_pulltimeoutseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "pullTimeoutSeconds"
+    },
+    "status.config_field_recentdisplaycount": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "recentDisplayCount"
+    },
+    "status.config_field_refreshseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "refreshSeconds"
+    },
+    "status.config_field_repositories": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "repositories"
+    },
+    "status.config_field_require": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "require"
+    },
+    "status.config_field_scanintervalseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "scanIntervalSeconds"
+    },
+    "status.config_field_screenhistorysize": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "screenHistorySize"
+    },
+    "status.config_field_skipcycles": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "skipCycles"
+    },
+    "status.config_field_starttimeoutseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "startTimeoutSeconds"
+    },
+    "status.config_field_stashstoragelocalpath": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "stashStorageLocalPath"
+    },
+    "status.config_field_stashstoragenetworkpath": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "stashStorageNetworkPath"
+    },
+    "status.config_field_stashstoragenetworkuser": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "stashStorageNetworkUser"
+    },
+    "status.config_field_statusservice": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "statusService"
+    },
+    "status.config_field_steptimeoutseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "stepTimeoutSeconds"
+    },
+    "status.config_field_stoponfailure": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "stopOnFailure"
+    },
+    "status.config_field_successesbeforerearm": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "successesBeforeRearm"
+    },
+    "status.config_field_testcycle": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "testCycle"
+    },
+    "status.config_field_testvmnameprefix": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "testVmNamePrefix"
+    },
+    "status.config_field_timeoutseconds": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "timeoutSeconds"
+    },
+    "status.config_field_vmcommunication": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "vmCommunication"
+    },
+    "status.config_field_vmimage": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "vmImage"
+    },
+    "status.config_field_vmstart": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "vmStart"
+    },
+    "status.config_field_vncport": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "vncPort"
+    },
+    "status.config_field_warmresume": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "warmResume"
+    },
+    "status.config_type_object": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "object ({count})",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.config_type_array": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "array ({count})",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.config_type_string": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "string ({count})",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.config_type_number": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "number ({count})",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.config_type_boolean": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "boolean ({count})",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.log_level_error": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Error"
+    },
+    "status.log_level_warning": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Warning"
+    },
+    "status.log_level_information": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Information"
+    },
+    "status.log_level_verbose": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Verbose"
+    },
+    "status.log_level_debug": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Debug"
+    },
+    "status.pill_new_vm_resource": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "New VM"
+    },
+    "status.pill_start_guestos": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Start OS"
+    },
+    "status.pill_start_guestworkload": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "message": "Workload"
+    },
+    "status.missing_step_timing": {
+      "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} cycle lacks per-step timing — drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in {endpoint}. Restart it with: {command}, then reload this page.",
+          "other": "{count} cycles lack per-step timing — drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in {endpoint}. Restart it with: {command}, then reload this page."
+        }
+      },
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "endpoint": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "command": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_kind": {
+      "message": "Kind: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_duration": {
+      "message": "Duration: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_outcome": {
+      "message": "Outcome: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_diagnostic": {
+      "message": "Diagnostic: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_evidence": {
+      "message": "Evidence capture within step: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_reused": {
+      "message": "Reused execution: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_within": {
+      "message": "Within: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.timing_within_attempt": {
+      "message": "Within: {value} attempt {attempt}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "status.timing_cycle_started": {
+      "message": "Cycle: {value}",
+      "description": "One complete line in a performance step tooltip. Data remains unchanged; do not translate protocol tokens inside placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.share_subject": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Yuruna Host {host} at {time}",
+      "placeholders": {
+        "host": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "time": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.share_body": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Yuruna cycle results are attached"
+    },
+    "status.cycle_running": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "{cycle} (still running)",
+      "placeholders": {
+        "cycle": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.share_download_started": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Downloading {file}. The host packs the whole folder before the first byte arrives, so give it a moment. Then open the draft and attach the file before sending.",
+      "placeholders": {
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.share_download_manual": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Download {file} with the first link. Then open the draft and attach the file before sending.",
+      "placeholders": {
+        "file": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.attach_downloaded_file": {
+      "message": "Draft emails cannot automatically include attachments, so please manually attach the downloaded file before you send it.",
+      "description": "Emphasized share-cycle instruction: the operator must attach the downloaded archive to the draft before sending.",
+      "lifecycle": "active"
+    },
+    "status.timing_unavailable_value": {
+      "message": "unavailable",
+      "description": "Missing elapsed interval in a performance tooltip, without surrounding punctuation.",
+      "lifecycle": "active"
+    },
+    "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": {
+      "message": "forbidden: missing X-Yuruna request header (cross-site request guard)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_test_config_yml_not_found_3b38d785": {
+      "message": "test.config.yml not found",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_payload_too_large_1_mb_350b49df": {
+      "message": "payload too large (>1 MB)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_could_not_read_body_aa31dc00": {
+      "message": "could not read body",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_method_not_allowed_be4fb6a2": {
+      "message": "method not allowed",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf": {
+      "message": "method not allowed; POST the checkpoint body",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_payload_too_large_256_kb_ad49d5cd": {
+      "message": "payload too large (>256 KB)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_body_must_be_a_json_object_831ab327": {
+      "message": "body must be a JSON object",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_sidecar_write_failed_0ce361a9": {
+      "message": "sidecar write failed",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": {
+      "message": "forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_post_required_663cc07c": {
+      "message": "POST required",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_no_lab_hold_is_active_49dd8185": {
+      "message": "no lab hold is active",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_no_break_active_bc29bdab": {
+      "message": "no break active",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_another_start_cycle_request_is_in_progress_3f51d139": {
+      "message": "another start-cycle request is in progress",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_method_not_allowed_post_the_dump_body_fa73866b": {
+      "message": "method not allowed; POST the dump body",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_expected_diagnostics_folder_filename_5f581c78": {
+      "message": "expected /diagnostics/<folder>.../<filename>",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5": {
+      "message": "folder segment contains traversal or backslash",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_filename_must_match_system_diagnostic_id_txt_ec048334": {
+      "message": "filename must match *.system.diagnostic.<id>.txt",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": {
+      "message": "failure folder not found; runner must have created it first",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_path_escapes_log_root_13754cf8": {
+      "message": "path escapes log root",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_payload_too_large_5_mb_ab90ca52": {
+      "message": "payload too large (>5 MB)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_put_or_post_required_1f919659": {
+      "message": "PUT or POST required",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": {
+      "message": "invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_payload_too_large_4_mb_3455f869": {
+      "message": "payload too large (>4 MB)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_path_escapes_log_dir_355b2034": {
+      "message": "path escapes log dir",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": {
+      "message": "user, nonce and proof query parameters are required",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c": {
+      "message": "Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_authentication_extension_unavailable_2ece9896": {
+      "message": "authentication extension unavailable",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3": {
+      "message": "user not referenced by this host's networkStorage config",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": {
+      "message": "internal authentication key not configured on this host",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": {
+      "message": "proof mismatch (wrong or stale internal authentication key)",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b": {
+      "message": "no stored credential for that user on this host",
+      "description": "Host status HTTP error displayed at the request boundary.",
+      "lifecycle": "active"
+    },
+    "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": {
+      "message": "Caching-proxy service: detected (port map owned by a bring-up)",
+      "description": "Cached status HTML summary of the local caching proxy.",
+      "lifecycle": "active"
+    },
+    "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": {
+      "message": "Caching-proxy service: detected (port map failed)",
+      "description": "Cached status HTML summary of the local caching proxy.",
+      "lifecycle": "active"
+    },
+    "status.cache_caching_proxy_service_not_detected_eeb2edfb": {
+      "message": "Caching-proxy service: not detected",
+      "description": "Cached status HTML summary of the local caching proxy.",
+      "lifecycle": "active"
+    },
+    "status.cache_caching_proxy_service_306beb37": {
+      "message": "Caching-proxy service:",
+      "description": "Cached status HTML label preceding the detected-service link.",
+      "lifecycle": "active"
+    },
+    "status.cache_detected_b96da48a": {
+      "message": "detected",
+      "description": "Detected-service link label.",
+      "lifecycle": "active"
+    },
+    "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": {
+      "message": "Caching-proxy service: configured at {address}, not answering",
+      "description": "Caching proxy health summary; address is untrusted data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "address": {
+          "type": "detail",
+          "trust": "external",
+          "example": "192.0.2.8"
+        }
+      }
+    },
+    "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
+      "message": "This host has no lab-auth-token, so remote control is loopback-only. Open this page as {address} on the host, or enroll it: {command} <code from the dashboard’s Lab token tile>. See {documentation}",
+      "description": "Remote-control refusal with exact URL/command arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "address": {
+          "type": "token",
+          "trust": "internal",
+          "example": "http://localhost:8000/"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Set-LabToken.ps1 -LabToken"
+        },
+        "documentation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "https://yuruna.link/control-proof"
+        }
+      }
+    },
+    "status.guest_sequence_fallback_note": {
+      "message": "Fallback only. The guest set comes from {file} in the project repository; this list is read only when that file resolves no plan.",
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "file": {
+          "type": "token",
+          "trust": "internal",
+          "example": "test/test.runner.yml"
+        }
+      }
+    },
+    "status.guest_sequence_last_plan": {
+      "message": "Last cycle ran: {plan}.",
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "plan": {
+          "type": "detail",
+          "trust": "external",
+          "example": "smoke -> linux"
+        }
+      }
+    },
+    "status.guest_sequence_no_plan": {
+      "message": "No resolved plan is recorded for the last cycle.",
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active"
+    },
+    "status.timing_summed_work": {
+      "message": "work {duration}",
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "duration": {
+          "type": "text",
+          "trust": "internal",
+          "example": "2.5s"
+        }
+      }
+    },
+    "status.timing_incomplete_capture": {
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} incomplete capture(s)",
+          "other": "{count} incomplete capture(s)"
+        }
+      }
+    },
+    "status.timing_incomplete_record": {
+      "message": "incomplete record",
+      "description": "Status configuration or performance explanatory text.",
+      "lifecycle": "active"
+    },
+    "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c": {
+      "message": "Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa": {
+      "message": "no caching-proxy-service CA resolvable",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_project_repo_not_present_on_host_885e6338": {
+      "message": "project repo not present on host",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_not_a_cycle_results_archive_name_395b9777": {
+      "message": "Not a cycle results archive name.",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_forbidden_deny_list_1c7d1cfa": {
+      "message": "Forbidden (deny-list)",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_forbidden_78342a09": {
+      "message": "Forbidden",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_forbidden_directory_listing_disabled_5d107f5b": {
+      "message": "Forbidden (directory listing disabled)",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2": {
+      "message": "No cycle {cycle} in the retained log history.",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_no_cycle_results_folder_folder_on_this_host_51798923": {
+      "message": "No cycle results folder {folder} on this host.",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "folder": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_could_not_pack_folder_detail_268ee848": {
+      "message": "Could not pack {folder}: {detail}",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "folder": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_yaml_parse_failed_detail_363d5cf4": {
+      "message": "YAML parse failed: {detail}",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_write_failed_detail_c07681e1": {
+      "message": "write failed: {detail}",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_invalid_json_detail_c907dfc3": {
+      "message": "invalid JSON: {detail}",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1": {
+      "message": "follow guidance at https://yuruna.link/42185271-0007",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active"
+    },
+    "status.api_detail_caf3c2c2": {
+      "message": "{detail}",
+      "description": "Host status HTTP refusal; nonlinguistic URL/path values arrive as typed arguments.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "status.api_diagnostic_script_missing": {
+      "message": "Get-SystemDiagnostic.ps1 not found at {path}",
+      "description": "Status HTTP request failure. Preserve the script name and display the supplied path or diagnostic as inert text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/lab/automation/Get-SystemDiagnostic.ps1"
+        }
+      }
+    },
+    "status.api_diagnostic_failed": {
+      "message": "Error running Get-SystemDiagnostic.ps1: {detail}",
+      "description": "Status HTTP request failure. Preserve the script name and display the supplied path or diagnostic as inert text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The child process failed"
+        }
+      }
+    },
+    "status.api_runner_script_missing": {
+      "message": "Start-TestRunner.ps1 not found at {path}",
+      "description": "Status HTTP request failure. Preserve the script name and display the supplied path or diagnostic as inert text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/lab/test/Start-TestRunner.ps1"
+        }
+      }
     }
   }
 }

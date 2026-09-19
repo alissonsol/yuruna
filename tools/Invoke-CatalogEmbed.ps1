@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,10 @@ $Targets = @(
     # none of them ask for.
     @{ Path = 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js'
        Domains = @('pool'); DomainsOnly = $true }
+    @{ Path = 'test/extension/stash-service/server/internal/httpsrv/web/assets/common.js'
+       Domains = @('stash'); DomainsOnly = $true }
+    @{ Path = 'test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js'
+       Domains = @('download'); DomainsOnly = $true }
 )
 
 # The Go tree is a set of independent modules, so a service cannot import a
@@ -82,13 +86,21 @@ $Targets = @(
 # The pseudo locales travel with the real one on purpose: the reference slice
 # has to be answerable in expanded and mirrored pseudo, and a locale that is
 # not in the binary cannot be requested from it.
+$localeManifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($ManifestPath))
+$deliveredLocales = @($localeManifest.locales.PSObject.Properties | Where-Object { $_.Value.status -in @('supported', 'pseudo') } | ForEach-Object Name)
 $GoTargets = @(
+    @{ Module = 'test/extension/extension-sdk'; Package = 'internal/catalog'; Domains = @('auth'); Locales = $deliveredLocales }
     @{
         Module   = 'test/extension/pool-control-service/server'
         Package  = 'internal/catalog'
         Domains  = @('status', 'pool')
-        Locales  = @('en-US', 'qps-Ploc', 'qps-Plocm')
+        Locales  = $deliveredLocales
     }
+    @{ Module = 'test/extension/stash-service/server'; Package = 'internal/catalog'; Domains = @('status', 'stash'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/download-agent-service/server'; Package = 'internal/catalog'; Domains = @('status', 'download'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/caching-proxy-service'; Package = 'internal/catalog'; Domains = @('status', 'cache'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/caching-proxy-parser-service'; Package = 'internal/catalog'; Domains = @('status', 'parser'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/pool-aggregator-service'; Package = 'internal/catalog'; Domains = @('status', 'aggregator'); Locales = $deliveredLocales }
 )
 
 # Non-default browser catalogs are separate parser-discovered assets. Keep the
@@ -96,10 +108,19 @@ $GoTargets = @(
 # reference page can render. The default locale remains embedded in its
 # existing runtime and therefore adds no request.
 $BrowserCatalogTargets = @(
-    @{ Source = 'qps-Ploc.status.js';  Destination = 'test/status/qps-Ploc.status.js' }
-    @{ Source = 'qps-Plocm.status.js'; Destination = 'test/status/qps-Plocm.status.js' }
-    @{ Source = 'qps-Ploc.pool.js';    Destination = 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Ploc.pool.js' }
-    @{ Source = 'qps-Plocm.pool.js';   Destination = 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Plocm.pool.js' }
+    foreach ($locale in $deliveredLocales | Where-Object { $_ -cne $localeManifest.default }) {
+        foreach ($target in $Targets | Where-Object { $_.Path -cne 'test/extension/extension-sdk/webui/assets/yuruna.core.js' }) {
+            foreach ($domain in $target.Domains) {
+                $name = "$locale.$domain.js"
+                # A selected service asset replaces both the service table and
+                # the shared chrome table in one request, exactly as its Go map.
+                $domains = if ($target.DomainsOnly) { @($target.Domains) + @('status') | Sort-Object -Unique } else { @($domain) }
+                @{ Sources = @($domains | ForEach-Object { "$locale.$_.js" })
+                   Combined = [bool]$target.DomainsOnly
+                   Destination = (Join-Path (Split-Path -Parent $target.Path) $name).Replace('\', '/') }
+            }
+        }
+    }
 )
 
 # The two services whose pages are Go string literals and load no shared
@@ -158,7 +179,7 @@ function Get-EmbeddedBlock {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Domains, [switch]$DomainsOnly)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Domains, [switch]$DomainsOnly, [switch]$OmitFetchShim)
 
     $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($ManifestPath))
     $default = [string]$manifest.default
@@ -236,8 +257,10 @@ function Get-EmbeddedBlock {
     # across both browser runtimes and both raw Go pages. It installs itself
     # only when the browser has no fetch, so a modern browser pays nothing.
     if (-not $DomainsOnly) {
-        [void]$sb.AppendLine('// The fetch stand-in, from ' + $FetchShimSource + ' -- see that file for why.')
-        [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FetchShimSource)))))
+        if (-not $OmitFetchShim) {
+            [void]$sb.AppendLine('// The fetch stand-in, from ' + $FetchShimSource + ' -- see that file for why.')
+            [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FetchShimSource)))))
+        }
         [void]$sb.AppendLine(([IO.File]::ReadAllText($KernelPath)).TrimEnd())
         [void]$sb.AppendLine('// Explicit application readiness, from ' + $FirstUsableSource + '.')
         [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FirstUsableSource)))))
@@ -433,6 +456,54 @@ function Get-GoCatalogFile {
     return ($text -replace '(?m)^package\s+\w+$', "package $PackageName")
 }
 
+function Get-GoCatalogRegistry {
+    <#
+    .SYNOPSIS
+        Emit the owned locale/domain tables and browser data for one service.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$Target)
+
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add('// Generated by tools/Invoke-CatalogEmbed.ps1 from the owned compiled catalogs.')
+    $lines.Add('package ' + (Split-Path -Leaf $Target.Package))
+    $lines.Add('')
+    $lines.Add('var Catalogs = map[string]map[string]string{')
+    foreach ($locale in $Target.Locales | Sort-Object) {
+        $lines.Add("`t" + (ConvertTo-GoQuoted $locale) + ': {')
+        foreach ($domain in $Target.Domains | Sort-Object) {
+            $constant = 'Data' + ($locale -replace '[^A-Za-z0-9]', '') + $domain
+            $stem = ($locale -replace '[^A-Za-z0-9]', '') + '_' + $domain
+            $compiled = [IO.File]::ReadAllText((Join-Path $RepoRoot "globalization/generated/go/catalog/$stem.go"))
+            $literal = [regex]::Match($compiled, '(?s)\bconst ' + [regex]::Escape($constant) + ' = (.+)\s*$')
+            if (-not $literal.Success) { throw "Compiled Go catalog has no payload: $locale/$domain" }
+            # A guest stages this one file even when the supported locale set
+            # changes. Inline the compiler's literal so deployment cannot omit a
+            # newly accepted locale by retaining an old list of source filenames.
+            $lines.Add("`t`t" + (ConvertTo-GoQuoted $domain) + ': ' + $literal.Groups[1].Value.TrimEnd() + ',')
+        }
+        $lines.Add("`t},")
+    }
+    $lines.Add('}')
+    $lines.Add('')
+    $lines.Add('var BrowserCatalogs = map[string]string{')
+    $quotedLocales = @($Target.Locales | ForEach-Object { ConvertTo-GoQuoted $_ })
+    $padding = ($quotedLocales | Measure-Object -Property Length -Maximum).Maximum
+    foreach ($locale in $Target.Locales | Sort-Object) {
+        $browser = @($Target.Domains | Sort-Object | ForEach-Object {
+            [IO.File]::ReadAllText((Join-Path $GeneratedBrowser "$locale.$_.js")).TrimEnd()
+        }) -join "`n"
+        $lines.Add("`t" + ((ConvertTo-GoQuoted $locale) + ':').PadRight($padding + 1) + ' ' + (ConvertTo-GoQuoted $browser) + ',')
+    }
+    $lines.Add('}')
+    $lines.Add('')
+    # Raw Go pages already carry the bounded request adapter and its fetch
+    # stand-in. Compose their locale runtime without downloading it twice.
+    $lines.Add('const BrowserKernel = ' + (ConvertTo-GoQuoted (Get-EmbeddedBlock -Domains $Target.Domains -OmitFetchShim)))
+    return ($lines -join "`n") + "`n"
+}
+
 $findings = @()
 $changed = @()
 
@@ -503,12 +574,20 @@ function Set-GeneratedFile {
 }
 
 foreach ($browserTarget in $BrowserCatalogTargets) {
-    $source = Join-Path $GeneratedBrowser $browserTarget.Source
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        $findings += "$($browserTarget.Destination): no compiled browser artifact '$($browserTarget.Source)'. Run tools/Invoke-CatalogCompile.ps1 first."
-        continue
+    $parts = [Collections.Generic.List[string]]::new()
+    $missing = $false
+    foreach ($sourceName in $browserTarget.Sources) {
+        $source = Join-Path $GeneratedBrowser $sourceName
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            $findings += "$($browserTarget.Destination): no compiled browser artifact '$sourceName'. Run tools/Invoke-CatalogCompile.ps1 first."
+            $missing = $true
+            continue
+        }
+        $parts.Add((([IO.File]::ReadAllText($source)) -replace "`r`n", "`n").TrimEnd())
     }
-    $browserText = (([IO.File]::ReadAllText($source)) -replace "`r`n", "`n").TrimEnd() + "`n"
+    if ($missing) { continue }
+    $browserText = $parts -join "`n"
+    if (-not $browserTarget.Combined) { $browserText += "`n" }
     $result = Set-GeneratedFile -Relative $browserTarget.Destination -Text $browserText
     if ($result) { $changed += $result }
 }
@@ -575,6 +654,9 @@ foreach ($goTarget in $GoTargets) {
             if ($result) { $changed += $result }
         }
     }
+    $registryPath = ($goTarget.Module + '/' + $goTarget.Package + '/registry.go')
+    $result = Set-GeneratedFile -Relative $registryPath -Text (Get-GoCatalogRegistry -Target $goTarget)
+    if ($result) { $changed += $result }
 }
 
 # Both runtimes carry the same kernel. Comparing the written copies rather than

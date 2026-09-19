@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42633ca0-2c76-450c-a1f8-ca4342cfa81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,11 +23,12 @@ param (
     [string]$destinationContext=$null
 )
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $global:DebugPreference = "Continue"
 $global:VerbosePreference = "Continue"
 
-if ([string]::IsNullOrEmpty($sourceContext)) { Write-Information "Source context cannot be empty"; return $false; }
-if ([string]::IsNullOrEmpty($destinationContext)) { Write-Information "Destination context cannot be empty"; return $false; }
+if ([string]::IsNullOrEmpty($sourceContext)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_44307ca3abfeb77b'); return $false; }
+if ([string]::IsNullOrEmpty($destinationContext)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_08d7d3525b3a0f99'); return $false; }
 
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 Write-Information "yuruna_root: $yuruna_root"
@@ -38,8 +39,8 @@ $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.ps
 Import-Module -Name $modulePath
 
 $currentConfig =  Resolve-Path -Path "~/.kube/config"
-if (-Not (Test-Path -Path $currentConfig)) { Write-Information "K8S configuration not found: $currentConfig"; return $false; }
-if ((Get-Item $currentConfig).Length -eq 0) { Write-Information "K8S current configuration is empty: $currentConfig"; return $false; }
+if (-Not (Test-Path -Path $currentConfig)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_afe1f122a5fe1eda' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
+if ((Get-Item $currentConfig).Length -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_196fa0e4f293a074' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
 
 kubectl config unset contexts.$destinationContext *>&1 | Write-Verbose
 
@@ -56,15 +57,15 @@ kubectl config use-context $sourceContext *>&1 | Write-Verbose
 # and KUBECONFIG it started with. Bare try/finally with NO catch so message-
 # prefix control-flow markers still propagate to any caller.
 try {
-    if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config use-context failed (exit $LASTEXITCODE) for: $sourceContext"; return $false; }
+    if ($LASTEXITCODE -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ff01fa82ff0150ac' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; sourceContext = "$sourceContext" }); return $false; }
     $currentContext = kubectl config current-context
-    if ($currentContext -ne $sourceContext) { Write-Information "K8S source context not found: $sourceContext`n"; return $false; }
+    if ($currentContext -ne $sourceContext) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_88d94868c16da4b7' -Arguments @{ sourceContext = "$sourceContext" }); return $false; }
 
     # --minify narrows the kubectl view to a single user/cluster/context,
     # so index 0 is always the source entry being renamed below.
     Write-Debug "`n==== ********* Copying context '$sourceContext' to '$destinationContext' ************** =======";
     $yamlContent = $(kubectl config view --minify --raw=true -o yaml)
-    if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config view failed (exit $LASTEXITCODE) for: $sourceContext"; return $false; }
+    if ($LASTEXITCODE -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_dcf3166a7dd19f7f' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; sourceContext = "$sourceContext" }); return $false; }
     $yaml = ConvertFrom-Content $yamlContent
     $yaml.users[0].name = $destinationContext
     $yaml.clusters[0].name = $destinationContext
@@ -85,11 +86,11 @@ try {
     # Partial output before a kubectl failure would still pass the
     # downstream file-exists/non-empty checks and clobber ~/.kube/config
     # on Move-Item, so a non-zero exit here MUST short-circuit.
-    if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config view --flatten failed (exit $LASTEXITCODE)"; return $false; }
+    if ($LASTEXITCODE -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_4bcda64ddc713b3c' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); return $false; }
 
     Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
-    if (-Not (Test-Path -Path $combinedConfig)) { Write-Information "K8S configuration problems. Try deleting invalid contexts: $currentConfig"; return $false; }
-    if ((Get-Item $combinedConfig).Length -eq 0) { Write-Information "K8S configuration problems. Try deleting invalid contexts: $currentConfig"; return $false; }
+    if (-Not (Test-Path -Path $combinedConfig)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_2f89b400662cacb4' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
+    if ((Get-Item $combinedConfig).Length -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_2f89b400662cacb4' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
 
     Move-Item -Path $combinedConfig -Destination $currentConfig -Force
 }

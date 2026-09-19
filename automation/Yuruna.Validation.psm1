@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42424ce3-9435-4785-bfcc-3963c111d3a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.psm1"
 Import-Module -Name $modulePath
@@ -132,7 +133,7 @@ function Confirm-ResourceList {
         if ([string]::IsNullOrEmpty($resourceName)) { $r = "Resource without name in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         if (-not $seenResourceNames.Add($resourceName)) { $r = "Duplicate resource name '$resourceName' in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $resourceNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($resourceName)
-        if ([string]::IsNullOrEmpty($resourceNameExpanded)) { Write-Information "Resource '$resourceName' may expand to empty name in file: $resourcesFile"; }
+        if ([string]::IsNullOrEmpty($resourceNameExpanded)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0feb9b01ffd492f4' -Arguments @{ resourceName = "$resourceName"; resourcesFile = "$resourcesFile" }); }
         elseif (-not $seenResourceNamesExpanded.Add($resourceNameExpanded)) { $r = "Duplicate resource name '$resourceNameExpanded' (expanded from '$resourceName') in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $resourceTemplate = $resource['template']
         $templateProjectFolder = Join-Path -Path $project_root -ChildPath "resources/$resourceTemplate" -ErrorAction SilentlyContinue
@@ -141,8 +142,8 @@ function Confirm-ResourceList {
             if (($null -eq $templateGlobalFolder) -or (-Not (Test-Path -Path $templateGlobalFolder))) {
                 $r = "Resources template not found locally or globally: $resourceTemplate`nUsed in file: $resourcesFile";
                 Write-Information $r;
-                Write-Information "Not found local folder: $templateProjectFolder";
-                Write-Information "Not found global folder: $templateGlobalFolder";
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_37be8f13b76494a0' -Arguments @{ templateProjectFolder = "$templateProjectFolder" });
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_886b6f5d510a69fb' -Arguments @{ templateGlobalFolder = "$templateGlobalFolder" });
                 return (New-YurunaValidationResult $false $r);
             }
         }
@@ -199,7 +200,7 @@ function Confirm-ComponentList {
     $globalResult = Confirm-GlobalVariableList $yaml $componentsFile
     if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
-    if ($null -eq $yaml.components) { Write-Information "Components null or empty in file: $componentsFile"; }
+    if ($null -eq $yaml.components) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ba98150f5b113567' -Arguments @{ componentsFile = "$componentsFile" }); }
     # Two components sharing a project key build/tag/push to the same image
     # identity (Publish-ComponentList derives the build folder and image off the
     # expanded project), so the second overwrites the first. Reject raw + post-
@@ -211,7 +212,7 @@ function Confirm-ComponentList {
         if ([string]::IsNullOrEmpty($project)) { $r = "component.project cannot be null or empty in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         if (-not $seenProjects.Add($project)) { $r = "Duplicate component project '$project' in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $projectExpanded = $ExecutionContext.InvokeCommand.ExpandString($project)
-        if ([string]::IsNullOrEmpty($projectExpanded)) { Write-Information "Component project '$project' may expand to empty in file: $componentsFile"; }
+        if ([string]::IsNullOrEmpty($projectExpanded)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e0a4bce23c46a537' -Arguments @{ project = "$project"; componentsFile = "$componentsFile" }); }
         elseif (-not $seenProjectsExpanded.Add($projectExpanded)) { $r = "Duplicate component project '$projectExpanded' (expanded from '$project') in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $buildPath = $component['buildPath']
         if ([string]::IsNullOrEmpty($buildPath)) { Write-Verbose "component.buildPath for $project is null in file: $componentsFile"; }
@@ -251,7 +252,7 @@ function Confirm-WorkloadList {
     $globalResult = Confirm-GlobalVariableList $yaml $workloadsFile
     if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
-    if ($null -eq $yaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; }
+    if ($null -eq $yaml.workloads) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); }
     # Two workloads sharing a kube context collide: Publish-WorkloadList wipes
     # .yuruna/<subfolder>/workloads/<context> at the start of EACH workload, so
     # the second silently clobbers the first's staged charts/values. A chart also

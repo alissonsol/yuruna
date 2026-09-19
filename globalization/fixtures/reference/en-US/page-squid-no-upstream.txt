@@ -1,27 +1,2 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Upstream fetch refused</title>
-<style>
-body { background: #ffffff; color: #111827;
-       font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-       margin: 0; padding: 1.5rem; }
-main { max-width: 44rem; }
-h1 { font-size: 1.5rem; margin: 0 0 1rem; }
-code { background: #f3f4f6; color: #111827; padding: 0 0.25rem; }
-b { word-break: break-all; }
-</style>
-</head>
-<body>
-<main>
-<h1>Upstream fetch refused</h1>
-<p>This cache is in no-upstream mode. The object below is not stored
-locally, and this cache will not fetch it.</p>
-<p><b>http://archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.gz</b></p>
-<p>To let it through, run <code>sudo yuruna-no-upstream off</code> on the
-caching-proxy VM, re-run the fetch, then turn it back on.</p>
-</main>
-</body>
-</html>
+<html lang="en-US" dir="ltr"> <head> <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title data-i18n="cache.upstream_fetch_refused">Upstream fetch refused</title> <style> body { background: #ffffff; color: #111827; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; margin: 0; padding: 1.5rem; } main { max-width: 44rem; } h1 { font-size: 1.5rem; margin: 0 0 1rem; } code { background: #f3f4f6; color: #111827; padding: 0 0.25rem; } b { word-break: break-all; } </style> </head> <body> <main> <h1 data-i18n="cache.upstream_fetch_refused">Upstream fetch refused</h1> <p data-i18n="cache.no_upstream_explanation">This cache is in no-upstream mode. The object below is not stored locally, and this cache will not fetch it.</p> <p><b>http://archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.gz</b></p> <p data-i18n="cache.no_upstream_instruction" data-i18n-args="{&quot;command&quot;:&quot;sudo yuruna-no-upstream off&quot;}">To let it through, run sudo yuruna-no-upstream off on the caching-proxy VM, re-run the fetch, then turn it back on.</p> </main> </body> </html>

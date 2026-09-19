@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42791443-b111-06db-2e8f-da567ccaa7e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,443 @@
 # locale: qps-Plocm  domain: status
 
 @{
+    'status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy' = '[!‮Á çýçļé íš çúřřéñţļý řúññíñğ. Šáṽé ţħé çóñƒíğ, áƀóřţ ţħé řúññíñğ çýçļé, áñď šţářţ á ñéŵ óñé? Íñ-ƥřóğřéšš ṼⱮš ářé řéɱóṽéď ƒířšţ -- ţħíš íš ñóţ íñšţáñţ: éáçħ řúññíñğ ṼⱮ íš ğíṽéñ úƥ ţó ~30 šéçóñďš ţó šħúţ ďóŵñ (ɱáçÓŠ/UTM íš ţħé šļóŵéšţ), šó ŵíţħ šéṽéřáļ ṼⱮš úƥ ţħé ñéŵ çýçļé çáñ ţáķé á ɱíñúţé óř ţŵó ţó ƀéğíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.add_item' = '[!‮+ áďď íţéɱ‬ ~~~~]'
+    'status.add_item_all_guests_added' = '[!‮+ áďď íţéɱ (áļļ ğúéšţš áďďéď)‬ ~~~~~~~~~~~~]'
+    'status.aggregate_summary' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' šéʠúéñçé · ļáţéšţ '
+                @{
+                    'arg' = 'cycles'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' çýçļéš éáçħ · ğéñéřáţéď '
+                @{
+                    'arg' = 'generated'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+            'other' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' šéʠúéñçéš · ļáţéšţ '
+                @{
+                    'arg' = 'cycles'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' çýçļéš éáçħ · ğéñéřáţéď '
+                @{
+                    'arg' = 'generated'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+        }
+    }
+    'status.api_another_start_cycle_request_is_in_progress_3f51d139' = '[!‮áñóţħéř šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~~~]'
+    'status.api_authentication_extension_unavailable_2ece9896' = '[!‮áúţħéñţíçáţíóñ éẋţéñšíóñ úñáṽáíļáƀļé‬ ~~~~~~~~~~~~~~~]'
+    'status.api_body_must_be_a_json_object_831ab327' = '[!‮ƀóďý ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ‬ ~~~~~~~~~~~]'
+    'status.api_could_not_pack_folder_detail_268ee848' = @(
+        '[!‮Çóúļď ñóţ ƥáçķ '
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~]'
+    )
+    'status.api_could_not_read_body_aa31dc00' = '[!‮çóúļď ñóţ řéáď ƀóďý‬ ~~~~~~~~]'
+    'status.api_detail_caf3c2c2' = @(
+        '[!‮'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~]'
+    )
+    'status.api_diagnostic_failed' = @(
+        '[!‮Éřřóř řúññíñğ Get-SystemDiagnostic.ps1: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.api_diagnostic_script_missing' = @(
+        '[!‮Get-SystemDiagnostic.ps1 ñóţ ƒóúñď áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.api_expected_diagnostics_folder_filename_5f581c78' = '[!‮éẋƥéçţéď /diagnostics/<folder>.../<filename>‬ ~~~~~~~~~~~~~~~~~~]'
+    'status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e' = '[!‮ƒáíļúřé ƒóļďéř ñóţ ƒóúñď; řúññéř ɱúšţ ħáṽé çřéáţéď íţ ƒířšţ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_filename_must_match_system_diagnostic_id_txt_ec048334' = '[!‮ƒíļéñáɱé ɱúšţ ɱáţçħ *.system.diagnostic.<id>.ţẋţ‬ ~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5' = '[!‮ƒóļďéř šéğɱéñţ çóñţáíñš ţřáṽéřšáļ óř ƀáçķšļášħ‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1' = '[!‮ƒóļļóŵ ğúíďáñçé áţ https://yuruna.link/42185271-0007‬ ~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_forbidden_78342a09' = '[!‮Ƒóřƀíďďéñ‬ ~~~~]'
+    'status.api_forbidden_deny_list_1c7d1cfa' = '[!‮Ƒóřƀíďďéñ (ďéñý-ļíšţ)‬ ~~~~~~~~~]'
+    'status.api_forbidden_directory_listing_disabled_5d107f5b' = '[!‮Ƒóřƀíďďéñ (ďířéçţóřý ļíšţíñğ ďíšáƀļéď)‬ ~~~~~~~~~~~~~~~~]'
+    'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = '[!‮ƒóřƀíďďéñ: ɱíššíñğ Ẋ-Ýúřúñá řéʠúéšţ ħéáďéř (çřóšš-šíţé řéʠúéšţ ğúářď)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = '[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0' = '[!‮íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_invalid_json_detail_c907dfc3' = @(
+        '[!‮íñṽáļíď ĴŠÓÑ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~]'
+    )
+    'status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c' = '[!‮íñṽáļíď úƥļóáď ƥáţħ (ɱúšţ éñď íñ .ļóğ/.txt/.json/.err/.crash/.tar, ñó ţřáṽéřšáļ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_method_not_allowed_be4fb6a2' = '[!‮ɱéţħóď ñóţ áļļóŵéď‬ ~~~~~~~~]'
+    'status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf' = '[!‮ɱéţħóď ñóţ áļļóŵéď; ƤÓŠŢ ţħé çħéçķƥóíñţ ƀóďý‬ ~~~~~~~~~~~~~~~~~~]'
+    'status.api_method_not_allowed_post_the_dump_body_fa73866b' = '[!‮ɱéţħóď ñóţ áļļóŵéď; ƤÓŠŢ ţħé ďúɱƥ ƀóďý‬ ~~~~~~~~~~~~~~~~]'
+    'status.api_no_break_active_bc29bdab' = '[!‮ñó ƀřéáķ áçţíṽé‬ ~~~~~~]'
+    'status.api_no_caching_proxy_service_ca_resolvable_f924b0aa' = '[!‮ñó çáçħíñğ-ƥřóẋý-šéřṽíçé ÇÁ řéšóļṽáƀļé‬ ~~~~~~~~~~~~~~~~]'
+    'status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2' = @(
+        '[!‮Ñó çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íñ ţħé řéţáíñéď ļóğ ħíšţóřý.‬ ~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.api_no_cycle_results_folder_folder_on_this_host_51798923' = @(
+        '[!‮Ñó çýçļé řéšúļţš ƒóļďéř '
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' óñ ţħíš ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.api_no_lab_hold_is_active_49dd8185' = '[!‮ñó ļáƀ ħóļď íš áçţíṽé‬ ~~~~~~~~~]'
+    'status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b' = '[!‮ñó šţóřéď çřéďéñţíáļ ƒóř ţħáţ úšéř óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.api_not_a_cycle_results_archive_name_395b9777' = '[!‮Ñóţ á çýçļé řéšúļţš ářçħíṽé ñáɱé.‬ ~~~~~~~~~~~~~~]'
+    'status.api_path_escapes_log_dir_355b2034' = '[!‮ƥáţħ éšçáƥéš ļóğ ďíř‬ ~~~~~~~~]'
+    'status.api_path_escapes_log_root_13754cf8' = '[!‮ƥáţħ éšçáƥéš ļóğ řóóţ‬ ~~~~~~~~~]'
+    'status.api_payload_too_large_1_mb_350b49df' = '[!‮ƥáýļóáď ţóó ļářğé (>1 ⱮɃ)‬ ~~~~~~~~~~]'
+    'status.api_payload_too_large_256_kb_ad49d5cd' = '[!‮ƥáýļóáď ţóó ļářğé (>256 ĶɃ)‬ ~~~~~~~~~~~]'
+    'status.api_payload_too_large_4_mb_3455f869' = '[!‮ƥáýļóáď ţóó ļářğé (>4 ⱮɃ)‬ ~~~~~~~~~~]'
+    'status.api_payload_too_large_5_mb_ab90ca52' = '[!‮ƥáýļóáď ţóó ļářğé (>5 ⱮɃ)‬ ~~~~~~~~~~]'
+    'status.api_post_required_663cc07c' = '[!‮ƤÓŠŢ řéʠúířéď‬ ~~~~~~]'
+    'status.api_project_repo_not_present_on_host_885e6338' = '[!‮ƥřóĵéçţ řéƥó ñóţ ƥřéšéñţ óñ ħóšţ‬ ~~~~~~~~~~~~~]'
+    'status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b' = '[!‮ƥřóóƒ ɱíšɱáţçħ (ŵřóñğ óř šţáļé íñţéřñáļ áúţħéñţíçáţíóñ ķéý)‬ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_put_or_post_required_1f919659' = '[!‮ƤÚŢ óř ƤÓŠŢ řéʠúířéď‬ ~~~~~~~~]'
+    'status.api_runner_script_missing' = @(
+        '[!‮Start-TestRunner.ps1 ñóţ ƒóúñď áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~]'
+    )
+    'status.api_sidecar_write_failed_0ce361a9' = '[!‮šíďéçář ŵříţé ƒáíļéď‬ ~~~~~~~~]'
+    'status.api_test_config_yml_not_found_3b38d785' = '[!‮test.config.yml ñóţ ƒóúñď‬ ~~~~~~~~~~]'
+    'status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c' = '[!‮Test.ConfigServiceSync / Test.Config çóúļď ñóţ ƀé ļóáďéď íñ ţħé šéřṽéř řúñšƥáçé (šéé řúñţíɱé/server.err)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c' = '[!‮Test.PoolStorage / Test.Config çóúļď ñóţ ƀé ļóáďéď íñ ţħé šéřṽéř řúñšƥáçé (šéé řúñţíɱé/server.err)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9' = '[!‮úšéř, ñóñçé áñď ƥřóóƒ ʠúéřý ƥářáɱéţéřš ářé řéʠúířéď‬ ~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3' = '[!‮úšéř ñóţ řéƒéřéñçéď ƀý ţħíš ħóšţ''š ñéţŵóřķŠţóřáğé çóñƒíğ‬ ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_write_failed_detail_c07681e1' = @(
+        '[!‮ŵříţé ƒáíļéď: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~]'
+    )
+    'status.api_yaml_parse_failed_detail_363d5cf4' = @(
+        '[!‮ÝÁⱮĻ ƥářšé ƒáíļéď: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~]'
+    )
+    'status.archive' = '[!‮Ářçħíṽé‬ ~~~]'
+    'status.attach_downloaded_file' = '[!‮Ďřáƒţ éɱáíļš çáññóţ áúţóɱáţíçáļļý íñçļúďé áţţáçħɱéñţš, šó ƥļéášé ɱáñúáļļý áţţáçħ ţħé ďóŵñļóáďéď ƒíļé ƀéƒóřé ýóú šéñď íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.auto_refresh_paused' = '[!‮Áúţó-řéƒřéšħ ƥáúšéď‬ ~~~~~~~~]'
+    'status.banner_fail' = '[!‮Íñçíďéñţ ďéţéçţéď — šéé šţáţúš‬ ~~~~~~~~~~~~]'
+    'status.banner_idle' = '[!‮Ñó ţéšţ ďáţá áṽáíļáƀļé‬ ~~~~~~~~~]'
+    'status.banner_incident_details' = '[!‮Íñçíďéñţ ďéţéçţéď — šéé ďéţáíļš ƀéļóŵ‬ ~~~~~~~~~~~~~~~]'
+    'status.banner_pass' = '[!‮Áļļ ğúéšţš óƥéřáţíóñáļ‬ ~~~~~~~~~]'
+    'status.banner_running' = '[!‮Ţéšţ íñ ƥřóğřéšš‬ ~~~~~~~]'
+    'status.banner_stopped' = '[!‮Ţéšţ řúññéř šţóƥƥéď‬ ~~~~~~~~]'
+    'status.cache_caching_proxy_service_306beb37' = '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé:‬ ~~~~~~~~~]'
+    'status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d' = @(
+        '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé: çóñƒíğúřéď áţ '
+        @{
+            'arg' = 'address'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', ñóţ áñšŵéříñğ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf' = '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé: ďéţéçţéď (ƥóřţ ɱáƥ ƒáíļéď)‬ ~~~~~~~~~~~~~~~~~~~~]'
+    'status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937' = '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé: ďéţéçţéď (ƥóřţ ɱáƥ óŵñéď ƀý á ƀříñğ-úƥ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.cache_caching_proxy_service_not_detected_eeb2edfb' = '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé: ñóţ ďéţéçţéď‬ ~~~~~~~~~~~~~~]'
+    'status.cache_detected_b96da48a' = '[!‮ďéţéçţéď‬ ~~~~]'
+    'status.caching_proxy_test_endpoint_unavailable_value1' = @(
+        '[!‮Çáçħíñğ-ƥřóẋý ţéšţ éñďƥóíñţ úñáṽáíļáƀļé: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host' = '[!‮Çáçħíñğ-ƥřóẋý ţéšţ ţíɱéď óúţ (15 š) - ñóţ řéáçħáƀļé ƒřóɱ ţħíš ħóšţ?‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65' = '[!‮Çáçħíñğ-ƥřóẋý ţéšţ ţíɱéď óúţ (15 š) — ñóţ řéáçħáƀļé ƒřóɱ ţħíš ħóšţ?‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.commit' = '[!‮Çóɱɱíţ‬ ~~~]'
+    'status.config' = '[!‮Çóñƒíğ‬ ~~~]'
+    'status.config_field_alwaysredownload' = '[!‮áļŵáýšŘéďóŵñļóáď‬ ~~~~~~~]'
+    'status.config_field_armwindowhours' = '[!‮ářɱŴíñďóŵĦóúřš‬ ~~~~~~]'
+    'status.config_field_autorefreshafterstalls' = '[!‮áúţóŘéƒřéšħÁƒţéřŠţáļļš‬ ~~~~~~~~~]'
+    'status.config_field_autoremediation' = '[!‮áúţóŘéɱéďíáţíóñ‬ ~~~~~~]'
+    'status.config_field_autoseed' = '[!‮áúţóŠééď‬ ~~~~]'
+    'status.config_field_bootdelayseconds' = '[!‮ƀóóţĎéļáýŠéçóñďš‬ ~~~~~~~]'
+    'status.config_field_cachingproxyip' = '[!‮çáçħíñğƤřóẋýÍƥ‬ ~~~~~~]'
+    'status.config_field_chardelayms' = '[!‮çħářĎéļáýⱮš‬ ~~~~~]'
+    'status.config_field_cleanupvmnameprefixes' = '[!‮çļéáñúƥṼɱÑáɱéƤřéƒíẋéš‬ ~~~~~~~~~]'
+    'status.config_field_configservice' = '[!‮çóñƒíğŠéřṽíçé‬ ~~~~~~]'
+    'status.config_field_cycledelayseconds' = '[!‮çýçļéĎéļáýŠéçóñďš‬ ~~~~~~~]'
+    'status.config_field_discoveryintervalseconds' = '[!‮ďíšçóṽéřýÍñţéřṽáļŠéçóñďš‬ ~~~~~~~~~~]'
+    'status.config_field_downloadagentservice' = '[!‮ďóŵñļóáďÁğéñţŠéřṽíçé‬ ~~~~~~~~]'
+    'status.config_field_enabled' = '[!‮éñáƀļéď‬ ~~~]'
+    'status.config_field_failuresbeforealert' = '[!‮ƒáíļúřéšɃéƒóřéÁļéřţ‬ ~~~~~~~~]'
+    'status.config_field_failurestoquarantine' = '[!‮ƒáíļúřéšŢóʠúářáñţíñé‬ ~~~~~~~~]'
+    'status.config_field_frameworkurl' = '[!‮ƒřáɱéŵóřķÚřļ‬ ~~~~~]'
+    'status.config_field_freshnessseconds' = '[!‮ƒřéšħñéššŠéçóñďš‬ ~~~~~~~]'
+    'status.config_field_ghtoken' = '[!‮ğħŢóķéñ‬ ~~~]'
+    'status.config_field_guestquarantine' = '[!‮ğúéšţʠúářáñţíñé‬ ~~~~~~]'
+    'status.config_field_guestsequence' = '[!‮ğúéšţŠéʠúéñçé‬ ~~~~~~]'
+    'status.config_field_intentgiturl' = '[!‮íñţéñţĞíţÚřļ‬ ~~~~~]'
+    'status.config_field_labhealth' = '[!‮ļáƀĦéáļţħ‬ ~~~~]'
+    'status.config_field_language' = '[!‮ļáñğúáğé‬ ~~~~]'
+    'status.config_field_localclonepath' = '[!‮ļóçáļÇļóñéƤáţħ‬ ~~~~~~]'
+    'status.config_field_loglevel' = '[!‮ļóğĻéṽéļ‬ ~~~~]'
+    'status.config_field_maxattempts' = '[!‮ɱáẋÁţţéɱƥţš‬ ~~~~~]'
+    'status.config_field_maxattemptspercycle' = '[!‮ɱáẋÁţţéɱƥţšƤéřÇýçļé‬ ~~~~~~~~]'
+    'status.config_field_maxholdattempts' = '[!‮ɱáẋĦóļďÁţţéɱƥţš‬ ~~~~~~]'
+    'status.config_field_minintervalseconds' = '[!‮ɱíñÍñţéřṽáļŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_movelogstopoolstorage' = '[!‮ɱóṽéĻóğšŢóƤóóļŠţóřáğé‬ ~~~~~~~~~]'
+    'status.config_field_networkstorage' = '[!‮ñéţŵóřķŠţóřáğé‬ ~~~~~~]'
+    'status.config_field_notification' = '[!‮ñóţíƒíçáţíóñ‬ ~~~~~]'
+    'status.config_field_perflog' = '[!‮ƥéřƒĻóğ‬ ~~~]'
+    'status.config_field_pollseconds' = '[!‮ƥóļļŠéçóñďš‬ ~~~~~]'
+    'status.config_field_pool' = '[!‮ƥóóļ‬ ~~]'
+    'status.config_field_poolstoragelocalpath' = '[!‮ƥóóļŠţóřáğéĻóçáļƤáţħ‬ ~~~~~~~~]'
+    'status.config_field_poolstoragenetworkpath' = '[!‮ƥóóļŠţóřáğéÑéţŵóřķƤáţħ‬ ~~~~~~~~~]'
+    'status.config_field_poolstoragenetworkuser' = '[!‮ƥóóļŠţóřáğéÑéţŵóřķÚšéř‬ ~~~~~~~~~]'
+    'status.config_field_port' = '[!‮ƥóřţ‬ ~~]'
+    'status.config_field_preambletimeoutseconds' = '[!‮ƥřéáɱƀļéŢíɱéóúţŠéçóñďš‬ ~~~~~~~~~]'
+    'status.config_field_prefetchleadseconds' = '[!‮ƥřéƒéţçħĻéáďŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_projecturl' = '[!‮ƥřóĵéçţÚřļ‬ ~~~~]'
+    'status.config_field_pulltimeoutseconds' = '[!‮ƥúļļŢíɱéóúţŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_recentdisplaycount' = '[!‮řéçéñţĎíšƥļáýÇóúñţ‬ ~~~~~~~~]'
+    'status.config_field_refreshseconds' = '[!‮řéƒřéšħŠéçóñďš‬ ~~~~~~]'
+    'status.config_field_repositories' = '[!‮řéƥóšíţóříéš‬ ~~~~~]'
+    'status.config_field_require' = '[!‮řéʠúířé‬ ~~~]'
+    'status.config_field_scanintervalseconds' = '[!‮šçáñÍñţéřṽáļŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_screenhistorysize' = '[!‮šçřééñĦíšţóřýŠížé‬ ~~~~~~~]'
+    'status.config_field_skipcycles' = '[!‮šķíƥÇýçļéš‬ ~~~~]'
+    'status.config_field_starttimeoutseconds' = '[!‮šţářţŢíɱéóúţŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_stashstoragelocalpath' = '[!‮šţášħŠţóřáğéĻóçáļƤáţħ‬ ~~~~~~~~~]'
+    'status.config_field_stashstoragenetworkpath' = '[!‮šţášħŠţóřáğéÑéţŵóřķƤáţħ‬ ~~~~~~~~~~]'
+    'status.config_field_stashstoragenetworkuser' = '[!‮šţášħŠţóřáğéÑéţŵóřķÚšéř‬ ~~~~~~~~~~]'
+    'status.config_field_statusservice' = '[!‮šţáţúšŠéřṽíçé‬ ~~~~~~]'
+    'status.config_field_steptimeoutseconds' = '[!‮šţéƥŢíɱéóúţŠéçóñďš‬ ~~~~~~~~]'
+    'status.config_field_stoponfailure' = '[!‮šţóƥÓñƑáíļúřé‬ ~~~~~~]'
+    'status.config_field_successesbeforerearm' = '[!‮šúççéššéšɃéƒóřéŘéářɱ‬ ~~~~~~~~]'
+    'status.config_field_testcycle' = '[!‮ţéšţÇýçļé‬ ~~~~]'
+    'status.config_field_testvmnameprefix' = '[!‮ţéšţṼɱÑáɱéƤřéƒíẋ‬ ~~~~~~~]'
+    'status.config_field_timeoutseconds' = '[!‮ţíɱéóúţŠéçóñďš‬ ~~~~~~]'
+    'status.config_field_vmcommunication' = '[!‮ṽɱÇóɱɱúñíçáţíóñ‬ ~~~~~~]'
+    'status.config_field_vmimage' = '[!‮ṽɱÍɱáğé‬ ~~~]'
+    'status.config_field_vmstart' = '[!‮ṽɱŠţářţ‬ ~~~]'
+    'status.config_field_vncport' = '[!‮ṽñçƤóřţ‬ ~~~]'
+    'status.config_field_warmresume' = '[!‮ŵářɱŘéšúɱé‬ ~~~~]'
+    'status.config_loading' = '[!‮Ļóáďíñğ…‬ ~~~~]'
+    'status.config_type_array' = @(
+        '[!‮ářřáý ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ')‬ ~~~~~~]'
+    )
+    'status.config_type_boolean' = @(
+        '[!‮ƀóóļéáñ ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ')‬ ~~~~~~~]'
+    )
+    'status.config_type_number' = @(
+        '[!‮ñúɱƀéř ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ')‬ ~~~~~~~]'
+    )
+    'status.config_type_object' = @(
+        '[!‮óƀĵéçţ ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ')‬ ~~~~~~~]'
+    )
+    'status.config_type_string' = @(
+        '[!‮šţříñğ ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ')‬ ~~~~~~~]'
+    )
+    'status.control_host_token_missing' = '[!‮Ţħíš ħóšţ ħóļďš ñó ļáƀ ţóķéñ ýéţ.‬ ~~~~~~~~~~~~~~]'
+    'status.control_instructions' = @(
+        '[!‮Ţħíš ħóšţ áççéƥţš çóñţřóļ óñļý ƒřóɱ á ƀřóŵšéř óñ ţħé ħóšţ íţšéļƒ ('
+        @{
+            'arg' = 'address'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď ţóķéñ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ '
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď`’š Ļáƀ ţóķéñ ţíļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    )
+    'status.control_proof_expired' = "[!‮Ţħíš ƥáğé`’š çóñţřóļ ţóķéñ ħáš éẋƥířéď (ţħéý ļášţ 15 ɱíñúţéš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    'status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b' = '[!‮Çóñţřóļ ƥřóóƒ éẋƥířéď -- řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƀéƒóřé šáṽíñğ. Ýóúř éďíţš ářé ķéƥţ úñţíļ ýóú ďó.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_' = @(
+        '[!‮Çóñţřóļ ƥřóóƒ éẋƥířéš íñ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'š -- šáṽé šóóñ, óř řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƒóř á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.control_proof_invalid' = "[!‮Ţħíš ƥáğé`’š çóñţřóļ ţóķéñ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ`’š šţóřéď ļáƀ ţóķéñ ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ`’š çúřřéñţ óñé, šó řé-éñřóļļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    'status.control_proof_missing' = '[!‮Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ţóķéñ, šó ñóñé ŵáš šéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.control_refused' = '[!‮Çóñţřóļ řéƒúšéď.‬ ~~~~~~~]'
+    'status.control_routes' = '[!‮çóñţřóļ-řóúţé šéţúƥ‬ ~~~~~~~~]'
+    'status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80' = @(
+        '[!‮Ţħíš ħóšţ ħáš ñó ļáƀ-áúţħ-ţóķéñ, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš '
+        @{
+            'arg' = 'address'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' óñ ţħé ħóšţ, óř éñřóļļ íţ: '
+        @{
+            'arg' = 'command'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        " <code from the dashboard`’s Lab token tile>. Šéé "
+        @{
+            'arg' = 'documentation'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.control_verifier_unavailable' = "[!‮Ţħíš ħóšţ`’š šţáţúš šéřṽíçé çóúļď ñóţ ļóáď íţš ţóķéñ ṽéříƒíéř (çħéçķ ţéšţ/status/runtime/server.err óñ ţħé ħóšţ).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    'status.could_not_check_the_cycle_folder_first' = '[!‮Çóúļď ñóţ çħéçķ ţħé çýçļé ƒóļďéř ƒířšţ. ‬ ~~~~~~~~~~~~~~~~]'
+    'status.could_not_determine_runner_status_value1_save_and_start_cycle_any' = @(
+        '[!‮Çóúļď ñóţ ďéţéřɱíñé řúññéř šţáţúš ('
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Šáṽé áñď šţářţ çýçļé áñýŵáý? Íñ-ƥřóğřéšš ṼⱮš (íƒ áñý) ářé řéɱóṽéď ƒířšţ -- úƥ ţó ~30 šéçóñďš ƥéř řúññíñğ ṼⱮ (ɱáçÓŠ/UTM íš ţħé šļóŵéšţ), šó ţħé ñéŵ çýçļé ɱáý ţáķé á ɱíñúţé óř ţŵó ţó ƀéğíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.could_not_load_aggregates_value1' = @(
+        '[!‮Çóúļď ñóţ ļóáď áğğřéğáţéš: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~]'
+    )
+    'status.could_not_load_config_value1' = @(
+        '[!‮Çóúļď ñóţ ļóáď çóñƒíğ: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~]'
+    )
+    'status.could_not_load_test_status_refresh_to_retry' = '[!‮Çóúļď ñóţ ļóáď ţéšţ šţáţúš. Řéƒřéšħ ţó řéţřý.‬ ~~~~~~~~~~~~~~~~~~]'
+    'status.could_not_load_value1' = @(
+        '[!‮Çóúļď ñóţ ļóáď: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~]'
+    )
+    'status.could_not_serialize_value1' = @(
+        '[!‮Çóúļď ñóţ šéříáļížé: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~]'
+    )
+    'status.cycle' = '[!‮Çýçļé‬ ~~]'
     'status.cycle_duration' = @(
         '[!‮Ďúřáţíóñ: '
         @{
@@ -29,8 +466,31 @@
         '‬ ~~~~~~~~]'
     )
     'status.cycle_paused' = '[!‮Ƥáúšéď, ŵáíţíñğ ƒóř řéšúɱé.‬ ~~~~~~~~~~~]'
+    'status.cycle_performance' = '[!‮Çýçļé ƥéřƒóřɱáñçé‬ ~~~~~~~]'
     'status.cycle_resume_action' = '[!‮Çóñţíñúé‬ ~~~~]'
     'status.cycle_resuming' = '[!‮Çóñţíñúíñğ...‬ ~~~~~~]'
+    'status.cycle_running' = @(
+        '[!‮'
+        @{
+            'arg' = 'cycle'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (šţíļļ řúññíñğ)‬ ~~~~~~~~~~]'
+    )
+    'status.cycle_start_utc' = '[!‮Çýçļé šţářţ (ÚŢÇ)‬ ~~~~~~~]'
+    'status.dashboards' = '[!‮Ďášħƀóářďš‬ ~~~~]'
+    'status.delete_item_value1' = @(
+        '[!‮Ďéļéţé íţéɱ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.diagnostics' = '[!‮Ďíáğñóšţíçš‬ ~~~~~]'
+    'status.diagnostics_yuruna' = '[!‮Ďíáğñóšţíçš — Ýúřúñá‬ ~~~~~~~~]'
     'status.directory_column_modified_utc' = '[!‮Ɱóďíƒíéď (ÚŢÇ)‬ ~~~~~~]'
     'status.directory_column_name' = '[!‮Ñáɱé‬ ~~]'
     'status.directory_column_size' = '[!‮Šížé‬ ~~]'
@@ -53,8 +513,74 @@
         '‬ ~~~~~~]'
     )
     'status.directory_parent' = '[!‮Ƥářéñţ ďířéçţóřý‬ ~~~~~~~]'
+    'status.discard' = '[!‮Ďíšçářď‬ ~~~]'
+    'status.discard_unsaved_config_changes_and_return_to_status' = '[!‮Ďíšçářď úñšáṽéď çóñƒíğ çħáñğéš áñď řéţúřñ ţó šţáţúš?‬ ~~~~~~~~~~~~~~~~~~~~~]'
+    'status.download_the_archive' = '[!‮Ďóŵñļóáď ţħé ářçħíṽé‬ ~~~~~~~~]'
+    'status.download_value1' = @(
+        '[!‮Ďóŵñļóáď '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~]'
+    )
+    'status.draft_emails_cannot_automatically_include_attachments_so_please_m' = "[!‮Ďřáƒţ éɱáíļš çáññóţ áúţóɱáţíçáļļý íñçļúďé áţţáçħɱéñţš, šó ƥļéášé`n      ɱáñúáļļý áţţáçħ ţħé ďóŵñļóáďéď ƒíļé ƀéƒóřé ýóú šéñď íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    'status.duration' = '[!‮Ďúřáţíóñ‬ ~~~~]'
+    'status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d' = '[!‮e.g. 192.168.1.42 (ƥřóƀéď ƒířšţ; éɱƥţý = éñṽ-ṽář ƒáļļƀáçķ, éļšé ļóçáļ ďíšçóṽéřý)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_' = '[!‮Éáçħ řóŵ íš óñé šéʠúéñçé íñṽóçáţíóñ. Ƀářš šħóŵ éļáƥšéď ţíɱé; ħóṽéř ƒóř ŵóřķ áñď řéţřý ďéţáíļš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.elapsed_duration' = @(
+        '[!‮Ďúřáţíóñ: '
+        @{
+            'arg' = 'duration'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st' = @(
+        '[!‮Éļáƥšéď íñţéřṽáļ: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`nŠúɱɱéď ţóƥ-ļéṽéļ ŵóřķ: "
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`nŢóƥ-ļéṽéļ šţéƥš: "
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`nƑáíļéď řéţřý çħíļďřéñ: "
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.empty_array' = '[!‮(éɱƥţý ářřáý)‬ ~~~~~~]'
+    'status.empty_object' = '[!‮(éɱƥţý óƀĵéçţ)‬ ~~~~~~]'
+    'status.empty_value' = '[!‮(éɱƥţý)‬ ~~~]'
+    'status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi' = '[!‮Éñţéř á ṽáļíď ÍƤ áďďřéšš ţó ţéšţ çáçħíñğ-ƥřóẋý-šéřṽíçé çóññéçţíṽíţý ƒřóɱ ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.enum_invalid' = @(
+        '[!‮'
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (íñṽáļíď — ƥíçķ óñé)‬ ~~~~~~~~~~~~]'
+    )
     'status.error_file_too_large' = '[!‮Ƒíļé ţóó ļářğé‬ ~~~~~~]'
     'status.error_not_found' = '[!‮Ñóţ ƒóúñď‬ ~~~~]'
+    'status.every_guest_folder_under_this_host_is_already_in_the_list' = '[!‮Éṽéřý ğúéšţ ƒóļďéř úñďéř ţħíš ħóšţ íš áļřéáďý íñ ţħé ļíšţ‬ ~~~~~~~~~~~~~~~~~~~~~~~]'
     'status.external_detail' = @(
         '[!‮Ţħé ţóóļ řéƥóřţéď: '
         @{
@@ -64,6 +590,40 @@
         }
         '‬ ~~~~~~~~~~~]'
     )
+    'status.failure_sequence' = @(
+        '[!‮šéʠúéñçé: '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.failure_sequence_step' = @(
+        '[!‮šéʠúéñçé: '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (šţéƥ '
+        @{
+            'arg' = 'step'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')‬ ~~~~~~~~~~~~~~]'
+    )
+    'status.failure_severity' = @(
+        '[!‮šéṽéříţý: '
+        @{
+            'arg' = 'severity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.false' = '[!‮Ƒáļšé‬ ~~]'
     'status.file_size_bytes' = @(
         '[!‮'
         @{
@@ -100,6 +660,38 @@
         }
         ' ⱮɃ‬ ~~~~]'
     )
+    'status.guest_not_found' = @(
+        '[!‮'
+        @{
+            'arg' = 'guest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (ñóţ úñďéř ħóšţ ƒóļďéř)‬ ~~~~~~~~~~~~~]'
+    )
+    'status.guest_sequence_fallback_note' = @(
+        '[!‮Ƒáļļƀáçķ óñļý. Ţħé ğúéšţ šéţ çóɱéš ƒřóɱ '
+        @{
+            'arg' = 'file'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' íñ ţħé ƥřóĵéçţ řéƥóšíţóřý; ţħíš ļíšţ íš řéáď óñļý ŵħéñ ţħáţ ƒíļé řéšóļṽéš ñó ƥļáñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.guest_sequence_last_plan' = @(
+        '[!‮Ļášţ çýçļé řáñ: '
+        @{
+            'arg' = 'plan'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.‬ ~~~~~~~~~~]'
+    )
+    'status.guest_sequence_no_plan' = '[!‮Ñó řéšóļṽéď ƥļáñ íš řéçóřďéď ƒóř ţħé ļášţ çýçļé.‬ ~~~~~~~~~~~~~~~~~~~~]'
+    'status.guide' = '[!‮Ğúíďé‬ ~~]'
+    'status.host' = '[!‮Ħóšţ‬ ~~]'
+    'status.host_diagnostics' = '[!‮Ħóšţ ďíáğñóšţíçš‬ ~~~~~~~]'
+    'status.host_ip_addresses' = '[!‮Ħóšţ ÍƤ áďďřéššéš‬ ~~~~~~~]'
     'status.host_online_count' = @{
         'kind' = 'plural'
         'selector' = 'count'
@@ -124,5 +716,635 @@
             )
         }
     }
+    'status.host_value1' = @(
+        '[!‮Ħóšţ: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.http_value1' = @(
+        '[!‮ĦŢŢƤ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.images_refresh' = '[!‮Íɱáğéš řéƒřéšħ‬ ~~~~~~]'
+    'status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple' = '[!‮Íñṽóçáţíóñ íñƒéřřéď ƒřóɱ ļéğáçý šţéƥ óřďéř; çóñçúřřéñţ óř íñçóɱƥļéţé řúñš ɱáý řéɱáíñ çóɱƀíñéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.ips' = '[!‮ÍƤš:‬ ~~]'
+    'status.lab_hold' = @(
+        '[!‮Ļáƀ ħóļď -- ŵáíţíñğ ƒóř '
+        @{
+            'arg' = 'areas'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~]'
+    )
+    'status.lab_hold_unspecified' = '[!‮Ļáƀ ħóļď -- ŵáíţíñğ ƒóř á ļáƀ šéřṽíçé‬ ~~~~~~~~~~~~~~~]'
+    'status.latest_cycle' = '[!‮Ļáţéšţ Çýçļé‬ ~~~~~]'
+    'status.latest_runs' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                '[!‮ļáţéšţ '
+                @{
+                    'arg' = 'shown'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' óƒ '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' řúñ‬ ~~~~~~~~~~~~]'
+            )
+            'other' = @(
+                '[!‮ļáţéšţ '
+                @{
+                    'arg' = 'shown'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' óƒ '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' řúñš‬ ~~~~~~~~~~~~]'
+            )
+        }
+    }
+    'status.latest_runs_failures' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                '[!‮ļáţéšţ '
+                @{
+                    'arg' = 'shown'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' óƒ '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' řúñ · '
+                @{
+                    'arg' = 'failed'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' ŵíţħ ƒáíļúřéš‬ ~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+            'other' = @(
+                '[!‮ļáţéšţ '
+                @{
+                    'arg' = 'shown'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' óƒ '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' řúñš · '
+                @{
+                    'arg' = 'failed'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' ŵíţħ ƒáíļúřéš‬ ~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+        }
+    }
+    'status.leave_the_field_to_test_caching_proxy_service_from_host' = '[!‮Ļéáṽé ţħé ƒíéļď ţó ţéšţ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.loaded' = '[!‮Ļóáďéď:‬ ~~~]'
+    'status.loading' = '[!‮Ļóáďíñğ…‬ ~~~~]'
+    'status.loading_47d2a515' = '[!‮Ļóáďíñğ...‬ ~~~~]'
+    'status.loading_perf_aggregates' = '[!‮Ļóáďíñğ ƥéřƒ áğğřéğáţéš…‬ ~~~~~~~~~~]'
+    'status.log_level_debug' = '[!‮Ďéƀúğ‬ ~~]'
+    'status.log_level_error' = '[!‮Éřřóř‬ ~~]'
+    'status.log_level_information' = '[!‮Íñƒóřɱáţíóñ‬ ~~~~~]'
+    'status.log_level_verbose' = '[!‮Ṽéřƀóšé‬ ~~~]'
+    'status.log_level_warning' = '[!‮Ŵářñíñğ‬ ~~~]'
+    'status.menu' = '[!‮Ɱéñú‬ ~~]'
+    'status.missing_step_timing' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' çýçļé ļáçķš ƥéř-šţéƥ ţíɱíñğ — ďřáŵñ áš á šíñğļé ğřáý ƀář. Ţħíš úšúáļļý ɱéáñš ţħé ďéţáçħéď šţáţúš-šéřṽíçé ƥřóçéšš ƥřéďáţéš ţħé ƥéř-šţéƥ ţíɱíñğ íñ '
+                @{
+                    'arg' = 'endpoint'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '. Řéšţářţ íţ ŵíţħ: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ', ţħéñ řéļóáď ţħíš ƥáğé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+            'other' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' çýçļéš ļáçķ ƥéř-šţéƥ ţíɱíñğ — ďřáŵñ áš á šíñğļé ğřáý ƀář. Ţħíš úšúáļļý ɱéáñš ţħé ďéţáçħéď šţáţúš-šéřṽíçé ƥřóçéšš ƥřéďáţéš ţħé ƥéř-šţéƥ ţíɱíñğ íñ '
+                @{
+                    'arg' = 'endpoint'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '. Řéšţářţ íţ ŵíţħ: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ', ţħéñ řéļóáď ţħíš ƥáğé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+            )
+        }
+    }
+    'status.never' = '[!‮ñéṽéř‬ ~~]'
+    'status.no_aggregates_available' = '[!‮Ñó áğğřéğáţéš áṽáíļáƀļé.‬ ~~~~~~~~~~]'
+    'status.no_control_proof_was_presented_reach_this_page_through_the_dashbo' = @(
+        '[!‮Ñó çóñţřóļ ƥřóóƒ ŵáš ƥřéšéñţéď. Řéáçħ ţħíš ƥáğé ţħřóúğħ ţħé ďášħƀóářď ļíñķ, óř úšé http://localhost:'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '/ óñ ţħé ħóšţ íţšéļƒ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.no_cycle_folder_recorded_for_this_cycle' = '[!‮Ñó çýçļé ƒóļďéř řéçóřďéď ƒóř ţħíš çýçļé‬ ~~~~~~~~~~~~~~~~]'
+    'status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y' = '[!‮Ñó çýçļé ţó šħářé. Óƥéñ ţħíš ƥáğé ƒřóɱ ţħé çýçļé ţíɱéļíñé óñ ţħé Ýúřúñá ħóšţš ďášħƀóářď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.no_dashboard_server' = '[!‮Ñó ďášħƀóářď šéřṽéř‬ ~~~~~~~~]'
+    'status.no_data' = '[!‮(ñó ďáţá)‬ ~~~~]'
+    'status.no_ip_set_nothing_to_test' = '[!‮Ñó ÍƤ šéţ — ñóţħíñğ ţó ţéšţ.‬ ~~~~~~~~~~~~]'
+    'status.no_output' = '[!‮(ñó óúţƥúţ)‬ ~~~~~]'
+    'status.no_perf_data_yet_run_at_least_one_test_cycle' = '[!‮Ñó ƥéřƒ ďáţá ýéţ — řúñ áţ ļéášţ óñé ţéšţ çýçļé.‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.no_test_data_yet' = '[!‮Ñó ţéšţ ďáţá ýéţ‬ ~~~~~~~]'
+    'status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected' = '[!‮Ñóţ á ṽáļíď ÍƤṽ4 óř ÍƤṽ6 áďďřéšš. Šáṽé ŵíļļ ƀé řéĵéçţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.not_a_valid_ipv4_or_ipv6_address_test_skipped' = '[!‮Ñóţ á ṽáļíď ÍƤṽ4 óř ÍƤṽ6 áďďřéšš — ţéšţ šķíƥƥéď.‬ ~~~~~~~~~~~~~~~~~~~~]'
+    'status.null' = '[!‮ñúļļ‬ ~~]'
+    'status.open_cycle_data_folder' = '[!‮Óƥéñ çýçļé ďáţá ƒóļďéř‬ ~~~~~~~~~]'
+    'status.open_the_email_draft' = '[!‮Óƥéñ ţħé éɱáíļ ďřáƒţ‬ ~~~~~~~~]'
+    'status.pack_and_download_the_cycle_results' = '[!‮Ƥáçķ áñď ďóŵñļóáď ţħé çýçļé řéšúļţš‬ ~~~~~~~~~~~~~~]'
+    'status.packing_value1' = @(
+        '[!‮Ƥáçķíñğ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '…‬ ~~~~~~~]'
+    )
+    'status.pages' = '[!‮Ƥáğéš‬ ~~]'
+    'status.pause' = '[!‮Ƥáúšé‬ ~~]'
+    'status.pause_after_cycle' = '[!‮Ƥáúšé áƒţéř çýçļé‬ ~~~~~~~]'
+    'status.pause_after_step' = '[!‮Ƥáúšé áƒţéř šţéƥ‬ ~~~~~~~]'
+    'status.paused' = '[!‮Ţéšţ ƥáúšéď‬ ~~~~~]'
+    'status.paused_age' = @(
+        '[!‮Ţéšţ ƥáúšéď -- '
+        @{
+            'arg' = 'age'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.paused_age_guest' = @(
+        '[!‮Ţéšţ ƥáúšéď -- '
+        @{
+            'arg' = 'age'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        ', ğúéšţ '
+        @{
+            'arg' = 'guest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' řúññíñğ‬ ~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.paused_guest' = @(
+        '[!‮Ţéšţ ƥáúšéď -- ğúéšţ '
+        @{
+            'arg' = 'guest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' řúññíñğ‬ ~~~~~~~~~~~~~~~]'
+    )
+    'status.pausing_after_cycle' = '[!‮Ţéšţ ƥáúšíñğ (áƒţéř çýçļé)‬ ~~~~~~~~~~~]'
+    'status.pausing_after_step' = '[!‮Ţéšţ ƥáúšíñğ (áƒţéř šţéƥ)‬ ~~~~~~~~~~]'
+    'status.perf_yuruna' = '[!‮Ƥéřƒ — Ýúřúñá‬ ~~~~~~]'
+    'status.performance' = '[!‮Ƥéřƒóřɱáñçé‬ ~~~~~]'
+    'status.pill_new_vm_resource' = '[!‮Ñéŵ ṼⱮ‬ ~~~]'
+    'status.pill_start_guestos' = '[!‮Šţářţ ÓŠ‬ ~~~~]'
+    'status.pill_start_guestworkload' = '[!‮Ŵóřķļóáď‬ ~~~~]'
+    'status.process_environment_value_the_status_service_inherited_at_startup' = '[!‮Ƥřóçéšš-éñṽířóñɱéñţ ṽáļúé ţħé šţáţúš šéřṽíçé íñħéříţéď áţ šţářţúƥ. Řéáď-óñļý ħéřé; ƒáļļƀáçķ šóúřçé óñļý: áţ çýçļé šţářţ ţħé vmStart.cachingProxyIp ƒíéļď áƀóṽé íš ƥřóƀéď ƒířšţ áñď ŵíñš ŵħéñ íţš :3128 áñšŵéřš. Éẋƥóřţ ţħíš íñ ţħé šħéļļ ţħáţ ļáúñçħéš Start-TestRunner.ps1 ƒóř ħóšţš ŵħóšé çóñƒíğ ƒíéļď íš éɱƥţý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.quarantine_pinned' = @(
+        '[!‮ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš (šķíƥƥéď úñţíļ á ñéŵ çóɱɱíţ; ƥíññéď áţ '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.quarantine_reason' = '[!‮ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.quarantined' = '[!‮ʠúářáñţíñéď‬ ~~~~~]'
+    'status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart' = '[!‮Řé-šçáñ ţéšţ/status/perf/cycles/*.ĵšóñļ áñď řéƒřéšħ éṽéřý çħářţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.recalculate' = '[!‮Řéçáļçúļáţé‬ ~~~~~]'
+    'status.recalculating' = '[!‮Řéçáļçúļáţíñğ…‬ ~~~~~~]'
+    'status.recalculating_perf_aggregates' = '[!‮Řéçáļçúļáţíñğ ƥéřƒ áğğřéğáţéš…‬ ~~~~~~~~~~~~]'
+    'status.recent_cycles' = '[!‮Řéçéñţ Çýçļéš‬ ~~~~~~]'
+    'status.refresh' = '[!‮Řéƒřéšħ‬ ~~~]'
+    'status.results_folder' = @(
+        '[!‮Óƥéñ řéšúļţš ƒóļďéř ƒóř '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~]'
+    )
+    'status.resume' = '[!‮Řéšúɱé‬ ~~~]'
+    'status.resume_in_place' = '[!‮Řéšúɱé ţħé šéʠúéñçé íñ ƥļáçé (ñó šñáƥšħóţ řéšţóřé)‬ ~~~~~~~~~~~~~~~~~~~~]'
+    'status.run_command1_to_start_a_test_cycle' = @(
+        '[!‮Řúñ '
+        @{
+            'arg' = 'command1'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ţó šţářţ á ţéšţ çýçļé.‬ ~~~~~~~~~~~~~~~]'
+    )
+    'status.run_start_testrunner_ps1_to_start_a_test_cycle' = '[!‮Řúñ Start-TestRunner.ps1 ţó šţářţ á ţéšţ çýçļé.‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.save' = '[!‮Šáṽé‬ ~~]'
+    'status.save_and_start_cycle' = '[!‮Šáṽé áñď šţářţ çýçļé‬ ~~~~~~~~]'
+    'status.save_and_start_cycle_failed_value1' = @(
+        '[!‮Šáṽé áñď šţářţ çýçļé ƒáíļéď: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~]'
+    )
+    'status.save_failed_value1' = @(
+        '[!‮Šáṽé ƒáíļéď: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~]'
+    )
+    'status.saved_returning_to_status' = '[!‮Šáṽéď. Řéţúřñíñğ ţó šţáţúš…‬ ~~~~~~~~~~~]'
+    'status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_' = '[!‮Šáṽéď. Šţóƥƥíñğ íñ-ƥřóğřéšš ṼⱮš (úƥ ţó ~30š éáçħ) áñď šţářţíñğ á ñéŵ çýçļé -- ţħíš çáñ ţáķé á ɱíñúţé óř ţŵó…‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.saving' = '[!‮Šáṽíñğ…‬ ~~~]'
+    'status.saving_config' = '[!‮Šáṽíñğ çóñƒíğ…‬ ~~~~~~]'
+    'status.sequences' = '[!‮Šéʠúéñçéš‬ ~~~~]'
+    'status.server_reports_ip_not_valid_test_skipped' = '[!‮Šéřṽéř řéƥóřţš ÍƤ ñóţ ṽáļíď — ţéšţ šķíƥƥéď.‬ ~~~~~~~~~~~~~~~~~~]'
+    'status.setup' = '[!‮(šéţúƥ)‬ ~~~]'
+    'status.share_body' = '[!‮Ýúřúñá çýçļé řéšúļţš ářé áţţáçħéď‬ ~~~~~~~~~~~~~~]'
+    'status.share_cycle_results' = '[!‮Šħářé çýçļé řéšúļţš‬ ~~~~~~~~]'
+    'status.share_cycle_yuruna' = '[!‮Šħářé çýçļé — Ýúřúñá‬ ~~~~~~~~]'
+    'status.share_download_manual' = @(
+        '[!‮Ďóŵñļóáď '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ŵíţħ ţħé ƒířšţ ļíñķ. Ţħéñ óƥéñ ţħé ďřáƒţ áñď áţţáçħ ţħé ƒíļé ƀéƒóřé šéñďíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.share_download_started' = @(
+        '[!‮Ďóŵñļóáďíñğ '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Ţħé ħóšţ ƥáçķš ţħé ŵħóļé ƒóļďéř ƀéƒóřé ţħé ƒířšţ ƀýţé ářříṽéš, šó ğíṽé íţ á ɱóɱéñţ. Ţħéñ óƥéñ ţħé ďřáƒţ áñď áţţáçħ ţħé ƒíļé ƀéƒóřé šéñďíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.share_subject' = @(
+        '[!‮Ýúřúñá Ħóšţ '
+        @{
+            'arg' = 'host'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áţ '
+        @{
+            'arg' = 'time'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~]'
+    )
+    'status.shared_value1_value2' = @(
+        '[!‮Šħářéď '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').‬ ~~~~~~~~~~~]'
+    )
+    'status.sharing_canceled' = '[!‮Šħáříñğ çáñçéļéď.‬ ~~~~~~~]'
+    'status.show_only_the_first_8_characters' = '[!‮Šħóŵ óñļý ţħé ƒířšţ 8 çħářáçţéřš‬ ~~~~~~~~~~~~~]'
+    'status.show_the_full_id' = '[!‮Šħóŵ ţħé ƒúļļ íď‬ ~~~~~~~]'
+    'status.skip_suffix' = '[!‮ (šķíƥ)‬ ~~~]'
+    'status.snapshot_restore' = @(
+        '[!‮Řéšţóřé šñáƥšħóţ íď '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.started' = '[!‮Šţářţéď‬ ~~~]'
+    'status.started_utc' = '[!‮Šţářţéď (ÚŢÇ)‬ ~~~~~~]'
+    'status.status' = '[!‮Šţáţúš‬ ~~~]'
+    'status.status_unavailable' = '[!‮Šţáţúš úñáṽáíļáƀļé‬ ~~~~~~~~]'
     'status.step_timing_unavailable' = '[!‮Ñó ƥéř-šţéƥ ţíɱíñğ ŵáš řéçóřďéď ƒóř ţħíš çýçļé.‬ ~~~~~~~~~~~~~~~~~~~]'
+    'status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va' = @(
+        '[!‮Ţéšţ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ ƒáíļéď ('
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƒáíļ'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2' = @(
+        '[!‮Ţéšţ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ šúççééďéď ('
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƥášš'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.test_config_yml' = '[!‮test.config.yml‬ ~~~~~~]'
+    'status.test_config_yml_yuruna' = '[!‮test.config.yml — Ýúřúñá‬ ~~~~~~~~~~]'
+    'status.test_sequences' = '[!‮Ţéšţ šéʠúéñçéš‬ ~~~~~~]'
+    'status.testing_caching_proxy_service_from_host' = '[!‮Ţéšţíñğ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ…‬ ~~~~~~~~~~~~~~~~]'
+    'status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this' = '[!‮Ţħé ářçħíṽé íš ƀúíļţ ƒřóɱ šéřṽéř ļóğš óñļý áñď ďóŵñļóáďéď ţó ţħíš ɱáçħíñé. Ñó ďáţá ƒřóɱ ţħíš ƀřóŵšíñğ šéššíóñ íš íñçļúďéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li' = '[!‮Ţħé çóñţřóļ ƥřóóƒ éẋƥířéď. Řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ţó ğéţ á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif' = '[!‮Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ ļáƀ-áúţħ-ţóķéñ ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.the_host_could_not_load_its_control_proof_verifier_check_the_stat' = '[!‮Ţħé ħóšţ çóúļď ñóţ ļóáď íţš çóñţřóļ-ƥřóóƒ ṽéříƒíéř; çħéçķ ţħé šţáţúš šéřṽíçé ļóğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.the_share_sheet_expired_while_the_host_packed_the_folder' = '[!‮Ţħé šħářé šħééţ éẋƥířéď ŵħíļé ţħé ħóšţ ƥáçķéď ţħé ƒóļďéř. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.this_browser_could_not_attach_the_file_to_a_message_itself' = '[!‮Ţħíš ƀřóŵšéř çóúļď ñóţ áţţáçħ ţħé ƒíļé ţó á ɱéššáğé íţšéļƒ. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w' = '[!‮Ţħíš çýçļé íš šţíļļ řúññíñğ. Ţħé ářçħíṽé ŵíļļ ħóļď ŵħáţ ħáš ƀééñ ŵříţţéñ šó ƒář.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot' = @(
+        '[!‮Ţħíš ħóšţ ŵíļļ ñóţ ƥáçķ '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (ĦŢŢƤ '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţħé çýçļé ɱáý ħáṽé řóţáţéď óúţ óƒ ţħé řéţáíñéď ļóğ ħíšţóřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.timing_cycle_started' = @(
+        '[!‮Çýçļé: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.timing_diagnostic' = @(
+        '[!‮Ďíáğñóšţíç: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~]'
+    )
+    'status.timing_duration' = @(
+        '[!‮Ďúřáţíóñ: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~]'
+    )
+    'status.timing_evidence' = @(
+        '[!‮Éṽíďéñçé çáƥţúřé ŵíţħíñ šţéƥ: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~]'
+    )
+    'status.timing_incomplete_capture' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' íñçóɱƥļéţé çáƥţúřé(š)‬ ~~~~~~~~~~~~]'
+            )
+            'other' = @(
+                '[!‮'
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' íñçóɱƥļéţé çáƥţúřé(š)‬ ~~~~~~~~~~~~]'
+            )
+        }
+    }
+    'status.timing_incomplete_record' = '[!‮íñçóɱƥļéţé řéçóřď‬ ~~~~~~~]'
+    'status.timing_kind' = @(
+        '[!‮Ķíñď: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.timing_outcome' = @(
+        '[!‮Óúţçóɱé: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~]'
+    )
+    'status.timing_reused' = @(
+        '[!‮Řéúšéď éẋéçúţíóñ: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~]'
+    )
+    'status.timing_summed_work' = @(
+        '[!‮ŵóřķ '
+        @{
+            'arg' = 'duration'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.timing_unavailable_value' = '[!‮úñáṽáíļáƀļé‬ ~~~~~]'
+    'status.timing_within' = @(
+        '[!‮Ŵíţħíñ: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~]'
+    )
+    'status.timing_within_attempt' = @(
+        '[!‮Ŵíţħíñ: '
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áţţéɱƥţ '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '‬ ~~~~~~~~~~~~~~]'
+    )
+    'status.transcript_for' = @(
+        '[!‮Óƥéñ ţřáñšçříƥţ ƒóř '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~]'
+    )
+    'status.true' = '[!‮Ţřúé‬ ~~]'
+    'status.unavailable' = '[!‮(úñáṽáíļáƀļé)‬ ~~~~~~]'
+    'status.unknown' = '[!‮(úñķñóŵñ)‬ ~~~~]'
+    'status.unnamed' = '[!‮(úññáɱéď)‬ ~~~~]'
+    'status.user_account' = '[!‮Úšéř áççóúñţ:‬ ~~~~~~]'
+    'status.value1_returning_to_status_in_6_seconds' = @(
+        '[!‮'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Řéţúřñíñğ ţó šţáţúš íñ 6 šéçóñďš…‬ ~~~~~~~~~~~~~~~~~~]'
+    )
+    'status.value1_work_value2' = @(
+        '[!‮'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`nŴóřķ · "
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~]'
+    )
+    'status.value1_yuruna_status' = @(
+        '[!‮'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' — Ýúřúñá šţáţúš‬ ~~~~~~~~~~]'
+    )
+    'status.vm_name' = @(
+        '[!‮ṼⱮ: '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~]'
+    )
+    'status.working' = '[!‮Ŵóřķíñğ...‬ ~~~~]'
+    'status.yuruna_host_status' = '[!‮Ýúřúñá ħóšţ šţáţúš‬ ~~~~~~~~]'
+    'status.yuruna_status' = '[!‮Ýúřúñá Šţáţúš‬ ~~~~~~]'
 }

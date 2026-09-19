@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e05a94-3c17-4d6b-81f9-7ab2c6d035e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,13 +89,18 @@ function New-ExchangeFixture {
     $null = New-Item -ItemType Directory -Path $root -Force
     $null = New-Item -ItemType Directory -Path $project -Force
 
-    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.13`n"
+    foreach ($relative in @('tools/Invoke-CatalogCompile.ps1', 'tools/Invoke-ProjectLocaleMap.ps1', 'globalization/schema/catalog.schema.json', 'globalization/schema/project-locale-map.schema.json', 'globalization/schema/project-locale-source-hashes.schema.json')) {
+        $target = Join-Path $root $relative
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
+        [IO.File]::Copy((Join-Path $script:RepoRoot $relative), $target)
+    }
+    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.18`n"
     Write-FixtureJson -Path (Join-Path $root 'globalization/locale-manifest.json') -Value ([ordered]@{
             schema = 'yuruna.locale-manifest/v1'
             default = 'en-US'
             locales = [ordered]@{
-                'en-US' = [ordered]@{ status = 'supported' }
-                'xx-XX' = [ordered]@{ status = 'planned' }
+                'en-US' = [ordered]@{ status = 'supported'; pluralRule = 'one-other'; pluralCategories = @('one', 'other') }
+                'xx-XX' = [ordered]@{ status = 'planned'; pluralRule = 'one-other'; pluralCategories = @('one', 'other') }
                 'qps-Ploc' = [ordered]@{ status = 'pseudo' }
             }
         })
@@ -179,6 +184,7 @@ function New-ExchangeFixture {
     # repositories, and what this proves is that the import never hands it one.
     $log = Join-Path $Base 'recorder-calls.txt'
     Write-FixtureText -Path (Join-Path $root 'tools/Test-DocTranslation.ps1') -Text @"
+[CmdletBinding(SupportsShouldProcess)]
 param([string]`$Locale, [string]`$Manifest, [string]`$ProjectRoot, [switch]`$AcceptReview,
     [string]`$Status, [string[]]`$Path, [switch]`$RequireReviewed, [switch]`$Quiet)
 [IO.File]::AppendAllText('$log', (`$Path -join ',') + "``n")
@@ -256,7 +262,7 @@ function Copy-RequestToOutput {
         $document = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))
         foreach ($entry in @($document.entries)) {
             if ($LeaveBlank -contains [string]$entry.id) { continue }
-            $entry.translation = 'XX ' + ([string]$entry.english -split "`n")[0]
+            $entry.translation = if ($entry.id -like 'ruling:*') { 'preserve-exact-english' } else { 'XX ' + ([string]$entry.english -split "`n")[0] }
         }
         Write-FixtureJson -Path $path -Value $document
     }
@@ -504,9 +510,8 @@ Describe 'placing a bundle records what it now holds' {
                 (Join-Path $fixture.Root "globalization/catalogs/$script:Tag/demo.json")))
         Assert-Equal -Expected $script:Tag -Actual ([string]$catalog.locale) 'the target catalog names the wrong locale'
         Assert-Match '^XX ' ([string]$catalog.messages.'demo.not_found'.message) 'the message was not placed'
-        Assert-Equal -Expected 'Shown when a resource does not exist.' `
-            -Actual ([string]$catalog.messages.'demo.not_found'.description) `
-            'the description moved, and it is contract rather than anything a translator decides'
+        Assert-False ($catalog.messages.'demo.not_found'.PSObject.Properties.Name -contains 'description') 'the target catalog duplicated source-owned metadata'
+        Assert-Match '^[0-9a-f]{64}$' ([string]$catalog.messages.'demo.not_found'.sourceHash) 'the target message is not source-bound'
 
         foreach ($tree in $fixture.Root, $fixture.ProjectRoot) {
             $translated = Join-Path $tree "docs/$script:Tag/README.md"
@@ -635,7 +640,7 @@ Describe 'the interchange decision is recorded, not retyped' {
             'the export does not say it is writing against a record that asks for another spelling'
         $request = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
                 (Join-Path (Join-Path $fixture.InputRoot $script:Tag) 'request.json')))
-        Assert-Equal -Expected 'Json' -Actual ([string]$request.format) `
+        Assert-Equal -Expected 'Xliff' -Actual ([string]$request.format) `
             'the request claims a spelling the tool does not write'
     }
 
@@ -653,7 +658,7 @@ Describe 'the interchange decision is recorded, not retyped' {
     }
 
     It 'lets release preparation answer from the record and mark it provisional' {
-        $preparation = Join-Path $script:RepoRoot 'dev-only/Invoke-GlobalizedReleasePreparation.ps1'
+        $preparation = Join-Path $script:RepoRoot 'dev-only/tools/Invoke-GlobalizedReleasePreparation.ps1'
         if (-not [IO.File]::Exists($preparation)) {
             Set-ItResult -Skipped -Because 'the private release-preparation entry point is not in this tree'
             return
@@ -663,5 +668,345 @@ Describe 'the interchange decision is recorded, not retyped' {
             'release preparation no longer reads the recorded decision'
         Assert-Match 'provisional' $text `
             'release preparation would present a provisional answer as the translator''s'
+    }
+}
+
+Describe 'production exchange acceptance' {
+    BeforeAll {
+        function Get-PairFingerprint {
+            param([hashtable]$Fixture)
+            $rows = foreach ($root in @($Fixture.Root, $Fixture.ProjectRoot)) {
+                foreach ($file in @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName)) {
+                    ([IO.Path]::GetRelativePath($root, $file.FullName) + ':' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)
+                }
+            }
+            return ($rows -join "`n")
+        }
+        function Complete-CodecReturn {
+            param([hashtable]$Fixture)
+            $destination = Join-Path $Fixture.OutputRoot $script:Tag
+            [void][IO.Directory]::CreateDirectory($Fixture.OutputRoot)
+            Copy-Item -LiteralPath (Join-Path $Fixture.InputRoot $script:Tag) -Destination $destination -Recurse
+            $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $destination 'request.json')))
+            foreach ($group in @($request.rows | Group-Object file)) {
+                $path = Join-Path $destination $group.Name
+                if ($group.Group[0].kind -ceq 'document') { Write-FixtureText $path ('XX ' + [IO.File]::ReadAllText($path)); continue }
+                $entries = @(Read-LocalizationEntry -Path $path -Format $request.format)
+                foreach ($entry in $entries) {
+                    $entry.translation = if ($entry.id -like 'ruling:*') { 'preserve-exact-english' } else { 'XX ' + [string]$entry.english }
+                    if ($entry.id -like 'message:*' -and ([string]$entry.english).StartsWith('{"')) {
+                        $variants = ConvertFrom-Json $entry.english -AsHashtable
+                        foreach ($key in @($variants.Keys)) { $variants[$key] = 'XX ' + $variants[$key] }
+                        $entry.translation = ConvertTo-Json $variants -Compress
+                    }
+                }
+                Write-LocalizationEntry -Path $path -Format $request.format -Locale $script:Tag -Entries $entries
+            }
+            $path = Join-Path $destination 'attestation.json'
+            $attestation = ConvertFrom-Json ([IO.File]::ReadAllText($path))
+            $attestation.translator.approvedBy = 'Synthetic translator'; $attestation.independentReviewer.approvedBy = 'Synthetic independent reviewer'
+            $attestation.translator.approvedAt = [datetime]::UtcNow.ToString('yyyy-MM-dd'); $attestation.independentReviewer.approvedAt = $attestation.translator.approvedAt
+            Write-FixtureJson $path $attestation
+            return $destination
+        }
+    }
+
+    It 'globalization acceptance: production compiler select sourceHash and partial catalog round trip' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'production-compiler')
+        $sourcePath = Join-Path $fixture.Root 'globalization/catalogs/en-US/demo.json'
+        $source = ConvertFrom-Json ([IO.File]::ReadAllText($sourcePath)) -AsHashtable
+        $source.messages['demo.branch'] = @{ lifecycle = 'active'; description = 'Synthetic branch'; placeholders = @{ status = @{ type = 'text'; trust = 'internal'; example = 'waiting' } }; select = @{ selector = 'status'; variants = @{ waiting = 'Waiting'; other = 'Ready' } } }
+        $source.messages['demo.count'] = @{ lifecycle = 'active'; description = 'Synthetic count'; placeholders = @{ count = @{ type = 'integer'; trust = 'internal'; example = 2 } }; plural = @{ selector = 'count'; variants = @{ one = '{count} item'; other = '{count} items' } } }
+        Write-FixtureJson $sourcePath $source
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $bundle = Complete-CodecReturn $fixture
+        $run = Invoke-FixtureImport $fixture
+        $run.Code | Should -Be 0 -Because $run.Output
+        $targetPath = Join-Path $fixture.Root "globalization/catalogs/$script:Tag/demo.json"
+        $target = ConvertFrom-Json ([IO.File]::ReadAllText($targetPath))
+        $target.messages.'demo.branch'.select.variants.waiting | Should -BeExactly 'XX Waiting'
+        $target.messages.'demo.count'.plural.variants.one | Should -BeExactly 'XX {count} item'
+        $target.messages.'demo.branch'.PSObject.Properties.Name | Should -Not -Contain 'description'
+        $target.messages.'demo.branch'.sourceHash | Should -BeExactly (Get-LocalizationMessageHash 'demo.branch' ([pscustomobject]$source.messages['demo.branch']))
+        $beforeBranch = ConvertTo-Json $target.messages.'demo.branch' -Compress -Depth 20
+        $path = Join-Path $bundle 'messages/demo.json'
+        $answer = ConvertFrom-Json ([IO.File]::ReadAllText($path))
+        foreach ($entry in $answer.entries) { if ($entry.id -eq 'message:demo:demo.not_found') { $entry.translation = 'XX changed translation' } else { $entry.translation = '' } }
+        Write-FixtureJson $path $answer
+        $run = Invoke-FixtureImport $fixture
+        $run.Code | Should -Be 0 -Because $run.Output
+        $target = ConvertFrom-Json ([IO.File]::ReadAllText($targetPath))
+        (ConvertTo-Json $target.messages.'demo.branch' -Compress -Depth 20) | Should -BeExactly $beforeBranch
+        $target.messages.'demo.not_found'.message | Should -BeExactly 'XX changed translation'
+    }
+
+    It 'globalization acceptance: missing schema dry run and atomic failure leave trees unchanged' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'production-atomic')
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $bundle = Complete-CodecReturn $fixture
+        $before = Get-PairFingerprint $fixture
+        $preview = Invoke-FixtureImport $fixture -Extra @('-WhatIf')
+        $preview.Code | Should -Be 0 -Because $preview.Output
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+        Test-Path $fixture.RecorderLog | Should -BeFalse
+        $report = Join-Path $TestDrive 'qualified-return.json'
+        $validation = Invoke-FixtureImport $fixture -Extra @('-ValidateOnly', '-RequireComplete', '-ReportPath', $report)
+        $validation.Code | Should -Be 0 -Because $validation.Output
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+        (ConvertFrom-Json ([IO.File]::ReadAllText($report))).applied | Should -BeFalse
+        $path = Join-Path $bundle 'messages/demo.json'
+        $answer = ConvertFrom-Json ([IO.File]::ReadAllText($path)); $answer.entries[0].translation = 'XX {undeclared}'
+        Write-FixtureJson $path $answer
+        $failed = Invoke-FixtureImport $fixture
+        $failed.Code | Should -Be 2
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+        Remove-Item -LiteralPath (Join-Path $fixture.Root 'globalization/schema/catalog.schema.json')
+        $withoutSchema = Get-PairFingerprint $fixture
+        (Invoke-FixtureImport $fixture).Code | Should -Be 2
+        (Get-PairFingerprint $fixture) | Should -BeExactly $withoutSchema
+        $isolated = Join-Path $TestDrive 'missing-exchange-schema'
+        foreach ($relative in @('tools/Import-Localization.ps1', 'test/modules/Test.LocalizationExchange.psm1', 'test/modules/Test.ApprovalDigest.psm1')) {
+            $target = Join-Path $isolated $relative; [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target)); Copy-Item (Join-Path $script:RepoRoot $relative) $target
+        }
+        $failed = Invoke-Exchange -Script (Join-Path $isolated 'tools/Import-Localization.ps1') -Argument @('-Root', $fixture.Root, '-ProjectRoot', $fixture.ProjectRoot, '-OutputRoot', $fixture.OutputRoot, '-NoPublish')
+        $failed.Code | Should -Be 2
+        $failed.Output | Should -Match 'Required schema'
+        (Get-PairFingerprint $fixture) | Should -BeExactly $withoutSchema
+    }
+
+    It 'globalization acceptance: all project scalars codecs and unchanged delta round trip' {
+        foreach ($format in @('Json', 'Csv', 'Xliff')) {
+            $fixture = New-ExchangeFixture (Join-Path $TestDrive ('codec-' + $format))
+            $yamlPath = Join-Path $fixture.ProjectRoot 'test/test.runner.yml'
+            Write-FixtureText $yamlPath "testSets:`n  - name: smoke`n    displayName: Quick smoke test`n    description: A comma, a quote `" and Unicode $([char]0x03a9)`n"
+            $mapPath = Join-Path $fixture.ProjectRoot 'globalization/project-locale-source-hashes.json'
+            $map = ConvertFrom-Json ([IO.File]::ReadAllText($mapPath))
+            $map.entries += [pscustomobject]@{ path = 'test/test.runner.yml'; fieldPath = '/testSets/name=smoke/description'; locale = $script:Tag; sourceHash = ('f' * 64); reviewStatus = 'unreviewed' }
+            Write-FixtureJson $mapPath $map
+            $export = Invoke-Exchange -Script $script:Export -Argument @('-Locale', $script:Tag, '-Root', $fixture.Root, '-ProjectRoot', $fixture.ProjectRoot, '-InputRoot', $fixture.InputRoot, '-OutputRoot', $fixture.OutputRoot, '-Format', $format)
+            $export.Code | Should -Be 0 -Because $export.Output
+            $null = Complete-CodecReturn $fixture
+            $run = Invoke-FixtureImport $fixture -Extra @('-RequireComplete')
+            $run.Code | Should -Be 0 -Because $run.Output
+            Assert-LocalizationYamlCodec
+            $yaml = ConvertFrom-Yaml ([IO.File]::ReadAllText($yamlPath)) -Ordered
+            $yaml.testSets[0].displayNameLocalized[$script:Tag] | Should -BeExactly 'XX Quick smoke test'
+            $yaml.testSets[0].descriptionLocalized[$script:Tag] | Should -BeExactly ('XX A comma, a quote " and Unicode ' + [char]0x03a9)
+            (Invoke-FixtureExport $fixture).Code | Should -Be 0
+            $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $fixture.InputRoot "$script:Tag/request.json")))
+            @($request.rows | Where-Object state -NE 'carried').Count | Should -Be 0
+        }
+    }
+
+    It 'globalization acceptance: source current complete accepted batches and delta queue' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'source-frozen')
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $bundle = Complete-CodecReturn $fixture
+        (Invoke-FixtureImport $fixture -Extra @('-RequireComplete')).Code | Should -Be 0
+        $path = Join-Path $fixture.Root 'globalization/catalogs/en-US/demo.json'
+        $catalog = ConvertFrom-Json ([IO.File]::ReadAllText($path)); $catalog.messages.'demo.paused'.description += ' Changed translator context.'
+        Write-FixtureJson $path $catalog
+        $before = Get-PairFingerprint $fixture
+        (Invoke-FixtureImport $fixture -Extra @('-RequireComplete')).Code | Should -Be 2
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $fixture.InputRoot "$script:Tag/request.json")))
+        $delta = @($request.rows | Where-Object state -NE 'carried')
+        $delta.Count | Should -Be 1
+        $delta[0].id | Should -BeExactly 'message:demo:demo.paused'
+        $delta[0].state | Should -BeExactly 'changed'
+        $answerPath = Join-Path $bundle 'messages/demo.json'
+        $answer = ConvertFrom-Json ([IO.File]::ReadAllText($answerPath)); $answer.entries[0].translation = ''
+        Write-FixtureJson $answerPath $answer
+        (Invoke-FixtureImport $fixture -Extra @('-RequireComplete', '-AllowSourceDrift')).Code | Should -Be 2
+    }
+
+    It 'rejects failed document acceptance before either source tree changes' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'refused-document')
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $null = Complete-CodecReturn $fixture
+        Write-FixtureText (Join-Path $fixture.Root 'tools/Test-DocTranslation.ps1') "[CmdletBinding(SupportsShouldProcess)] param([string]`$Locale,[string]`$ProjectRoot,[switch]`$AcceptReview,[string]`$Status,[string]`$Path,[switch]`$Quiet) Write-Output 'Document link acceptance failed'; exit 1"
+        $before = Get-PairFingerprint $fixture
+        $run = Invoke-FixtureImport $fixture
+        $run.Code | Should -Be 2
+        $run.Output | Should -Match 'Document link acceptance failed'
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+    }
+
+    It 'does not run publication children under WhatIf' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'publish-preview')
+        $before = Get-PairFingerprint $fixture
+        $run = Invoke-Exchange -Script $script:Publish -Argument @('-Root', $fixture.Root, '-ProjectRoot', $fixture.ProjectRoot, '-WhatIf')
+        $run.Code | Should -Be 0
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+    }
+    It 'refuses an unavailable YAML codec without writing a request' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'missing-codec')
+        $bootstrap = Join-Path $TestDrive 'without-yaml.ps1'
+        Write-FixtureText $bootstrap ("`$env:PSModulePath = ''; & '" + $script:Export.Replace("'", "''") + "' @args; exit `$LASTEXITCODE")
+        $run = Invoke-Exchange -Script $bootstrap -Argument @('-Locale', $script:Tag, '-Root', $fixture.Root, '-ProjectRoot', $fixture.ProjectRoot, '-InputRoot', $fixture.InputRoot, '-OutputRoot', $fixture.OutputRoot)
+        $run.Code | Should -Not -Be 0
+        Test-Path $fixture.InputRoot | Should -BeFalse
+    }
+
+    It 'refuses an incomplete current batch and duplicated answers' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'missing-answer')
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $bundle = Complete-CodecReturn $fixture
+        $path = Join-Path $bundle 'messages/demo.json'
+        $answer = ConvertFrom-Json ([IO.File]::ReadAllText($path)); $answer.entries[0].translation = ''
+        Write-FixtureJson $path $answer
+        $before = Get-PairFingerprint $fixture
+        $run = Invoke-FixtureImport $fixture -Extra @('-RequireComplete')
+        $run.Code | Should -Be 2
+        $run.Output | Should -Match 'Incomplete accepted batch'
+        $answer.entries += $answer.entries[0]
+        Write-FixtureJson $path $answer
+        $run = Invoke-FixtureImport $fixture
+        $run.Code | Should -Be 2
+        $run.Output | Should -Match 'Duplicate answer row'
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+    }
+
+    It 'enables only a complete accepted locale and reports every staged output hash' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'enable-locale')
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $null = Complete-CodecReturn $fixture
+        $before = Get-PairFingerprint $fixture
+        (Invoke-FixtureImport $fixture -Extra @('-EnableLocale')).Code | Should -Be 2
+        (Get-PairFingerprint $fixture) | Should -BeExactly $before
+        $reportPath = Join-Path $TestDrive 'enabled-locale.json'
+        $run = Invoke-FixtureImport $fixture -Extra @('-EnableLocale', '-RequireComplete', '-ReportPath', $reportPath)
+        $run.Code | Should -Be 0 -Because $run.Output
+        $report = ConvertFrom-Json ([IO.File]::ReadAllText($reportPath))
+        $report.applied | Should -BeTrue
+        (ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $fixture.Root 'globalization/locale-manifest.json')))).locales.($script:Tag).status | Should -BeExactly 'supported'
+        $report.changedPaths.path | Should -Contain 'globalization/locale-manifest.json'
+        foreach ($row in $report.changedPaths) {
+            $tree = if ($row.repository -ceq 'framework') { $fixture.Root } else { $fixture.ProjectRoot }
+            $row.sha256 | Should -BeExactly (Get-FileHash -LiteralPath (Join-Path $tree $row.path) -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        $repeat = Invoke-FixtureImport $fixture -Extra @('-EnableLocale', '-RequireComplete', '-ReportPath', $reportPath)
+        $repeat.Code | Should -Be 0 -Because $repeat.Output
+        $repeated = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+        $repeated.validatedOutputs.path | Should -Contain 'globalization/locale-manifest.json'
+        @($repeated.validatedOutputs | Where-Object path -Like 'globalization/catalogs/*/demo.json').Count | Should -Be 1
+        @($repeated.changedPaths | Where-Object path -Like 'globalization/catalogs/*/demo.json').Count | Should -Be 0
+        foreach ($row in $repeated.validatedOutputs) {
+            $tree = if ($row.repository -ceq 'framework') { $fixture.Root } else { $fixture.ProjectRoot }
+            $row.sha256 | Should -BeExactly (Get-FileHash -LiteralPath (Join-Path $tree $row.path) -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+
+    It 'defers the full gate explicitly while retaining publication inside the transaction' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'deferred-publication')
+        Write-FixtureText (Join-Path $fixture.Root 'tools/Publish-Localization.ps1') @'
+[CmdletBinding(SupportsShouldProcess)]
+param([string]$Root, [string]$ProjectRoot, [switch]$Quiet, [switch]$SkipGate)
+if (-not $SkipGate) { Write-Error 'Full gate must use real checkouts'; exit 2 }
+[IO.File]::WriteAllText((Join-Path $Root 'globalization/manifests/publication-fixture.json'), '{"fixture":true}')
+exit 0
+'@
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $null = Complete-CodecReturn $fixture
+        $reportPath = Join-Path $TestDrive 'deferred-publication.json'
+        $run = Invoke-Exchange -Script $script:Import -Argument @('-Root', $fixture.Root, '-ProjectRoot', $fixture.ProjectRoot, '-OutputRoot', $fixture.OutputRoot, '-DeferFullGate', '-ReportPath', $reportPath)
+        $run.Code | Should -Be 0 -Because $run.Output
+        $report = ConvertFrom-Json ([IO.File]::ReadAllText($reportPath))
+        $report.fullGateDeferred | Should -BeTrue
+        $report.changedPaths.path | Should -Contain 'globalization/manifests/publication-fixture.json'
+        $report.locales[0].translator.approvedBy | Should -BeExactly 'Synthetic translator'
+    }
+
+}
+
+Describe 'project metadata enrollment' {
+    It 'discovers runner sequence and step labels without an existing translation sidecar' {
+        $project = Join-Path $TestDrive 'untranslated-project'
+        $runner = @'
+testSets:
+  - name: smoke
+    displayName: Smoke checks
+    description: Check the official host
+'@
+        $sequence = @'
+sequenceGuid: 423f2db6-1ec9-40bd-bca1-0c18e5e81aa8
+description: Install the guest
+steps:
+  - name: boot/ready~prompt
+    displayName: Guest prompt
+    description: Wait for the ready prompt
+    command: 'echo machine protocol'
+component:
+  - description: Component with no stable name
+variables:
+  description: Keep this variable value invariant
+'@
+        Write-FixtureText (Join-Path $project 'test/test.runner.yml') $runner
+        foreach ($path in @('test/sequence/install.yml', 'template/minimal/test/install.yml', 'example/demo/test/install.yml')) {
+            Write-FixtureText (Join-Path $project $path) $sequence
+        }
+        $orchestration = @'
+# yaml-language-server: $schema=../../../../yuruna/test/schemas/orchestration-sequence.schema.yml
+name: demo.warm
+description: Run the example through snapshot planning
+steps:
+  - action: InvokeTestSequence
+    sequence: demo.install
+    description: Restore the guest and verify the example
+'@
+        Write-FixtureText (Join-Path $project 'example/demo/test/warm.yml') $orchestration
+        Write-FixtureText (Join-Path $project 'example/nested.host/test/install.yml') $sequence
+        Write-FixtureText (Join-Path $project 'template/minimal/test/workloads/commands.yml') $sequence
+        $before = @(Get-ChildItem -LiteralPath $project -Recurse -File | Sort-Object FullName | ForEach-Object { $_.FullName + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join "`n"
+        $sources = Get-LocalizationProjectSource -ProjectRoot $project -Locale pt-BR
+        $sources.entries.Count | Should -Be 16
+        @($sources.entries.path | Sort-Object -Unique).Count | Should -Be 5
+        @($sources.entries | Where-Object fieldPath -EQ '/steps/name=boot~1ready~0prompt/displayName').Count | Should -Be 3
+        @($sources.entries | Where-Object fieldPath -Match '/variables/|/command$').Count | Should -Be 0
+        foreach ($entry in $sources.entries) {
+            $entry.reviewStatus | Should -BeExactly unreviewed
+            $entry.locale | Should -BeExactly pt-BR
+            $entry.sourceHash | Should -Match '^[a-f0-9]{64}$'
+            $document = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText((Join-Path $project $entry.path))) -Ordered
+            $english = Get-YamlPointerValue -Document $document -Pointer $entry.fieldPath
+            $english | Should -Not -BeNullOrEmpty
+            Set-LocalizationYamlValue -Document $document -Pointer $entry.fieldPath -Locale pt-BR -Text 'Fixture translation'
+            $localized = $entry.fieldPath + 'Localized/pt-BR'
+            Get-YamlPointerValue -Document $document -Pointer $localized | Should -BeExactly 'Fixture translation'
+        }
+        (@(Get-ChildItem -LiteralPath $project -Recurse -File | Sort-Object FullName | ForEach-Object { $_.FullName + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join "`n") | Should -BeExactly $before
+    }
+}
+
+Describe 'first exchange preserves existing reviewed text' {
+    It 'prefills source-current reviewed documents and draft context without fabricating signatures' {
+        $fixture = New-ExchangeFixture (Join-Path $TestDrive 'checked-in-context')
+        $manifestPath = Join-Path $fixture.Root 'globalization/manifests/doc-translations.json'
+        $manifest = ConvertFrom-Json ([IO.File]::ReadAllText($manifestPath))
+        foreach ($entry in $manifest.documents) {
+            $tree = if ($entry.repo -ceq 'yuruna') { $fixture.Root } else { $fixture.ProjectRoot }
+            $entry.sourceHash = (Get-FileHash -LiteralPath (Join-Path $tree $entry.source) -Algorithm SHA256).Hash.ToLowerInvariant()
+            $entry.status = 'reviewed'
+            Write-FixtureText (Join-Path $tree $entry.translated) ('Existing fixture translation: ' + $entry.repo)
+        }
+        Write-FixtureJson $manifestPath $manifest
+        $export = Invoke-FixtureExport $fixture
+        $export.Code | Should -Be 0 -Because $export.Output
+        $bundle = Join-Path $fixture.InputRoot $script:Tag
+        $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $bundle 'request.json')))
+        @($request.rows | Where-Object { $_.kind -ceq 'document' -and $_.state -ceq 'carried' }).Count | Should -Be 2
+        [IO.File]::ReadAllText((Join-Path $bundle 'documents/yuruna/README.md')) | Should -BeExactly 'Existing fixture translation: yuruna'
+        $style = @(Read-LocalizationEntry -Path (Join-Path $bundle 'glossary/style-guide.json') -Format Json)[0]
+        $style.translation | Should -BeExactly 'Be direct and concise.'
+        $style.state | Should -BeExactly new
+        $attestation = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $bundle 'attestation.json')))
+        $attestation.translator.approvedBy | Should -BeNullOrEmpty
+        $attestation.independentReviewer.approvedBy | Should -BeNullOrEmpty
+        Write-FixtureText (Join-Path $fixture.Root 'README.md') '# Source changed after review'
+        (Invoke-FixtureExport $fixture).Code | Should -Be 0
+        $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $bundle 'request.json')))
+        @($request.rows | Where-Object id -CEQ 'document:yuruna:README.md')[0].state | Should -BeExactly new
+        [IO.File]::ReadAllText((Join-Path $bundle 'documents/yuruna/README.md')) | Should -BeExactly 'Existing fixture translation: yuruna'
     }
 }

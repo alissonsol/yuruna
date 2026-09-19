@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
 # Write-YurunaStateFile. Import it here so EVERY consumer of this module has the
 # primitive in scope -- both the per-cycle Inner runner and the operator validator
 # Test-Config.ps1 -- not only callers that happen to load the full runner module set.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 
 <#
@@ -254,11 +255,11 @@ function Update-TestConfigFromTemplate {
     )
 
     if (-not (Test-Path $TemplatePath)) {
-        Write-Warning "Template not found: $TemplatePath -- loading config as-is."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bd2bb274eb562e76' -Arguments @{ templatePath = "$TemplatePath" })
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
     if (-not (Test-Path $ConfigPath)) {
-        Write-Information "Config not found: $ConfigPath -- bootstrapping from template." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ed3fe1ac669aaff0' -Arguments @{ configPath = "$ConfigPath" }) -InformationAction Continue
         Copy-Item -Path $TemplatePath -Destination $ConfigPath
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
@@ -317,7 +318,7 @@ function Update-TestConfigFromTemplate {
             $legacyTo = "$($current['notification']['toEmailAddress'])"
         }
         if (-not $hasNotifLive -and ((-not [string]::IsNullOrEmpty($legacyApiKey)) -or (-not [string]::IsNullOrEmpty($legacyTo)))) {
-            Write-Warning "test.config.yml contains legacy notification settings (secrets.resend / notification.toEmailAddress) that have moved to test/status/extension/notification/transports.yml. Copy test/extension/notification/transports.yml.template to test/status/extension/notification/transports.yml and populate transports.resend + subscribers BEFORE the next cycle, otherwise notifications will silently no-op."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9a76ef7358172f67')
         }
     }
 
@@ -350,40 +351,31 @@ function Update-TestConfigFromTemplate {
         $backupPath = "$ConfigPath.backup"
         Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         $dropped = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)
-        if ($PSCmdlet.ShouldProcess($ConfigPath, "Migrate to new schema (carry matching values forward)")) {
+        if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_3139f133d03a7df6'))) {
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
-                Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
         if ($dropped.Count -gt 0) {
             $list = ($dropped | ForEach-Object { "      - $_" }) -join "`n"
-            Write-Warning @"
-test.config.yml: the schema changed and some previous fields no longer map to it.
-  - Previous file backed up to: $backupPath
-  - Every field that still maps to the new schema was carried forward into the
-    new test.config.yml automatically.
-  - These previous values did NOT map and were NOT carried -- copy them across by
-    hand from the .backup if still needed, then restart:
-$list
-The run is stopping so you can review. Restarting will then proceed normally.
-"@
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7fa12fa1ab73deb3' -Arguments @{ backupPath = "$backupPath"; list = "$list" })
             # Canonical failure exit code from Test.Prelude so a future change to
             # the entry-point exit contract lands in one place.
             exit (Get-EntryPointExitCode -Outcome Failure)
         }
-        Write-Information "test.config.yml: schema changed; carried every previous value forward to the new layout (previous file backed up to $backupPath)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bd50f33ae3c9b31e' -Arguments @{ backupPath = "$backupPath" }) -InformationAction Continue
         return $merged
     }
 
     if (Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) {
-        if ($PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with template overlay")) {
-            Write-Information "test.config.yml: applying template overlay to pick up schema changes." -InformationAction Continue
+        if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_785dae69f36c4993'))) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58f8689005f6559c') -InformationAction Continue
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
-                Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
     }
@@ -681,7 +673,7 @@ function Sync-TestConfigToTemplate {
     if ($null -ne $rendered -and $rendered -ne $existingText) { $changed = $true }
     $wrote      = $false
     $backupPath = $null
-    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, "Reconcile to template (add missing, park obsolete, sort)")) {
+    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_1f50cc08b8dd3984'))) {
         if ($removed.Count -gt 0) {
             $backupPath = "$ConfigPath.backup"
             Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
@@ -693,7 +685,7 @@ function Sync-TestConfigToTemplate {
         $content = if ($null -ne $rendered) { $rendered } else { $canonical | ConvertTo-Yaml }
         $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $content -Confirm:$false)
         if (-not $wrote) {
-            Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
         }
     }
 

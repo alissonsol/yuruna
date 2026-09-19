@@ -126,6 +126,7 @@ func New(api IntentAPI, opts Options) *Server {
 	s.localeNegotiator = newServiceNegotiator(opts.Language, opts.AllowPseudoLocale)
 	s.assets.preparePages(s.localeNegotiator)
 	s.gate = labgate.New(labgate.Options{
+		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
 		BearerToken:   opts.AuthToken,
 		CookieName:    sessionCookie,

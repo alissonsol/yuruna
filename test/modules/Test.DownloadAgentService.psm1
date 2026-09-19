@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4282b189-cc04-4ccc-b651-075780a31acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -182,7 +185,7 @@ function Remove-DownloadAgentServiceMarker {
     param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
     $path = Get-DownloadAgentServiceMarkerPath -RuntimeDir $RuntimeDir
     if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($path, 'Remove the download-agent-service marker')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_bb6100d2550c6776'))) { return $false }
     return (Remove-ExtensionServiceMarker -Area $script:Area -RuntimeDir $RuntimeDir -Confirm:$false)
 }
 

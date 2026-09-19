@@ -60,6 +60,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -78,10 +79,269 @@
       ]
     },
     {
+      "id": "catalog-boundaries-aggregator",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "verification": "test/modules/Test.PoolGlobalizationSlice.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "pool-aggregator"
+      ],
+      "consumers": [
+        "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/main.go",
+        "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-auth",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "verification": "test/extension/extension-sdk/labgate/localization_test.go",
+      "slices": [],
+      "domains": [
+        "extension-sdk"
+      ],
+      "consumers": [
+        "code:auth.attempts_throttled:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.bearer_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.malformed_request:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.proof_expired:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.proof_shape:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.session_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.token_incorrect:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.token_shape:producer:test/extension/extension-sdk/labgate/labgate.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-download",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-03",
+      "verification": "test/modules/Test.ExtensionUiChrome.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "download-agent"
+      ],
+      "consumers": [
+        "code:download.api_arch_query_parameter_is_required_amd64_or_arm64:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_generation_not_found:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_invalid_generation_name:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_invalid_json_body_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_no_image_store_configured:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_pool_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+        "code:download.api_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-mcp",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-06",
+      "verification": "test/modules/Test.McpServer.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "consumers": [
+        "code:mcp.mcp_dependency_drift:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_dependency_invalid_json:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_diagnostic_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_false_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_host_alias_verdict:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_refused:producer:test/service/Start-McpServer.ps1",
+        "code:mcp.mcp_runtime_verdict:producer:test/service/Start-McpServer.ps1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-planner",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-07",
+      "verification": "test/modules/Test.SequenceResolve.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "consumers": [
+        "code:sequence.plan_invalid:consumer:test/modules/Test.SequenceResolve.psm1",
+        "code:sequence.plan_invalid:producer:test/modules/Test.SequenceResolve.psm1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-pool",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "verification": "test/extension/pool-control-service/server/internal/httpsrv/board_test.go",
+      "slices": [],
+      "domains": [
+        "pool-control"
+      ],
+      "consumers": [
+        "code:pool.unsupported_range:producer:test/extension/pool-control-service/server/internal/httpsrv/board.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-sequence",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-07",
+      "verification": "test/modules/Test.SequenceEngine.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "runner"
+      ],
+      "consumers": [
+        "code:sequence.sequence_completed:producer:test/modules/Test.SequenceEngine.psm1",
+        "code:sequence.sequence_restart_requested:producer:test/modules/Test.SequenceEngine.psm1",
+        "code:sequence.sequence_step_active:producer:test/modules/Test.SequenceEngine.psm1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-stash",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-03",
+      "verification": "test/modules/Test.ExtensionUiChrome.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "stash"
+      ],
+      "consumers": [
+        "code:stash.api_could_not_parse_form:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_create_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_host:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_json_body:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_invalid_stash_path:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_no_stashes_given:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_not_an_archive:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_nothing_to_store_provide_text_or_files:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_archive_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_open_uploads:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_search_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_stash_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_stat_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_too_many_files_in_one_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+        "code:stash.api_too_many_stashes_in_one_request:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-status",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-01",
+      "verification": "test/modules/Test.StatusServiceLocale.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "status-service"
+      ],
+      "consumers": [
+        "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_authentication_extension_unavailable_2ece9896:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_body_must_be_a_json_object_831ab327:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_could_not_pack_folder_detail_268ee848:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_could_not_read_body_aa31dc00:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_detail_caf3c2c2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_diagnostic_failed:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_expected_diagnostics_folder_filename_5f581c78:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_filename_must_match_system_diagnostic_id_txt_ec048334:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_78342a09:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_deny_list_1c7d1cfa:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_directory_listing_disabled_5d107f5b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_invalid_json_detail_c907dfc3:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_be4fb6a2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_method_not_allowed_post_the_dump_body_fa73866b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_break_active_bc29bdab:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_caching_proxy_service_ca_resolvable_f924b0aa:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_cycle_results_folder_folder_on_this_host_51798923:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_lab_hold_is_active_49dd8185:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_not_a_cycle_results_archive_name_395b9777:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_path_escapes_log_dir_355b2034:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_path_escapes_log_root_13754cf8:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_1_mb_350b49df:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_256_kb_ad49d5cd:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_4_mb_3455f869:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_payload_too_large_5_mb_ab90ca52:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_post_required_663cc07c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_project_repo_not_present_on_host_885e6338:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_put_or_post_required_1f919659:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_sidecar_write_failed_0ce361a9:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_config_yml_not_found_3b38d785:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_write_failed_detail_c07681e1:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1"
+      ]
+    },
+    {
       "id": "L-03-REMAINDER",
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -104,6 +364,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -126,6 +387,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -144,6 +406,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-07",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -161,6 +424,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-06",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -183,6 +447,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -201,6 +466,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -220,6 +486,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project"
       ],
@@ -245,6 +512,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project"
       ],
@@ -270,6 +538,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -294,6 +563,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-03",
+      "verification": "",
       "slices": [],
       "domains": [
         "download-agent"
@@ -307,6 +577,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-01",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -324,6 +595,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-03",
+      "verification": "",
       "slices": [],
       "domains": [
         "download-agent"
@@ -337,6 +609,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-02",
+      "verification": "",
       "slices": [
         "pool-repository-project"
       ],
@@ -355,6 +628,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -378,6 +652,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -396,6 +671,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -418,6 +694,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -440,6 +717,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -462,6 +740,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -485,6 +764,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-05",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -507,6 +787,7 @@
       "kind": "display-only-census",
       "status": "deferred",
       "owner": "G2-06",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -529,6 +810,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "status-pause-generated"
       ],
@@ -547,6 +829,7 @@
       "kind": "blocker",
       "status": "closed",
       "owner": "G1-08",
+      "verification": "",
       "slices": [
         "pool-repository-project",
         "status-pause-generated"
@@ -567,6 +850,429 @@
   ],
   "consumers": [
     {
+      "id": "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.announce_accepted_but_not_durably_recorded_retry",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.announce_accepted_but_not_recorded",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.announce_disabled",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.announced_address_did_not_serve_status_json",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.announced_address_serves_a_different_hostid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.batch_mixes_multiple_hostids",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.encode_failed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.failed_to_encode_extension_hosts",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.failed_to_encode_pool_status",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.failed_to_encode_result",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.failed_to_encode_scrape_targets",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.failed_to_seal_the_token",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.forget_host_disabled_no_auth_token_configured",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.host_not_known_to_the_pool",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.ingest_disabled",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.invalid_hostid_or_area",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.invalid_hostid",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.invalid_statusport",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.invalid_target_address_detail",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.invalid_target_url",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.lab_token_exchange_disabled",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.labtoken_must_be_6_lowercase_letters_digits",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.loki_query_failed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.malformed_announce",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.malformed_request",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.method_not_allowed",
+      "role": "producer",
+      "matchCount": 7
+    },
+    {
+      "id": "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.metrics_are_served_to_this_host_only",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.missing_host",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.no_cycle_results_folder_for_that_host_at_that_time",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.no_live_host_for_that_extension_area",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.no_source_address",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.payload_too_large_or_unreadable",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.stash_target_not_known_to_the_pool",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.target_host_must_be_the_announcing_address",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.the_pool_share_is_not_mounted_on_this_machine",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.too_many_announced_extensions",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.too_many_failed_attempts_retry_later",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.too_many_lines",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.unauthorized",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.unknown_or_expired_lab_token",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.unsupported_range_use_1h_24h_7d_or_30d",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.attempts_throttled:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.attempts_throttled",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:auth.bearer_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.bearer_required",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
       "id": "code:auth.lab_token_unavailable:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
       "finding": "P-03",
       "source": "code-registry",
@@ -581,6 +1287,60 @@
       "source": "code-registry",
       "path": "test/extension/extension-sdk/labgate/labgate.go",
       "code": "auth.lab_token_unavailable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.malformed_request:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.malformed_request",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:auth.proof_expired:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.proof_expired",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.proof_shape:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.proof_shape",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.session_required:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.session_required",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.token_incorrect:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.token_incorrect",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.token_shape:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "catalog-boundaries-auth",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.token_shape",
       "role": "producer",
       "matchCount": 1
     },
@@ -610,6 +1370,150 @@
       "code": "auth.unconfigured",
       "role": "producer",
       "matchCount": 1
+    },
+    {
+      "id": "code:download.api_arch_query_parameter_is_required_amd64_or_arm64:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_arch_query_parameter_is_required_amd64_or_arm64",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:download.api_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_detail",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:download.api_generation_not_found:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_generation_not_found",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:download.api_invalid_generation_name:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_invalid_generation_name",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:download.api_invalid_json_body_detail:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_invalid_json_body_detail",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:download.api_no_image_store_configured:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_no_image_store_configured",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:download.api_pool_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_pool_refresh_refused_reason",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:download.api_refresh_refused_reason:producer:test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-download",
+      "source": "code-registry",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "download.api_refresh_refused_reason",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_dependency_drift:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_dependency_drift",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_dependency_invalid_json:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_dependency_invalid_json",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_diagnostic_verdict:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_diagnostic_verdict",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_false_verdict:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_false_verdict",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_host_alias_verdict:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_host_alias_verdict",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_refused:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_refused",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:mcp.mcp_runtime_verdict:producer:test/service/Start-McpServer.ps1",
+      "finding": "catalog-boundaries-mcp",
+      "source": "code-registry",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "mcp.mcp_runtime_verdict",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:pool.unsupported_range:producer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "finding": "catalog-boundaries-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "code": "pool.unsupported_range",
+      "role": "producer",
+      "matchCount": 2
     },
     {
       "id": "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
@@ -684,6 +1588,33 @@
       "matchCount": 2
     },
     {
+      "id": "code:sequence.plan_invalid:consumer:test/modules/Test.SequenceResolve.psm1",
+      "finding": "catalog-boundaries-planner",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceResolve.psm1",
+      "code": "sequence.plan_invalid",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:sequence.plan_invalid:producer:test/modules/Test.SequenceResolve.psm1",
+      "finding": "catalog-boundaries-planner",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceResolve.psm1",
+      "code": "sequence.plan_invalid",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:sequence.sequence_completed:producer:test/modules/Test.SequenceEngine.psm1",
+      "finding": "catalog-boundaries-sequence",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "code": "sequence.sequence_completed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
       "id": "code:sequence.sequence_paused_waiting_resume:consumer:test/extension/pool-aggregator-service/main.go",
       "finding": "P-01",
       "source": "code-registry",
@@ -707,6 +1638,627 @@
       "source": "code-registry",
       "path": "test/modules/Test.SequenceEngine.psm1",
       "code": "sequence.sequence_paused_waiting_resume",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:sequence.sequence_restart_requested:producer:test/modules/Test.SequenceEngine.psm1",
+      "finding": "catalog-boundaries-sequence",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "code": "sequence.sequence_restart_requested",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:sequence.sequence_step_active:producer:test/modules/Test.SequenceEngine.psm1",
+      "finding": "catalog-boundaries-sequence",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "code": "sequence.sequence_step_active",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_could_not_parse_form:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_could_not_parse_form",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:stash.api_create_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_create_detail",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_detail",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:stash.api_invalid_host:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_invalid_host",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_invalid_json_body:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_invalid_json_body",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:stash.api_invalid_stash_path:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_invalid_stash_path",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:stash.api_no_stashes_given:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_no_stashes_given",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_not_an_archive:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_not_an_archive",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_not_found",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:stash.api_nothing_to_store_provide_text_or_files:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_nothing_to_store_provide_text_or_files",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_open_archive_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_open_archive_detail",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_open_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_open_artifact",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_open_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_open_upload",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_open_uploads:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_open_uploads",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_search_detail:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_search_detail",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_stash_not_found:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_stash_not_found",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:stash.api_stat_artifact:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_stat_artifact",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_too_many_files_in_one_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_too_many_files_in_one_upload",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:stash.api_too_many_stashes_in_one_request:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "finding": "catalog-boundaries-stash",
+      "source": "code-registry",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "code": "stash.api_too_many_stashes_in_one_request",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_another_start_cycle_request_is_in_progress_3f51d139",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_authentication_extension_unavailable_2ece9896:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_authentication_extension_unavailable_2ece9896",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_body_must_be_a_json_object_831ab327:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_body_must_be_a_json_object_831ab327",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_could_not_pack_folder_detail_268ee848:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_could_not_pack_folder_detail_268ee848",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_could_not_read_body_aa31dc00:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_could_not_read_body_aa31dc00",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_detail_caf3c2c2:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_detail_caf3c2c2",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:status.api_diagnostic_failed:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_diagnostic_failed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:status.api_expected_diagnostics_folder_filename_5f581c78:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_expected_diagnostics_folder_filename_5f581c78",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_filename_must_match_system_diagnostic_id_txt_ec048334:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_filename_must_match_system_diagnostic_id_txt_ec048334",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_forbidden_78342a09:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_forbidden_78342a09",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_forbidden_deny_list_1c7d1cfa:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_forbidden_deny_list_1c7d1cfa",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:status.api_forbidden_directory_listing_disabled_5d107f5b:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_forbidden_directory_listing_disabled_5d107f5b",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_invalid_json_detail_c907dfc3:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_invalid_json_detail_c907dfc3",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_method_not_allowed_be4fb6a2:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_method_not_allowed_be4fb6a2",
+      "role": "producer",
+      "matchCount": 7
+    },
+    {
+      "id": "code:status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_method_not_allowed_post_the_dump_body_fa73866b:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_method_not_allowed_post_the_dump_body_fa73866b",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_break_active_bc29bdab:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_break_active_bc29bdab",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_caching_proxy_service_ca_resolvable_f924b0aa:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_cycle_results_folder_folder_on_this_host_51798923:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_cycle_results_folder_folder_on_this_host_51798923",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_lab_hold_is_active_49dd8185:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_lab_hold_is_active_49dd8185",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_not_a_cycle_results_archive_name_395b9777:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_not_a_cycle_results_archive_name_395b9777",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_path_escapes_log_dir_355b2034:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_path_escapes_log_dir_355b2034",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_path_escapes_log_root_13754cf8:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_path_escapes_log_root_13754cf8",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_payload_too_large_1_mb_350b49df:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_payload_too_large_1_mb_350b49df",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_payload_too_large_256_kb_ad49d5cd:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_payload_too_large_256_kb_ad49d5cd",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_payload_too_large_4_mb_3455f869:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_payload_too_large_4_mb_3455f869",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_payload_too_large_5_mb_ab90ca52:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_payload_too_large_5_mb_ab90ca52",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_post_required_663cc07c:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_post_required_663cc07c",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:status.api_project_repo_not_present_on_host_885e6338:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_project_repo_not_present_on_host_885e6338",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_put_or_post_required_1f919659:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_put_or_post_required_1f919659",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_sidecar_write_failed_0ce361a9:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_sidecar_write_failed_0ce361a9",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_test_config_yml_not_found_3b38d785:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_test_config_yml_not_found_3b38d785",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:status.api_write_failed_detail_c07681e1:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_write_failed_detail_c07681e1",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-status",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "status.api_yaml_parse_failed_detail_363d5cf4",
       "role": "producer",
       "matchCount": 1
     },
@@ -1012,7 +2564,7 @@
     {
       "wireCode": "repository_access.denied",
       "path": "test/modules/Test.HostCondition.Mac.psm1",
-      "matchCount": 2,
+      "matchCount": 4,
       "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
     },
     {
@@ -1057,7 +2609,8 @@
     "blockerCount": 15,
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
-    "consumerCount": 49,
+    "catalogBoundaryCount": 9,
+    "consumerCount": 190,
     "literalExclusionCount": 7
   }
 }

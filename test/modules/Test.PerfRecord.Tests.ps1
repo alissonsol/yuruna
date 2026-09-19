@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42fa6f61-9143-4a1d-9bdb-005d250ec17e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 #>
 BeforeAll {
     $script:Root = Split-Path (Split-Path $PSScriptRoot)
+    Import-Module (Join-Path $script:Root 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Perf.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.PerfAggregate.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Force

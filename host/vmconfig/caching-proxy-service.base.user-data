@@ -345,11 +345,11 @@ write_files:
     owner: root:root
     content: |
       <!doctype html>
-      <html lang="en">
+      <html lang="en" data-yuruna-static-locale>
       <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Upstream fetch refused</title>
+      <title data-i18n="cache.upstream_fetch_refused">Upstream fetch refused</title>
       <style>
       body { background: #ffffff; color: #111827;
              font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
@@ -362,12 +362,10 @@ write_files:
       </head>
       <body>
       <main>
-      <h1>Upstream fetch refused</h1>
-      <p>This cache is in no-upstream mode. The object below is not stored
-      locally, and this cache will not fetch it.</p>
+      <h1 data-i18n="cache.upstream_fetch_refused">Upstream fetch refused</h1>
+      <p data-i18n="cache.no_upstream_explanation">This cache is in no-upstream mode. The object below is not stored locally, and this cache will not fetch it.</p>
       <p><b>%U</b></p>
-      <p>To let it through, run <code>sudo yuruna-no-upstream off</code> on the
-      caching-proxy VM, re-run the fetch, then turn it back on.</p>
+      <p data-i18n="cache.no_upstream_instruction" data-i18n-args="{&quot;command&quot;:&quot;sudo yuruna-no-upstream off&quot;}">To let it through, run sudo yuruna-no-upstream off on the caching-proxy VM, re-run the fetch, then turn it back on.</p>
       </main>
       </body>
       </html>
@@ -1727,6 +1725,13 @@ write_files:
                   on every single request, so a handful of guests looping on one
                   image holds the hourly allowance at zero indefinitely.
   # See https://yuruna.link/429f3d06-0054
+  - path: /etc/yuruna/globalization.env
+    owner: root:root
+    permissions: '0644'
+    content: |
+      YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
+      YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
+
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -3960,12 +3965,20 @@ runcmd:
     else
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
     fi
+    # --- REGION: https://yuruna.link/429f3d06-0070
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
+    cd /opt/pool-aggregator-service
+    PA_OK=1
+    for f in go.mod beacon/beacon.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
+      if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
+    done
     # caching-proxy-parser-service: in-memory tail-and-serve on :9302, independent of
     # the Loki-backed Recent-100 panel. Source: test/extension/caching-proxy-parser-service/.
-    mkdir -p /opt/caching-proxy-parser-service
+    mkdir -p /opt/caching-proxy-parser-service/internal/catalog
     cd /opt/caching-proxy-parser-service
     CPP_OK=1
-    for f in parse.go requestadapter.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
+    for f in parse.go requestadapter.go localization.go internal/catalog/registry.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-parser-service/$f" || CPP_OK=0
       if [ ! -s "$f" ]; then CPP_OK=0; echo "== YURUNA: caching-proxy-parser-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-parser-service/$f (source=${YR_SRC}) =="; fi
     done
@@ -3976,15 +3989,8 @@ runcmd:
     else
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
-    # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
     cd /opt/pool-aggregator-service
-    PA_OK=1
-    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go; do
-      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
-      if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
-    done
-    for f in main.go mcp.go go.mod pool-aggregator-service.service; do
+    for f in main.go mcp.go localization.go internal/catalog/registry.go go.mod pool-aggregator-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator-service/$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -4002,15 +4008,15 @@ runcmd:
         echo "== YURUNA: pool-aggregator-service build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
     fi
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/caching-proxy-service
+    mkdir -p /opt/caching-proxy-service/internal/catalog
     cd /opt/caching-proxy-service
     CPS_OK=1
-    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go caching-proxy-service.service; do
+    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go localization.go internal/catalog/registry.go caching-proxy-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
-    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go; do
+    for f in go.mod beacon/beacon.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
       if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
     done
     # VERSION_STR the way every other service derives it: first line, whitespace

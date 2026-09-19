@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b628a9-3e53-4a89-9da3-5893bce6f434
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -144,7 +147,7 @@ function Invoke-LogRotation {
     try { $throttleKey = [System.IO.Path]::GetFullPath($Path) } catch { $null = $_ }
     $script:LastChecked[$throttleKey] = Get-Date
     if ($size -lt $MaxBytes) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($Path, "Rotate (size=$size threshold=$MaxBytes)")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_66496bb81064f596' -Arguments @{ size = "$size"; maxBytes = "$MaxBytes" }))) { return $false }
     # Drop the eldest if it exists. Without this, the for-loop below
     # would silently overwrite a file at .N+1 that we'd otherwise want
     # to keep -- but since we cap at MaxArchives, .N+1 is the eldest
@@ -189,7 +192,7 @@ function Reset-LogRotationCache {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.LogRotation cache', 'Clear')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_95a72da3cdf36188'), 'Clear')) {
         $script:LastChecked = @{}
     }
 }

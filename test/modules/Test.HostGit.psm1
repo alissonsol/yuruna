@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,7 @@
 
 # Git and project-clone helpers: ../../docs/test-harness.md#module-responsibilities.
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-GitUpstreamStatus {
     <#
     .SYNOPSIS
@@ -241,13 +242,16 @@ function Invoke-GitNetworkCommandOnce {
         return @{ ExitCode = [int]$r.ExitCode; Output = $text }
     }
     # Fallback: neutralize the prompt env on THIS process around a plain call.
-    $names = @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GCM_INTERACTIVE')
+    $names = @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GCM_INTERACTIVE', 'LC_ALL', 'LANG', 'LANGUAGE')
     $prev  = @{}
     foreach ($n in $names) { $prev[$n] = [Environment]::GetEnvironmentVariable($n) }
     $env:GIT_TERMINAL_PROMPT = '0'
     $env:GIT_ASKPASS         = ''
     $env:SSH_ASKPASS         = ''
     $env:GCM_INTERACTIVE     = 'never'
+    # The adapter classifies external Git diagnostics before localizing its
+    # own result; the child must use the invariant Git diagnostic vocabulary.
+    $env:LC_ALL = 'C'; $env:LANG = 'C'; $env:LANGUAGE = 'C'
     try {
         $out = & git @GitArgs 2>&1
         return @{ ExitCode = $LASTEXITCODE; Output = ((@($out) -join "`n")).Trim() }
@@ -377,15 +381,7 @@ function Write-GitAuthRefreshBanner {
     $first  = Get-GitFirstOutputLine -Output $GitOutput
     $said   = if ($first) { "`n  git said: $first" } else { '' }
     $options = ((@(Get-GitAuthRefreshRemedy) | ForEach-Object { "    * $_" }) -join "`n")
-    Write-Warning @"
-GitHub access needs refreshing.
-  git could not authenticate to the remote:
-    $remote
-  The cached GitHub credential is missing or expired, so 'git fetch' / 'git
-  pull' would block on an interactive login prompt (which hangs an unattended
-  runner). Refresh the login with ONE of, then re-run:
-$options$said
-"@
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_def404610b1df98a' -Arguments @{ remote = "$remote"; options = "$options"; said = "$said" })
 }
 
 function Invoke-GitPull {
@@ -437,7 +433,7 @@ function Invoke-GitPull {
     while ($true) {
         $attempt++
         $totalAttempts = $maxRetries + 1
-        Write-Information "Fetching remote changes in: $RepoRoot (attempt $attempt/$totalAttempts)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_dc945b6f852c089a' -Arguments @{ repoRoot = "$RepoRoot"; attempt = "$attempt"; totalAttempts = "$totalAttempts" }) -InformationAction Continue
         $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch') -TimeoutSeconds 60
         Write-Information "$($fetch.Output)" -InformationAction Continue
         if ($fetch.ExitCode -eq 0) { break }
@@ -448,12 +444,12 @@ function Invoke-GitPull {
         }
         $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
         if ($attempt -gt $maxRetries -or $elapsed -ge $maxTotalSeconds) {
-            Write-Error "git fetch failed (exit $($fetch.ExitCode)) after $attempt attempt(s) / ${elapsed}s (cap ${maxTotalSeconds}s)."
+            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_2736bc206a47f22d' -Arguments @{ exitCode = "$($fetch.ExitCode)"; attempt = "$attempt"; elapsed = "${elapsed}"; maxTotalSeconds = "${maxTotalSeconds}" })
             return $false
         }
         # Clamp the backoff so we never sleep past the wall-clock deadline.
         $waitSeconds = [Math]::Min(10 * $attempt, [Math]::Max(1, $maxTotalSeconds - $elapsed))
-        Write-Information "  git fetch failed (exit $($fetch.ExitCode)); retrying in ${waitSeconds}s..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b70d85e67370315' -Arguments @{ exitCode = "$($fetch.ExitCode)"; waitSeconds = "${waitSeconds}" }) -InformationAction Continue
         Start-Sleep -Seconds $waitSeconds
     }
 
@@ -463,44 +459,44 @@ function Invoke-GitPull {
     $st = Get-GitUpstreamStatus -Path $RepoRoot
     switch ($st.State) {
         'no-upstream' {
-            Write-Information "No upstream tracking branch found; skipping ahead/behind check." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c3946652c6bc4408') -InformationAction Continue
             return $true
         }
         'up-to-date' {
-            Write-Information "Local branch is up to date with remote." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_35fd2fea5f98f145') -InformationAction Continue
             return $true
         }
         'ahead' {
-            Write-Information "Local branch is ahead of remote. Proceeding with local changes." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_33bdd943ad4ebb3e') -InformationAction Continue
             return $true
         }
         'behind' {
-            Write-Information "Local branch is behind remote by $($st.Behind) commit(s). Pulling..." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_80ee1545f3f94a52' -Arguments @{ behind = "$($st.Behind)" }) -InformationAction Continue
             $pull = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'pull', '--ff-only') -TimeoutSeconds 60
             if ($pull.ExitCode -eq 0) {
                 # Exit 0 is not proof the working copy is usable: an autostash
                 # that failed to re-apply leaves conflict markers behind and
                 # still exits 0.
                 if (-not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) { return $false }
-                Write-Information "Pull succeeded: $($pull.Output)" -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3f1b99fc3416e2fa' -Arguments @{ output = "$($pull.Output)" }) -InformationAction Continue
                 return $true
             }
             if (Test-GitRemoteAuthFailure -Output $pull.Output) {
                 Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pull.Output
                 return $false
             }
-            Write-Error "git pull --ff-only failed (exit $($pull.ExitCode)): $($pull.Output)"
+            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_9fe3c4a46ba0668d' -Arguments @{ exitCode = "$($pull.ExitCode)"; output = "$($pull.Output)" })
             return $false
         }
         'unknown' {
             # Could not determine ahead/behind (rev-list failed). Do not block the cycle on an
             # undeterminable status -- warn and skip the ahead/behind check.
-            Write-Warning "Could not determine upstream status (git rev-list failed); skipping ahead/behind check."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8bd112e1835b85ac')
             return $true
         }
         default {
             # diverged (no-tree cannot reach here -- the fetch above already ran)
-            Write-Error "Local branch has diverged from remote ($($st.Ahead) ahead, $($st.Behind) behind). Rebase or merge manually."
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_825c1426c2725e0c' -Arguments @{ ahead = "$($st.Ahead)"; behind = "$($st.Behind)" })
             return $false
         }
     }
@@ -556,8 +552,8 @@ function Test-GitWorktreeMerged {
     )
     $conflicted = @(Get-GitUnmergedPath -RepoRoot $RepoRoot)
     if ($conflicted.Count -eq 0) { return $true }
-    Write-Warning ("The ${Label} at '$RepoRoot' has $($conflicted.Count) conflicted file(s) after the pull -- git exited 0 but left conflict markers in the working copy, so this checkout must not be executed: " + ($conflicted -join ', '))
-    Write-Warning "  Recover with: git -C '$RepoRoot' checkout --theirs . ; git -C '$RepoRoot' reset --hard '@{u}'  (local edits remain in `git stash list`)."
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_0fa2a8400f3de23f' -Arguments @{ label = "${Label}"; repoRoot = "$RepoRoot"; count = "$($conflicted.Count)"; join = [string](($conflicted -join ', ')) }))
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.git_recovery_command' -Arguments @{ repoRoot = "$RepoRoot"; upstreamReference = '@{u}' })
     return $false
 }
 
@@ -850,7 +846,7 @@ function Update-ProjectClone {
         [string]$ProjectUrl
     )
     if ([string]::IsNullOrWhiteSpace($ProjectUrl)) {
-        Write-Information "repositories.projectUrl is empty - skipping project clone (using in-tree project/)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eae57e0cb1c43db1') -InformationAction Continue
         return @{ success = $true; skipped = $true; errorMessage = $null }
     }
 
@@ -861,10 +857,10 @@ function Update-ProjectClone {
     $resolvedProjectParent = (Resolve-Path -LiteralPath $RepoRoot).Path
     $projectDirNormalized  = [System.IO.Path]::GetFullPath((Join-Path $resolvedProjectParent 'project'))
     if (-not $projectDirNormalized.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return @{ success = $false; skipped = $false; errorMessage = "Refusing to delete project dir outside RepoRoot: $projectDirNormalized" }
+        return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_7c4b977d87fe98d6' -Arguments @{ projectDirNormalized = "$projectDirNormalized" }) }
     }
 
-    if ($PSCmdlet.ShouldProcess($projectDir, "Wipe and re-clone from $ProjectUrl")) {
+    if ($PSCmdlet.ShouldProcess($projectDir, (Format-YurunaOperatorMessage -Key 'runner.operator_f2604472b39532f2' -Arguments @{ projectUrl = "$ProjectUrl" }))) {
         # Preflight the project remote BEFORE the destructive wipe: a private
         # projectUrl with a stale/expired GitHub credential would otherwise block
         # the clone on an interactive username prompt (an uncatchable runner hang),
@@ -875,10 +871,10 @@ function Update-ProjectClone {
         $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
         if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
             Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
-            return @{ success = $false; skipped = $false; errorMessage = "project remote '$ProjectUrl' rejected the cached GitHub credential (needs refreshing): $($pre.Output)" }
+            return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }) }
         }
         if (Test-Path $projectDir) {
-            Write-Information "Removing previous project clone: $projectDir" -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e5f2d5f15a8e668a' -Arguments @{ projectDir = "$projectDir" }) -InformationAction Continue
             try {
                 # -Force chases hidden + read-only entries (.git/objects/pack
                 # files arrive read-only on Windows after a clone).
@@ -903,7 +899,7 @@ function Update-ProjectClone {
                 return @{ success = $false; skipped = $false; errorMessage = $msg }
             }
         }
-        Write-Information "Cloning $ProjectUrl -> $projectDir" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b1d71aa576b45f6' -Arguments @{ projectUrl = "$ProjectUrl"; projectDir = "$projectDir" }) -InformationAction Continue
         # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
         # credential that expired between the preflight and here can't hang the clone.
         $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $projectDir) -TimeoutSeconds 600
@@ -913,7 +909,7 @@ function Update-ProjectClone {
             }
             return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)" }
         }
-        Write-Information "Project clone refreshed." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_99afc5f5196cb53c') -InformationAction Continue
     }
     return @{ success = $true; skipped = $false; errorMessage = $null }
 }
@@ -1110,7 +1106,7 @@ function Test-GitRemoteAccess {
         [Parameter()][int]$TimeoutSeconds = 20
     )
     if ([string]::IsNullOrWhiteSpace($Url)) {
-        return [pscustomobject]@{ Reachable = $false; Reason = 'unreachable'; Detail = 'no url' }
+        return [pscustomobject]@{ Reachable = $false; Reason = 'unreachable'; Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_6bd2246f82ada32b') }
     }
     $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $Url.Trim(), 'HEAD') -TimeoutSeconds $TimeoutSeconds
     if ($probe.ExitCode -eq 0) {
@@ -1221,16 +1217,16 @@ function Install-YurunaGalleryModuleIfMissing {
         Write-Verbose "$Name already installed."
         return $true
     }
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Install-Module (CurrentUser scope)')) {
-        Write-Information "WhatIf: Install-Module $Name -Scope CurrentUser" -InformationAction Continue
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_d1cad15ad73fa685'))) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_edb2828b379baee5' -Arguments @{ name = "$Name" }) -InformationAction Continue
         return $false
     }
     try {
         Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        Write-Information "Installed module: $Name (CurrentUser scope)." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_28dfcee33e40b77b' -Arguments @{ name = "$Name" }) -InformationAction Continue
         return $true
     } catch {
-        Write-Warning "Failed to install ${Name}: $($_.Exception.Message). Install manually with: Install-Module $Name -Scope CurrentUser"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67a649b2f9792d49' -Arguments @{ name = "${Name}"; message = "$($_.Exception.Message)"; name2 = "$Name" })
         return $false
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,7 @@
     parsing the recommendation object.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 # Test.StateFile gives the atomic, no-BOM JSON writer used to persist the
 # recommendation as a durable cycle artifact. Imported here (not guarded at
@@ -104,13 +105,13 @@ $script:RecommendationEnum = @(
 $script:AutoRemediationAllowList = [ordered]@{
     # The transient four: the condition is external and usually gone by the
     # next attempt, so the retry IS the repair.
-    'wait_timeout'           = 'a step exceeded its budget; the next attempt starts from a clean cycle'
-    'network_timeout'        = 'a transport stall, not a wrong answer'
-    'ip_not_discovered'      = 'the guest had no lease YET; a later cycle usually finds one'
-    'host_network_degraded'  = 'the host lost its own path; nothing in the cycle can fix it, and it recovers'
+    'wait_timeout'           = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9e5f8c44bec51fc')
+    'network_timeout'        = (Format-YurunaOperatorMessage -Key 'remediation.operator_4046c1f6949f7aad')
+    'ip_not_discovered'      = (Format-YurunaOperatorMessage -Key 'remediation.operator_787985aef3c53e0a')
+    'host_network_degraded'  = (Format-YurunaOperatorMessage -Key 'remediation.operator_a3827909e7a01825')
     # Backed by a Repair-* primitive that is safe to run twice.
-    'instrumentation_failure' = 'Repair-ScreenshotRing restores capture; a repeat is idempotent'
-    'host_io_blocked'         = 'Repair-VncConnection reconnects the console; reconnecting twice is harmless'
+    'instrumentation_failure' = (Format-YurunaOperatorMessage -Key 'remediation.operator_36573af397a13ade')
+    'host_io_blocked'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_70fab6da39ee36e1')
 }
 
 function Get-AutoRemediationAllowList {
@@ -229,7 +230,7 @@ function Clear-RecoveryHandler {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.Remediation registry', 'Clear all handlers')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'remediation.operator_2ad54514c8ca7909'), (Format-YurunaOperatorMessage -Key 'remediation.operator_d009181b9af99707'))) {
         & $script:RemediationRegistry.Clear
         Register-BuiltinRecoveryHandler
     }
@@ -272,13 +273,13 @@ function Invoke-Remediation {
         if (-not $LastFailurePath) {
             $baseDir = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR } else { $null }
             if (-not $baseDir) {
-                Write-Verbose "Invoke-Remediation: no YURUNA_LOG_DIR and no -LastFailurePath; nothing to do."
+                Write-Verbose (Format-YurunaOperatorMessage -Key 'remediation.operator_3f388f3f584a1034')
                 return $null
             }
             $LastFailurePath = Join-Path $baseDir 'last_failure.json'
         }
         if (-not (Test-Path -LiteralPath $LastFailurePath)) {
-            Write-Verbose "Invoke-Remediation: $LastFailurePath not present; nothing to do."
+            Write-Verbose (Format-YurunaOperatorMessage -Key 'remediation.operator_3b44f5cc88984d87' -Arguments @{ lastFailurePath = "$LastFailurePath" })
             return $null
         }
         $source = $LastFailurePath
@@ -294,16 +295,16 @@ function Invoke-Remediation {
             # fallback rather than relying on the coercion quirk.
             if ($FailureRecord -isnot [System.Collections.IDictionary]) {
                 $gotType = if ($null -eq $FailureRecord) { 'null' } else { $FailureRecord.GetType().Name }
-                throw "last_failure.json parsed to a non-object ($gotType); expected a JSON object."
+                throw (Format-YurunaOperatorMessage -Key 'remediation.operator_e0d3c0a00e449780' -Arguments @{ gotType = "$gotType" })
             }
         } catch {
-            Write-Warning "Invoke-Remediation: could not parse $LastFailurePath ($($_.Exception.Message))"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11a9174eaa2fbdfe' -Arguments @{ lastFailurePath = "$LastFailurePath"; message = "$($_.Exception.Message)" })
             return @{
                 FailureClass   = 'unknown'
                 Severity       = 'unknown'
                 Recommendation = 'operator_intervention_required'
-                Actions        = @('inspect last_failure.json manually', "verify $LastFailurePath is valid JSON")
-                Rationale      = "last_failure.json could not be parsed: $($_.Exception.Message)"
+                Actions        = @((Format-YurunaOperatorMessage -Key 'remediation.operator_00fd2209b1a993b2'), (Format-YurunaOperatorMessage -Key 'remediation.operator_be21fdfe4bad5cf0' -Arguments @{ lastFailurePath = "$LastFailurePath" }))
+                Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_442f164764fa5ba8' -Arguments @{ message = "$($_.Exception.Message)" })
                 HandledBy      = '(parse-error fallback)'
                 AutoApply      = $false
                 Source         = $LastFailurePath
@@ -419,8 +420,8 @@ function Invoke-Remediation {
             FailureClass   = $failureClass
             Severity       = $severity
             Recommendation = 'operator_intervention_required'
-            Actions        = @('register a handler via Register-RecoveryHandler', "or fall through to 'unknown' which currently has no handler either")
-            Rationale      = "No handler registered for failureClass '$failureClass' and no 'unknown' fallback present."
+            Actions        = @((Format-YurunaOperatorMessage -Key 'remediation.operator_ae1a107543e2b1da'), (Format-YurunaOperatorMessage -Key 'remediation.operator_328d54082fe46c95'))
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_676a299116f4813d' -Arguments @{ failureClass = "$failureClass" })
             HandledBy      = '(no handler)'
             AutoApply      = $false
             Source         = $source
@@ -430,16 +431,16 @@ function Invoke-Remediation {
     try {
         $result = & $handler $ctx
     } catch {
-        Write-Warning "Invoke-Remediation: handler for '$failureClass' threw ($($_.Exception.Message)); falling back to operator_intervention_required."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_64f9ab857a412559' -Arguments @{ failureClass = "$failureClass"; message = "$($_.Exception.Message)" })
         $result = @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "Handler threw: $($_.Exception.Message)"
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_dcc4abf58182f0f3' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
     if (-not $result -or -not ($result -is [hashtable])) {
         $result = @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "Handler for '$failureClass' returned a non-hashtable result."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_c706cfbe26bfe98c' -Arguments @{ failureClass = "$failureClass" })
         }
     }
     if (-not $result.Contains('Recommendation')) { $result['Recommendation'] = 'operator_intervention_required' }
@@ -452,7 +453,7 @@ function Invoke-Remediation {
     # token no caller can route on. Coerce to operator_intervention_required so
     # the loop always lands on a known recommendation.
     if ($script:RecommendationEnum -notcontains [string]$result['Recommendation']) {
-        Write-Warning "Invoke-Remediation: handler for '$failureClass' returned Recommendation '$($result['Recommendation'])' outside the recovery vocabulary; coercing to operator_intervention_required."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6a2751f0acfb479b' -Arguments @{ failureClass = "$failureClass"; recommendation = "$($result['Recommendation'])" })
         $result['Recommendation'] = 'operator_intervention_required'
     }
     $result['FailureClass'] = $failureClass
@@ -527,7 +528,7 @@ function Invoke-Remediation {
             try {
                 $null = Write-YurunaStateFileJson -Path (Join-Path $targetDir 'last_remediation.json') -InputObject $record -Confirm:$false
             } catch {
-                Write-Verbose "Invoke-Remediation: could not write last_remediation.json: $($_.Exception.Message)"
+                Write-Verbose (Format-YurunaOperatorMessage -Key 'remediation.operator_730dca21ad9eda73' -Arguments @{ message = "$($_.Exception.Message)" })
             }
         }
     }
@@ -548,17 +549,17 @@ function Register-BuiltinRecoveryHandler {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if (-not $PSCmdlet.ShouldProcess('Test.Remediation', 'Register built-in recovery handlers')) { return }
+    if (-not $PSCmdlet.ShouldProcess('Test.Remediation', (Format-YurunaOperatorMessage -Key 'remediation.operator_229beccf1c8615fb'))) { return }
 
     Register-RecoveryHandler -FailureClass 'ocr_timeout' -Handler {
         param([hashtable]$c)
         return @{
             Recommendation = 'restart_from_snapshot'
-            Rationale      = "ocr_timeout on $($c.Context.vmName): the screen never reached the expected state. Most often the workload diverged from the recorded path; replay from a clean snapshot rather than guessing how to recover in place."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_0ddb7073d12e8400' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Restore the last known-good snapshot for the VM',
-                'Re-run the sequence from the failing step',
-                "If the failure repeats, capture screen+OCR artifacts under the cycle folder and pause for inspection"
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f65f2f5b0c183dc5'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_14bd8c7afa68b453'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f170c655d3aa9ec7')
             )
         }
     }
@@ -592,24 +593,24 @@ function Register-BuiltinRecoveryHandler {
         # sends nobody to answer a prompt nothing established was there.
         $parked     = [bool]$c.Context.consoleStaticMeasured -and $staticSecs -gt 0
         $rationale = if ($parked) {
-            "console_flooded on $($c.Context.vmName): the wait ran its full budget against a screen whose content had not changed for ${staticSecs}s -- a wall of text that scrolled by earlier, not a console still filling. A guest printing nothing is a guest waiting for something, and a prompt it printed once before this wait began would look exactly like this." +
-            $(if ($heldSecs -gt 0) { " An operator hold of ${heldSecs}s ended just before this step: the guest kept running through it, so anything it printed and does not reprint is off the screen the step then had to read." } else { '' })
+            (Format-YurunaOperatorMessage -Key 'remediation.operator_01b3c9512f168859' -Arguments @{ vmName = "$($c.Context.vmName)"; staticSecs = "${staticSecs}" }) +
+            $(if ($heldSecs -gt 0) { (Format-YurunaOperatorMessage -Key 'remediation.operator_5d3d876075d1100d' -Arguments @{ heldSecs = "${heldSecs}" }) } else { '' })
         } else {
-            "console_flooded on $($c.Context.vmName): the wait ran its full budget against a console that was overwriting itself with one repeating line, so the pattern could not be read off it whether or not the guest ever printed it. This is not a guest that failed to reach the expected state -- it is a screen that could not be read, and replaying it floods the same screen again. What is repeating names the cause: a link or DHCP event churning the installer's network model, a service restart loop, or a kernel message storm."
+            (Format-YurunaOperatorMessage -Key 'remediation.operator_9151cc4f3b057b44' -Arguments @{ vmName = "$($c.Context.vmName)" })
         }
         $actions = if ($parked) {
             @(
-                'Read causeDetail.consoleStaticSeconds and consoleFlood in last_failure.json -- a long static run with a repeating dominant line is a parked guest, not a live flood',
-                'Open the guest console and answer what it is waiting on; a prompt that is off screen is still live and still reading input',
-                'Where the step is a waitForAndEnter, blindAfterSeconds lets it answer that prompt itself on the next run',
-                'Re-run the sequence from the failing step only after the guest is moving again'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_4155d913c9defc45'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_8f308f9f27537f47'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6a9db7b61b4925ae'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e058d7d3febce5c7')
             )
         } else {
             @(
-                'Read causeDetail.consoleFlood in last_failure.json for the dominant line and its share of the screen',
-                'Fix what is repeating rather than re-running the wait -- a longer timeout cannot make a self-overwriting surface readable',
-                'Where the flood is installer-phase network churn, confirm the guest is getting a DHCP lease at all',
-                'Only then re-run the sequence from the failing step'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_3264b63693a7f3a4'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_85eda07f90b4d887'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_cbaa17fc6a5150b0'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_bcb561ae0b2d1afd')
             )
         }
         return @{
@@ -623,11 +624,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'retry_with_backoff'
-            Rationale      = "network_timeout on $($c.Context.vmName): SSH / probe never reached ready. Typically transient -- a brief backoff (5-30 s) clears it without operator action."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_fbf8a282c16fce06' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Wait 5-30 s with jitter (see Get-PollDelay)',
-                'Re-attempt the failing network probe / Wait-SshReady',
-                "If retries exhaust, fall through to operator_intervention_required"
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_2fa001ad26748ebc'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_bb25c210fa3519d6'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6ece8bcef4b26107')
             )
         }
     }
@@ -636,11 +637,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "credential_expired on $($c.Context.vmName): a vault-managed password no longer matches what the guest expects. The vault almost certainly needs to be refreshed before the next cycle can pass."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9a49bf4b1c35603' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                "Inspect test/status/extension/authentication/vault.yml for the affected guest",
-                "Reset the guest's password (or rotate the vault entry) before retrying",
-                "Re-run the sequence after the vault is consistent"
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_38a152014944599f'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_19c29f3d7af84089'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e038808ca34827c4')
             )
         }
     }
@@ -649,11 +650,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'reconnect'
-            Rationale      = "host_io_blocked on $($c.Context.vmName): Send-Key / Send-Text / Send-Click could not deliver to the guest. The transport handle (VNC socket, Hyper-V keyboard CIM) likely went stale."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_abd632fb4ee5d5b1' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Disconnect-VNC for the affected VM',
-                'Force the next Send-* to re-handshake',
-                "If reconnect fails twice, fall through to operator_intervention_required"
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_26e79b3ecf42c48e'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_688a7e15ea7edf9c'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_d9a4a3e89d4a670b')
             )
         }
     }
@@ -662,11 +663,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'pause_and_inspect'
-            Rationale      = "pattern_matched_failure on $($c.Context.vmName): fetchAndExecute saw the failure-end-tag. The wrapper script itself reported a failure; auto-retry would just re-trigger it."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_7c1a5d17f86d77d0' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                "Open the cycle folder's last-fetch-and-execute.log",
-                'Diagnose the underlying script error',
-                'Resume manually after the root cause is fixed'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_443019dfa8dbce7c'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_82a3c5762fc4648e'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_8f9d21c7feb1fbde')
             )
         }
     }
@@ -675,11 +676,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "retry_exhausted on $($c.Context.vmName): the retry verb already used up its budget. Auto-retrying more would just keep failing."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_d58ebc3333e86c7f' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Inspect the innerFailureClass field in last_failure.json for the deepest cause',
-                'Address that underlying failure',
-                'Re-run the cycle once the root cause is resolved'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_ce4ee5bda91552ae'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_25ef3aa3a8d0b7fb'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e24252c37930e352')
             )
         }
     }
@@ -688,11 +689,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "snapshot_restore_failed on $($c.Context.vmName): the snapshot subsystem itself is broken. Auto-recovery cannot proceed without a working restore primitive."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_ec70b244ad9d80d1' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'List snapshots for the VM (Get-VMCheckpoint / virsh snapshot-list / utmctl)',
-                'Confirm the named snapshot exists and is consistent',
-                'If missing, take a fresh baseline snapshot and re-run the sequence'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e15a652575a58f85'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_2e1e64b6924ab3ed'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_bf89860e09f2c5b1')
             )
         }
     }
@@ -701,11 +702,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'pause_and_inspect'
-            Rationale      = "script_error on $($c.Context.vmName): an SSH-driven command returned non-zero. Auto-retry would loop on the same script bug."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_9f53aeb17d36bf0e' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Inspect the cycle folder for last-fetch-and-execute.log or sshExec stderr',
-                'Fix the underlying script',
-                'Resume the cycle once the script is correct'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_bac6cb55b45e16b5'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_2d28084c0bea1d81'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_fe77fdc3a8c79bc8')
             )
         }
     }
@@ -721,19 +722,19 @@ function Register-BuiltinRecoveryHandler {
         if ($c.Context.actionVerb -eq 'fetchAndExecute') {
             return @{
                 Recommendation = 'retry_with_backoff'
-                Rationale      = "wait_timeout on $($c.Context.vmName): the fetchAndExecute completion marker never appeared, so the guest script was still running (or wedged) at the deadline -- most often blocked on a slow or stalled package mirror. No failure tag was printed, so this is not a script-reported error; a backoff commonly clears it."
+                Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_644fe260c47d5bf9' -Arguments @{ vmName = "$($c.Context.vmName)" })
                 Actions        = @(
-                    "Open the cycle folder's last-fetch-and-execute.log and check where it stops -- a log with no '# exit code:' trailer means the script never returned",
-                    'Check the NETWORK section of the guest diagnostic for stalled or slow package-mirror origins',
-                    'Back off, then re-run the failing step (the guest install scripts are idempotent)',
-                    'If it stalls at the same URL every cycle, treat it as an upstream mirror outage rather than a guest fault'
+                    (Format-YurunaOperatorMessage -Key 'remediation.operator_6fd79eb4d8f46b60'),
+                    (Format-YurunaOperatorMessage -Key 'remediation.operator_2aed02135c2ad75f'),
+                    (Format-YurunaOperatorMessage -Key 'remediation.operator_db0130b0bf3d4958'),
+                    (Format-YurunaOperatorMessage -Key 'remediation.operator_12936401977348b5')
                 )
             }
         }
         return @{
             Recommendation = 'retry_immediately'
-            Rationale      = "wait_timeout on $($c.Context.vmName): waitForSeconds elapsed without an observable change. The wait is independent of guest state; an immediate retry is safe."
-            Actions        = @('Re-run the failing wait step.')
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_1fcd1c46f3e49adb' -Arguments @{ vmName = "$($c.Context.vmName)" })
+            Actions        = @((Format-YurunaOperatorMessage -Key 'remediation.operator_6a7069cdf541164d'))
         }
     }
 
@@ -741,11 +742,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'pause_and_inspect'
-            Rationale      = "extension_error on $($c.Context.vmName): a callExtension invocation threw. Auto-retry risks looping on the same extension bug or burning credentials."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_892877bc74922cba' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                "Identify the failing extension area (authentication, notification, etc.)",
-                "Inspect that area's default.psm1 + .contract.yml",
-                'Fix the extension and re-run the cycle'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6c024e2aae3f4e0b'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_b0efdbb198fceec5'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_7db5a2977e4790b2')
             )
         }
     }
@@ -754,8 +755,8 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'retry_immediately'
-            Rationale      = "instrumentation_failure on $($c.Context.vmName): takeScreenshot / saveSystemDiagnostic failed transiently. The cycle's observable state is unaffected; one immediate retry typically clears it."
-            Actions        = @('Re-attempt the failing instrumentation step.')
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_cc703ba747623c88' -Arguments @{ vmName = "$($c.Context.vmName)" })
+            Actions        = @((Format-YurunaOperatorMessage -Key 'remediation.operator_807e58f44f8a5743'))
         }
     }
 
@@ -763,11 +764,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'retry_with_backoff'
-            Rationale      = "provisioning_failure on $($c.Context.vmName): the host hypervisor could not define / boot / reach-running the VM. Often transient (insufficient-resources right after a prior teardown, KVP/IP late to populate) and clears on the next cycle after a backoff."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_d16851977ec6a779' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Confirm the prior cycle freed host CPU / memory (no orphaned VM holding resources)',
-                'Check the host hypervisor service + free disk for the VM store',
-                'Retry the cycle; if it reproduces deterministically, treat as operator_intervention_required'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f0fd4b357ed63f38'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_bb372789b3ee6502'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_dd019d34b72feafc')
             )
         }
     }
@@ -776,11 +777,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'retry_with_backoff'
-            Rationale      = "payload_unavailable on $($c.Context.vmName): the guest ran the fetch wrapper and no source served the script, so nothing executed -- there is no script here to debug, and no guest state to distrust. The usual cause is a host that renumbered under DHCP while this guest still held the old address; the guest re-asks the pool directory and normally recovers within seconds."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_7a0e1aa474da9a62' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Retry after a short backoff -- the host is usually reachable again by the next attempt',
-                'If it persists, check that this host publishes its address to the pool directory and that the guest can reach that directory',
-                'Where the log also shows the GitHub fallback returning 404: that leg cannot serve a private repository without a token, so the host is the only working source and its reachability is the whole problem'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_c00ffc306428603b'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_03c7dac9d2e3c13f'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_16b7173fb133ad34')
             )
         }
     }
@@ -789,11 +790,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'retry_with_backoff'
-            Rationale      = "ip_not_discovered on $($c.Context.vmName): no host-side probe could name an address for the guest, so the step never reached it. Address discovery rests on caches that age out and daemons that publish late, so the same call usually answers seconds later. Distinct from network_timeout, where an address WAS found and the path to it failed, and from host_network_degraded, which does not clear on its own."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_e54de45d1485fbb7' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Retry after a short backoff -- the address usually appears with no operator action',
-                'If it persists, confirm the guest booted and its NIC is attached to the expected network',
-                'Check the host-side lease / neighbor source the driver reads for a stale or missing entry'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_d1f78e9ab1185fe5'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_3d90ab28ad1f16f9'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f9f5cd6dabda9dc0')
             )
         }
     }
@@ -802,11 +803,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "bootstrap_sync on $($c.Context.vmName): a git fetch/clone of the framework or project repo failed for a non-network reason (divergence, auth, or a dirty working tree). A pure network blip is classified upstream as network_timeout and retried; this class is the non-transient remainder."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_9aa0dd33f9cd273a' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Inspect the framework + project repo working trees for divergence or local edits',
-                'Verify the git remote credentials / token are still valid',
-                'Reconcile the repo, then re-run the cycle'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_d7f954ed2c939cf9'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6cf224bfd1008ecc'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_2be2a7b55fde9058')
             )
         }
     }
@@ -815,11 +816,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "elevation_required on $($c.Context.vmName): a command needed sudo and no operator was present to supply a password. sudo reads the password from /dev/tty, so this cannot be answered by the runner, by a retry, or from a remote session -- and a host in this state would otherwise stall mid-cycle while the dashboard still showed the last cycle green. Fixing it needs console access, exactly like a network fault does."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_e344b12d616e0f0a' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule',
-                'Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command',
-                'Re-launch test/Start-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_fe73e80924c46670'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_7933966c333f63c7'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_5a4aff635afbeff4')
             )
         }
     }
@@ -833,12 +834,12 @@ function Register-BuiltinRecoveryHandler {
         if ($c.Failure -and $c.Failure.description) { $detail = " Reported: $($c.Failure.description)" }
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "pool_storage_full: the pool share has no room left for this host's cycle results, so the cycle's output could not be archived. Nothing the runner can do changes that -- it has no archives of its own to delete, and the next cycle only produces more to store. In move mode the share holds the ONLY copy of a cycle's results, so archiving is not optional and cycles stay paused until there is room.$detail"
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_4398282a54e50a13' -Arguments @{ detail = "$detail" })
             Actions        = @(
-                "Delete old cycle archives on the share under hosts/<hostId>/test-cycles/ -- they are immutable folders, so removing whole ones is safe",
-                'Retire dead hosts with test/pool/Remove-PoolHost.ps1, which also removes their archive root (including any pre-unification one)',
-                'Check what else shares the volume: the guest-image download pool under images/ is usually the largest tenant',
-                'The runner re-checks before each cycle and resumes on its own once there is room; a config edit or a new commit ends the pause immediately'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_daf1c9bf1f1bad50'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_3f8475af2fbbaf26'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_126f4cf4415d01de'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_9ea01d9a6217232e')
             )
         }
     }
@@ -853,12 +854,12 @@ function Register-BuiltinRecoveryHandler {
         if ($c.Failure -and $c.Failure.description) { $detail = " Reported: $($c.Failure.description)" }
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "lab_dependency_down: a lab service this host had been reaching stopped answering, and the cycle already held for it -- re-probing on backoff for up to sixteen hours -- before recording this. So an automated retry has provably been tried at the only scale that could have worked, and the next cycle would spend the same hours to reach the same answer. The service also need not live on this host: under a pool it is normally a VM somebody else owns, which is why this is not a host fault and not a guest fault.$detail"
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_90d007dd21de718a' -Arguments @{ detail = "$detail" })
             Actions        = @(
-                'Start the named service where it belongs: test/service/Start-<Service>VM.ps1 on its host, and confirm /healthz answers from there',
-                'A service that moved rather than died needs nothing here -- discovery re-asks every attempt, so the next cycle finds the new address on its own',
-                'To run without it, pin an address with $env:YURUNA_EXTENSION_HOST_<AREA>, or set testCycle.labHealth.enabled to false to stop holding for any service',
-                'The hold is not the cycle budget: an operator who knows the outage is permanent ends it from the status page rather than waiting it out'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_663bef65292f201c'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_14e6c2ed2ffe7e89'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f0a29d5f6e38b4ec'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_97b6f714dbde379c')
             )
         }
     }
@@ -872,15 +873,15 @@ function Register-BuiltinRecoveryHandler {
         $rec = if ($c.Failure -is [System.Collections.IDictionary]) { $c.Failure } else { @{} }
         $verdict = if ($rec.Contains('hostNetworkVerdict') -and $rec['hostNetworkVerdict']) { [string]$rec['hostNetworkVerdict'] } else { '' }
         $switchName = if ($rec.Contains('hostNetworkSwitch') -and $rec['hostNetworkSwitch']) { [string]$rec['hostNetworkSwitch'] } else { '' }
-        $verdictText = if ($verdict) { "verdict '$verdict'" } else { 'the recorded verdict' }
-        $switchText = if ($switchName) { "the external switch '$switchName'" } else { "the host's external switch" }
+        $verdictText = if ($verdict) { "verdict '$verdict'" } else { (Format-YurunaOperatorMessage -Key 'remediation.operator_31b3d0d03fc33e59') }
+        $switchText = if ($switchName) { (Format-YurunaOperatorMessage -Key 'remediation.operator_e54e017fda4a02ac' -Arguments @{ switchName = "$switchName" }) } else { (Format-YurunaOperatorMessage -Key 'remediation.operator_ce6ff8d514d5658f') }
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "host_network_degraded on $($c.Context.vmName): the guest-network path the HOST provides is broken, not this guest. A virtual switch object outlives its uplink binding across a host reboot, so the switch still exists and every host check still passes while nothing attached to it forwards -- each guest can only report its own symptom. Retrying, on this cycle or a later one, attaches the next guest to the same carrier-less bridge, so this class never enters the transient retry allow-lists and is not counted toward a per-guest quarantine streak."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_bb02ee25257cba0d' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                "On the host console, inspect $switchText ($verdictText): Get-VMSwitch, then Get-NetAdapter for the description it names",
-                "Restore the binding the verdict points at -- Set-VMSwitch -Name <switch> -NetAdapterName <nic> for a lost uplink, or -AllowManagementOS `$true for a missing management vNIC -- knowing it briefly interrupts the host's own network",
-                'Until it is restored, guests keep provisioning on the NAT fallback switch and reach the host only through its port-forwarders'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_6097b95aeee20519' -Arguments @{ switchText = "$switchText"; verdictText = "$verdictText" }),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_0f0d8db138f68e01'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e893941980e9b648')
             )
         }
     }
@@ -893,14 +894,14 @@ function Register-BuiltinRecoveryHandler {
         $rec = if ($c.Failure -is [System.Collections.IDictionary]) { $c.Failure } else { @{} }
         $prev = if ($rec.Contains('previousAddress')) { [string]$rec['previousAddress'] } else { '' }
         $cur  = if ($rec.Contains('currentAddress'))  { [string]$rec['currentAddress'] }  else { '' }
-        $move = if ($prev -and $cur) { " It moved $prev -> $cur." } else { '' }
+        $move = if ($prev -and $cur) { (Format-YurunaOperatorMessage -Key 'remediation.operator_6957eec58bdf4cad' -Arguments @{ prev = "$prev"; cur = "$cur" }) } else { '' }
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "dhcp_identity_unbounded on $($c.Context.vmName): this guest was rebuilt under the identity it is supposed to keep, and the DHCP server handed it a DIFFERENT address anyway.$move A guest whose address is not a function of its identity spends one address per build, and every abandoned one stays allocated for the whole lease -- so the pool drains at a rate set by the lease time rather than by how many machines exist, and guests eventually boot with no IPv4 at all. Retrying cannot help: the next build asks the same question and gets another new address, so this never enters the transient retry allow-lists."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_b51fc0ab27411fec' -Arguments @{ vmName = "$($c.Context.vmName)"; move = "$move" })
             Actions        = @(
-                'Confirm the seed carried the pin: network-config on the cidata seed must reach the guest, since a pin applied after boot is a lease too late',
-                "Check the server's lease table for this guest's MAC -- two live leases on one MAC means it is keying on a client-id the guest is still varying",
-                'If the pin is present and the address still moves, the server is not keying on client-id: give this guest a reservation, or shorten the lease so the waste recycles'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_0e19ba1c8c8b7f7b'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_86936d1d16cfffed'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_12710b3d54a09d23')
             )
         }
     }
@@ -909,11 +910,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "project_access_denied on $($c.Context.vmName): the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host's OWN project failed to clone: here the fix belongs to whoever assigned the pool's test-set."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_2b9a82d1d78b3138' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                "Grant this host's GH_TOKEN read access to the assigned projectUrl",
-                'Or reassign the pool to a test-set whose project every member can read',
-                'The pool-control board flags the pool and lists the blocked hosts'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_377f2e3910815162'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f279084b2eb96f2c'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_713fbd665e5da4bf')
             )
         }
     }
@@ -922,11 +923,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'operator_intervention_required'
-            Rationale      = "plan_invalid on $($c.Context.vmName): the cycle plan is ambiguous or unsatisfiable (duplicate sequence, a backend the host lacks, or a missing host/<host>/<guest> folder). A config error, not auto-remediable."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_54b0e080b8e528c6' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Inspect project/test/test.runner.yml for duplicate or malformed entries',
-                'Confirm the host/<host>/<guest> folder exists for every planned guest',
-                'Confirm the host provides every backend the plan requires, then re-run'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_4fccd2ceaaf44c3a'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_f4ded9a21116febc'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_c0a439f9f4207624')
             )
         }
     }
@@ -935,11 +936,11 @@ function Register-BuiltinRecoveryHandler {
         param([hashtable]$c)
         return @{
             Recommendation = 'pause_and_inspect'
-            Rationale      = "unknown failure on $($c.Context.vmName): the failing verb did not register a FailureClass. Until classification lands, an operator needs eyes on the cycle artifacts to decide."
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_b8bc2c014057ea71' -Arguments @{ vmName = "$($c.Context.vmName)" })
             Actions        = @(
-                'Open the cycle folder for the failing run',
-                'Review last_failure.json + manifest.json + cycle.events.ndjson',
-                'Classify the failure mode and consider adding a FailureClass to the verb'
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_e59c2d7e4aa9e176'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_26c6f6da9a72b538'),
+                (Format-YurunaOperatorMessage -Key 'remediation.operator_b4f9634c3488c4e9')
             )
         }
     }

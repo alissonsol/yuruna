@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424c7cc6-4425-4493-95dc-35c015c4f9ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,13 +48,14 @@ param(
     [string]$ImagePath
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Write-Output ""
-Write-Output "== Tesseract OCR test =="
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c1879a78e88f9d94')
 Write-Output ""
 
 # --- REGION: Validate input
 if (-not (Test-Path $ImagePath)) {
-    Write-Output "ERROR: File not found: $ImagePath"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b89efb6414cd8157' -Arguments @{ imagePath = "$ImagePath" })
     exit 1
 }
 $absPath = (Resolve-Path $ImagePath).Path
@@ -76,14 +77,14 @@ Write-Output ""
 try {
     $text = Invoke-TesseractOcr -ImagePath $absPath
 } catch {
-    Write-Output "Tesseract failed: $_"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0bdc91031cb14550' -Arguments @{ value = "$_" })
     exit 1
 }
 
 if ([string]::IsNullOrWhiteSpace($text)) {
-    Write-Output "(no text recognized)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_00b29d459cc0c2c0')
 } else {
-    Write-Output "--- OCR result ---"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_63d0ad7b256dd8cd')
     Write-Output $text
     Write-Output "--- end ---"
 }
@@ -91,12 +92,12 @@ if ([string]::IsNullOrWhiteSpace($text)) {
 Write-Output ""
 Write-Output "== Comparison =="
 Write-Output ""
-Write-Output "WinRT (Test-WinRtOcr.ps1)          Tesseract (this script)"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_b9f6acb318d4ee8c')
 Write-Output "-------------------------------     -------------------------------"
-Write-Output "Built into Windows                  Separate install required"
-Write-Output "Requires powershell.exe (5.1)       Runs directly from pwsh"
-Write-Output "No CLI, WinRT API only              Simple CLI (tesseract img out)"
-Write-Output "Windows only                        Windows, macOS, Linux"
-Write-Output "Closed source                       Open source (Apache 2.0)"
-Write-Output "Good for short text / UI            Better for documents / paragraphs"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_654a4ccaaaba493e')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8c9ce555fb00a163')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_7f7b869a3ba22e7a')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2c1aa93fe1d4ee75')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ad8e252ab885e3a')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_bd50c7a471e9d2ae')
 Write-Output ""

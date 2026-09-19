@@ -1,6 +1,6 @@
 # Runtime data flows
 
-These views trace deployment, test execution, artifact retrieval, and shared storage through the current producers and consumers.
+These views trace deployment, test execution, artifact retrieval, shared storage, and host-refresh probing through the current producers and consumers.
 
 The [canonical architecture](../architecture.md) defines the capabilities and phase model; these diagrams show the runtime exchanges.
 
@@ -222,6 +222,37 @@ Seven boxes group host registry files, cycle archives, and optional service arch
 | `<stash-mount>/stash/<hostId>/` | `hostkey/` and `files/`, configured independently by [stash setup](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh). |
 
 Replication is conditional on configuration. Copy mode runs detached and retains local cycles; `networkStorage.moveLogsToPoolStorage` enables bounded copy-verify-delete. A space refusal in move mode prevents starting a cycle or marks its completed result failed. Unverified archives do not authorize local evidence deletion. The [outer loop](../../test/modules/Test.RunnerOuterLoop.psm1) owns archive handoffs and surfaces drain failures.
+
+## F. Host refresh probe
+
+```mermaid
+sequenceDiagram
+    participant invoke-host-refresh as Invoke-HostRefresh.ps1
+    participant yuruna-host as Host provider
+    participant runner-state as Runner instance state
+    participant single-flight-lock as Repair lock
+    participant host-refresh-intent as Refresh request record
+    invoke-host-refresh->>yuruna-host: Test-VirtualizationResponsive
+    yuruna-host-->>invoke-host-refresh: state, reason, elapsedMs
+    invoke-host-refresh->>runner-state: Get-RunnerInstanceState
+    runner-state-->>invoke-host-refresh: Self, OtherRunner, Stale, or None
+    opt Not -WhatIf
+        invoke-host-refresh->>single-flight-lock: Acquire lifetime lock
+        single-flight-lock-->>invoke-host-refresh: Held or refused
+        invoke-host-refresh->>host-refresh-intent: Claim request
+        host-refresh-intent-->>invoke-host-refresh: Accepted or refused
+        alt Responsive and runner present
+            invoke-host-refresh->>host-refresh-intent: Complete (already-healthy)
+        else Responsive, runner dead or absent
+            invoke-host-refresh->>host-refresh-intent: Complete (partial: rung 1 not implemented)
+        else Unresponsive or undetermined
+            invoke-host-refresh->>host-refresh-intent: Complete (partial: probe state)
+        end
+        invoke-host-refresh->>single-flight-lock: Release lock
+    end
+```
+
+Five participants cover the one implemented rung: a probe, not a repair. [Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1) runs on the hypervisor host itself -- directly, or dispatched by [macos.utm.sh --refresh](../../install/macos.utm.sh) -- and calls the host contract's `Test-VirtualizationResponsive` ([Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1)) before touching any lock or record, so `-WhatIf` reports the same probe and rung ladder ([Get-VirtualizationRepairRung](../../test/modules/Test.HostRefresh.psm1)) as a live run without acquiring anything. Runner identity comes from [Get-RunnerInstanceState](../../test/modules/Test.SingleInstance.psm1). A live run takes the single lifetime lock ([Test.SingleFlightLock.psm1](../../test/modules/Test.SingleFlightLock.psm1)) and claims or resumes a durable request record ([Test.HostRefreshIntent.psm1](../../test/modules/Test.HostRefreshIntent.psm1)) before deciding an outcome. Only rung 0 (the probe) is acted on; a responsive hypervisor with a dead or absent runner, or an unresponsive/undetermined probe, is reported and completed as partial rather than repaired. This flow has no network hop: [pool-control-service](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) explicitly refuses a pool-wide `refresh` action, so no host is refreshed from another host today.
 
 ---
 

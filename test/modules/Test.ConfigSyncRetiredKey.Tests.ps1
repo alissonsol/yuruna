@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a6d0b4-8e17-4c92-b5a3-6f019d3ce7a2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,7 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Assert.psm1')            -Force -Global -DisableNameChecking
     Import-Module (Join-Path $here 'Test.PoolStorage.psm1')       -Force -DisableNameChecking -ErrorAction SilentlyContinue
     Import-Module (Join-Path $here 'Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $here 'Test.CatalogSource.psm1') -Force -DisableNameChecking
     # After ConfigServiceSync: it imports both of these itself with -Force, which
     # evicts an earlier global import into its own module scope.
     Import-Module (Join-Path $here 'Test.ConfigSync.psm1')        -Force -Global -DisableNameChecking
@@ -196,7 +197,6 @@ Describe 'the sync entry point' {
         # one that cannot: the freshness gate is a hard failure under
         # -NonInteractive, so judging first would fail a reference whose only
         # drift is a spelling this code can fix in flight.
-        $src = Get-Content -LiteralPath (Join-Path $script:RepoRootPath 'test/modules/Test.ConfigServiceSync.psm1') -Raw
         $fn = Get-YurunaTestFunctionAst -Path (Join-Path $script:RepoRootPath 'test/modules/Test.ConfigServiceSync.psm1') -Name 'Sync-HostConfiguration'
         Assert-NotNull $fn 'Sync-HostConfiguration went missing'
         $body = $fn.Extent.Text
@@ -205,7 +205,7 @@ Describe 'the sync entry point' {
         Assert-True ($migrateAt -ge 0) 'the sync no longer migrates retired key names'
         Assert-True ($freshAt -ge 0)   'the freshness gate went missing'
         Assert-True ($migrateAt -lt $freshAt) 'the migration has to run before the freshness gate'
-        Assert-Match 'Update-TestConfigNaming' $src `
+        Assert-Match 'Update-TestConfigNaming' ((Get-CatalogSourceMessage -Source $body) -join "`n") `
             'the operator still has to be told to fix the reference at the source; an in-flight translation only helps this one sync'
     }
 }

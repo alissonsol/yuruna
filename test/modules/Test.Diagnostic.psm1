@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,6 +62,7 @@
 # -Global so callers that have already imported Test.VMUtility / Test.Ssh
 # keep their existing bindings -- same pattern Test.Ssh uses for its own
 # transitive imports.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1')        -Force -DisableNameChecking -Global
 # Test.Extension loads the active authentication extension; Get-Password
@@ -636,7 +637,7 @@ function Reset-GuestTtyPrompt {
     # rather than run on its own. The resulting command surfaces far from
     # here -- as a step that reports success while its text was swallowed as
     # trailing arguments -- so this is the only place it can be named.
-    Write-Warning ("Reset-GuestTtyPrompt: console tty restore did not land (Ctrl-C sent={0}, Enter sent={1}); the guest may still hold a partial line that the next step's text will extend." -f $interrupted, $redrawn)
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f32f00842fbdbf46' -FormatValues ($interrupted, $redrawn) -FormatBindings @{ interrupted = '0'; redrawn = '1' })
     return $false
 }
 
@@ -726,63 +727,9 @@ function Test-ConsoleEchoIntact {
     Judges whether the console echo of a typed command, as read by OCR,
     is the command we typed -- returning 'intact', 'corrupt' or 'unknown'.
 .DESCRIPTION
-    Pure function: no screenshot, no OCR engine, no host contact. Given the
-    text that was typed and the text OCR read off the screen, it returns a
-    verdict. Keeping it pure is what makes the failure signature testable
-    against captured samples with no VM in the loop.
-
-    THE HARD CONSTRAINT IS THAT OCR OF A CONSOLE IS VERY NOISY. On a real
-    healthy capture the correctly typed line came back as
-    "HFhttp:/7192.168.64.1:8080:F=..." -- 'H=' read as 'HF', '//' as '/7',
-    ';' as ':', 'curl' as 'cur', '2>&1' as '2>81'. It was also cut off
-    two thirds of the way through, because the rest had scrolled or fallen
-    outside the recognized region. Any check resembling equality, or any
-    check demanding the whole command be visible, rejects every healthy
-    capture and makes this last-resort rung strictly worse than no check.
-
-    So the test is not "does the screen match the command" but "does the
-    screen contain a long stretch the command cannot explain":
-
-      1. Both strings are normalized through Get-OCRNormalized, which folds
-         the known confusion groups (o/O/0/@, l/I/1/i, S/5/s, :/;/. ...) and
-         drops the characters OCR routinely invents or loses.
-      2. The command's distinct GramSize-character windows form the set of
-         everything the screen is allowed to show.
-      3. Walking the OCR text, each position is 'explained' if its window is
-         in that set. The corruption signal is the longest run of consecutive
-         UNEXPLAINED positions that follows the command's OWN echo. A run is
-         counted only once at least AnchorMinRun explained positions have
-         appeared in a row, which marks where the command genuinely landed on
-         screen. This is the measure that separates corruption from ordinary
-         scrollback: text printed BEFORE the command -- a login banner, a boot
-         log, earlier output -- is unexplained and unbounded, but it is never
-         preceded by the command's dense echo, so it is left uncounted. A
-         stuck key, in contrast, appends or inserts its garbage AT or AFTER
-         the command it corrupted, producing one continuous counted run
-         hundreds of characters long. Isolated OCR noise can only ever
-         invalidate GramSize consecutive windows, so it cannot accumulate.
-      4. Independently, the fraction of the command's windows that appear
-         anywhere in the OCR text is the truncation signal.
-
-    Deliberately NOT used: Test-OCRMatch. It answers "is this prompt on
-    screen", splitting its pattern on whitespace and punctuation and
-    requiring only that each fragment appear somewhere. Measured against
-    the fully corrupted frame it returns true for the pattern
-    'rm -f y.ps1 y.txt' -- a predicate built on it never fires.
-
-    Also deliberately not used: the longest run of one repeated character.
-    It reads as the obvious test for a stuck key and does not work. On the
-    real frames the longest same-character run was 24 on the corrupted
-    capture against 25 on the other -- no discrimination at all, because
-    ~1400 stuck glyphs do not survive OCR as a clean run; tesseract renders
-    them as 'PUPPY PY BBY PPP YB BP...' across 65 lines. Those lines are
-    still unexplainable by the command, which is why (3) catches them.
-
-    'unknown' is a first-class verdict and always means "proceed". It is
-    returned when the OCR text is too short to judge and when the
-    normalizer itself is unavailable. The caller must press Enter on
-    'unknown': this is the last-resort diagnostics path, and refusing to
-    submit a line we simply could not read loses the capture outright.
+    See ../../docs/ocr.md#detecting-a-corrupted-console-echo for the
+    corruption-detection technique and why the obvious equality/repeated-
+    character checks do not work here. -- Test.Diagnostic.psm1
 .PARAMETER Expected
     The exact text handed to Send-Text.
 .PARAMETER OcrText
@@ -1009,13 +956,13 @@ function Invoke-RemoteDiagnosticsConsole {
     $sendText = Get-Command Send-Text -ErrorAction SilentlyContinue
     $sendKey  = Get-Command Send-Key  -ErrorAction SilentlyContinue
     if (-not $sendText -or -not $sendKey) {
-        Write-Warning "Invoke-RemoteDiagnosticsConsole: Send-Text/Send-Key not loaded (Initialize-YurunaHost must run first); skipping console path."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b691b2ed436b4774')
         return $failResult
     }
 
     $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
     if (-not $endpoint) {
-        Write-Warning "Invoke-RemoteDiagnosticsConsole: could not resolve host status-service URL; skipping console path."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6e0d6c63257a47af')
         return $failResult
     }
 
@@ -1086,7 +1033,7 @@ function Invoke-RemoteDiagnosticsConsole {
             # wrote; catching it here costs one retype.
             $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
             if ($verdict -eq 'corrupt') {
-                Write-Warning "Invoke-RemoteDiagnosticsConsole: console echo does not match the typed command; clearing the line and retyping once."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c29ff5bcd747258c')
                 # Ctrl-U discards the corrupted line without submitting it.
                 # An Enter here would execute exactly the malformed command
                 # we just detected.
@@ -1104,7 +1051,7 @@ function Invoke-RemoteDiagnosticsConsole {
                     # "the guest echoed a malformed command" need different
                     # fixes, and conflating them sends the reader to the
                     # console when the keystroke path is what is broken.
-                    Write-Warning ("Invoke-RemoteDiagnosticsConsole: retype did not reach the guest (Ctrl-U sent={0}, text sent={1}); abandoning the console path without submitting." -f $cleared, $retyped)
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_614941dc7da5cc4d' -FormatValues ($cleared, $retyped) -FormatBindings @{ cleared = '0'; retyped = '1' })
                     return $failResult
                 }
                 $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
@@ -1115,14 +1062,14 @@ function Invoke-RemoteDiagnosticsConsole {
                     # the standard failure -- the finally block restores the
                     # prompt, which is what stops the NEXT sequence step from
                     # being appended to this line.
-                    Write-Warning "Invoke-RemoteDiagnosticsConsole: console echo still corrupt after one retype; abandoning the console path without submitting."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_06133b7736b263c1')
                     return $failResult
                 }
                 Write-Verbose '  Diagnostics: console echo verified after retype.'
             }
             [void](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
         } catch {
-            Write-Warning "Invoke-RemoteDiagnosticsConsole: keystroke injection threw: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4fc3e1360294bece' -Arguments @{ message = "$($_.Exception.Message)" })
             return $failResult
         }
         $preEnterClock.Stop()
@@ -1147,7 +1094,7 @@ function Invoke-RemoteDiagnosticsConsole {
                 -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $waitSeconds `
                 -NewerThanUtc $baselineMtimeUtc
         if ($null -eq $bytes) {
-            Write-Warning "Invoke-RemoteDiagnosticsConsole: diagnostics file did not arrive within ${waitSeconds}s."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_98b0096fa6f069d3' -Arguments @{ waitSeconds = "${waitSeconds}" })
             return $failResult
         }
         Write-Verbose "  Diagnostics: console path succeeded (${bytes} bytes uploaded by guest)."
@@ -1281,7 +1228,7 @@ function Save-GuestPerformanceSnapshot {
     )
     $path = Join-Path $OutputFolder ((Get-DiagnosticsFileName -Id $Id) -replace '\.txt$', '.snapshot.txt')
     try {
-        if ($GuestKey -match 'windows|macos') { return @{ diagnosticOutcome='unavailable'; outPath=$null; reason='Linux snapshot only' } }
+        if ($GuestKey -match 'windows|macos') { return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_9c627f468ca0a406') } }
         $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
         $prefix = ''
         foreach ($entry in @(@('E_SI',$StepInvocationId), @('E_QI',$SequenceInvocationId))) {
@@ -1300,7 +1247,7 @@ function Save-GuestPerformanceSnapshot {
         $outcome = if ($result.success -and $body -match '(?m)^snapshotCompleteUtc=') { 'complete' }
             elseif ($body -match '(?i)timed? out|timeout') { 'timeout' }
             elseif ($body -match '(?m)^snapshotUtc=') { 'partial' } else { 'unavailable' }
-        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { 'Guest sample incomplete; see artifact' }; exitCode=[int]$result.exitCode; hostClock=$hostClock }
+        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ce1e07b67cff6083') }; exitCode=[int]$result.exitCode; hostClock=$hostClock }
     } catch {
         Write-Verbose "Guest performance snapshot unavailable: $($_.Exception.Message)"
         return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=$_.Exception.Message }
@@ -1398,7 +1345,7 @@ function Save-GuestDiagnostic {
     )
     $hostSample = $HostSnapshot
     if (-not $hostSample) {
-        $hostSample = @{ Status='unavailable'; Path=$null; Reason='Host sampler unavailable' }
+        $hostSample = @{ Status='unavailable'; Path=$null; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7b76367fda1c3017') }
         try {
             Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
             $hostSample = Save-YurunaHostSampleSnapshot -DestinationDirectory $OutputFolder -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
@@ -1525,7 +1472,7 @@ function Invoke-GuestDiagnosticCapture {
         # the missing artifact to a connectivity issue.
         param($Result, [string]$Rung)
         if ($Result -and $Result.output -and ([string]$Result.output) -match 'Timed out after (\d+)s') {
-            Write-Warning ("Save-GuestDiagnostic: '{0}' rung hit the {1}s per-ssh-command cap (defined in `$script:SaveGuestDiagnosticPerCommandTimeoutSeconds at the top of Test.Diagnostic.psm1)." -f $Rung, $Matches[1])
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_625fcb6b4b3ecfa6' -FormatValues ($Rung, $Matches[1]) -FormatBindings @{ rung = '0'; matches = '1' })
         }
     }
 
@@ -1533,8 +1480,8 @@ function Invoke-GuestDiagnosticCapture {
         try {
             New-Item -ItemType Directory -Path $OutputFolder -Force | Out-Null
         } catch {
-            Write-Warning "Save-GuestDiagnostic: could not create output folder '$OutputFolder': $($_.Exception.Message)"
-            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="could not create output folder '$OutputFolder': $($_.Exception.Message)" }
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e1f533f3abb267e7' -Arguments @{ outputFolder = "$OutputFolder"; message = "$($_.Exception.Message)" })
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_c762446cf47236d6' -Arguments @{ outputFolder = "$OutputFolder"; message = "$($_.Exception.Message)" }) }
         }
     }
     # Local alias: the shared console-fallback helpers below take
@@ -1554,8 +1501,8 @@ function Invoke-GuestDiagnosticCapture {
         # 'root' is Get-GuestSshUser's catch-all return when the guest
         # key is unknown (Windows guests today). Diagnostics over SSH
         # has no sensible path there yet.
-        Write-Warning "Save-GuestDiagnostic: no SSH user mapping for guest '$GuestKey'; skipping."
-        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="no SSH user mapping for guest '$GuestKey'" }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3541ead0f5647e4a' -Arguments @{ guestKey = "$GuestKey" })
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7d19d373db6f2996' -Arguments @{ guestKey = "$GuestKey" }) }
     }
 
     # Pre-flight: ask the driver to warm the host's neighbor cache before any
@@ -1584,8 +1531,8 @@ function Invoke-GuestDiagnosticCapture {
     # https://yuruna.link/42d38664
     $waitBudget = [math]::Min(180, (Get-DiagBudgetRemaining))
     if ($waitBudget -le 0) {
-        Write-Warning ("Save-GuestDiagnostic: total {0}s budget already exhausted before Wait-SshReady; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
-        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="total $($script:SaveGuestDiagnosticTotalTimeoutSeconds)s budget exhausted before Wait-SshReady" }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3b5e52665a4e90e0' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_796f8cf00a32ff21' -Arguments @{ saveGuestDiagnosticTotalTimeoutSeconds = "$($script:SaveGuestDiagnosticTotalTimeoutSeconds)" }) }
     }
     $sshReady = $true
     if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $waitBudget -PollSeconds 5)) {
@@ -1653,7 +1600,7 @@ function Invoke-GuestDiagnosticCapture {
     if (-not $sshReady) {
         Write-Verbose "  Diagnostics: SSH not reachable; skipping key-ssh rung."
     } elseif ($keyBudget -le 0) {
-        Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before key-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_86fa2b24d07ad7dd' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
     } else {
         $attempted += 'key-ssh'
         Write-Verbose ("  Diagnostics: ssh {0}@{1} (key auth via yuruna_ed25519, budget {2}s)" -f $user, $address, $keyBudget)
@@ -1676,7 +1623,7 @@ function Invoke-GuestDiagnosticCapture {
     if (-not $result) {
         $pwBudget = Get-PerCmdBudget
         if ($pwBudget -le 0) {
-            Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before password-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f3307e39b4b707c' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
         } elseif ($sshReady -and $sshpassPath -and $password) {
             $attempted += 'password-ssh'
             Write-Verbose ("  Diagnostics: ssh {0}@{1} (password auth via sshpass, budget {2}s)" -f $user, $address, $pwBudget)
@@ -1699,11 +1646,11 @@ function Invoke-GuestDiagnosticCapture {
             # operator needs to inspect the authentication extension.
             $reason =
                 if (-not $sshReady) { 'SSH not reachable' }
-                elseif (-not $sshpassPath) { 'sshpass not on PATH' }
-                elseif ($pwReason -eq 'auth-extension-load-failed') { "authentication extension failed to load (no stored password for '$user')" }
-                elseif ($pwReason -eq 'get-password-not-exported')  { "authentication extension does not export Get-Password (no stored password for '$user')" }
-                elseif ($pwReason -eq 'get-password-threw')         { "Get-Password threw for '$user' (vault may be corrupted)" }
-                else                                                 { "no stored password for '$user'" }
+                elseif (-not $sshpassPath) { (Format-YurunaOperatorMessage -Key 'runner.operator_3282d26b2446f352') }
+                elseif ($pwReason -eq 'auth-extension-load-failed') { (Format-YurunaOperatorMessage -Key 'runner.operator_36e902798e978721' -Arguments @{ user = "$user" }) }
+                elseif ($pwReason -eq 'get-password-not-exported')  { (Format-YurunaOperatorMessage -Key 'runner.operator_79eb693e18673223' -Arguments @{ user = "$user" }) }
+                elseif ($pwReason -eq 'get-password-threw')         { (Format-YurunaOperatorMessage -Key 'runner.operator_0e9e9264026f513e' -Arguments @{ user = "$user" }) }
+                else                                                 { (Format-YurunaOperatorMessage -Key 'runner.operator_2be4fdfd7f69bd4d' -Arguments @{ user = "$user" }) }
             Write-Verbose "  Diagnostics: $reason -- skipping password SSH."
         }
     }
@@ -1717,7 +1664,7 @@ function Invoke-GuestDiagnosticCapture {
     if (-not $result) {
         $consoleBudget = Get-PerCmdBudget
         if ($consoleBudget -le 0) {
-            Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before console rung; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fe6e1414e9873a8d' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
         } else {
             $attempted += 'console'
             $consoleResult = Invoke-RemoteDiagnosticsConsole `
@@ -1744,7 +1691,7 @@ function Invoke-GuestDiagnosticCapture {
             # but holds no guest state; an empty per-guest folder is the
             # clearer signal, so skip the write and return nothing on disk.
             Write-Verbose "  Diagnostics: no rung produced output for VM '$VMName'; leaving folder empty rather than writing a header-only stub."
-            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; reason='(all diagnostics rungs failed: no guest output)' }
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_e09e27604e13c08b') }
         }
         $result = $lastResult
     }
@@ -1769,13 +1716,13 @@ function Invoke-GuestDiagnosticCapture {
         # confuse downstream readers (browsers serving it as text/plain).
         Set-Content -LiteralPath $outPath -Value $body.ToString() -Encoding utf8 -NoNewline
     } catch {
-        Write-Warning "Save-GuestDiagnostic: could not write '$outPath': $($_.Exception.Message)"
-        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason="Set-Content failed: $($_.Exception.Message)" }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_128d310098239f76' -Arguments @{ outPath = "$outPath"; message = "$($_.Exception.Message)" })
+        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_bc30bb4fb49d53bf' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
 
     $elapsedSeconds = [int]((Get-Date) - $diagStart).TotalSeconds
     if ($elapsedSeconds -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds) {
-        Write-Warning ("Save-GuestDiagnostic: total elapsed {0}s exceeded the {1}s cap (`$script:SaveGuestDiagnosticTotalTimeoutSeconds in Test.Diagnostic.psm1) -- rung sequence ran long for VM '{2}'. Inspect SSH responsiveness or raise the cap." -f $elapsedSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName)
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22323c8e215f0677' -FormatValues ($elapsedSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName) -FormatBindings @{ elapsedSeconds = '0'; saveGuestDiagnosticTotalTimeoutSeconds = '1'; vMName = '2' })
     }
     Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSeconds}s)"
     $writtenBytes = 0L
@@ -1788,7 +1735,7 @@ function Invoke-GuestDiagnosticCapture {
         exitCode  = [int]$result.exitCode
         bytes     = $writtenBytes
         skipped   = $false
-        reason    = if ($result.success) { $null } else { '(all diagnostics rungs failed)' }
+        reason    = if ($result.success) { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ed0c49bb24ec78e3') }
     }
 }
 

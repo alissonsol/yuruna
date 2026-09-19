@@ -69,6 +69,15 @@ testCycle:
   autoRemediation:
     enabled: false
     maxAttemptsPerCycle: 2
+  # Automatic host refresh: after this many consecutive cycles report a
+  # verified control-channel timeout in service-vm-restore (not any other
+  # failure shape), the resident runner invokes the local host-refresh
+  # repair itself instead of waiting for an operator. 0 disables it; the
+  # recommended opt-in is 2. Restricted to the macOS restart-tier rungs
+  # until each additional platform passes its own qualification, capped at
+  # one automatic disruptive attempt per UTC day regardless of this value,
+  # and never overrides an active pause/drain.
+  autoRefreshAfterStalls: 0
   cycleDelaySeconds: 300
   # Circuit breaker: skip a guest that keeps failing the same way, so it stops
   # burning a full provision+deploy every cycle. After failuresToQuarantine

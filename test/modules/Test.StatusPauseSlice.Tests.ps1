@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b7e04d-95c1-4a2f-8d63-70e1c9a4b528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.ProductGlobalization.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -295,8 +296,12 @@ Describe 'the runner writes a state rather than a sentence' {
     It 'persists the code and the label beside the line' {
         $engine = Join-Path $script:RepoRoot 'test/modules/Test.SequenceEngine.psm1'
         $text = [IO.File]::ReadAllText($engine)
-        Assert-True ($text -match "param\(\[string\]\`$Line, \[string\]\`$Code = '', \[string\]\`$Label = ''\)") `
-            'the current-action writer does not take a code and a label'
+        $ast = [Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$writeCurrentAction' }, $true)
+        $parameters = @($assignment.Right.Find({ param($node) $node -is [Management.Automation.Language.ParamBlockAst] }, $true).Parameters)
+        Assert-StringEqual -Expected 'Line,Code,Label,Arguments' -Actual (($parameters.Name.VariablePath.UserPath) -join ',') 'the current-action contract lost a typed field'
+        Assert-Equal -Expected ([hashtable]) -Actual $parameters[3].StaticType 'current-action arguments must stay structured'
+        Assert-True ($text -match '(?m)^\s+arguments\s+=\s+\$Arguments$') 'the sidecar must preserve named values independently of display prose'
         Assert-True ($text -match '(?m)^\s+label\s+=\s+\$Label$') `
             'the persisted record does not carry the label'
         Assert-True ($text -match "'sequence_paused_waiting_resume' \`$Label") `
@@ -322,5 +327,15 @@ Describe 'the runner writes a state rather than a sentence' {
             }
         }
         Assert-NoFinding $findings 'a coded state would render as a key name'
+    }
+}
+
+Describe 'product globalization acceptance' {
+    It 'globalization acceptance: all status surfaces and states' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/globalization-pages.test.js' -Argument @('status')
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/performance.test.js'
+    }
+    It 'globalization acceptance: status locale selection and cache isolation' {
+        Invoke-ProductGlobalizationCheck -Kind Pester -Path 'test/modules/Test.StatusServiceLocale.Tests.ps1'
     }
 }

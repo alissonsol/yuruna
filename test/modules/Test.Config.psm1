@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # ConvertTo-LowerHex (SHA-256 -> lowercase-hex) lives in the leaf Test.Hash module
 # so every hashing caller shares one definition; import it -Global so the bare-name
@@ -125,7 +128,7 @@ function Read-TestConfig {
         [string]$KnownHash
     )
     if (-not (Test-Path -LiteralPath $Path)) {
-        if ($ThrowOnError) { throw "Config file not found: $Path" }
+        if ($ThrowOnError) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_28b94cd32cbaf4b1' -Arguments @{ path = "$Path" }) }
         return $null
     }
     if ($KnownResolvedPath -and $KnownMtime -and $KnownHash) {
@@ -151,7 +154,7 @@ function Read-TestConfig {
         return $null
     }
     if ($parsed -isnot [System.Collections.IDictionary]) {
-        if ($ThrowOnError) { throw "Config root is not a mapping: $resolved" }
+        if ($ThrowOnError) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_192d44cf22fa5b5c' -Arguments @{ resolved = "$resolved" }) }
         Write-Verbose "Read-TestConfig: root of $resolved is not a mapping; returning `$null."
         return $null
     }
@@ -181,7 +184,7 @@ function Clear-TestConfigCache {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('Test.Config cache', 'Clear')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_8f30e6a5ba1ca262'), 'Clear')) {
         Initialize-TestConfigCacheStore
     }
 }
@@ -283,7 +286,7 @@ function Publish-TestConfigSnapshot {
         # nothing: every snapshot miss already falls through to a full YAML parse.
         if ($SourcePath -match '[\\/]extension[\\/]authentication[\\/]') { return $null }
         $dest = Get-TestConfigSnapshotPath -SourcePath $SourcePath
-        if (-not $PSCmdlet.ShouldProcess($dest, 'Publish test.config.yml snapshot')) { return $dest }
+        if (-not $PSCmdlet.ShouldProcess($dest, (Format-YurunaOperatorMessage -Key 'runner.operator_3253a16415bb3bf0'))) { return $dest }
         $envelope = [ordered]@{
             sourcePath   = [string]$SourcePath
             sourceMtime  = $SourceMtime.ToString('o')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425681a0-b84a-453d-9df2-fb0f85f547f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.psm1"
 Import-Module -Name $modulePath
@@ -40,8 +41,8 @@ function Confirm-RequirementList {
     $requirementsFile = Join-Path -Path $PSScriptRoot -ChildPath "Yuruna.Requirement.yml"
     if (-Not (Test-Path -Path $requirementsFile)) { $r = "File not found: $requirementsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     $requirementsYaml = ConvertFrom-File $requirementsFile
-    if ($null -eq $requirementsYaml) { Write-Information "Requirements null or empty in file: $requirementsFile"; return (New-YurunaValidationResult $true); }
-    if ($null -eq $requirementsYaml.requirements) { Write-Information "Requirements null or empty in file: $requirementsFile"; return (New-YurunaValidationResult $true); }
+    if ($null -eq $requirementsYaml) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_f7b74149a97de81d' -Arguments @{ requirementsFile = "$requirementsFile" }); return (New-YurunaValidationResult $true); }
+    if ($null -eq $requirementsYaml.requirements) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_f7b74149a97de81d' -Arguments @{ requirementsFile = "$requirementsFile" }); return (New-YurunaValidationResult $true); }
 
     $anyFailure = $false
     # Collect the per-tool failure lines so the aggregate reason names every
@@ -79,7 +80,7 @@ function Confirm-RequirementList {
             $foundText = (@($toolFound) | Out-String).Trim()
             $foundVer  = [regex]::Match($foundText, '\d+(\.\d+){1,3}').Value
             if ([string]::IsNullOrWhiteSpace($foundVer)) {
-                Write-Information ("{0,36}  MISSING: no version detected (tool absent or probe failed)." -f "")
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ab010829b00c1e08' -FormatValues ("") -FormatBindings @{ value = '0,36' })
                 $failureReasons.Add("$toolName MISSING: no version detected (tool absent or probe failed).")
                 $anyFailure = $true
             }
@@ -114,7 +115,7 @@ function Confirm-RequirementList {
         $found = if ($capability.Available) { "yes" } else { "NO" }
         Write-Information ("{0,20}" -f $capability.Name + "{0,16}" -f "yes" + "  {0}" -f $found)
         if (-not $capability.Available) {
-            Write-Information ("{0,36}  MISSING: {1}" -f "", $capability.Reason)
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e92648502054ef88' -FormatValues ("", $capability.Reason) -FormatBindings @{ value = '0,36'; reason = '1' })
             $failureReasons.Add("$($capability.Name) MISSING: $($capability.Reason)")
             $anyFailure = $true
         }
@@ -150,10 +151,7 @@ function Get-RuntimeCapability {
     $available = ($null -eq $AesGcmSupported) -or [bool]$AesGcmSupported
     $reason = ''
     if (-not $available) {
-        $reason = ("this runtime has no AES-GCM, so Lab token enrollment and config-sync credential " +
-                   "exchange both fail on this host until PowerShell is upgraded (found " +
-                   "$($PSVersionTable.PSVersion) on " +
-                   "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim()))")
+        $reason = ((Format-YurunaOperatorMessage -Key 'automation.operator_d0a19f78bb71a684' -Arguments @{ pSVersion = "$($PSVersionTable.PSVersion)"; trim = "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim())" }))
     }
     return @(
         [pscustomobject]@{ Name = 'AES-GCM'; Available = $available; Reason = $reason }

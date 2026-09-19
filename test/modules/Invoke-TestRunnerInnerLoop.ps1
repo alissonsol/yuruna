@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,7 @@ param(
 # is the only reliable source -- `[string]` defaults to '' when omitted,
 # which would shadow "operator left it blank" vs "operator typed nothing"
 # if we just read $logLevel.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel } else { $null }
 
 # Canonical cascade implementation: Test.LogLevel.psm1. See docs/loglevels.md
@@ -173,10 +174,9 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
         'OtherRunner' {
             Write-Output ""
             Write-Output "========"
-            Write-Output "  Another Start-TestRunner.ps1 is running"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_281a00eea15ab59c')
             Write-Output "  PID:     $($priorRunner.pid)"
-            Write-Output "  Action:  stopping it and running"
-            Write-Output "           Remove-TestVMFiles.ps1 before start"
+            Write-Output ((Format-YurunaOperatorMessage -Key 'runner.prior_runner_cleanup_action').Replace("`n", [Environment]::NewLine))
             Write-Output "========"
             # 'test-' is the template default: test.config.yml hasn't been
             # merged yet, so we can't read a user override. If the user
@@ -186,7 +186,7 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
         }
         'Stale' {
             if ($priorRunner.pid -gt 0) {
-                Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not a Start-TestRunner.ps1 process. Ignoring."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_24ae709675586267' -Arguments @{ pid = "$($priorRunner.pid)" })
             }
         }
         default { } # 'None' / 'Self' -- nothing to do
@@ -203,7 +203,7 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
     # above; the atomic write turns the race into a clear winner/loser.
     $pidWritten = Write-RunnerPidFile -RunnerPidFile $RunnerPidFile -Confirm:$false
     if (-not $pidWritten) {
-        Write-Error "Lost the pidfile race against a concurrent Invoke-TestRunnerInnerLoop. Inspect $RunnerPidFile and retry."
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_2b9c15c940311224' -Arguments @{ runnerPidFile = "$RunnerPidFile" })
         exit $ExitFailure
     }
 }
@@ -334,9 +334,9 @@ $global:VerbosePreference = $savedVerbose
 if (-not (Test-Path $StatusFile)) {
     if (Test-Path $StatusTmpl) {
         Copy-Item -Path $StatusTmpl -Destination $StatusFile
-        Write-Output "Created status.json from template."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9073dca2f5030e8f')
     } else {
-        Write-Error "Status template not found: $StatusTmpl"; exit $ExitFailure
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_8ee4f8acc6c8cab7' -Arguments @{ statusTmpl = "$StatusTmpl" }); exit $ExitFailure
     }
 }
 
@@ -355,7 +355,7 @@ $script:RunnerCfgState = New-RunnerConfigState -CmdLineLogLevel $script:CmdLineL
 
 # --- REGION: Read config (syncs against template first)
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
-    Write-Error "Neither config nor template found. Config: $ConfigPath Template: $TemplatePath"; exit $ExitFailure
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ac92ad6675163216' -Arguments @{ configPath = "$ConfigPath"; templatePath = "$TemplatePath" }); exit $ExitFailure
 }
 $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
 $script:Config = $Config
@@ -385,7 +385,7 @@ if (-not $gate.passed) { exit $ExitFailure }
 # --- REGION: Bootstrap
 $HostType = Get-HostType
 if (-not $HostType) { exit $ExitFailure }
-Write-Output "Host type: $HostType"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_82bcd42076e94095' -Arguments @{ hostType = "$HostType" })
 Write-RunnerPhase -Phase 'host-detect'
 
 # Announce here, prompt at the port-map refresh below: on host.ubuntu.kvm that
@@ -393,7 +393,7 @@ Write-RunnerPhase -Phase 'host-detect'
 # a password may be wanted before the cycle's long VM work starts. No prompt at
 # this point -- most cycles never reach a sudo call at all.
 if ($HostType -eq 'host.ubuntu.kvm') {
-    Write-Output "Note: if this cycle refreshes the caching-proxy port map it writes systemd forwarder units with sudo and may prompt for your password."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5a205d60747de8fa')
 }
 
 # Externalize this host's identity + capabilities to runtime/host.registration.json
@@ -484,7 +484,7 @@ if ($hostNetwork.Healthy) {
             $priorHostNetwork  = Get-Content -Raw -LiteralPath $HostNetworkStateFile | ConvertFrom-Json
             $hostNetworkStreak = [int]$priorHostNetwork.consecutiveTotalLoss
         } catch {
-            Write-Warning "Could not parse $HostNetworkStateFile (restarting the host-network streak): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a45d371d59f46ba6' -Arguments @{ hostNetworkStateFile = "$HostNetworkStateFile"; message = "$($_.Exception.Message)" })
         }
     }
     $hostNetworkStreak++
@@ -496,7 +496,7 @@ if ($hostNetwork.Healthy) {
     } -Confirm:$false)
 }
 if ($hostNetwork.Degraded -and $hostNetwork.Healthy) {
-    Write-Information "Host guest-network: degraded but usable -- guests take the '$($hostNetwork.Path)' path this cycle. $($hostNetwork.Reason)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cdaca8b5f8db383b' -Arguments @{ path = "$($hostNetwork.Path)"; reason = "$($hostNetwork.Reason)" })
 }
 
 # --- REGION: Degraded-host pair -> runtime/host-network.txt + host-network.json
@@ -567,7 +567,7 @@ if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
                 $hostNetworkTransition = $true
             }
         } catch {
-            Write-Warning "Could not parse $HostNetworkRecordFile (restarting the degraded-host count): $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cc161913a057897a' -Arguments @{ hostNetworkRecordFile = "$HostNetworkRecordFile"; message = "$($_.Exception.Message)" })
             $hostNetworkTransition = $true
         }
     } else {
@@ -605,9 +605,9 @@ if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
         consecutiveCycles = $hostNetworkCycles
     }) -Confirm:$false)
     if ($hostNetworkDegradedSwitch) {
-        Write-Warning "Host network degraded: External switch '$hostNetworkDegradedSwitch' reports $hostNetworkDegradedVerdict ($streakText); $hostNetworkFallbackText Written to $HostNetworkBannerFile"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_612dcd1868df2ca1' -Arguments @{ hostNetworkDegradedSwitch = "$hostNetworkDegradedSwitch"; hostNetworkDegradedVerdict = "$hostNetworkDegradedVerdict"; streakText = "$streakText"; hostNetworkFallbackText = "$hostNetworkFallbackText"; hostNetworkBannerFile = "$HostNetworkBannerFile" })
     } else {
-        Write-Warning "Host network degraded: no usable External vSwitch ($streakText); $hostNetworkFallbackText Written to $HostNetworkBannerFile"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_acea7366671e16ac' -Arguments @{ streakText = "$streakText"; hostNetworkFallbackText = "$hostNetworkFallbackText"; hostNetworkBannerFile = "$HostNetworkBannerFile" })
     }
 } elseif ("$($hostNetwork.Path)" -ne 'unknown') {
     # Only a host whose probe actually ran may clear the pair. 'unknown' is "no
@@ -626,19 +626,19 @@ if ($hostNetworkTransition -and (Get-Command Write-HostRegistrationRecord -Error
 }
 if (-not $hostNetwork.Healthy) {
     if ($hostNetworkStreak -lt $HostNetworkTotalLossCycles) {
-        Write-Warning "Host guest-network: no usable guest path ($($hostNetwork.Reason)) -- observation $hostNetworkStreak of $HostNetworkTotalLossCycles. Running this cycle anyway; a link still renegotiating after a reboot recovers on its own."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f0a9afe5b056fbf' -Arguments @{ reason = "$($hostNetwork.Reason)"; hostNetworkStreak = "$hostNetworkStreak"; hostNetworkTotalLossCycles = "$HostNetworkTotalLossCycles" })
     } else {
         Write-Warning "========"
-        Write-Warning " No network path exists for any guest on this host."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee4abed5e7b99f8a')
         Write-Warning " $($hostNetwork.Reason)"
-        Write-Warning " Seen on $hostNetworkStreak consecutive cycles, so this is not a"
-        Write-Warning " link still coming up after a reboot. Every guest this cycle would"
-        Write-Warning " boot with no carrier and fail identically ~18 minutes from now."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cff5fb33306a5066' -Arguments @{ hostNetworkStreak = "$hostNetworkStreak" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_77a92c1797d58532')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7cca750082a38685')
         Write-Warning ""
-        Write-Warning " Fix from a console that can reach this machine, then delete"
-        Write-Warning " $HostNetworkStateFile (or just let the next healthy cycle clear it):"
-        Write-Warning "   Get-VMSwitch | Format-List Name, SwitchType, AllowManagementOS, NetAdapterInterfaceDescription"
-        Write-Warning "   Get-NetAdapter | Format-Table Name, InterfaceDescription, Status"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c3f47c04f41d8b32')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_937f393383f53958' -Arguments @{ hostNetworkStateFile = "$HostNetworkStateFile" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_371e8101f5a8b5d7')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_622d686388181455')
         Write-Warning "========"
         # Leave the host no dirtier than a normal cycle start: the sweep that
         # removes VMs stranded by the previous cycle lives inside the cycle
@@ -646,14 +646,14 @@ if (-not $hostNetwork.Healthy) {
         try {
             & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Quiet
         } catch {
-            Write-Warning "Cycle-start VM sweep raised a terminating error on the host-network refusal path (continuing to exit). Error: $_"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "$_" })
         }
         exit $ExitFailure
     }
 }
 
-Write-Output "Runtime directory: $env:YURUNA_RUNTIME_DIR"
-Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_71bb57cd92796a43' -Arguments @{ dIR = "$env:YURUNA_RUNTIME_DIR" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4a30dc2d3855f67b' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 
 # --- REGION: Stale cycle-restart flag sweep
 # control.cycle-restart is written by the status service's /control/start-
@@ -673,7 +673,7 @@ Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
     $ctl = Clear-StaleControlState -Scope Startup -SkipInteractiveState -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
     if ($ctl.cycleRestartCleared) {
-        Write-Output "Consumed stale control.cycle-restart (age: $($ctl.cycleRestartAgeSeconds)s) -- this inner start IS the restart."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_298b67c69aa4a722' -Arguments @{ cycleRestartAgeSeconds = "$($ctl.cycleRestartAgeSeconds)" })
     }
     foreach ($w in $ctl.warnings) { Write-Verbose "Stale control-state sweep: $w" }
 }
@@ -711,7 +711,7 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
     } catch {
         # Never fatal: a host that cannot check its service VMs still runs the
         # cycle, and the gates below report what is actually reachable.
-        Write-Warning "service-VM restore sweep failed: $($_.Exception.Message). The cycle continues; the caching-proxy and stash gates below report what is reachable."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_96a9c1c4155d58e1' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -732,7 +732,7 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
 if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
     $switchRepairOk = $false
     try { $switchRepairOk = [bool](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
-        Write-Warning "External vSwitch repair attempt failed: $($_.Exception.Message). The cycle continues on the Default Switch fallback."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c3f68b5f80163e1f' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     # The gate above wrote the degraded pair from a probe taken BEFORE this
     # repair ran, so a switch fixed here would keep advertising a fault it no
@@ -751,7 +751,7 @@ if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
             Remove-Item -LiteralPath $HostNetworkRecordFile -Force -ErrorAction SilentlyContinue
             # The total-loss streak was armed by the same stale observation.
             Remove-Item -LiteralPath $HostNetworkStateFile  -Force -ErrorAction SilentlyContinue
-            Write-Information "Host network recovered at cycle start: '$($afterRepair.Path)' path restored. Cleared the degraded banner and re-advertised the host." -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ebd1a9555df545ac' -Arguments @{ path = "$($afterRepair.Path)" }) -InformationAction Continue
             if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
                 try {
                     $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
@@ -819,7 +819,7 @@ $cpPortLock = if (Get-Command Enter-CachingProxyServiceLock -ErrorAction Silentl
     Enter-CachingProxyServiceLock -RuntimeDir $env:YURUNA_RUNTIME_DIR -Role 'portmap' -TimeoutSeconds 0
 } else { @{ Acquired = $true; PidPath = $null } }
 if (-not $cpPortLock.Acquired) {
-    Write-Output "Caching-proxy service: a caching-proxy-service bring-up holds the lock -- deferring this cycle's port-map refresh to it."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f5d13a74fd026605')
 } else {
     try {
 # There is deliberately NO sudo prime here any more. Elevation for an
@@ -849,7 +849,7 @@ if ($cachingProxyUrl) {
         # re-asserts a port map -- so unknown must land on the local side.
         $ownVerdict = Get-HostOwnIpVerdict -IpAddress $vmIp
         if ($ownVerdict -ne 'nonlocal') {
-            Write-Output "Caching-proxy service: YURUNA_CACHING_PROXY_SERVICE_IP ($vmIp) is not positively external (verdict: $ownVerdict) -- treating the cache as locally owned."
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76d8c741d7d223ad' -Arguments @{ vmIp = "$vmIp"; ownVerdict = "$ownVerdict" })
             $isExternal = $false
         }
     }
@@ -915,12 +915,12 @@ if ($cachingProxyUrl) {
         $esc            = [char]27
         $label          = if ($isExternal) { "detected (external: $vmIp)" } else { "detected" }
         $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\${label}${esc}]8;;${esc}\"
-        Write-Output "Caching-proxy service: $linkedDetected"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_39426f6aa7b04537' -Arguments @{ linkedDetected = "$linkedDetected" })
     } else {
-        Write-Output "Caching-proxy service: detected (port map failed)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1d66dd0d87cb6777')
     }
 } else {
-    Write-Output "Caching-proxy service: not detected (guests will download directly from Ubuntu mirrors)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fe40f9dec8593d1a')
     # A probe can miss for one cycle (cold socket-activated forwarder,
     # momentary host contention) while the cache behind this host's own
     # forwarders is perfectly healthy. When the operator's env still
@@ -929,7 +929,7 @@ if ($cachingProxyUrl) {
     # until a later cycle rebuilds it -- keep the forwarders instead.
     $envCacheIp = [string]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
     if ($envCacheIp -and ((Get-HostOwnIpVerdict -IpAddress $envCacheIp) -ne 'nonlocal')) {
-        Write-Output "Caching-proxy service: keeping existing port maps (YURUNA_CACHING_PROXY_SERVICE_IP '$envCacheIp' is not positively external; treating the probe miss as transient)."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_32de3de6b68e1ac1' -Arguments @{ envCacheIp = "$envCacheIp" })
     } else {
         [void](Remove-PortMap -Confirm:$false)
     }
@@ -1084,19 +1084,19 @@ try {
 if (-not $OverallPassed -and $FailedGuest) {
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    Write-Output "  FAILURE SUMMARY"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_729aea0314e609b0')
     Write-Output "  Host:    $HostType"
     Write-Output "  Guest:   $FailedGuest"
     Write-Output "  Step:    $FailedStep"
     Write-Output "  Error:    $FailureMessage"
-    Write-Output "  Cycle start: $CycleStartUtc"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_883feeb4c5f702cc' -Arguments @{ cycleStartUtc = "$CycleStartUtc" })
     $CommitLine = if ($ProjectGitCommit) { "$GitCommit, $ProjectGitCommit" } else { $GitCommit }
     Write-Output "  Commit:   $CommitLine"
     Write-Output "  Log:     $LogFile"
-    Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_71ba518dfaab6431' -Arguments @{ consecutiveFailures = "$ConsecutiveFailures"; failuresBeforeAlert = "$FailuresBeforeAlert"; suppressed = "$(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})" })
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output ""
-    Write-Output "To reproduce with full diagnostics:"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0c9556bde1cd92fc')
     Write-Output "  pwsh test/Start-TestRunner.ps1 -NoGitPull -logLevel Debug"
 
     if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
@@ -1124,7 +1124,7 @@ if (-not $OverallPassed -and $FailedGuest) {
         # operator_intervention_required.
         if ((Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) -and $FailedGuest -ne '(planner)') {
             $remediation = Invoke-Remediation -FailureRecord $postLoopEventData
-            if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+            if ($remediation) { Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_975a24a1b1bf5b90' -Arguments @{ recommendation = "$($remediation.Recommendation)"; rationale = "$($remediation.Rationale)" }) }
         }
         # Payload built + (planner-guarded) remediated above; pass it
         # pre-built so the helper ships the same hashtable without
@@ -1147,7 +1147,7 @@ if (-not $OverallPassed -and $FailedGuest) {
         $AlertArmed           = $false
         $ConsecutiveSuccesses = 0
     } else {
-        Write-Output "  Notification suppressed ($ConsecutiveFailures/$FailuresBeforeAlert failures, armed=$AlertArmed)."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0805b57566905173' -Arguments @{ consecutiveFailures = "$ConsecutiveFailures"; failuresBeforeAlert = "$FailuresBeforeAlert"; alertArmed = "$AlertArmed" })
     }
 }
 

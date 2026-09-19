@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Resolve-OcrImagePath / Clear-OcrImagePath: tesseract is a native binary and
 # cannot open a path past the Windows long-path ceiling, so every image handed
@@ -206,7 +209,7 @@ function Invoke-TesseractOcr {
         if ($exitCode -ne 0) {
             $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
             $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
-            throw "Tesseract failed with exit code $exitCode.`n$errMsg"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a6e757fc71fd4874' -Arguments @{ exitCode = "$exitCode"; errMsg = "$errMsg" })
         }
     } finally {
         Clear-OcrImagePath -Handle $pathHandle
@@ -258,7 +261,7 @@ function Get-TesseractWordBox {
         if ($exitCode -ne 0) {
             $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
             $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
-            throw "Tesseract TSV mode failed with exit code $exitCode.`n$errMsg"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_073ccaf1b0a8e98d' -Arguments @{ exitCode = "$exitCode"; errMsg = "$errMsg" })
         }
     } finally {
         Clear-OcrImagePath -Handle $pathHandle

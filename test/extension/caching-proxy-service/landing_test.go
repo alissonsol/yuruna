@@ -344,7 +344,7 @@ func TestLandingIsServedAtItsOwnRouteAndTheStatsPageKeepsRoot(t *testing.T) {
 	}
 	defer func() { _ = root.Body.Close() }()
 	rootBody, _ := readAllString(root)
-	if strings.Contains(rootBody, "Extension hosts") {
+	if strings.Contains(rootBody, `data-i18n="cache.extension_hosts">Extension hosts</h2>`) {
 		t.Error("/ now serves the landing page; the service's statistics page has nowhere left to live")
 	}
 }

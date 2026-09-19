@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,8 @@ param(
     [string]$BridgeInterface = ""
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -35,7 +37,7 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
@@ -51,18 +53,18 @@ $downloadDir = "$HOME/yuruna/image/windows.env"
 $macosVersion = & sw_vers -productVersion 2>$null
 $macosMajor = [int]($macosVersion -split '\.')[0]
 if ($macosMajor -lt 12) {
-    Write-Error "macOS 12 Monterey or later is required (found macOS $macosVersion)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_f51ff9819bafacb5' -Arguments @{ macosVersion = "$macosVersion" })
     exit 1
 }
 Write-Verbose "macOS version: $macosVersion (OK)"
 
 $chipName = (& system_profiler SPHardwareDataType 2>$null | Select-String "Chip" | ForEach-Object { $_ -replace '.*Chip:\s*', '' }).Trim()
 if (-not $chipName) {
-    Write-Error "Could not detect Apple Silicon chip. This script requires Apple Silicon (M1 or later)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5a985d0dcd1b4057')
     exit 1
 }
 if ($chipName -notmatch 'Apple M\d') {
-    Write-Error "Apple Silicon is required for Windows 11 ARM64 virtualization (found: $chipName)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6428deaf8329b8f4' -Arguments @{ chipName = "$chipName" })
     exit 1
 }
 Write-Verbose "Chip: $chipName (OK)"
@@ -70,7 +72,7 @@ Write-Verbose "Chip: $chipName (OK)"
 # Check UTM version (requires v4.0.0 or later for ConfigurationVersion 4 / QEMU backend)
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
-    Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
     exit 1
 }
 $utmVersion = (& /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $utmPlist 2>$null)
@@ -78,13 +80,13 @@ if ($utmVersion) {
     $utmParts = $utmVersion -split '\.'
     $utmMajor = [int]$utmParts[0]
     if ($utmMajor -lt 4) {
-        Write-Error "UTM v4.0.0 or later is required (found v$utmVersion)."
-        Write-Error "Update with: brew upgrade --cask utm"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce8e82f0d1b545c8' -Arguments @{ utmVersion = "$utmVersion" })
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9c80476fdd14c462')
         exit 1
     }
     Write-Verbose "UTM version: $utmVersion (OK)"
 } else {
-    Write-Warning "Could not determine UTM version. Ensure UTM v4.0.0 or later is installed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fa7ca00859916941')
 }
 
 Write-Verbose "All requirements met."
@@ -96,8 +98,8 @@ if ($NetworkMode -eq "Bridged") {
         $BridgeInterface = ($routeOut | Select-String 'interface:' |
             ForEach-Object { ($_ -split ':\s*', 2)[1] }).Trim()
         if (-not $BridgeInterface) {
-            Write-Error "Could not auto-detect the default network interface."
-            Write-Error "Specify it explicitly: -BridgeInterface en0"
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_84b2ff2c0bf73bc0')
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a57c3a4beb072a46')
             exit 1
         }
     }
@@ -128,14 +130,14 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 $spiceImageName = "host.macos.utm.guest.windows.11.spice.iso"
 $spiceImageFile = Join-Path $downloadDir $spiceImageName
 if (-not (Test-Path $spiceImageFile)) {
-    Write-Warning "UTM Guest Tools ISO not found at '$spiceImageFile'. Run Get-Image.ps1 to download it."
-    Write-Warning "You will need it after Windows installation to enable virtio-net-pci networking."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_944823b27b1c41f6' -Arguments @{ spiceImageFile = "$spiceImageFile" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c3ff4ddd33f28602')
 }
 
 # --- REGION: Remove existing VM
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 # --- REGION: Create copies and files for VM
@@ -145,12 +147,11 @@ $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"
 
-# Create blank disk for installation (512GB, qcow2 format for QEMU backend)
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Creating 512GB disk image (qcow2 format for QEMU backend)..."
 & qemu-img create -f qcow2 "$DiskImage" 512G 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img failed. Install QEMU tools with: brew install qemu"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_15c7a852ad128a63')
     exit 1
 }
 
@@ -162,7 +163,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
 $AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
 if (-not (Test-Path $AnswerFileTemplate)) {
-    Write-Error "autounattend.xml template not found at '$AnswerFileTemplate'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
     exit 1
 }
 
@@ -192,14 +193,14 @@ Write-Verbose "Generating seed.iso with autounattend configuration..."
 # OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name OEMDRV "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create seed.iso with hdiutil."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
     exit 1
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -214,7 +215,7 @@ $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -236,25 +237,24 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK."
 
-# Patch network mode to Bridged if requested
 if ($NetworkMode -eq "Bridged") {
     # Each plutil call needs its own exit-code test: a failed -replace leaves
     # Mode at Shared, and only the -insert result would be seen otherwise, so
     # the VM would come up on the wrong network while the script reports success.
     & plutil -replace "Network.0.Mode" -string "Bridged" "$UtmDir/config.plist"
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to set Network Mode to Bridged in config.plist."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b488eb4173bc6e6b')
         exit 1
     }
     & plutil -insert "Network.0.BridgedInterface" -string $BridgeInterface "$UtmDir/config.plist"
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to set BridgedInterface in config.plist."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_cd34e65cd33797fc')
         exit 1
     }
     Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."

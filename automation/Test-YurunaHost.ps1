@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42838215-f18d-437d-93b0-d343742cd5d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ param(
     [int]$TimeoutSeconds = 3
 )
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Continue'
 
 function Write-Result {
@@ -65,9 +66,9 @@ function Write-Result {
 function Show-Remediation {
     Write-Output ''
     Write-Output '--- Remediation ---'
-    Write-Output 'The yuruna-host coordinates baked into this guest are stale or the'
-    Write-Output 'host status service is not reachable. The supported fix is to rebuild'
-    Write-Output 'the guest VM from the host:'
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_9becc4a51e2efe4f')
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_74cd64678d9ced5d')
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_b4b7d067da09b239')
     Write-Output ''
     Write-Output '  macOS / UTM:'
     Write-Output '    pwsh host/macos.utm/<guest>/New-VM.ps1'
@@ -75,18 +76,18 @@ function Show-Remediation {
     Write-Output '  Windows / Hyper-V:'
     Write-Output '    pwsh host\windows.hyper-v\<guest>\New-VM.ps1'
     Write-Output ''
-    Write-Output 'Make sure the status service is running on the host first:'
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_657d36ac7fd4580a')
     Write-Output '    pwsh test/service/Start-StatusService.ps1'
     Write-Output ''
-    Write-Output 'Until the rebuild lands, fetch-and-execute.sh will silently fall'
-    Write-Output 'back to https://raw.githubusercontent.com/alissonsol/yuruna/... -- i.e.'
-    Write-Output 'iteration changes on the host will NOT be visible in this guest.'
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_2dfbf02a6050f367')
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_93f5be3ae63d7cac')
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_57118242879db9a9')
 }
 
 # --- REGION: 1. host.env exists and parses
 if (-not (Test-Path $HostEnvFile)) {
-    Write-Result 'FAIL' "host.env not found at $HostEnvFile"
-    Write-Result 'INFO' 'This guest does not have the yuruna-host configuration.'
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_4f68be4909fd3297' -Arguments @{ hostEnvFile = "$HostEnvFile" })
+    Write-Result 'INFO' (Format-YurunaOperatorMessage -Key 'automation.operator_92cf51282b025cb1')
     Show-Remediation
     exit 1
 }
@@ -104,17 +105,17 @@ $hostIp   = $envMap['YURUNA_STATUS_SERVICE_IP']
 $hostPort = $envMap['YURUNA_STATUS_SERVICE_PORT']
 
 if (-not $hostIp) {
-    Write-Result 'FAIL' "YURUNA_STATUS_SERVICE_IP missing or empty in $HostEnvFile"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_3a9c0f6767b77dc5' -Arguments @{ hostEnvFile = "$HostEnvFile" })
     Show-Remediation
     exit 1
 }
 if (-not $hostPort) {
-    Write-Result 'FAIL' "YURUNA_STATUS_SERVICE_PORT missing or empty in $HostEnvFile"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_83e94a134a825b6e' -Arguments @{ hostEnvFile = "$HostEnvFile" })
     Show-Remediation
     exit 1
 }
 
-Write-Result 'INFO' "host.env: YURUNA_STATUS_SERVICE_IP=$hostIp YURUNA_STATUS_SERVICE_PORT=$hostPort"
+Write-Result 'INFO' (Format-YurunaOperatorMessage -Key 'automation.operator_3afa1715b4f04e1b' -Arguments @{ hostIp = "$hostIp"; hostPort = "$hostPort" })
 
 # --- REGION: 2. /etc/hosts maps yuruna-host to YURUNA_STATUS_SERVICE_IP
 # Parse the mapped IP (first field of the "<ip> <name>..." line) and compare it
@@ -128,13 +129,13 @@ if (Test-Path $hostsFile) {
     if ($hostsLine) {
         $mappedIp = ($hostsLine.Trim() -split '\s+')[0]
         if ($mappedIp -eq $hostIp) {
-            Write-Result 'OK' "/etc/hosts maps yuruna-host to $mappedIp (matches YURUNA_STATUS_SERVICE_IP)."
+            Write-Result 'OK' (Format-YurunaOperatorMessage -Key 'automation.operator_80503e4a3d349cc5' -Arguments @{ mappedIp = "$mappedIp" })
             $hostsNameMapsHostIp = $true
         } else {
-            Write-Result 'WARN' "/etc/hosts maps yuruna-host to $mappedIp but YURUNA_STATUS_SERVICE_IP is $hostIp -- stale name->IP mapping; name-based URLs will hit the wrong host."
+            Write-Result 'WARN' (Format-YurunaOperatorMessage -Key 'automation.operator_545f599c8329b23f' -Arguments @{ mappedIp = "$mappedIp"; hostIp = "$hostIp" })
         }
     } else {
-        Write-Result 'WARN' '/etc/hosts has no yuruna-host entry -- only IP-based URLs will work.'
+        Write-Result 'WARN' (Format-YurunaOperatorMessage -Key 'automation.operator_63e3af676d098fb9')
     }
 }
 
@@ -146,13 +147,13 @@ $response = $null
 try {
     $response = Invoke-WebRequest -Uri $livecheckUrl -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
 } catch {
-    Write-Result 'FAIL' "Probe failed: $($_.Exception.Message)"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_08adaa87a2f693da' -Arguments @{ message = "$($_.Exception.Message)" })
     Show-Remediation
     exit 1
 }
 
 if ($response.StatusCode -ne 200) {
-    Write-Result 'FAIL' "/livecheck returned HTTP $($response.StatusCode)"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_dcdd159b73d02608' -Arguments @{ statusCode = "$($response.StatusCode)" })
     Show-Remediation
     exit 1
 }
@@ -163,13 +164,13 @@ if ($response.StatusCode -ne 200) {
 try {
     $payload = $response.Content | ConvertFrom-Json -ErrorAction Stop
 } catch {
-    Write-Result 'FAIL' "/livecheck returned 200 but body is not JSON: $($response.Content.Substring(0, [Math]::Min(120, $response.Content.Length)))"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_d58761741eae9025' -Arguments @{ length = "$($response.Content.Substring(0, [Math]::Min(120, $response.Content.Length)))" })
     Show-Remediation
     exit 1
 }
 
 if ($payload.service -ne 'yuruna-status-service') {
-    Write-Result 'FAIL' "/livecheck JSON does not identify as yuruna-status-service (service='$($payload.service)')"
+    Write-Result 'FAIL' (Format-YurunaOperatorMessage -Key 'automation.operator_55a6da533049c54d' -Arguments @{ service = "$($payload.service)" })
     Show-Remediation
     exit 1
 }
@@ -183,14 +184,14 @@ if ($hostsNameMapsHostIp) {
     try {
         $nameResp = Invoke-WebRequest -Uri $nameUrl -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
         if ($nameResp.StatusCode -eq 200) {
-            Write-Result 'OK' "yuruna-host name resolves and $nameUrl is reachable."
+            Write-Result 'OK' (Format-YurunaOperatorMessage -Key 'automation.operator_fbfc5171f0719513' -Arguments @{ nameUrl = "$nameUrl" })
         } else {
-            Write-Result 'WARN' "$nameUrl returned HTTP $($nameResp.StatusCode) (IP path works; name path degraded)."
+            Write-Result 'WARN' (Format-YurunaOperatorMessage -Key 'automation.operator_a379553e78e3f321' -Arguments @{ nameUrl = "$nameUrl"; statusCode = "$($nameResp.StatusCode)" })
         }
     } catch {
-        Write-Result 'WARN' "$nameUrl failed ($($_.Exception.Message)); the name->IP path is broken though the IP path works."
+        Write-Result 'WARN' (Format-YurunaOperatorMessage -Key 'automation.operator_659703929bd102c5' -Arguments @{ nameUrl = "$nameUrl"; message = "$($_.Exception.Message)" })
     }
 }
 
-Write-Result 'OK' "yuruna-host is reachable. Server time: $($payload.time)"
+Write-Result 'OK' (Format-YurunaOperatorMessage -Key 'automation.operator_6335eb75973bfc19' -Arguments @{ time = "$($payload.time)" })
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -511,7 +511,7 @@ function Get-EngineeringOpenRow {
         'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
         'suite-baseline', 'config-locale-seed',
         'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
-        'globalization-authority', 'terminology', 'es5-floor', 'palette-fallback',
+        'globalization-authority', 'locale-support', 'terminology', 'es5-floor', 'palette-fallback',
         'perf-baseline', 'js-test', 'go-build', 'accessibility',
         'doc-reachability', 'code-registry-contract', 'reference-slice-matrix'
     )
@@ -636,6 +636,8 @@ function Get-EngineeringOpenRow {
 # Hoisted so the progress bar can report a fraction instead of a spinner. The
 # lists stay the execution order; the loops below consume them where the gates
 # actually run.
+$localeSupportArguments = @('-Quiet', '-ProjectRoot', $ProjectRoot)
+if ($isRelease) { $localeSupportArguments += @('-FrameworkTreeHash', $FrameworkTreeHash, '-ProjectTreeHash', $ProjectTreeHash) }
 $frameworkGates = @(
     @{ Name = 'preflight'; Script = 'Invoke-Preflight.ps1'; Args = @('-Release', '-Quiet') }
     @{ Name = 'framework-lint'; Script = 'Invoke-Lint.ps1'; Args = @() }
@@ -648,6 +650,7 @@ $frameworkGates = @(
     @{ Name = 'catalog-embed'; Script = 'Invoke-CatalogEmbed.ps1'; Args = @('-Check', '-Quiet') }
     @{ Name = 'utf8-catalog'; Script = 'Test-Utf8Catalog.ps1'; Args = @('-Quiet') }
     @{ Name = 'globalization-authority'; Script = 'Test-GlobalizationAuthority.ps1'; Args = @('-Quiet') }
+    @{ Name = 'locale-support'; Script = 'Test-LocaleSupport.ps1'; Args = $localeSupportArguments }
     @{ Name = 'terminology'; Script = 'Test-Terminology.ps1'; Args = @('-Quiet') }
     @{ Name = 'es5-floor'; Script = 'Invoke-Es5Check.ps1'; Args = @('-Quiet') }
     @{ Name = 'palette-fallback'; Script = 'Invoke-CssVarFallback.ps1'; Args = @('-Quiet') }

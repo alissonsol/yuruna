@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f9c804-966c-4de0-8a8d-1919e7a84b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -103,12 +106,12 @@ function Initialize-HostSetupModule {
         [hashtable]$BoundParameters = @{},
         [string[]]$SudoCacheReason
     )
-    if (-not $PSCmdlet.ShouldProcess('Yuruna host bootstrap', 'Import Test.HostContract + install powershell-yaml + PSScriptAnalyzer')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'automation.operator_1718072c6cf398d4'), (Format-YurunaOperatorMessage -Key 'automation.operator_60e4e2f2dbcc4366'))) {
         return
     }
     $modulePath = Join-Path $RepoRoot (Join-Path 'test' (Join-Path 'modules' 'Test.HostContract.psm1'))
     if (-not (Test-Path -LiteralPath $modulePath)) {
-        throw "Test.HostContract.psm1 not found at: $modulePath"
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_edef6b8e8e995aea' -Arguments @{ modulePath = "$modulePath" })
     }
     # The contract facade re-imports four siblings with -Global; without
     # silencing -Verbose here, each one prints "Importing module..." and

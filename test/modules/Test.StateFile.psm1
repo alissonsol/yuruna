@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a70b09-faec-4f05-9d24-b07e35b3f8f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -51,7 +54,7 @@ function Write-YurunaStateFile {
         [Parameter(Mandatory)][AllowEmptyString()][string]$Content,
         [switch]$WithBom
     )
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Atomic state-file write')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_918cd3bc5faa52b6'))) { return $true }
     $encoding = if ($WithBom) {
         [System.Text.UTF8Encoding]::new($true)
     } else {
@@ -130,7 +133,7 @@ function Write-YurunaStateFileJson {
         Write-Verbose "Write-YurunaStateFileJson: ConvertTo-Json failed for $Path : $($_.Exception.Message)"
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Atomic JSON state-file write')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_40eeaa317b25e65f'))) { return $true }
     return (Write-YurunaStateFile -Path $Path -Content $json -WithBom:$WithBom -Confirm:$false)
 }
 

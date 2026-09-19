@@ -7,69 +7,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Pools &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.pools_yuruna_pool_control">Pools &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign">Assign</a>
-        <a href="/hosts">Hosts</a>
-        <a href="/pools" aria-current="page">Pools</a>
-        <a href="/test-sets">Test sets</a>
-        <a href="/scan">Scan</a>
-        <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" aria-current="page" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Pools</h1>
-    <p class="muted">A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool.
-      <strong>Pool Status</strong> reads what the members are doing now &mdash; choosing a
-      value applies it to every member.</p>
+    <h1 data-i18n="pool.pools">Pools</h1>
+    <p class="muted" data-i18n="pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to">A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.</p>
     <div id="notice" role="alert" class="notice"></div>
     <div class="row">
       <label class="labeled-field">
-        <span class="scan-label">Pool id</span>
-        <input id="new-poolid" placeholder="lowercase, dns-safe" size="26">
+        <span class="scan-label" data-i18n="pool.pool_id_66d3d3f3">Pool id</span>
+        <input id="new-poolid" placeholder="lowercase, dns-safe" size="26" data-i18n-placeholder="pool.lowercase_dns_safe">
       </label>
       <label class="labeled-field">
-        <span class="scan-label">Display name</span>
-        <input id="new-display" placeholder="optional" size="24">
+        <span class="scan-label" data-i18n="pool.display_name">Display name</span>
+        <input id="new-display" placeholder="optional" size="24" data-i18n-placeholder="pool.optional">
       </label>
-      <button id="create" class="primary">Create pool</button>
+      <button id="create" class="primary" data-i18n="pool.create_pool">Create pool</button>
     </div>
     <table>
       <thead>
         <tr>
-          <th class="rownum" aria-label="Row number">#</th>
-          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort">Pool</button></th>
-          <th data-sort="poolGuid"><button type="button" class="sort">Pool ID</button></th>
-          <th data-sort="name"><button type="button" class="sort">Name</button></th>
-          <th data-sort="members"><button type="button" class="sort">Members</button></th>
-          <th data-sort="status"><button type="button" class="sort">Pool Status</button></th>
-          <th>Actions</th>
+          <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
+          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort" data-i18n="pool.pool">Pool</button></th>
+          <th data-sort="poolGuid"><button type="button" class="sort" data-i18n="pool.pool_id">Pool ID</button></th>
+          <th data-sort="name"><button type="button" class="sort" data-i18n="pool.name">Name</button></th>
+          <th data-sort="members"><button type="button" class="sort" data-i18n="pool.members_1044a4c0">Members</button></th>
+          <th data-sort="status"><button type="button" class="sort" data-i18n="pool.pool_status">Pool Status</button></th>
+          <th data-i18n="pool.actions">Actions</th>
         </tr>
       </thead>
       <tbody id="pool-rows"></tbody>
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

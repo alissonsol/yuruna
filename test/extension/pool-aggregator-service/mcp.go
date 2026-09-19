@@ -13,18 +13,10 @@ import (
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
-// mcpRegistry is the aggregator's MCP surface: the read routes that answer
-// "what does this pool look like right now", plus the one that answers "and
-// where do I open it" for a caller who cannot click the timeline.
-//
-// Every tool is mcp.FromRoute over the handler its HTTP route already uses, so
-// a tool cannot answer differently from the route -- one body, produced once.
-//
-// Read-only, and this one is not a deferral. The aggregator's two mutating
-// routes are /ingest, which accepts telemetry from runners, and
-// /api/v1/forget-host, which evicts a host from the view. Neither is a thing an
-// agent should reach for: the first is a firehose with a bearer, and the second
-// deletes evidence an operator may be in the middle of reading.
+// mcpRegistry is the aggregator's MCP surface. See
+// ../../../docs/extensions-api.md#mcp-endpoints and
+// ../../../docs/extensions-api.md#what-a-tool-may-do-and-who-decides
+// for the mcp.FromRoute pattern and why this surface stays read-only. -- mcp.go
 func (s *poolState) mcpRegistry() *mcp.Registry {
 	reg := mcp.NewRegistry()
 	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)

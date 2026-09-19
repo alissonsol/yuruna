@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
 # platform -- the OS calls are integration-verified, since they mutate the host.
 
 # Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 # Server aliases the two tiers are reached under. They resolve to the loopback
@@ -54,7 +55,7 @@ function Get-LocalLabStoragePlatform {
     if ($IsWindows) { return 'windows' }
     if ($IsMacOS)   { return 'macos' }
     if ($IsLinux)   { return 'linux' }
-    throw "Unsupported operating system. New-LocalLabStorage supports Windows, macOS, and Ubuntu."
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3f7582b4c254198f')
 }
 
 <#
@@ -530,7 +531,7 @@ function Invoke-LocalLabStorageNative {
         if ($PSBoundParameters.ContainsKey('Stdin')) { $sudoArgs['InputText'] = $Stdin }
         $r = Invoke-YurunaSudo @sudoArgs
         if ($r.ExitCode -ne 0 -and -not $AllowFailure) {
-            throw "sudo $($ArgumentList -join ' ') exited $($r.ExitCode)`: $($r.Output)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_e5734bccf5e0076c' -Arguments @{ join = "$($ArgumentList -join ' ')"; exitCode = "$($r.ExitCode)"; output = "$($r.Output)" })
         }
         return @{ ExitCode = $r.ExitCode; Output = $r.Output }
     }
@@ -586,7 +587,7 @@ Nothing here reports whether the credential WORKS -- the directory record cannot
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Password
     )
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Write the password record smbd authenticates against')) {
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_71f9073e5d5c9b21'))) {
         return @{ Ok = $false; Detail = 'whatif' }
     }
     $detail = [System.Collections.Generic.List[string]]::new()
@@ -598,16 +599,16 @@ Nothing here reports whether the credential WORKS -- the directory record cannot
     $authority = Invoke-LocalLabStorageNative -FilePath 'sudo' `
         -ArgumentList @('dscl', '.', '-read', "/Users/$Name", 'AuthenticationAuthority') -AllowFailure
     if ($authority.ExitCode -ne 0 -or $authority.Output -notmatch 'ShadowHash') {
-        Write-Information "      $($Name): writing the password record smbd authenticates against (dscl)..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_653e253d125d62b9' -Arguments @{ name = "$($Name)" })
         $write = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
             'dscl', '.', '-create', "/Users/$Name", 'AuthenticationAuthority',
             ';ShadowHash;HASHLIST:<SALTED-SHA512-PBKDF2,SMB-NT>') -AllowFailure
-        if ($write.ExitCode -ne 0) { $detail.Add("dscl -create AuthenticationAuthority exited $($write.ExitCode): $($write.Output)") }
+        if ($write.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ff92239af931f841' -Arguments @{ exitCode = "$($write.ExitCode)"; output = "$($write.Output)" })) }
     }
-    Write-Information "      $($Name): enabling the SMB-NT hash type (pwpolicy)..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8264c34f40012d9' -Arguments @{ name = "$($Name)" })
     $hashTypes = Invoke-LocalLabStorageNative -FilePath 'sudo' `
         -ArgumentList @('pwpolicy', '-u', $Name, '-sethashtypes', 'SMB-NT', 'on') -AllowFailure
-    if ($hashTypes.ExitCode -ne 0) { $detail.Add("pwpolicy -sethashtypes exited $($hashTypes.ExitCode): $($hashTypes.Output)") }
+    if ($hashTypes.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_d0b6acafc17b1594' -Arguments @{ exitCode = "$($hashTypes.ExitCode)"; output = "$($hashTypes.Output)" })) }
     # `dscl -passwd`, NOT `sysadminctl -resetPasswordFor`. Both set the password
     # and both leave OpenDirectory accepting it -- `dscl -authonly` passes either
     # way -- but only the directory-level write regenerates the stored hashes
@@ -616,18 +617,18 @@ Nothing here reports whether the credential WORKS -- the directory record cannot
     # split this failure has: OpenDirectory says yes, smbd says
     # "server rejected the authentication", and the mount that follows reports
     # the rejection as "No such file or directory".
-    Write-Information "      $($Name): re-setting the password so the SMB hash is regenerated (dscl)..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aac480322b602a63' -Arguments @{ name = "$($Name)" })
     $passwd = Invoke-LocalLabStorageNative -FilePath 'sudo' `
         -ArgumentList @('dscl', '.', '-passwd', "/Users/$Name", $Password) -AllowFailure
     if ($passwd.ExitCode -ne 0) {
-        $detail.Add("dscl -passwd exited $($passwd.ExitCode): $($passwd.Output)")
+        $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_a8192b0dd54747ac' -Arguments @{ exitCode = "$($passwd.ExitCode)"; output = "$($passwd.Output)" }))
         # Fall back rather than leave the account with no password at all: a
         # correct password without an SMB hash is still better than a rejected
         # one, and the share probe reports which of the two this ended as.
-        Write-Information "      $($Name): dscl could not set it; falling back to sysadminctl..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_92673f3b465a916a' -Arguments @{ name = "$($Name)" })
         $reset = Invoke-LocalLabStorageNative -FilePath 'sudo' `
             -ArgumentList @('sysadminctl', '-resetPasswordFor', $Name, '-newPassword', $Password) -AllowFailure
-        if ($reset.ExitCode -ne 0) { $detail.Add("sysadminctl -resetPasswordFor exited $($reset.ExitCode): $($reset.Output)") }
+        if ($reset.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_73b5ad8a6dda1ed0' -Arguments @{ exitCode = "$($reset.ExitCode)"; output = "$($reset.Output)" })) }
     }
     return @{ Ok = ($detail.Count -eq 0); Detail = ($detail -join "`n  ") }
 }
@@ -653,9 +654,9 @@ Called only after Test-LocalLabStorageSmbAuth has returned 'auth' against a PUBL
         [Parameter(Mandatory)][string]$Description
     )
     if (-not $IsMacOS) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Delete and rebuild the storage account')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_a13f1fd58da879de'))) { return $false }
     if (-not (Remove-MacLocalAccount -Name $Name -Confirm:$false)) {
-        Write-Warning "Could not delete '$Name', so it could not be rebuilt."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2a6e3ced2286e160' -Arguments @{ name = "$Name" })
         return $false
     }
     $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
@@ -675,7 +676,7 @@ Deletes a macOS local account, so it can be built again from nothing. Best-effor
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$Name)
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Delete the local storage account')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_3d971e217f190072'))) { return $false }
     $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sysadminctl', '-deleteUser', $Name) -AllowFailure
     if (Test-LocalLabStorageAccount -Name $Name) {
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('dscl', '.', '-delete', "/Users/$Name") -AllowFailure
@@ -725,7 +726,7 @@ function Set-LocalLabStorageAccount {
         # granted -- notably not Administrators.
         $usersGroup = Get-LocalGroup | Where-Object { $_.SID.Value -eq 'S-1-5-32-545' } | Select-Object -First 1
         if (-not $usersGroup) {
-            Write-Warning "Could not resolve the built-in Users group (SID S-1-5-32-545); '$Name' may lack the network logon right."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f0a05fc319da1050' -Arguments @{ name = "$Name" })
         } else {
             $already = $false
             try {
@@ -751,16 +752,16 @@ function Set-LocalLabStorageAccount {
         # leading-character guarantee, so this is reachable -- same guard as
         # New-LocalTestUser.
         if ($Password.StartsWith('-')) {
-            throw "On macOS the '$Name' storage password may not begin with '-' (sysadminctl would parse it as an option). Change it in the lab vault and re-run."
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0c36e11e9915d052' -Arguments @{ name = "$Name" })
         }
         # Each sudo call below is captured, so it prints nothing of its own while
         # it runs, and sysadminctl in particular takes seconds. Narrated so the
         # operator can see which one is in flight.
         if ($exists) {
-            Write-Information "      $($Name): re-synchronizing the account password (sysadminctl)..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e1f6225b3d8acb42' -Arguments @{ name = "$($Name)" })
             $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sysadminctl', '-resetPasswordFor', $Name, '-newPassword', $Password)
         } else {
-            Write-Information "      $($Name): creating the account (sysadminctl)..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_de71f77fc967a4e2' -Arguments @{ name = "$($Name)" })
             $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
                 'sysadminctl', '-addUser', $Name, '-fullName', $Description, '-password', $Password, '-shell', '/usr/bin/false')
             # A storage account has no business appearing at the login window.
@@ -774,11 +775,11 @@ function Set-LocalLabStorageAccount {
         # published (Test-LocalLabStorageSmbAuth, then Reset-LocalLabStorageAccount).
         $credential = Set-MacSmbCredential -Name $Name -Password $Password -Confirm:$false
         if (-not $credential.Ok) {
-            Write-Warning "Setting the SMB credential for '$Name' reported an error; the share probe will confirm whether it took.`n  $($credential.Detail)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_68154b4d5088b0e2' -Arguments @{ name = "$Name"; detail = "$($credential.Detail)" })
         }
     } else {
         if (-not $exists) {
-            Write-Information "      $($Name): creating the system account (useradd)..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8edfda1fbe53988' -Arguments @{ name = "$($Name)" })
             # --system: a service identity below the login UID range. No home, no
             # shell, and no -p, so the Unix password stays LOCKED -- the account
             # exists for Samba's file access and cannot be logged into.
@@ -789,7 +790,7 @@ function Set-LocalLabStorageAccount {
         # smbpasswd reads the password twice from stdin, so it never enters an
         # argument vector and a leading '-' cannot be mistaken for an option.
         # -a is add-or-update, so this is the same call on a re-run.
-        Write-Information "      $($Name): storing the Samba credential (smbpasswd)..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_96343b6526214ba7' -Arguments @{ name = "$($Name)" })
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-s', '-a', $Name) -Stdin "$Password`n$Password`n"
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-e', $Name) -AllowFailure
     }
@@ -856,9 +857,9 @@ function Enable-LocalLabStorageServer {
     param()
     if ($IsWindows) {
         $svc = Get-Service -Name 'LanmanServer' -ErrorAction SilentlyContinue
-        if (-not $svc) { throw "The Server (LanmanServer) service is not present on this host; SMB sharing cannot be enabled." }
+        if (-not $svc) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_f4ad79f944023fe8') }
         if ($svc.Status -eq 'Running') { return 'present' }
-        if (-not $PSCmdlet.ShouldProcess('LanmanServer', 'Start the Windows Server (SMB) service')) { return 'whatif' }
+        if (-not $PSCmdlet.ShouldProcess('LanmanServer', (Format-YurunaOperatorMessage -Key 'runner.operator_8b09d5f50c489da6'))) { return 'whatif' }
         Set-Service -Name 'LanmanServer' -StartupType Automatic -ErrorAction SilentlyContinue
         Start-Service -Name 'LanmanServer' -ErrorAction Stop
         return 'enabled'
@@ -866,8 +867,8 @@ function Enable-LocalLabStorageServer {
     if ($IsMacOS) {
         $probe = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'print', 'system/com.apple.smbd') -AllowFailure
         if ($probe.ExitCode -eq 0) { return 'present' }
-        if (-not $PSCmdlet.ShouldProcess('com.apple.smbd', 'Enable macOS File Sharing (SMB)')) { return 'whatif' }
-        Write-Information "      File Sharing is off; enabling and starting smbd (launchctl)..."
+        if (-not $PSCmdlet.ShouldProcess('com.apple.smbd', (Format-YurunaOperatorMessage -Key 'runner.operator_7f238877be5d182a'))) { return 'whatif' }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_22b8204649114e79')
         $enable = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'enable', 'system/com.apple.smbd') -AllowFailure
         $start  = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'kickstart', '-k', 'system/com.apple.smbd') -AllowFailure
         if ($start.ExitCode -ne 0) {
@@ -878,7 +879,7 @@ function Enable-LocalLabStorageServer {
         }
         $verify = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'print', 'system/com.apple.smbd') -AllowFailure
         if ($verify.ExitCode -ne 0) {
-            throw "Could not enable the macOS SMB server. Turn File Sharing on in System Settings > General > Sharing and re-run. (launchctl enable: $($enable.Output); start: $($start.Output))"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_b8accd7ac3900ef3' -Arguments @{ output = "$($enable.Output)"; output2 = "$($start.Output)" })
         }
         return 'enabled'
     }
@@ -889,12 +890,12 @@ function Enable-LocalLabStorageServer {
         if ($q.ExitCode -ne 0 -or $q.Output -notmatch 'install ok installed') { $missing += $pkg }
     }
     if ($missing.Count -eq 0) { return 'present' }
-    if (-not $PSCmdlet.ShouldProcess(($missing -join ', '), 'Install with apt-get')) { return 'whatif' }
+    if (-not $PSCmdlet.ShouldProcess(($missing -join ', '), (Format-YurunaOperatorMessage -Key 'runner.operator_c4724445e88b669f'))) { return 'whatif' }
     # A machine whose package index predates the current release pocket cannot
     # resolve the packages at all, so the index is refreshed first.
-    Write-Information "      refreshing the package index (apt-get update)..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ead629360c99f444')
     $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('apt-get', 'update') -AllowFailure
-    Write-Information "      installing $($missing -join ', ') -- this can take several minutes..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3e4970318eadfc1b' -Arguments @{ join = "$($missing -join ', ')" })
     $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList (@(
         'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '--no-install-recommends') + $missing)
     return 'installed'
@@ -916,10 +917,10 @@ function Set-LocalLabStorageFolderAccess {
     [OutputType([bool])]
     param([Parameter(Mandatory)][pscustomobject]$Tier)
     if (-not (Test-Path -LiteralPath $Tier.FolderPath)) {
-        Write-Warning "Storage folder '$($Tier.FolderPath)' does not exist; skipping its permissions."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc1eba818890bfe4' -Arguments @{ folderPath = "$($Tier.FolderPath)" })
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess($Tier.FolderPath, "Grant '$($Tier.Account)' write access")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Tier.FolderPath, (Format-YurunaOperatorMessage -Key 'runner.operator_eac8ab7a3784e443' -Arguments @{ account = "$($Tier.Account)" }))) { return $false }
     if ($IsWindows) {
         # Modify, inherited by files (OI) and folders (CI) created later. Added
         # to the existing ACL, so the inherited administrator and owner ACEs --
@@ -961,7 +962,7 @@ function New-LocalLabStorageShare {
     if ($IsLinux) {
         $includePath = '/etc/samba/yuruna.conf'
         $smbConf     = '/etc/samba/smb.conf'
-        if (-not $PSCmdlet.ShouldProcess($includePath, "Define the yuruna shares and reload smbd")) {
+        if (-not $PSCmdlet.ShouldProcess($includePath, (Format-YurunaOperatorMessage -Key 'runner.operator_956e740d9733d35f'))) {
             foreach ($t in $Tier) { $result[$t.ShareName] = 'whatif' }
             return $result
         }
@@ -992,12 +993,12 @@ function New-LocalLabStorageShare {
         # A config Samba rejects leaves smbd serving the PREVIOUS definitions, so
         # the shares would appear to be missing with no error anywhere. testparm
         # is the same parser smbd uses, so this catches it here.
-        Write-Information "      checking the generated Samba configuration (testparm)..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_309d799a7c98d1ee')
         $check = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('testparm', '-s') -AllowFailure
         if ($check.ExitCode -ne 0) {
-            throw "Samba rejected the generated configuration; the shares were NOT activated: $($check.Output)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_511c60ef5e84a2bf' -Arguments @{ output = "$($check.Output)" })
         }
-        Write-Information "      reloading smbd..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_460ecc27a1509fd8')
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'enable', '--now', 'smbd') -AllowFailure
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'reload-or-restart', 'smbd')
         foreach ($t in $Tier) { $result[$t.ShareName] = 'created' }
@@ -1009,14 +1010,14 @@ function New-LocalLabStorageShare {
             $existing = Get-SmbShare -Name $t.ShareName -ErrorAction SilentlyContinue
             if ($existing) {
                 if ($existing.Path -ne $t.FolderPath) {
-                    throw "An SMB share named '$($t.ShareName)' already exists on this host and points at '$($existing.Path)', not '$($t.FolderPath)'. Remove or rename it, then re-run."
+                    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_9d91512a828389cf' -Arguments @{ shareName = "$($t.ShareName)"; path = "$($existing.Path)"; folderPath = "$($t.FolderPath)" })
                 }
-                if (-not $PSCmdlet.ShouldProcess($t.ShareName, "Grant '$($t.Account)' full access to the existing share")) { $result[$t.ShareName] = 'whatif'; continue }
+                if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_68c3f90736a1aa91' -Arguments @{ account = "$($t.Account)" }))) { $result[$t.ShareName] = 'whatif'; continue }
                 $null = Grant-SmbShareAccess -Name $t.ShareName -AccountName $t.Account -AccessRight Full -Force -ErrorAction SilentlyContinue
                 $result[$t.ShareName] = 'present'
                 continue
             }
-            if (-not $PSCmdlet.ShouldProcess($t.ShareName, "Create the SMB share for '$($t.FolderPath)'")) { $result[$t.ShareName] = 'whatif'; continue }
+            if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_4af540084b24b3eb' -Arguments @{ folderPath = "$($t.FolderPath)" }))) { $result[$t.ShareName] = 'whatif'; continue }
             # -FullAccess names the ONLY principal on the share ACL, so the
             # default Everyone/Read grant a bare New-SmbShare would apply is
             # never created.
@@ -1033,15 +1034,15 @@ function New-LocalLabStorageShare {
         # definition is cheap to rebuild and is the only one that is known good.
         $listed = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
         $existed = ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($t.ShareName))\s*$")
-        if (-not $PSCmdlet.ShouldProcess($t.ShareName, "$(if ($existed) { 'Replace' } else { 'Create' }) the macOS SMB sharepoint for '$($t.FolderPath)'")) { $result[$t.ShareName] = 'whatif'; continue }
+        if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_203f3612d7d51d8c' -Arguments @{ create = "$(if ($existed) { 'Replace' } else { 'Create' })"; folderPath = "$($t.FolderPath)" }))) { $result[$t.ShareName] = 'whatif'; continue }
         if ($existed) {
-            Write-Information "      $($t.ShareName): removing the previous sharepoint (sharing -r)..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ad407a07d1fd523b' -Arguments @{ shareName = "$($t.ShareName)" })
             $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $t.ShareName) -AllowFailure
         }
         # -s 001 is the AFP/FTP/SMB protocol mask: SMB only. -g 000 refuses guest
         # access on all three, so the share is reachable only with the tier's
         # credential.
-        Write-Information "      $($t.ShareName): publishing the sharepoint (sharing -a)..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0fea3eacdce256ad' -Arguments @{ shareName = "$($t.ShareName)" })
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-a', $t.FolderPath, '-S', $t.ShareName, '-n', $t.ShareName, '-s', '001', '-g', '000')
         $result[$t.ShareName] = 'created'
     }
@@ -1074,7 +1075,7 @@ function Set-LocalLabStorageLoopbackException {
     try {
         Restart-Service -Name 'LanmanServer' -Force -ErrorAction Stop
     } catch {
-        Write-Warning "Registered the loopback exemption but could not restart the Server service ($($_.Exception.Message)). Reboot to apply it if the mount is refused with access denied."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5ca81891b9af15c2' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return 'updated'
 }
@@ -1094,7 +1095,7 @@ function Set-LocalLabStorageLinkedConnection {
     $current = $null
     try { $current = (Get-ItemProperty -Path $key -Name 'EnableLinkedConnections' -ErrorAction Stop).EnableLinkedConnections } catch { $null = $_ }
     if (1 -eq $current) { return 'present' }
-    if (-not $PSCmdlet.ShouldProcess("$key\EnableLinkedConnections", 'Set to 1')) { return 'whatif' }
+    if (-not $PSCmdlet.ShouldProcess("$key\EnableLinkedConnections", (Format-YurunaOperatorMessage -Key 'runner.operator_8fd5ad229615ab0d'))) { return 'whatif' }
     if (-not (Test-Path -LiteralPath $key)) { $null = New-Item -Path $key -Force }
     New-ItemProperty -Path $key -Name 'EnableLinkedConnections' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
     return 'updated'
@@ -1189,17 +1190,17 @@ function Set-YurunaHostAlias {
     )
     $aliasScript = Join-Path -Path $RepoRoot -ChildPath 'automation' -AdditionalChildPath 'Set-HostAlias.ps1'
     if (-not (Test-Path -LiteralPath $aliasScript)) {
-        Write-Warning "Set-HostAlias.ps1 not found at $aliasScript; add the alias lines to the hosts file by hand."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0b2bee16d88f663e' -Arguments @{ aliasScript = "$aliasScript" })
         return 0
     }
     $address = $IPAddress
     $written = 0
     $mapped = [System.Collections.Generic.List[string]]::new()
     foreach ($n in $Name) {
-        if (-not $PSCmdlet.ShouldProcess($n, "Map to $address in the hosts file")) { continue }
+        if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_c650df7426c4ecc0' -Arguments @{ address = "$address" }))) { continue }
         # The non-Windows arm below starts a whole nested pwsh under sudo, which
         # is a second or two of silence per alias.
-        Write-Information "      $n -> $address in the hosts file..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cd7feeae4228289e' -Arguments @{ n = "$n"; address = "$address" })
         if ($IsWindows) {
             # Called in-process: this session is already elevated, and
             # Set-HostAlias asserts elevation itself, so a nested launch would
@@ -1217,13 +1218,10 @@ function Set-YurunaHostAlias {
             # "Password:" reads as a request for one of those.
             $aliasArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address) `
-                -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to map '$n' in /etc/hosts: "
+                -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_13113525af0647bd' -Arguments @{ n = "$n" })
             $aliasRun = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList $aliasArgs -AllowFailure
             if ($aliasRun.ExitCode -ne 0) {
-                throw ("Could not write the '$n' hosts-file alias (sudo pwsh exited $($aliasRun.ExitCode)): $($aliasRun.Output)`n" +
-                    "If that names a missing .NET runtime, this host's PowerShell is the Homebrew formula build and cannot start with a stripped environment. Fix it once, machine-wide:`n" +
-                    "  echo `"`$(brew --prefix dotnet)/libexec`" | sudo tee /etc/dotnet/install_location_`$(uname -m)`n" +
-                    "then re-run this script -- it is idempotent and will converge.")
+                throw ((Format-YurunaOperatorMessage -Key 'exceptions.runner_171dd62b87249d01' -Arguments @{ n = "$n"; exitCode = "$($aliasRun.ExitCode)"; output = "$($aliasRun.Output)"; command = 'echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$(uname -m)' }))
             }
         }
         $mapped.Add($n)
@@ -1236,9 +1234,7 @@ function Set-YurunaHostAlias {
             # resolver converges on its own eventually. What the caller must not
             # do is treat the name as usable right now, so say which names are
             # not yet safe to dial and what dialing one of them would reach.
-            Write-Warning ("The hosts file maps $($stale -join ', ') to $address, but this machine's resolver is still answering with the previous address. " +
-                "Anything connecting to those names now reaches the server they used to mean, not this one. " +
-                "Flush the cache and retry (macOS: sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder).")
+            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_c4446d75c72cc1be' -Arguments @{ join = "$($stale -join ', ')"; address = "$address" }))
         }
     }
     return $written
@@ -1376,7 +1372,7 @@ function Remove-LocalLabStorageShare {
             foreach ($n in $names) { $result[$n] = 'absent' }
             return $result
         }
-        if (-not $PSCmdlet.ShouldProcess($includePath, 'Withdraw the yuruna shares and reload smbd')) {
+        if (-not $PSCmdlet.ShouldProcess($includePath, (Format-YurunaOperatorMessage -Key 'runner.operator_66329dec7254f2a6'))) {
             foreach ($n in $names) { $result[$n] = 'whatif' }
             return $result
         }
@@ -1408,7 +1404,7 @@ function Remove-LocalLabStorageShare {
         if ($IsWindows) {
             $existing = Get-SmbShare -Name $n -ErrorAction SilentlyContinue
             if (-not $existing) { $result[$n] = 'absent'; continue }
-            if (-not $PSCmdlet.ShouldProcess($n, "Withdraw the SMB share (the folder '$($existing.Path)' is kept)")) { $result[$n] = 'whatif'; continue }
+            if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_56df5838ba31cc1c' -Arguments @{ path = "$($existing.Path)" }))) { $result[$n] = 'whatif'; continue }
             Remove-SmbShare -Name $n -Force -ErrorAction Stop
             $result[$n] = 'removed'
             continue
@@ -1416,7 +1412,7 @@ function Remove-LocalLabStorageShare {
         # macOS.
         $listed = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
         if (-not ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($n))\s*$")) { $result[$n] = 'absent'; continue }
-        if (-not $PSCmdlet.ShouldProcess($n, 'Withdraw the macOS SMB sharepoint (the folder is kept)')) { $result[$n] = 'whatif'; continue }
+        if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_c4bfe6c236bd294c'))) { $result[$n] = 'whatif'; continue }
         $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $n) -AllowFailure
         $result[$n] = 'removed'
     }
@@ -1448,20 +1444,20 @@ function Remove-LocalLabStorageAccount {
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Name)
     if (-not (Test-LocalLabStorageAccount -Name $Name)) { return 'absent' }
-    if (-not $PSCmdlet.ShouldProcess($Name, 'Delete the local storage account')) { return 'whatif' }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_3d971e217f190072'))) { return 'whatif' }
 
     if ($IsWindows) {
         try {
             Remove-LocalUser -Name $Name -ErrorAction Stop
         } catch {
-            Write-Warning "Could not delete the local account '$Name': $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df80ecc783485314' -Arguments @{ name = "$Name"; message = "$($_.Exception.Message)" })
             return 'failed'
         }
         return 'removed'
     }
     if ($IsMacOS) {
         if (Remove-MacLocalAccount -Name $Name -Confirm:$false) { return 'removed' }
-        Write-Warning "Could not delete the local account '$Name'; remove it from System Settings > Users & Groups."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b72b045131679bb8' -Arguments @{ name = "$Name" })
         return 'failed'
     }
     # Ubuntu / Debian.
@@ -1472,7 +1468,7 @@ function Remove-LocalLabStorageAccount {
     # userdel takes a real directory with it.
     $del = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('userdel', $Name) -AllowFailure
     if (Test-LocalLabStorageAccount -Name $Name) {
-        Write-Warning "Could not delete the local account '$Name' (userdel exited $($del.ExitCode)): $($del.Output)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ceda6fed54c6e5a3' -Arguments @{ name = "$Name"; exitCode = "$($del.ExitCode)"; output = "$($del.Output)" })
         return 'failed'
     }
     return 'removed'
@@ -1519,7 +1515,7 @@ function Remove-LocalLabStorageLoopbackException {
     try {
         Restart-Service -Name 'LanmanServer' -Force -ErrorAction Stop
     } catch {
-        Write-Warning "Withdrew the loopback exemption but could not restart the Server service ($($_.Exception.Message)). It applies at the next reboot."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3e005e070aefee8b' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return 'updated'
 }
@@ -1590,9 +1586,9 @@ function Set-LocalLabStorageConfigValue {
         # (copy, verify, then delete the local folder) over copy-and-keep.
         [switch]$MoveLogs
     )
-    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write the networkStorage pool + stash values')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_e4221568eb65462c'))) { return $false }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
-        Write-Warning "powershell-yaml is not available; cannot write $ConfigPath. Install it with: Install-Module powershell-yaml -Scope CurrentUser"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_973f6ff9d38d0fc8' -Arguments @{ configPath = "$ConfigPath" })
         return $false
     }
     try {
@@ -1623,7 +1619,7 @@ function Set-LocalLabStorageConfigValue {
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {
-        Write-Warning "Could not write $ConfigPath ($($_.Exception.Message))."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5423a5444e3f68bf' -Arguments @{ configPath = "$ConfigPath"; message = "$($_.Exception.Message)" })
         return $false
     }
 }

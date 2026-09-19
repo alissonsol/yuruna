@@ -11,18 +11,11 @@ import (
 	"pool-control-service/internal/state"
 )
 
-// The write gate in front of the operator board.
-//
 // --- REGION: https://yuruna.link/42fffc2c-0009
 //
-// Deliberately NOT per-user auth. It stops a stranger on the LAN and an
-// accidental visitor; it does not tell you WHO assigned something, which is why
-// every mutation is still audited. If that traceability ever matters, this is
-// the piece to replace.
-//
-// Reads stay open, matching every other extension service and the aggregator's
-// own pool-status: the board renders on a wall display with no credential, and
-// nothing it renders is a secret the LAN cannot already read from the pool.
+// The write gate in front of the operator board. See
+// ../../../../../../docs/pool-admin.md#unlocking-the-actions for what it does
+// and does not guarantee.
 
 // sessionCookie is this service's own cookie name, so a session here is not a
 // session anywhere else.

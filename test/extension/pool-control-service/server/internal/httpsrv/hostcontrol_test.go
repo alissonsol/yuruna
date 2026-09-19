@@ -4,7 +4,9 @@
 package httpsrv
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -353,6 +355,57 @@ func TestApplyValidatesItsRequest(t *testing.T) {
 	}
 	if got := h.recorded(); len(got) != 0 {
 		t.Errorf("a rejected request still drove hosts: %v", got)
+	}
+}
+
+// A per-host refresh action (not yet implemented anywhere in hostctl) belongs
+// to a single explicitly authorized host, never to this pool-wide fan-out.
+// hostctl.KnownAction("refresh") is already false today, so this would 400
+// either way -- the point of asserting the SPECIFIC message is to fail this
+// test if the independent check is ever deleted in favor of relying on that
+// coincidence, which stops holding the day a per-host refresh action is
+// added to hostctl for its own, separately authorized route.
+func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
+	h := newCtlHost(t, "")
+	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+	srv := ctlServer(t, ctlIntent("42aa"), agg.URL, testBearer)
+
+	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"refresh"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%v)", resp.StatusCode, http.StatusBadRequest, m)
+	}
+	if !strings.Contains(fmt.Sprint(m["error"]), "not available through pool-wide control") {
+		t.Errorf("error = %v, want it to name pool-wide refresh specifically", m["error"])
+	}
+	if got := h.recorded(); len(got) != 0 {
+		t.Errorf("a refused refresh still drove hosts: %v", got)
+	}
+}
+
+// The MCP pool_control_set_host_control tool dispatches to the exact same
+// handler as the HTTP route (mcp.go wires both through
+// mcp.FromRouteWithBody(s.handleHostControlApply, ...)), and the SDK does not
+// validate a tool's InputSchema at call time -- so the refusal has to live in
+// the handler itself to cover both entry points, and this test drives the MCP
+// path directly rather than trusting that the HTTP-path test above implies it.
+func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
+	h := newCtlHost(t, "")
+	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+	srv := New(ctlIntent("42aa"), Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+
+	tool, ok := srv.mcpRegistry().Get("pool_control_set_host_control")
+	if !ok {
+		t.Fatal("pool_control_set_host_control not registered")
+	}
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"poolId":"lab","action":"refresh"}`))
+	if err == nil {
+		t.Fatal("expected the MCP tool to refuse action=refresh, got no error")
+	}
+	if !strings.Contains(err.Error(), "not available through pool-wide control") {
+		t.Errorf("error = %v, want it to name pool-wide refresh specifically", err)
+	}
+	if got := h.recorded(); len(got) != 0 {
+		t.Errorf("a refused refresh still drove hosts: %v", got)
 	}
 }
 

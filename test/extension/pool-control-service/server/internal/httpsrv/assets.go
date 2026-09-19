@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"pool-control-service/internal/catalog"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/webui"
 )
@@ -116,21 +117,20 @@ func (s *assetStore) build() {
 			}
 			prepared := newAsset(b, webui.ContentType(e.Name()))
 			s.items[e.Name()] = prepared
-			for _, locale := range []string{"qps-Ploc", "qps-Plocm"} {
-				if e.Name() != locale+".pool.js" {
-					continue
-				}
-				// The URL names the identity representation's complete SHA-256.
-				// A rebuild can therefore cache forever without making an old
-				// catalog reachable from newly rendered HTML.
-				hash := strings.Trim(prepared.etag, `"`)
-				name := locale + "." + hash + ".pool.js"
-				immutable := *prepared
-				immutable.immutable = true
-				s.items[name] = &immutable
-				s.catalogNames[locale] = name
-			}
 		}
+	}
+
+	// Every selected catalog contains all domains used by these pages. Its
+	// content-addressed URL changes with the complete representation.
+	for locale, source := range catalog.BrowserCatalogs {
+		if locale == "en-US" {
+			continue
+		}
+		prepared := newAsset([]byte(source), webui.ContentType("catalog.js"))
+		prepared.immutable = true
+		name := locale + "." + strings.Trim(prepared.etag, `"`) + ".pool.js"
+		s.items[name] = prepared
+		s.catalogNames[locale] = name
 	}
 
 	// The shared runtime every page loads first lives in the SDK so there is
@@ -392,6 +392,9 @@ func matchesETag(header, etag string) bool {
 // would render once in the wrong one, and on the floor browser that flash is
 // the whole load.
 func renderPage(body []byte, locale i18n.Context, catalogName string) []byte {
+	if catalog, err := messages(); err == nil {
+		body = webui.RenderHTML(body, locale, catalog)
+	}
 	if locale.ResolvedTag == "" {
 		return body
 	}

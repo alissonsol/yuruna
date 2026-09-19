@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,7 @@
 
 # --- REGION: Log level from environment
 # Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -47,14 +48,14 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
-    Write-Error "host/windows.hyper-v/guest.amazon.linux.2023/Get-Image.ps1 only runs on Windows Hyper-V."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_f403b438cea77392')
     exit 1
 }
 
-Write-Output "This script requires elevation (Run as Administrator)."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e3de8bf7b8f6ba1')
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Write-Output "Be careful."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9fd336c78bc7623')
     exit 1
 }
 
@@ -65,16 +66,16 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $hostArch = 'amd64'; $platformDir = 'hyperv';    $downloadExtension = 'zip' }
     'Arm64' { $hostArch = 'arm64'; $platformDir = 'kvm-arm64'; $downloadExtension = 'qcow2' }
     default {
-        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
         exit 1
     }
 }
-Write-Output "Host architecture: $hostArch (Amazon Linux 2023 platform: $platformDir)"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7d9e74e8eb3a4b80' -Arguments @{ hostArch = "$hostArch"; platformDir = "$platformDir" })
 
 # --- REGION: https://yuruna.link/42dc5bb9-0004
 # Conversion succeeds, but the AL2023 ARM64 kernel lacks Hyper-V disk and NIC drivers.
 if ($hostArch -eq 'arm64') {
-    Write-Warning "Amazon Linux 2023 has no Hyper-V-capable ARM64 image: the KVM qcow2 fetched below converts fine but boots to a dracut device wait, because its aarch64 kernel carries no Hyper-V drivers. Run this guest on host.macos.utm or host.ubuntu.kvm for ARM64 coverage. See docs/host-hyperv.md."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_104d2f01a997342c')
 }
 
 # The extension is the only property of a downloaded artifact the staging
@@ -91,9 +92,9 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 $downloadFile = Join-Path $downloadDir "downloaded.$downloadExtension"
 
-Write-Output "Hyper-V default VHDX folder: $downloadDir"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e30f6e2006f710fa' -Arguments @{ downloadDir = "$downloadDir" })
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
 }
 
@@ -147,7 +148,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
             $agentResult = Request-DownloadAgentImage @agentArgs
         } catch {
-            Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
             $agentResult = $null
         }
         if ($agentResult -and $agentResult.outcome -eq 'skipped') {
@@ -163,10 +164,10 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             $agentServed = $true
             $downloadUrl = [string]$agentResult.sourceUrl
             $agentLastModified = [string]$agentResult.lastModified
-            Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $downloadFile"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
         } elseif ($agentResult) {
             $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-            Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
         }
     }
 }
@@ -176,7 +177,7 @@ if (-not $agentServed) {
     $html = Invoke-WebRequest -Uri $sourceUrl -ErrorAction Stop
     $artifactLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension$" } | Select-Object -First 1).href
     if (-not $artifactLink) {
-        Write-Error "No .$downloadExtension listed at $sourceUrl"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_19852b316c3dcde1' -Arguments @{ downloadExtension = "$downloadExtension"; sourceUrl = "$sourceUrl" })
         exit 1
     }
     $downloadUrl = $sourceUrl + $artifactLink
@@ -211,7 +212,7 @@ if (-not $agentServed) {
         -OnMismatch 'WarnAndDelete' `
         -Confirm:$false
     if (-not $downloaded) {
-        Write-Error "Download failed for $downloadUrl"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_877d321158118deb' -Arguments @{ downloadUrl = "$downloadUrl" })
         exit 1
     }
 }
@@ -242,7 +243,7 @@ if ($hostArch -eq 'amd64') {
             $stream.Close()
         }
     } else {
-        Write-Error "No .vhdx file found inside the downloaded zip."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a987e4f99dc9ede6')
         $zip.Dispose()
         exit 1
     }
@@ -252,9 +253,9 @@ if ($hostArch -eq 'amd64') {
     # capacity: New-VM.ps1 grows its own per-VM copy, and a base pre-grown to
     # the largest consumer would force smaller ones to shrink, which Hyper-V
     # refuses while the guest partition still spans the disk.
-    Write-Output "Converting the Amazon Linux 2023 ARM64 cloud image to VHDX..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_90754900d1242d57')
     if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $extractedFile -SizeBytes 0)) {
-        Write-Error "Could not convert $downloadFile to VHDX. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) if qemu-img is missing."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9eb8129c37e792c7' -Arguments @{ downloadFile = "$downloadFile" })
         Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
         exit 1
     }
@@ -265,7 +266,7 @@ $previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
     Move-Item -Path $baseImageFile -Destination $previousFile
-    Write-Output "Previous image preserved as: $previousFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
 }
 Move-Item -Path $extractedFile -Destination $baseImageFile
 
@@ -278,11 +279,11 @@ if ($agentServed) {
 } else {
     Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
 }
-Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1dec325a446dd0f7' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
 
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
-Write-Output "Download complete: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_347faa31fb049e6d' -Arguments @{ baseImageFile = "$baseImageFile" })
 
 # --- REGION: Completion
 # Clear a native discovery probe's stale exit code, including on cache hits.

@@ -4,6 +4,7 @@
 package httpsrv
 
 import (
+	"sort"
 	"sync"
 
 	"pool-control-service/internal/catalog"
@@ -22,21 +23,15 @@ var (
 	catalogOnce         sync.Once
 	catalogInst         *i18n.Catalog
 	catalogErr          error
-	embeddedCatalogData = map[string]map[string]string{
-		"en-US": {
-			"pool":   catalog.DataenUSpool,
-			"status": catalog.DataenUSstatus,
-		},
-		"qps-Ploc": {
-			"pool":   catalog.DataqpsPlocpool,
-			"status": catalog.DataqpsPlocstatus,
-		},
-		"qps-Plocm": {
-			"pool":   catalog.DataqpsPlocmpool,
-			"status": catalog.DataqpsPlocmstatus,
-		},
-	}
-	embeddedLocaleTags = []string{"en-US", "qps-Ploc", "qps-Plocm"}
+	embeddedCatalogData = catalog.Catalogs
+	embeddedLocaleTags  = func() []string {
+		tags := make([]string, 0, len(catalog.Catalogs))
+		for tag := range catalog.Catalogs {
+			tags = append(tags, tag)
+		}
+		sort.Strings(tags)
+		return tags
+	}()
 )
 
 // embeddedCatalogs maps each locale to every domain this binary renders. The

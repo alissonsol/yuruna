@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 # exemption list resolves at parameter-binding time. Imported here rather than
 # relied on from a host driver's -Global import: the default has to bind even
 # when the caller reached this facade without loading a driver.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 $siblingModules = @(
@@ -114,7 +115,7 @@ function Stop-ConcurrentVM {
         # "Could not ask the host" is not "nothing is running", but refusing
         # here would wedge every cycle on a host whose CLI is intermittently
         # unreachable. Report and let the per-host guard decide.
-        Write-Warning "Stop-ConcurrentVM: could not enumerate VMs ($($_.Exception.Message)); proceeding without the single-VM guarantee."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2cf896e3e62bdec5' -Arguments @{ message = "$($_.Exception.Message)" })
         return $true
     }
     $stillRunning = [System.Collections.Generic.List[string]]::new()
@@ -122,21 +123,21 @@ function Stop-ConcurrentVM {
         if ($AlwaysAllow -contains $name) { continue }
         if ($ExceptVmName -and $name -eq $ExceptVmName) { continue }
         if ((Get-VMState -VMName $name) -ne 'running') { continue }
-        if (-not $PSCmdlet.ShouldProcess($name, 'Stop concurrent VM')) { continue }
+        if (-not $PSCmdlet.ShouldProcess($name, (Format-YurunaOperatorMessage -Key 'runner.operator_984c43950954554c'))) { continue }
         # Progress goes to the information stream, never the success stream:
         # this function's output IS its return value, so a Write-Output here
         # would make it return an array whose truthiness is always $true --
         # a caller testing `-not (Stop-ConcurrentVM)` would then never refuse.
-        Write-Information -MessageData "  Stopping concurrent VM '$name' before the cycle starts." -InformationAction Continue
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'runner.operator_56c32c1062db2379' -Arguments @{ name = "$name" }) -InformationAction Continue
         try {
             [void](Stop-VMForce -VMName $name -Confirm:$false)
         } catch {
-            Write-Warning "  Stop-VMForce failed for '$name': $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c28697ef783ec9f0' -Arguments @{ name = "$name"; message = "$($_.Exception.Message)" })
         }
         if ((Get-VMState -VMName $name) -eq 'running') { [void]$stillRunning.Add($name) }
     }
     if ($stillRunning.Count -gt 0) {
-        Write-Warning "Stop-ConcurrentVM: still running after a forced stop: $($stillRunning -join ', ')"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e10e72b69afe78cd' -Arguments @{ join = "$($stillRunning -join ', ')" })
         return $false
     }
     return $true

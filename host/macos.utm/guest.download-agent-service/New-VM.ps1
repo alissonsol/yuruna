@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4219b9e1-52b6-463b-b9d7-5d2aecaadd27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,6 +12,8 @@
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 #requires -version 7
@@ -35,8 +37,11 @@
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-download-agent-service"
+    [string]$VMName = "yuruna-download-agent-service",
+    [switch]$AllowPseudoLocale
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -48,7 +53,7 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
@@ -63,7 +68,7 @@ $downloadDir = "$HOME/yuruna/image/download-agent-service"
 
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
-    Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
     exit 1
 }
 
@@ -74,7 +79,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
@@ -82,7 +87,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # --- REGION: Remove existing VM
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 
@@ -96,10 +101,10 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # under UTM's discard=unmap,detect-zeroes=unmap -- see
 # feedback_macos-qemu-punchhole-alignment.md.
 $DiskImage = "$DataDir/disk.qcow2"
-Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
 & /bin/cp -c $baseImageFile $DiskImage
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6a80b3350f680db8')
     Copy-Item -Path $baseImageFile -Destination $DiskImage
 }
 
@@ -108,7 +113,7 @@ if ($LASTEXITCODE -ne 0) {
 # until the download-agent daemon actually stores that much. The pool itself
 # lives on the NAS, not here.
 if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 256GB -Format 'qcow2')) {
-    Write-Error "Could not resize '$DiskImage' to 256 GB; refusing to build the VM on base-capacity disk."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5a636fde131a5a2f' -Arguments @{ diskImage = "$DiskImage" })
     exit 1
 }
 
@@ -127,14 +132,14 @@ Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destin
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'download-agent-service-admin'
-if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'download-agent-service-admin'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Select the guest network
 # See https://yuruna.link/4220a755-001b
@@ -144,6 +149,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $NetworkMode = Resolve-UtmNetworkMode
@@ -156,6 +162,14 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$serviceLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $serviceLanguage) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_8fa181c2fe215cd1' -Arguments @{ languageRaw = "$languageRaw" }) }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
@@ -193,9 +207,9 @@ try {
 }
 if (-not $cacheProxyIp -or $cacheProxyIp -eq '127.0.0.1' -or $cacheProxyIp -eq '::1') { $cacheProxyIp = '' }
 if ($cacheProxyIp) {
-    Write-Output "Caching proxy for agent downloads: $cacheProxyIp"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d4bb65397ec1cb33' -Arguments @{ cacheProxyIp = "$cacheProxyIp" })
 } else {
-    Write-Output "No reachable caching proxy; the agent downloads straight from the origins."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdd52e517bbdfc60')
 }
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
@@ -207,6 +221,8 @@ $UserData = New-CloudInitUserData `
     -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.utm.overlay.yml') `
     -RepoRoot    $_repoRoot `
     -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
@@ -227,17 +243,17 @@ Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
-Write-Output "Generating seed.iso with cloud-init configuration..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5f1478be62ab5e8d')
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create seed.iso with hdiutil."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
     exit 1
 }
 
 # --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -261,20 +277,20 @@ try {
     Write-Verbose "route -n get default failed: $($_.Exception.Message)"
 }
 if (-not $BridgeInterface) {
-    Write-Warning "Could not resolve default-route interface; falling back to 'en0' for VZ bridge."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15685f8ad1d8fea6')
     $BridgeInterface = 'en0'
 }
 if ($NetworkMode -eq 'Shared') {
-    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the download-agent-service VM on UTM Shared NAT. Start-DownloadAgentServiceVM.ps1 will forward a host port to it for LAN access."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_69e62e2795b0c3d2' -Arguments @{ bridgeInterface = "$BridgeInterface" })
 } else {
-    Write-Output "Bridge interface: $BridgeInterface (download-agent-service VM will request DHCP on this LAN)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_00e0e35404f36e5b' -Arguments @{ bridgeInterface = "$BridgeInterface" })
 }
 
 # --- REGION: https://yuruna.link/42fa6f45-0015
 # See https://yuruna.link/42fa6f45-0016
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -305,8 +321,8 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
@@ -316,13 +332,13 @@ Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
 Write-Output ""
-Write-Output "== download-agent-service VM bundle created =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e12d6ba22d26fe5a')
 Write-Output "  Path:      $UtmDir"
-Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0a95ec9679adce8d' -Arguments @{ vncDisplay = "$VncDisplay"; vncDisplay2 = "$(5900 + $VncDisplay)" })
 Write-Output ""
-Write-Output "  Console/SSH login:"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a19074ac4867746e')
 Write-Output "    user:     download-agent-service-admin"
-Write-Output "    password: (in authentication vault under 'download-agent-service-admin')"
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0650f798a0996483')
 $guidance = @'
 
 Next steps:

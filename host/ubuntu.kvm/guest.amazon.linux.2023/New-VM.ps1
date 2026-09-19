@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,8 @@ param(
     [string]$Hostname = ''
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -55,17 +57,17 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Error "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3127c22c5596f553' -Arguments @{ hostname = "$Hostname" })
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1 only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0deceeff2eb90b38')
     exit 1
 }
 
@@ -108,11 +110,11 @@ $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_d43d0cab95add9be' -Arguments @{ vMName = "$VMName"; join = "$($domainNames -join '; ')" })
 }
 if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
     $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9174df31c5ee6350' -Arguments @{ vMName = "$VMName"; dominfo = "$dominfo" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -128,7 +130,7 @@ $repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $Scr
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
-if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $sshPub) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Yuruna host coordinates
 # See https://yuruna.link/42e220c4-0004
@@ -150,7 +152,7 @@ $baseUserData     = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data
 $overlayUserData  = Join-Path $hostVmConfigDir 'amazon.linux.2023.kvm.overlay.yml'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error "Template missing: $f"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
         exit 1
     }
 }
@@ -160,9 +162,9 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $plaintextPassword = Get-LocalOsPassword -Username $Username
-if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $plaintextPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Render user-data / meta-data
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
@@ -193,7 +195,7 @@ Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNe
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1
 }
 
@@ -203,12 +205,12 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 # An overlay must never be smaller than its backing disk; retain the 16 GiB floor.
 $baseInfo = (& qemu-img info --output=json -- $baseImageFile | ConvertFrom-Json)
-if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img info on '$baseImageFile' failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_411b830ef7e4b606' -Arguments @{ baseImageFile = "$baseImageFile" }); exit 1 }
 $baseVirtualBytes = [int64]$baseInfo.'virtual-size'
 $overlayBytes = [int64]16 * 1024 * 1024 * 1024  # 16 GiB minimum
 if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
 & qemu-img create -f qcow2 -F qcow2 -b $baseImageFile $diskImg $overlayBytes | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
 # --- REGION: https://yuruna.link/42d69dfa-0008
 $osVariant = 'linux2022'
@@ -232,7 +234,7 @@ if ($LASTEXITCODE -eq 0) {
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 # --- REGION: https://yuruna.link/42fa6f45-0015
@@ -283,7 +285,7 @@ if ($virtInstallExit -ne 0) {
     # Surface the captured output on failure so the operator has
     # something to debug from without re-running with -Verbose.
     $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-    Write-Error "virt-install failed (exit $virtInstallExit)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
     exit 1
 }
 

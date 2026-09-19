@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,6 +174,7 @@ Describe 'caching proxy stop state across hosts' {
 }
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
@@ -264,7 +265,7 @@ Describe 'The UTM stop-wait is bounded by wall-clock' {
         Assert-True (@($whileConds | Where-Object { $_ -match 'UtcNow' }).Count -ge 1) 'a while loop gates on [DateTime]::UtcNow'
         Assert-True (-not (Test-WhileBodyAccumulator -Ast $ast)) 'no while-loop body accumulates an iteration counter (+= / ++), which would short-circuit the deadline'
         Assert-True (-not (Test-UsesVariable -Ast $ast -Name 'waited')) 'the specific $waited counter is gone'
-        $warn = @(Get-StringLiteralExtent -Ast $driverAst | Where-Object { $_ -match 'did not confirm powered-off|did not confirm stopped' })
+        $warn = @(Get-CatalogSourceMessage -Source $driverAst.Extent.Text | Where-Object { $_ -match 'did not confirm powered-off|did not confirm stopped' })
         Assert-True ($warn.Count -ge 1) 'an unconfirmed-stop warning is emitted before delete'
     }
 

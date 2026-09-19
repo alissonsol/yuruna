@@ -234,6 +234,38 @@ configuration.
 
 <a id="42e568c8-000d"></a>
 
+## Service VM memory budget
+
+Each service guest (cache, stash, download agent, and the rest of the
+always-on pool) is sized in its own per-host `New-VM.ps1` builder and
+nowhere else. Every hypervisor pins that size rather than letting the guest
+grow into it -- the UTM guests carry no balloon driver, Hyper-V builds them
+with `DynamicMemoryEnabled $false`, and virt-install is given a flat
+`--memory`. A configured size is therefore a commitment from the moment the
+VM runs, not a ceiling, and the sum of the service guests' sizes is knowable
+before the first one is built.
+
+A hypervisor's own resident set runs larger than the guest memory it was
+configured with -- the device model, the framebuffer, and the accelerator's
+page tables are host-side costs on top of the guest's own RAM. Measured
+across a three-guest service set, 20.0 GB of configured guest memory held
+24.7 GB resident, and a single 12 GB guest held 15.2 GB; both land about a
+quarter over the configured size, which is the origin of the ~1.24 overhead
+factor used when budgeting host capacity for the service fleet.
+
+What has to be left over once the service guests are resident is memory for
+the host operating system, the hypervisor's own process, and the harness
+driving the run. A calibration run that left 7.3 GB free still had to hold
+about 1.9 GB of that in its memory compressor to stay up, which counts as
+already under reclaim pressure rather than comfortable -- so the reserve is
+rounded up from that measured point rather than down. The reserve is a fixed
+8 GB rather than a fraction of installed memory: what a host needs for
+itself is roughly constant regardless of its size, so a fraction would let a
+large machine skate under the floor a small one is held to, and would grow
+tighter, not looser, as machines get bigger.
+
+<a id="42e568c8-000e"></a>
+
 ## License
 
 Scripts and examples are provided "as is". See [Yuruna License](../LICENSE.md).
@@ -244,6 +276,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

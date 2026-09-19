@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,6 +164,7 @@ param(
     [switch]$Rebuild
 )
 
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 # Several preflight probes read a native command's exit code as the ANSWER
@@ -295,7 +296,7 @@ function Write-SetupLogLine {
         # The log is a record of the run, never a reason to end one. Say so once,
         # then continue console-only rather than failing on every later line.
         $Script:LogFile = ''
-        Write-Warning "Setup log could not be written ($($_.Exception.Message)); the rest of this run is console-only."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_69bcdce303eb8a3d' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -447,7 +448,7 @@ function Initialize-SetupLog {
             (((Split-Path -Leaf $target) -replace '\.log$', '') + '.children')
     } catch {
         $Script:LogFile = ''
-        Write-Warning "Setup log could not be opened at $target ($($_.Exception.Message)); this run is console-only."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_8fbc9fb190730004' -Arguments @{ target = "$target"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -941,7 +942,7 @@ function Invoke-SetupStep {
             # Report BEFORE the error: this is the last thing the run will do, and
             # the list of what did succeed is what the next attempt starts from.
             Write-SetupReport
-            Write-SetupError "$Name failed: $message"
+            Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_3a0c224edeb697d8' -Arguments @{ name = "$Name"; message = "$message" })
             Exit-Setup 1
         }
         return $false
@@ -1157,7 +1158,7 @@ function Initialize-SetupElevation {
         return $false
     }
     Write-SetupMessage ''
-    Write-SetupMessage 'This setup needs sudo once, now, for:'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_655a3cbad32833be')
     foreach ($r in $Reason) { Write-SetupMessage "  * $r" }
     # Only what is enforced, and no more. Every child is started with its stdin
     # closed and -NonInteractive, so a question one of them tries to ask is an
@@ -1165,7 +1166,7 @@ function Initialize-SetupElevation {
     # promise covering the whole remainder of the run would not be: this script
     # itself may still say something, and a promise nothing enforces is the one
     # an operator stops believing.
-    Write-SetupMessage 'Your questions are done: from here only this script speaks, and nothing it starts can ask.'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_6300fb1f8affd460')
     # Named before it appears. sudo writes "Password:" straight to /dev/tty and
     # echoes nothing as it is typed, so an operator who does not know the prompt
     # is coming reads a blank, unresponsive line as a hung run -- and waits, which
@@ -1743,18 +1744,18 @@ function Test-NetworkSubnetConnectivity {
     }
 
     if (-not $hasSubnetAccess) {
-        Write-SetupWarning "Network connectivity check failed: Outbound traffic to the local /24 subnet is restricted by firewall rules."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_bbbaa5da661ba342')
         Write-SetupMessage ""
-        Write-SetupMessage "To enable service VM communication, allow traffic to your local network subnet."
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_95b70a8cbc67dfd3')
         if ($IsLinux) {
-            Write-SetupMessage "  Linux (ufw) suggested commands:"
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_172b5623f4f06af8')
             Write-SetupMessage "    sudo ufw allow out to x.y.z.0/24"
             Write-SetupMessage "    sudo ufw reload"
         } elseif ($IsWindows) {
-            Write-SetupMessage "  Windows PowerShell (elevated) suggested command:"
-            Write-SetupMessage "    New-NetFirewallRule -DisplayName 'Allow Local Subnet' -Direction Outbound -Action Allow -RemoteAddress LocalSubnet"
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_be415be6232790f3')
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_ce09531d5eab7838')
         }
-        Write-SetupMessage "  For detailed instructions, see: $DocumentationUrl"
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_dfef811368420551' -Arguments @{ documentationUrl = "$DocumentationUrl" })
         Write-SetupMessage ""
         return $false
     }
@@ -1841,16 +1842,16 @@ function Resolve-LocalStorageRoot {
             $systemDrive = if ($env:SystemDrive) { $env:SystemDrive.TrimEnd('\', '/') } else { 'C:' }
             if ($dataDrive -ieq $systemDrive) {
                 Write-SetupMessage ''
-                Write-SetupMessage "NOTE: this machine has only the system drive ($systemDrive), so the lab's"
-                Write-SetupMessage '      storage goes on it. A pool share grows without bound (pruning retired'
-                Write-SetupMessage '      hosts is manual), and a full system drive takes the whole machine down,'
-                Write-SetupMessage '      not just the lab. Set storage.localRoot in an answer file to place it'
-                Write-SetupMessage '      on another drive.'
+                Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_12ce8eb88f3b2110' -Arguments @{ systemDrive = "$systemDrive" })
+                Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_43fd2598d28c6a0d')
+                Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_9f3473ece2877e46')
+                Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_e3409ddcbcaf5655')
+                Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_7a6f4736fc5e969c')
             }
         }
         return [string](Get-LocalLabStorageDefaultRoot -Platform $platform -DataDrive $dataDrive)
     } catch {
-        Write-SetupWarning "The storage root could not be resolved from the platform convention ($($_.Exception.Message))."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_0b83d0b9395f9cbc' -Arguments @{ message = "$($_.Exception.Message)" })
         return ''
     }
 }
@@ -2097,7 +2098,7 @@ function Get-StorageServedElsewhere {
         # Reported, never swallowed: this is the check that decides whether the
         # run is about to build local storage on top of a live NAS mount, and a
         # silent empty answer from it reads exactly like a clean machine.
-        Write-SetupWarning "The servers behind this machine's storage mounts could not be established ($($_.Exception.Message)); the storage step will decide on its own evidence."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_fe8311a330cc8284' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     return $found.ToArray()
 }
@@ -2171,7 +2172,7 @@ function Read-Choice {
             Write-SetupLogLine -Level 'ANSWER' -Message "$($Option[$n - 1].Value) -- $($Option[$n - 1].Label) (typed: $answer)"
             return $Option[$n - 1].Value
         }
-        Write-SetupMessage "  Enter a number between 1 and $($Option.Count)."
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_19cd199193631c68' -Arguments @{ count = "$($Option.Count)" })
     }
 }
 
@@ -2269,17 +2270,17 @@ function Write-DashboardHint {
     $path = '/d/yuruna-pool/yuruna-hosts'
     Write-SetupMessage ''
     if ($AliasName) {
-        Write-SetupMessage "Yuruna hosts dashboard: http://${AliasName}:3000$path"
-        Write-SetupMessage "  (same page by address, if the name ever stops resolving: http://${ProxyIp}:3000$path)"
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_b831671d51bb8258' -Arguments @{ aliasName = "${AliasName}"; path = "$path" })
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_977327e4a8e5b75a' -Arguments @{ proxyIp = "${ProxyIp}"; path = "$path" })
     } else {
-        Write-SetupMessage "Yuruna hosts dashboard: http://${ProxyIp}:3000$path"
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_748e4216448e7f0d' -Arguments @{ proxyIp = "${ProxyIp}"; path = "$path" })
     }
-    Write-SetupMessage 'Links to services will become active after their initialization.'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_3d27e61ad4660394')
 }
 
 function Write-SetupReport {
     Write-SetupMessage ''
-    Write-SetupMessage '================ Yuruna setup ================'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_ccb71d2cb4689150')
     if ($Script:Done.Count -gt 0) {
         Write-SetupMessage 'Done:'
         foreach ($d in $Script:Done) { Write-SetupMessage "  - $d" }
@@ -2295,7 +2296,7 @@ function Write-SetupReport {
     # set up.
     if ($Script:Warned.Count -gt 0) {
         Write-SetupMessage ''
-        Write-SetupMessage 'Done, with something still unmet:'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_bdbf233b751e53a0')
         foreach ($w in $Script:Warned) { Write-SetupMessage "  - $w" }
     }
     # Between Skipped and Failed, and never counted toward the exit code: a
@@ -2303,7 +2304,7 @@ function Write-SetupReport {
     # list, so counting it again would report one broken thing as two.
     if ($Script:Blocked.Count -gt 0) {
         Write-SetupMessage ''
-        Write-SetupMessage 'Blocked (something they need did not succeed):'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_6fd9ccb12f673bfb')
         foreach ($b in $Script:Blocked) { Write-SetupMessage "  - $b" }
     }
     if ($Script:Failed.Count -gt 0) {
@@ -2329,13 +2330,13 @@ Import-SetupModule (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')
 Import-SetupModule (Join-Path $RepoRoot 'test/modules/Test.HostDetection.psm1')
 $HostType = Get-HostType
 if (-not $HostType) {
-    Write-SetupError 'Host type could not be determined. Only macOS (UTM), Windows (Hyper-V) and Linux (KVM/libvirt) are supported.'
+    Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_2beedb6fff0f94ac')
     Exit-Setup 1
 }
 $HostFolderName = (Get-HostFolder $HostType) -replace '^host[/\\]', ''
 
 Write-SetupMessage ''
-Write-SetupMessage "Yuruna setup -- $HostFolderName"
+Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_2fbfbb8a667a9470' -Arguments @{ hostFolderName = "$HostFolderName" })
 Write-SetupMessage "Repo: $RepoRoot"
 if ($Script:LogFile) { Write-SetupMessage "Log:  $Script:LogFile" }
 
@@ -2353,18 +2354,7 @@ if (-not $IsWindows) {
     try { $uid = (& id -u 2>$null) } catch { Write-SetupVerbose "id -u probe: $($_.Exception.Message)" }
     if ("$uid".Trim() -eq '0') {
         $asUser = if ($env:SUDO_USER) { $env:SUDO_USER } else { 'your own account' }
-        Write-SetupError @"
-Refusing to run as root.
-
-Yuruna setup elevates the individual operations that need it and prompts for
-your password when it does. Running the WHOLE script under sudo puts every
-artifact in root's home (HOME=$env:HOME) -- base images, VM bundles and the
-storage mounts -- where the hypervisor, which runs as $asUser, cannot reach
-them.
-
-Re-run without sudo:
-    pwsh install/setup.ps1
-"@
+        Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_09f0b1c12db44484' -Arguments @{ hOME = "$env:HOME"; asUser = "$asUser" })
         Exit-Setup 1
     }
 }
@@ -2381,11 +2371,11 @@ if ($IsWindows) {
             # relaunching here would be worse than useless: Start-Process itself
             # honors -WhatIf, so the elevated run would never start and this
             # script would exit 0 as though the preview had succeeded.
-            Write-SetupWarning 'Not running as Administrator. This preview needs no elevation, but the real run does -- it will relaunch elevated.'
+            Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_f0cbbc50ffd86b13')
         } else {
             Write-SetupMessage ''
-            Write-SetupMessage 'This setup needs Administrator: host settings, the firewall rules and'
-            Write-SetupMessage 'every Hyper-V VM operation require it. Relaunching elevated...'
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a34795a8608f486f')
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_9676f7771566a233')
             $relaunchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
             if ($AnswerFile) { $relaunchArgs += @('-AnswerFile', (Resolve-Path -LiteralPath $AnswerFile).Path) }
             # The elevated run continues THIS log rather than opening one of its
@@ -2410,7 +2400,7 @@ if ($IsWindows) {
                 Write-SetupLogLine -Level 'NOTE' -Message 'the elevated run''s record is the block above, in this same file'
                 Exit-Setup ([int]$proc.ExitCode)
             } catch {
-                Write-SetupError "Could not relaunch elevated ($($_.Exception.Message)). This account may not be a local administrator; add it from one that is, sign back in, and re-run: pwsh $PSCommandPath"
+                Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_a2a19cf79b334375' -Arguments @{ message = "$($_.Exception.Message)"; pSCommandPath = "$PSCommandPath" })
                 Exit-Setup 1
             }
         }
@@ -2422,21 +2412,21 @@ $Script:Unattended = [bool]$AnswerFile
 $answers = $null
 if ($AnswerFile) {
     if (-not (Test-Path -LiteralPath $AnswerFile)) {
-        Write-SetupError "Answer file not found: $AnswerFile"
+        Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_58ff80ccf6e0d414' -Arguments @{ answerFile = "$AnswerFile" })
         Exit-Setup 1
     }
     Import-YamlModule
     try {
         $answers = Get-Content -LiteralPath $AnswerFile -Raw | ConvertFrom-Yaml -Ordered
     } catch {
-        Write-SetupError "Answer file $AnswerFile is not valid YAML ($($_.Exception.Message))."
+        Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_c684c661d5615781' -Arguments @{ answerFile = "$AnswerFile"; message = "$($_.Exception.Message)" })
         Exit-Setup 1
     }
     # A document that is not a mapping reads back as all-keys-absent, and an
     # unattended run over all-keys-absent is a silent run of every default --
     # a standalone host with local storage that nobody asked for.
     if ($answers -isnot [System.Collections.IDictionary]) {
-        Write-SetupError "Answer file $AnswerFile has no sections; it must be a YAML mapping with setup: and storage: keys."
+        Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_844deaf41917277b' -Arguments @{ answerFile = "$AnswerFile" })
         Exit-Setup 1
     }
     # A mistyped SECTION takes every key under it with it, silently, and the run
@@ -2446,7 +2436,7 @@ if ($AnswerFile) {
     $knownSections = @('setup', 'storage', 'lab')
     $strays = @($answers.Keys | Where-Object { $_ -notin $knownSections })
     if ($strays.Count -gt 0) {
-        Write-SetupWarning "$AnswerFile carries section(s) this script does not read: $($strays -join ', '). Expected: $($knownSections -join ', ')."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_9ee6bb00d3a4a86f' -Arguments @{ answerFile = "$AnswerFile"; join = "$($strays -join ', ')"; join2 = "$($knownSections -join ', ')" })
     }
 }
 
@@ -2489,7 +2479,7 @@ if (-not $setupType) {
     )
 }
 if ($setupType -notin @('standalone', 'lab')) {
-    Write-SetupError "setup.type must be 'standalone' or 'lab' (got '$setupType')."
+    Write-SetupError (Format-YurunaOperatorMessage -Key 'automation.operator_df08720fd08e0df4' -Arguments @{ setupType = "$setupType" })
     Exit-Setup 1
 }
 $isLab = ($setupType -eq 'lab')
@@ -2619,7 +2609,7 @@ $answerProblems = @(Test-SetupAnswerSet -SetupType $setupType -StorageKind $stor
     -OnFailure $storageOnFailure -LabName $labName)
 if ($answerProblems.Count -gt 0) {
     foreach ($problem in $answerProblems) { Write-SetupError $problem }
-    if ($AnswerFile) { Write-SetupMessage "Fix $AnswerFile and re-run." }
+    if ($AnswerFile) { Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_86ef52add548f1a6' -Arguments @{ answerFile = "$AnswerFile" }) }
     Exit-Setup 1
 }
 
@@ -2629,10 +2619,10 @@ if ($answerProblems.Count -gt 0) {
 # to exist where the consent is actually taken, which is the question above.
 if ($storageKind -eq 'local') {
     Write-SetupMessage ''
-    Write-SetupMessage "Local storage changes THIS machine, under $storageLocalRoot :"
-    Write-SetupMessage '  local OS accounts, an SMB server, shares, hosts-file aliases and mounted drives.'
-    Write-SetupMessage '  For a NAS or a separate file server, stop now and answer this question differently:'
-    Write-SetupMessage '  those accounts and permissions have to be created on that device, by its own tools.'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_fecdb825feac6c33' -Arguments @{ storageLocalRoot = "$storageLocalRoot" })
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_bf62fc801f72e42d')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_06024f72c4a294e2')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_11dfac53e0602112')
 }
 
 # --- REGION: What a previous `sudo` run left behind -- the SCAN and the asking
@@ -2711,7 +2701,7 @@ if (-not $WhatIfPreference) {
     $env:YURUNA_NONINTERACTIVE = '1'
     if ($Script:ElevationOk) { $env:YURUNA_SUDO_PRIMED = '1' }
     Write-SetupMessage ''
-    Write-SetupMessage 'Setup processing:'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_95bd2668cfa67b2b')
 }
 
 # --- REGION: 1. Preflight checks
@@ -2767,7 +2757,7 @@ if (-not $WhatIfPreference) {
     if ($null -eq $freeGb) {
         Write-SetupVerbose "disk headroom check: no mounted volume matched '$home_'; headroom not checked."
     } elseif ($freeGb -lt 40) {
-        Write-SetupWarning "Only $freeGb GB free on the volume holding $home_ -- VM images need roughly 40 GB. Continuing."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_d4ecc627a9a631cd' -Arguments @{ freeGb = "$freeGb"; home = "$home_" })
     }
     # After the powershell-yaml check above, which is what reading test.config.yml
     # for the download-agent decision depends on.
@@ -2795,7 +2785,7 @@ if (-not $IsWindows) {
         if ($Script:Unattended) {
             $blocking = @($Script:RootArtifactFound | Where-Object { $_.Blocking })
             if ($blocking.Count -eq 0) {
-                Write-SetupWarning 'Root-owned leftovers were found but none of them block this run; continuing. The block above lists them.'
+                Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_58e0bb2082b9b937')
                 return
             }
             throw ("$($blocking.Count) root-owned leftover(s) block this run and an unattended run will not clear them " +
@@ -2810,7 +2800,7 @@ if (-not $IsWindows) {
             if (Clear-YurunaRootArtifact -Artifact $artifact -Confirm:$false) {
                 Write-SetupDetail "cleared: $($artifact.Summary)"
             } else {
-                Write-SetupWarning "could not clear: $($artifact.Summary). Run the commands listed above by hand."
+                Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_b31e13c9f6666800' -Arguments @{ summary = "$($artifact.Summary)" })
             }
         }
 
@@ -2948,9 +2938,9 @@ if ($storageKind -eq 'none') {
     if ($storageLeaving.Count -gt 0) {
         $leavingServer = (@($storageLeaving | ForEach-Object { $_.Server } | Sort-Object -Unique) -join ', ')
         Write-SetupMessage ''
-        Write-SetupMessage "This machine's lab storage is currently served by another machine:"
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_3e64c84b3fef9e73')
         foreach ($mount in $storageLeaving) {
-            Write-SetupMessage ("  {0,-5} {1}  mounted at {2}" -f $mount.Kind, $mount.Remote, $mount.MountPoint)
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_cc2e6d3f0701ae2f' -FormatValues ($mount.Kind, $mount.Remote, $mount.MountPoint) -FormatBindings @{ kind = '0,-5'; remote = '1'; mountPoint = '2' })
             Write-SetupMessage ("        {0}" -f $mount.Reason)
         }
         # A preview has to describe the same move without claiming it happened.
@@ -2959,11 +2949,11 @@ if ($storageKind -eq 'none') {
         } else {
             'Storage was asked for as local, so this run ends those connections and serves'
         })
-        Write-SetupMessage 'the pool and stash shares from this machine instead.'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_2becfac1438e0c34')
         Write-SetupMessage ''
-        Write-SetupMessage "Nothing on $leavingServer is deleted, emptied or changed -- its shares are left"
-        Write-SetupMessage 'exactly as they are, and nothing is copied off them, so the storage created'
-        Write-SetupMessage 'here starts empty.'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_16adc8435da55782' -Arguments @{ leavingServer = "$leavingServer" })
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_228896e3eb28a705')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_c1e63b1cf5008b04')
         Write-SetupMessage ''
         Write-SetupDetail "storage currently served by $leavingServer; this run moves it to this machine"
     }
@@ -2972,9 +2962,9 @@ if ($storageKind -eq 'none') {
     # answer an operator has to see BEFORE a run, while they can still look.
     $storageUnsure = @($Script:StorageTakeover | Where-Object { $_.Verdict -ne 'remote' })
     if ($storageUnsure.Count -gt 0) {
-        Write-SetupMessage 'Who serves these mounts could not be established, so they are left as they are:'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_e52adc6735b99987')
         foreach ($mount in $storageUnsure) {
-            Write-SetupMessage ("  {0,-5} {1}  mounted at {2}" -f $mount.Kind, $mount.Remote, $mount.MountPoint)
+            Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_cc2e6d3f0701ae2f' -FormatValues ($mount.Kind, $mount.Remote, $mount.MountPoint) -FormatBindings @{ kind = '0,-5'; remote = '1'; mountPoint = '2' })
             Write-SetupMessage ("        {0}" -f $mount.Reason)
         }
         Write-SetupMessage ''
@@ -3421,10 +3411,10 @@ if ($isLab) {
 # --- REGION: -WhatIf stops here
 if ($WhatIfPreference) {
     Write-SetupMessage ''
-    Write-SetupMessage "Planned tasks for a $setupType setup on $HostFolderName :"
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a5d3784c19c2e8f7' -Arguments @{ setupType = "$setupType"; hostFolderName = "$HostFolderName" })
     foreach ($p in $Script:Plan) { Write-SetupMessage "  $p" }
     Write-SetupMessage ''
-    Write-SetupMessage 'Nothing was changed (-WhatIf).'
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_5e3e34e68522ecb2')
     if ($Script:LogFile) { Write-SetupMessage "Log: $Script:LogFile" }
     Exit-Setup 0
 }
@@ -3453,13 +3443,13 @@ if (-not $AnswerFile) {
         Import-YamlModule
         ConvertTo-Yaml $doc | Set-Content -LiteralPath $answerOut -Encoding utf8
         Write-SetupMessage ''
-        Write-SetupMessage "Answers written to $answerOut -- pass it with -AnswerFile to set up the next machine the same way."
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a0ec8f6ea6d810ce' -Arguments @{ answerOut = "$answerOut" })
         # Written anyway, then warned about. The path is fixed per setup type, so
         # refusing to write leaves the PREVIOUS run's file sitting exactly where
         # this message points -- a file that looks current and is not is worse
         # than one that stops with the key named.
         if ($answerGap.Count -gt 0) {
-            Write-SetupWarning "$answerOut is incomplete for an unattended run: $($answerGap -join '; ')."
+            Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_4cd81329e032794c' -Arguments @{ answerOut = "$answerOut"; join = "$($answerGap -join '; ')" })
         }
     } catch {
         # A WARNING, not a verbose note. The operator has just answered a
@@ -3467,7 +3457,7 @@ if (-not $AnswerFile) {
         # a note nobody sees at the default log level leaves them holding a file
         # that does not exist. The usual cause is the file already being there
         # owned by root, from a run that was started with sudo.
-        Write-SetupWarning "Could not write the answer file $answerOut ($($_.Exception.Message)). This run is unaffected, but there is no answer file to set up the next machine with. If it exists and is owned by root, remove it (sudo rm '$answerOut') and re-run."
+        Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_116716ac2e661aef' -Arguments @{ answerOut = "$answerOut"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -3482,8 +3472,8 @@ Write-SetupReport
 $hadFailures = ($Script:Failed.Count -gt 0)
 Write-SetupMessage ''
 if ($hadFailures) {
-    Write-SetupWarning "$($Script:Failed.Count) step(s) failed -- this machine is NOT fully set up. The Failed list above names each one."
-    Write-SetupMessage 'Fix what it names and re-run this script: completed steps detect themselves and are skipped.'
+    Write-SetupWarning (Format-YurunaOperatorMessage -Key 'automation.operator_2cc4e66e0035e6a7' -Arguments @{ count = "$($Script:Failed.Count)" })
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_4212a91ebd33d406')
     # Named, not generic. "Re-run this script" followed verbatim with the same
     # command line repeats every switch that made this run expensive, so the
     # advice has to say which ones to drop -- and -Rebuild is the one that pays
@@ -3496,10 +3486,10 @@ if ($hadFailures) {
     # dropping when the proxy came up and the storage it was built against stands.
     if ($Script:Rebuild -and $Script:Done -contains 'Start the caching-proxy service VM' -and
         [string]$Script:Facts['storage'] -eq 'ok') {
-        Write-SetupMessage 'Re-run WITHOUT -Rebuild: the caching proxy came up, and re-running with it pays for'
-        Write-SetupMessage 'another full teardown and rebuild (roughly 15 minutes, and a cold squid cache).'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_0b8563c838574b32')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_521d33a2b84cdcd4')
     }
-    Write-SetupMessage "This run was: pwsh $PSCommandPath $Script:InvokedWith"
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a020fcb6f53ad8cd' -Arguments @{ pSCommandPath = "$PSCommandPath"; invokedWith = "$Script:InvokedWith" })
 }
 
 # "Ready" is a claim about the machine, so a run that left conditions unmet has to
@@ -3511,26 +3501,26 @@ if ($isLab) {
     Write-SetupMessage $(if ($hadFailures) { "Lab `"$labName`" is INCOMPLETE -- see the failures above." } else { "Lab `"$labName`" is ready. This machine is the lab beacon.$unmetTail" })
     if ($proxyIp) {
         Write-SetupMessage ''
-        Write-SetupMessage 'To join another machine: read the Lab token tile on the dashboard'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_5c07f5289661e7e1')
         Write-SetupMessage "  http://${proxyIp}:3000"
-        Write-SetupMessage 'then run THERE (the code rotates every minute, so read it at the time):'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_f6931515ec49fa8a')
         Write-SetupMessage "  pwsh test/lab/Set-LabToken.ps1 -CachingProxyService $proxyIp -LabToken <code from the tile>"
     }
     if ($storageKind -eq 'local') {
         Write-SetupMessage ''
-        Write-SetupMessage 'This lab uses LOCAL shares on this machine. That is a real lab others can join,'
-        Write-SetupMessage 'with two consequences worth knowing:'
-        Write-SetupMessage '  - this machine is now the single point of failure for the pool storage;'
-        Write-SetupMessage "  - 'ypool-nas' and 'ystash-nas' map to loopback here, so each joining host needs"
-        Write-SetupMessage '    a hosts-file entry pointing those names at this machine, plus the share credential.'
-        Write-SetupMessage 'Moving to a NAS later is a re-run of the storage step, not a rebuild.'
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_9a305d78bd89da96')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_0889da7a4985af01')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_53d63125deb58dff')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a2fd0c17817a279f')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_e6d55325874daa86')
+        Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_990b0100f26b0d55')
     }
     Write-SetupMessage ''
-    Write-SetupMessage 'The auto-enrollment sweep is NOT on. Two steps turn it on when you want it:'
-    Write-SetupMessage '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store'
-    Write-SetupMessage '  2. start the pool-control daemon with --auto-enroll'
-    Write-SetupMessage "Until (1) is written, the 'target pool carries no test-set' guard is not armed for"
-    Write-SetupMessage "a pool merely NAMED default -- the guard binds to autoEnrollment.targetPoolId."
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_fe8635d4be96c860')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_159f23f7bbf09a33')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_9aae0dfbbf78d36e')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_287506e0d1314af9')
+    Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_de05acb3122a8284')
 } else {
     Write-SetupMessage $(if ($hadFailures) { 'Standalone host is INCOMPLETE -- see the failures above.' } else { "Standalone host is ready.$unmetTail" })
     if (-not $hadFailures) {

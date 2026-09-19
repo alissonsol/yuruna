@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,12 +65,12 @@ param(
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cd82e39650ead9bb' -Arguments @{ hostname = "$Hostname" })
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
@@ -79,6 +79,8 @@ $ProgressPreference = 'SilentlyContinue'
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -96,8 +98,8 @@ Import-Module -Name $commonModulePath -Force
 # --- REGION: Environment checks
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Output "Please run this script as Administrator."
-    Write-Output "Be careful."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_73905e18abf967cb')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9fd336c78bc7623')
     exit 1
 }
 
@@ -111,7 +113,7 @@ if (-not (Assert-HyperVEnabled)) {
 
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
 }
 
@@ -124,12 +126,12 @@ if (!(Test-Path -Path $downloadDir)) {
 $exposeVirt = $false
 if ($ExposeVirtualizationExtensions) {
     if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
-        Write-Error "Invalid -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions': expected 'true' or 'false'."
+        Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_6ac6dfe19b3c2194' -Arguments @{ exposeVirtualizationExtensions = "$ExposeVirtualizationExtensions" })
         exit 1
     }
 }
 if ($exposeVirt -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    Write-Error "Nested virtualization (exposeVirtualizationExtensions: true) was requested, but Hyper-V supports it only on AMD64 hosts; this host is $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). Remove the variable or run the sequence on an AMD64 host."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_09429947681e4567' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
     exit 1
 }
 
@@ -147,9 +149,9 @@ $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $S
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $Password = Get-LocalOsPassword -Username $Username
-if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
-Write-Output "Password came from authentication mechanism: $_authActiveName"
-Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Autoinstall password hash
 # See https://yuruna.link/429f3d06-0017
@@ -158,7 +160,7 @@ Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Forc
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
-    Write-Error "Password hashing failed: $($_.Exception.Message)"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a22129b198b9c117' -Arguments @{ message = "$($_.Exception.Message)" })
     exit 1
 }
 
@@ -171,7 +173,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
-    Write-Output "VM '$VMName' exists. Deleting..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" })
     Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     try {
         Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
@@ -182,14 +184,14 @@ if ($existingVM) {
         # operator can clean orphan disks before retrying.
         $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
             Format-List Name, State, Status, Generation, Path | Out-String
-        throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
     }
     # Hyper-V can return Remove-VM success while leaving a ghost entry;
     # a second Get-VM is the only reliable post-condition.
     if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-        throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
     }
-    Write-Output "VM '$VMName' deleted."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" })
 }
 
 # --- REGION: Create copies and files for VM
@@ -209,7 +211,7 @@ if (Test-Path -Path $vhdxFile) {
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
 if (-not (Test-Path -LiteralPath $vhdxFile)) {
-    Write-Error "New-VHD reported success but '$vhdxFile' does not exist; aborting before VM creation."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d95598955978034f' -Arguments @{ vhdxFile = "$vhdxFile" })
     exit 1
 }
 
@@ -230,7 +232,7 @@ $BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
 $OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.hyperv.overlay.yml'
 $MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
 foreach ($p in @($BaseUserData, $OverlayUserData)) {
-    if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
+    if (-not (Test-Path -LiteralPath $p)) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fcf4372c1612b691' -Arguments @{ p = "$p" }); exit 1 }
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
@@ -240,7 +242,7 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Detect the caching-proxy service
 # See https://yuruna.link/42e220c4-0004
@@ -259,11 +261,11 @@ if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
 $CachingProxyServiceUrl = ""
 $cacheVM = Get-VM -Name "yuruna-caching-proxy-service" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
-    Write-Warning "  No yuruna-caching-proxy-service VM exists on this host. Guest will download packages directly from Ubuntu mirrors -- expect occasional 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.caching-proxy-service\New-VM.ps1"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebeb445282eb5c15')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3a388ccdbaaa347')
 } elseif ($cacheVM.State -ne 'Running') {
-    Write-Warning "  yuruna-caching-proxy-service VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: Start-VM yuruna-caching-proxy-service ; then wait for cloud-init to finish."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e715d99e397197d5' -Arguments @{ state = "$($cacheVM.State)" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e0834681caaac111')
 } else {
     # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
     # (Get-WorkingCachingProxyServiceUrl). One module means this consumer, the
@@ -272,7 +274,7 @@ if (-not $cacheVM) {
     # reports "discovery failed" while the ARP path already found it).
     $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName "yuruna-caching-proxy-service"
     if ($CachingProxyServiceUrl) {
-        Write-Output "  yuruna-caching-proxy-service VM detected at $CachingProxyServiceUrl -- guest will use local proxy."
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_21498b86b803ec5f' -Arguments @{ cachingProxyServiceUrl = "$CachingProxyServiceUrl" })
     } else {
         $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
@@ -315,7 +317,7 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
     'Arm64' { $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
     default {
-        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
         exit 1
     }
 }
@@ -335,10 +337,10 @@ if (-not $switchName) {
             Select-Object -First 1
         if ($substituteSwitch) {
             $switchName = $substituteSwitch.Name
-            Write-Warning "This host has no 'Default Switch'. Attaching to vSwitch '$switchName' instead so VM creation still succeeds."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$switchName" })
         }
     }
-    Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$switchName" })
 }
 
 # --- REGION: Yuruna host coordinates
@@ -364,7 +366,7 @@ if ($CachingProxyServiceUrl) {
     $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
-        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status service at update time. HTTP caching via :3128 unaffected."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
     }
 }
 
@@ -425,7 +427,7 @@ Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac 
 Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
 if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
-    Write-Error "Hyper-V\New-VM completed but '$VMName' is not registered; aborting before configuration."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b99bf50072be5d3d' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
@@ -452,14 +454,13 @@ if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) fro
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
-# Boot order: DVD (Ubuntu ISO) first, then hard drive
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -468,11 +469,11 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 if ($Cores) {
     $coresInt = 0
     if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
-        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0e7d8993e0f54ff9' -Arguments @{ cores = "$Cores" })
         exit 1
     }
     if ($coresInt -gt $hostCores) {
-        Write-Warning "Requested -Cores $coresInt exceeds host physical cores ($hostCores); clamping to $hostCores."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fb77dad01082953b' -Arguments @{ coresInt = "$coresInt"; hostCores = "$hostCores" })
         $coresInt = $hostCores
     }
     $vmCores = $coresInt

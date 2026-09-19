@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42331174-548a-4a2c-a2ca-a56b9374880d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,15 +58,16 @@ param(
     [string]$ImagePath
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Write-Output ""
-Write-Output "== Windows.Media.Ocr access test =="
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5d7bc256d478e681')
 Write-Output ""
 
 # --- REGION: Attempt 1: Direct WinRT from pwsh (PowerShell 7+)
-Write-Output "[1] Trying to load Windows.Media.Ocr directly from pwsh..."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f0cc9253c8196e3f')
 Write-Output "    PowerShell edition : $($PSVersionTable.PSEdition)"
 Write-Output "    PowerShell version : $($PSVersionTable.PSVersion)"
-Write-Output "    .NET runtime       : $([System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription)"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0836a89873e31a02' -Arguments @{ frameworkDescription = "$([System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription)" })
 Write-Output ""
 
 try {
@@ -75,20 +76,20 @@ try {
     [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
     $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
     if ($engine) {
-        Write-Output "    UNEXPECTED: OcrEngine loaded successfully from pwsh."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_723b931bd3a6c338')
     } else {
-        Write-Output "    UNEXPECTED: Type loaded but engine creation returned null."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2cfe3faa9f28b57b')
     }
 } catch {
-    Write-Output "    EXPECTED FAILURE: $_"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_11135e4f45f7ae77' -Arguments @{ value = "$_" })
     Write-Output ""
-    Write-Output "    WinRT types cannot be loaded from PowerShell 7+ (.NET 6+)."
-    Write-Output "    The runtime removed built-in WinRT interop (IInspectable projection)."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_45ccb6a97d894430')
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_785a110bf5dc9284')
 }
 
 # --- REGION: Attempt 2: Add-Type with C# WinRT interop from pwsh
 Write-Output ""
-Write-Output "[2] Trying Add-Type with WinRT reference from pwsh..."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_deb5472371b9e101')
 
 $csCode = @'
 using System;
@@ -118,12 +119,12 @@ try {
     $result = [WinRtOcrProbe]::TryLoad()
     Write-Output "    $result"
 } catch {
-    Write-Output "    Compilation/load error: $_"
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4c61b35d38b409d0' -Arguments @{ value = "$_" })
 }
 
 # --- REGION: Attempt 3: Shell out to Windows PowerShell 5.1
 Write-Output ""
-Write-Output "[3] Trying via Windows PowerShell 5.1 (powershell.exe)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_eac4846c6788d158')
 
 if ($IsWindows -and (Get-Command powershell.exe -ErrorAction SilentlyContinue)) {
     $ps51Script = @'
@@ -144,19 +145,19 @@ try {
         Write-Output "    $line"
     }
 } else {
-    Write-Output "    SKIPPED: powershell.exe not available (non-Windows or not installed)."
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d18200873cd315db')
 }
 
 Write-Output ""
 Write-Output "== Summary =="
 Write-Output ""
-Write-Output "Windows.Media.Ocr is installed on every Windows machine, but:"
-Write-Output "  - PowerShell 7+ (.NET 6+) CANNOT access it (WinRT bridge removed)"
-Write-Output "  - PowerShell 5.1 (.NET Framework) CAN access it (WinRT bridge built-in)"
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fff495323f51f508')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_17954986cc0d28c6')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e76cf89c53ed33b7')
 Write-Output ""
-Write-Output "The Yuruna test harness works around this by spawning powershell.exe"
-Write-Output "from pwsh to run OCR. There is no pure-pwsh path and no NuGet package"
-Write-Output "that can be simply added at runtime to restore access."
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_69f5b50c30876f7e')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f2d3d5d8ac080630')
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76100d765e66aa04')
 Write-Output ""
 
 # --- REGION: Attempt 4: OCR an actual image if provided
@@ -165,14 +166,14 @@ if ($ImagePath) {
     Write-Output ""
 
     if (-not (Test-Path $ImagePath)) {
-        Write-Output "    ERROR: File not found: $ImagePath"
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ee6735a83a074220' -Arguments @{ imagePath = "$ImagePath" })
         exit 1
     }
 
     $absPath = (Resolve-Path $ImagePath).Path
 
     if (-not $IsWindows -or -not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) {
-        Write-Output "    SKIPPED: OCR requires powershell.exe on Windows."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_634075f9a06b238e')
         exit 0
     }
 
@@ -223,15 +224,15 @@ foreach ($line in $ocrResult.Lines) {
         $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
         if ($LASTEXITCODE -ne 0) {
             $errLines = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-            Write-Output "    OCR ERROR: $errLines"
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1de74f1ea0232c3b' -Arguments @{ errLines = "$errLines" })
         } else {
             $textLines = ($output | Where-Object { $_ -is [string] }) -join "`n"
             if ($textLines) {
-                Write-Output "--- OCR result ---"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_63d0ad7b256dd8cd')
                 Write-Output $textLines
                 Write-Output "--- end ---"
             } else {
-                Write-Output "    (no text recognized)"
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_60dfee814cfea059')
             }
         }
     } finally {

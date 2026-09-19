@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424bcbb1-3cf7-435e-a14d-52551096340a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ $VersionPath    = Join-Path $Root 'VERSION'
 # The calendar version shape a release stamps, including the optional fourth
 # component a patch release adds. A word boundary must never guard it: \b
 # matches between the last digit and the following dot, so a \b-guarded
-# 2026.09.13 also fires inside the patch tag 2026.09.13.1 and rewrites half of
+# 2026.09.18 also fires inside the patch tag 2026.09.18.1 and rewrites half of
 # it. Both patterns below consume the whole version instead, so a longer one
 # cannot be partially matched.
 $script:CalVer = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'

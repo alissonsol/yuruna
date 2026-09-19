@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
 # Compile the timer helper once per process. The [type] guard makes the
 # -Force re-import the Inner module set performs each cycle a no-op (the type
 # persists in the AppDomain), so re-import never throws "type already exists".
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not ('Yuruna.HeartbeatWriter' -as [type])) {
     Add-Type -TypeDefinition @"
 using System;
@@ -251,7 +252,7 @@ function Clear-RunnerPhase {
         # Warning, not Verbose: this is the difference between a 2700 s and a
         # 600 s bound for the rest of the cycle, so it must be visible at the
         # default log level rather than surfacing later as an inexplicable kill.
-        Write-Warning "Clear-RunnerPhase: runner.phase survived removal; the tight preamble watchdog bound will apply to this cycle's steps."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f0e63efce713f70')
     }
     # Only now refresh the heartbeat, so the restored bound starts from a fresh
     # timestamp. Its own try/catch: nothing follows it, so a failure here can no

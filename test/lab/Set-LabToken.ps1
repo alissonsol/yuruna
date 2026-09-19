@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,7 @@ param(
     [switch]$NoPoolConfig
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -102,7 +103,7 @@ $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
 
 $code = $LabToken.Trim().ToLowerInvariant()
 if ($code -notmatch '^[a-z0-9]{6}$') {
-    Write-Error "'$LabToken' is not a Lab token: expected the 6-character code (lowercase letters/digits) from the Yuruna hosts dashboard's 'Lab token' tile."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_cfb961598a0d955c' -Arguments @{ labToken = "$LabToken" })
     exit 1
 }
 
@@ -111,7 +112,7 @@ if ($code -notmatch '^[a-z0-9]{6}$') {
 # Set-InternalAuthKey orchestrator; Test.CachingProxyService resolves the aggregator
 # address. -Global -Force mirrors Import-Extension so a nested import does
 # not evict the module from the global scope.
-Write-Information 'Importing the authentication extension and the config-sync module ...' -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_48980b6f808557b6') -InformationAction Continue
 Import-Module (Join-Path $PSScriptRoot '../extension/authentication/default.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
@@ -143,18 +144,18 @@ if (-not [string]::IsNullOrWhiteSpace($CachingProxyService)) {
 }
 if (-not $proxyAddress -and -not $baseUrl) {
     if ($NonInteractive -or $WhatIfPreference) {
-        Write-Error 'No caching-proxy service this host names answered on :9400 (and prompting is disabled); pass -CachingProxyService <address>.'
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e5743a075034e8df')
         exit 1
     }
-    $proxyAddress = (Read-Host 'Caching-proxy service address (the machine whose dashboard shows the Lab token)').Trim()
+    $proxyAddress = (Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_cb9b171ea807c530')).Trim()
     if (-not $proxyAddress) {
-        Write-Error 'No caching-proxy-service address given; cannot reach the lab.'
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_b718a7ce08dcb47b')
         exit 1
     }
     $addressSource = 'prompt'
 }
 if ($proxyAddress -and $proxyAddress -match "['\s]") {
-    Write-Error "Caching-proxy address '$proxyAddress' contains a quote or whitespace; give a bare IP or host name."
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_0755a0db79e510eb' -Arguments @{ proxyAddress = "$proxyAddress" })
     exit 1
 }
 
@@ -169,14 +170,14 @@ $candidates = if ($baseUrl) {
 }
 
 if ($WhatIfPreference) {
-    Write-Information "What if: would redeem Lab token '$code' at $($candidates[0])/api/v1/lab-token and store the returned internal authentication key in this host's vault." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3af27ce65b56ffe2' -Arguments @{ code = "$code"; candidates = "$($candidates[0])" }) -InformationAction Continue
     exit 0
 }
 
 # --- REGION: Redeem the code for the internal authentication key
 $verdict = $null
 foreach ($base in $candidates) {
-    Write-Information "Redeeming the Lab token at $base/api/v1/lab-token ..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d21c646000412c32' -Arguments @{ base = "$base" }) -InformationAction Continue
     $verdict = Request-LabTokenExchange -AggregatorBaseUrl $base -LabToken $code
     # Only a transport failure falls through to the next scheme; an answered
     # refusal (403/429/503) is the aggregator's verdict and retrying the same
@@ -187,7 +188,7 @@ if (-not $verdict -or -not $verdict.Ok) {
     Write-Error $verdict.Error
     exit 1
 }
-Write-Information 'Lab token accepted; storing the internal authentication key in this host''s vault.' -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_316bf9d86a026e18') -InformationAction Continue
 
 # --- REGION: Store + verify (the vault provisioning Set-InternalAuthKey owns)
 $persistArgs = @{ Token = $verdict.Token; BounceStatusService = [bool]$BounceStatusService }
@@ -211,18 +212,18 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
             if (-not ($cfg['vmStart'] -is [System.Collections.IDictionary])) { $cfg['vmStart'] = [ordered]@{} }
             $current = "$($cfg['vmStart']['cachingProxyIp'])".Trim()
             if ($current -eq $proxyAddress) {
-                Write-Information "vmStart.cachingProxyIp already names $proxyAddress; binding unchanged." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d24bb1160e14f86a' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
             } else {
                 $cfg['vmStart']['cachingProxyIp'] = $proxyAddress
                 $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
                 $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
-                Write-Information "Bound this host to the lab proxy: vmStart.cachingProxyIp = $proxyAddress." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7167078df8a485b' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
             }
         } else {
-            Write-Warning "test.config.yml not found; the proxy address was not persisted. Run Sync-HostConfiguration.ps1 (or create the config) and re-run with -CachingProxyService $proxyAddress to bind."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4e417088d8a65a6f' -Arguments @{ proxyAddress = "$proxyAddress" })
         }
     } catch {
-        Write-Warning "Could not persist vmStart.cachingProxyIp ($($_.Exception.Message)); the token is stored, but later runs must pass -CachingProxyService again."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d2c7267220080f85' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -247,7 +248,7 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.StateFile.psm1')  -Global -Force -DisableNameChecking
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigSync.psm1') -Force -DisableNameChecking
         if (-not (Test-Path -LiteralPath $configPath)) {
-            Write-Warning "test.config.yml not found; pool.intentGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8e8fecb6ffc7d3d6')
         } else {
             $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
             if ($null -eq $cfg) { $cfg = [ordered]@{} }
@@ -270,10 +271,10 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
                               ($existingUrl -ne $intentUrl) -and
                               ($existingUrl -match '^http://[^/]+/pool-intent\.git$')
             if ($existingUrl -and -not $isOwnStaleSeed) {
-                Write-Information "pool.intentGitUrl already set ($existingUrl); leaving it unchanged." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_416973ff9c4b82f2' -Arguments @{ existingUrl = "$existingUrl" }) -InformationAction Continue
             } else {
                 if ($isOwnStaleSeed) {
-                    Write-Information "pool.intentGitUrl pointed at a previous caching-proxy address ($existingUrl); re-pointing it at $intentUrl." -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b5e4a53c200e2211' -Arguments @{ existingUrl = "$existingUrl"; intentUrl = "$intentUrl" }) -InformationAction Continue
                 }
                 $cfg['pool']['intentGitUrl'] = $intentUrl
                 # enabled goes WITH the url: intentGitUrl alone is inert, so
@@ -282,11 +283,11 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
                 $cfg['pool']['enabled'] = $true
                 $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
                 $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
-                Write-Information "Joined the lab pool: pool.enabled = true, pool.intentGitUrl = $intentUrl. This host now pulls pool intent read-only each cycle." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ intentUrl = "$intentUrl" }) -InformationAction Continue
             }
         }
     } catch {
-        Write-Warning "Could not seed pool.intentGitUrl ($($_.Exception.Message)); the token is stored. Set pool.enabled/pool.intentGitUrl by hand to join the pool."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_413f257dbbf2120b' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 }
 
@@ -304,5 +305,5 @@ if ($provision.ok) {
     exit 0
 }
 
-Write-Error "Internal authentication key provisioning did not verify after ${took} (keyChanged=$($provision.keyChanged), verified=$($provision.verified)). The key is not usable for control proofs on this host."
+Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_37b93ebce9b2bfe4' -Arguments @{ took = "${took}"; keyChanged = "$($provision.keyChanged)"; verified = "$($provision.verified)" })
 exit 1

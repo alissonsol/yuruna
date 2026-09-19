@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 # --- REGION: https://yuruna.link/42d38664-000a
@@ -1225,7 +1226,7 @@ Describe 'Download-agent pins agree across languages' {
             }
 
             foreach ($choice in @($e.Arch | ForEach-Object { "Windows 11 (multi-edition ISO for $_ devices)" }) + @('English')) {
-                Assert-True ($text.Contains($choice)) "$($e.Script) still tells the operator to select '$choice'"
+                Assert-True (($text + "`n" + ((Get-CatalogSourceMessage -Source $text) -join "`n")).Contains($choice)) "$($e.Script) still tells the operator to select '$choice'"
                 Assert-True ($go.Contains($choice)) `
                     -Because "the pool page must name the same choice ('$choice') as $($e.Script), or the pool fills with an edition no host asked for"
             }

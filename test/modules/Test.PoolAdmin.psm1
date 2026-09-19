@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,12 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
 # Shared helpers for the pool admin CLI (New-Pool / Add-HostToPool / ... /
-# Test-PoolIntent). The operator authors the pool intent here; the runners only
-# PULL it (read-only over HTTP from the proxy). The admin therefore clones from a
-# WRITABLE url/path (the bare repo's local path on the proxy, file://, or a
-# pre-authenticated remote -- the bounded git child runs with
-# GIT_TERMINAL_PROMPT=0 so it never blocks on a credential prompt). Every change
-# is schema-validated BEFORE commit so a malformed intent never reaches the store
-# that the whole pool pulls. Git calls reuse Test.PoolSync's bounded, prompt-proof
-# Invoke-PoolSyncGit.
+# Test-PoolIntent). See ../../docs/pool-admin.md#before-you-start for the
+# write path vs the runner's read-only pull path. -- Test.PoolAdmin.psm1
 
 $script:PoolAdminGitTimeoutSeconds = 60
 # Idempotent network git ops (fetch/clone/push) retry within one overall
@@ -136,20 +133,20 @@ function Test-YurunaPoolIntentFile {
     )
     if (-not (Test-Path -LiteralPath $Path)) {
         if ($Required) {
-            Write-Warning "FAIL  ${Label}: required file is missing ($Path)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c1ccd779c5d89baf' -Arguments @{ label = "${Label}"; path = "$Path" })
             return $false
         }
-        Write-Information "SKIP  ${Label}: not present ($Path)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c13dcea8b437ce0f' -Arguments @{ label = "${Label}"; path = "$Path" }) -InformationAction Continue
         return $true
     }
     $doc = $null
     try { $doc = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered } catch {
-        Write-Warning "FAIL  ${Label}: YAML parse error -- $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e0674b7efa2de0b5' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
         return $false
     }
     $v = Test-YurunaPoolDocValid -Doc $doc -SchemaName $SchemaName
-    if ($v.Ok) { Write-Information "PASS  ${Label}: schema-valid ($Path)" -InformationAction Continue; return $true }
-    Write-Warning "FAIL  ${Label}: $($v.Errors -join '; ')"
+    if ($v.Ok) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9002006fe4b250e9' -Arguments @{ label = "${Label}"; path = "$Path" }) -InformationAction Continue; return $true }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_804e070f07e0a11f' -Arguments @{ label = "${Label}"; join = "$($v.Errors -join '; ')" })
     return $false
 }
 
@@ -170,7 +167,7 @@ function Open-YurunaPoolIntent {
     if (-not (Get-Command Invoke-PoolSyncGit -ErrorAction SilentlyContinue)) {
         return @{ Ok = $false; Error = 'Test.PoolSync (Invoke-PoolSyncGit) not loaded.' }
     }
-    if (-not $PSCmdlet.ShouldProcess($IntentDir, "Open pool intent clone of $IntentGitUrl")) { return @{ Ok = $true; Error = '' } }
+    if (-not $PSCmdlet.ShouldProcess($IntentDir, (Format-YurunaOperatorMessage -Key 'runner.operator_811a9975fa1a2df7' -Arguments @{ intentGitUrl = "$IntentGitUrl" }))) { return @{ Ok = $true; Error = '' } }
     $gitDir = Join-Path $IntentDir '.git'
     if (Test-Path -LiteralPath $gitDir) {
         $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
@@ -251,7 +248,7 @@ function Save-YurunaPoolDoc {
     $v = Test-YurunaPoolDocValid -Doc $Doc -SchemaName $SchemaName
     if (-not $v.Ok) { return @{ Ok = $false; Error = "schema validation failed against $SchemaName -- $($v.Errors -join '; ')" } }
     $path = Join-Path $IntentDir $RelPath
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool intent file')) { return @{ Ok = $true; Error = '' } }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_4f719f0639145301'))) { return @{ Ok = $true; Error = '' } }
     try {
         $dir = Split-Path -Parent $path
         if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -278,7 +275,7 @@ function Publish-YurunaPoolIntent {
         [Parameter(Mandatory)][string]$IntentDir,
         [Parameter(Mandatory)][string]$Message
     )
-    if (-not $PSCmdlet.ShouldProcess($IntentDir, "Commit + push pool intent: $Message")) { return @{ Ok = $true; Pushed = $true; Error = '' } }
+    if (-not $PSCmdlet.ShouldProcess($IntentDir, (Format-YurunaOperatorMessage -Key 'runner.operator_efd4f169b13d993c' -Arguments @{ message = "$Message" }))) { return @{ Ok = $true; Pushed = $true; Error = '' } }
     $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'add', '-A') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rc -ne 0) { return @{ Ok = $false; Pushed = $false; Error = "git add failed (exit $rc)" } }
     # Nothing staged -> no-op success (idempotent re-run).
@@ -427,7 +424,7 @@ function New-YurunaPoolIntentStore {
     if ($already -and -not $Force) {
         return [pscustomobject]@{ Path = $Path; Created = $false; Reason = 'already a repository' }
     }
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Create bare pool-intent repository')) {
+    if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_4f741864aba4d1fd'))) {
         return [pscustomobject]@{ Path = $Path; Created = $false; Reason = 'WhatIf' }
     }
 
@@ -436,7 +433,7 @@ function New-YurunaPoolIntentStore {
         $null = New-Item -ItemType Directory -Path $parent -Force
     }
     & git init --bare --initial-branch=main -- $Path 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git init --bare failed for '$Path' (exit $LASTEXITCODE)." }
+    if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d3b174912efd30ac' -Arguments @{ path = "$Path"; lASTEXITCODE = "$LASTEXITCODE" }) }
     & git -C $Path config core.fileMode false 2>&1 | Out-Null
     & git -C $Path config receive.updateServerInfo true 2>&1 | Out-Null
 
@@ -452,7 +449,7 @@ function New-YurunaPoolIntentStore {
         # Identity supplied inline so this works on a host with no git user configured.
         & git -C $seed -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' 2>&1 | Out-Null
         & git -C $seed push -q -- $Path HEAD:main 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "seeding push to '$Path' failed (exit $LASTEXITCODE)." }
+        if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_a4fb11bebe1b1114' -Arguments @{ path = "$Path"; lASTEXITCODE = "$LASTEXITCODE" }) }
         & git -C $Path update-server-info 2>&1 | Out-Null
     } finally {
         Remove-Item -LiteralPath $seed -Recurse -Force -ErrorAction SilentlyContinue
@@ -492,7 +489,7 @@ function Initialize-YurunaPoolIntentStorePath {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$IntentGitUrl)
 
-    if ([string]::IsNullOrWhiteSpace($IntentGitUrl)) { return @{ Ok = $false; Created = $false; Reason = 'no url' } }
+    if ([string]::IsNullOrWhiteSpace($IntentGitUrl)) { return @{ Ok = $false; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b225367bfb565d80') } }
     $target = $IntentGitUrl.Trim()
 
     # A scheme means "somewhere else". file:// is the one scheme that still names
@@ -503,17 +500,17 @@ function Initialize-YurunaPoolIntentStorePath {
         # file:///srv/x -> /srv/x ; file://server/share -> \\server\share
         $target = if ($rest -match '^/') { $rest } else { '\\' + ($rest -replace '/', '\') }
     } elseif ($target -match '^[A-Za-z][A-Za-z0-9+.-]*://') {
-        return @{ Ok = $true; Created = $false; Reason = 'remote url -- not ours to create' }
+        return @{ Ok = $true; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e314b5fed409feed') }
     } elseif ($target -match '^[^@/\\]+@[^:/\\]+:') {
         # scp-like ssh remote (git@host:path); the user@ prefix is required so a
         # Windows drive path (C:\...) is never mistaken for one.
-        return @{ Ok = $true; Created = $false; Reason = 'remote url -- not ours to create' }
+        return @{ Ok = $true; Created = $false; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_e314b5fed409feed') }
     }
 
     if (Test-Path -LiteralPath (Join-Path $target 'refs')) {
         return @{ Ok = $true; Created = $false; Reason = 'already a repository' }
     }
-    if (-not $PSCmdlet.ShouldProcess($target, 'Seed the pool-intent store')) {
+    if (-not $PSCmdlet.ShouldProcess($target, (Format-YurunaOperatorMessage -Key 'runner.operator_37c6d3d1e44ac68b'))) {
         return @{ Ok = $true; Created = $false; Reason = 'WhatIf' }
     }
     try {

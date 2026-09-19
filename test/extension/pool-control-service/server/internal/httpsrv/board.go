@@ -16,26 +16,10 @@ import (
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
-// The operator board's server side.
-//
-// The board answers two questions for a less technical operator: how is each
-// pool doing, and give this pool a ready-made test set. Everything here exists
-// to serve those, on a phone.
-//
-// The join lives HERE, not in the aggregator, because the two halves of the
-// answer live in different places:
-//
-//   - Cycle counts live in Loki, which only the aggregator can reach (it is
-//     bound to 127.0.0.1 on the proxy). It returns per-HOST rows.
-//   - Membership lives in the intent store, which only this service reads. The
-//     aggregator's sole notion of a pool is the poolId a host self-advertises,
-//     which falls back to the literal "default" for an unidentified host -- so
-//     attributing cycles by that label would fold non-members into a pool.
-//
-// Cards are therefore enumerated from INTENT and the stats joined onto them. A
-// pool whose hosts are all silent still renders ("N hosts - 0 reporting"),
-// instead of vanishing because no Loki stream mentioned it -- which is exactly
-// the pool that most needs looking at.
+// The operator board's server side. See
+// ../../../../../../docs/pool-admin.md#architecture for why the join between
+// Loki cycle counts and intent-store membership lives here rather than in the
+// aggregator. -- board.go
 
 // boardRanges is the closed set of windows the board offers, mirroring the
 // aggregator's own allowlist. Anything else is refused before it is forwarded.
@@ -270,7 +254,8 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		window = "24h"
 	}
 	if !boardRanges[window] {
-		writeErr(w, http.StatusBadRequest, "unsupported range; use 1h, 24h, 7d or 30d")
+		i18n.Apply(w.Header(), locale)
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "code": "pool.unsupported_range", "error": Translate(locale, "pool.unsupported_range", nil)})
 		return
 	}
 
@@ -429,7 +414,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		if target != "" && p.PoolID == target {
 			c.AssignAllowed = false
-			c.AssignDisabledDetail = "Hosts land here automatically and keep running their own project."
+			c.AssignDisabledDetail = Translate(locale, "pool.diagnostic_auto_enrollment_assignment", nil)
 		}
 		cards = append(cards, c)
 	}

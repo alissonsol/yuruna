@@ -8,6 +8,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
+EnvironmentFile=-/etc/yuruna/globalization.env
 User=proxy
 Group=proxy
 # -tls-cert/-tls-key activate TLS on :9400 (proxy-CA leaf minted in cloud-init),
@@ -35,7 +37,7 @@ Group=proxy
 # systemd refuses to load the service entirely:
 #     [Service]
 #     ExecStart=
-#     ExecStart=/usr/local/bin/pool-aggregator-service ... -host-ttl 6h
+#     ExecStart=/usr/local/bin/pool-aggregator-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE} ... -host-ttl 6h
 # Either way cloud-init reinstalls this file from the repo, so the repo edit is durable.
 # Older binaries do not carry the flag: adding it to
 # an older proxy's unit makes the binary exit "flag provided but not defined" and

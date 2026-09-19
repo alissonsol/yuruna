@@ -243,5 +243,30 @@
     }
   ],
   "provisionedPageProducersNote": "Pages a host provisions into a guest rather than serves from this tree. They are read by a person at the worst possible moment -- a fetch just failed -- and they are the pages least likely to be looked at again after they are written, because nothing in a normal cycle renders them. The exporter materializes each one from its seed so the accessibility and floor gates measure the document the guest will serve, with the server's own interpolation macros filled in.",
-  "pageRootsNote": "Directories the accessibility gate serves and walks. Separate from 'roots', which names where the scripts and stylesheets live: a page root holds the documents, and one service can have both. A service added to the tree and not added here is a UI nobody ever renders for contrast, focus order or reflow, and the gate reports a clean run over it."
+  "pageRootsNote": "Directories the accessibility gate serves and walks. Separate from 'roots', which names where the scripts and stylesheets live: a page root holds the documents, and one service can have both. A service added to the tree and not added here is a UI nobody ever renders for contrast, focus order or reflow, and the gate reports a clean run over it.",
+  "additionalMeasurementPages": [
+    {
+      "path": "cache/index",
+      "surface": "caching proxy dashboard",
+      "source": "test/extension/caching-proxy-service/ui.go"
+    },
+    {
+      "path": "parser/index",
+      "surface": "caching proxy parser dashboard",
+      "source": "test/extension/caching-proxy-parser-service/parse.go"
+    }
+  ],
+  "additionalMeasurementPagesNote": "Live documents assembled by Go rather than physical HTML files. These join pages for first-usable and steady-render collection; byte and file gates continue to inspect their registered producers.",
+  "serverRenderedMeasurementDispositions": [
+    {
+      "source": "host/vmconfig/caching-proxy-service.base.user-data",
+      "page": "squid-no-upstream.html",
+      "disposition": "Provisioned static refusal document: require native visual, locale, keyboard and reflow review of the exported document; no client render callback or polling loop exists."
+    },
+    {
+      "source": "test/extension/caching-proxy-service/landing.go",
+      "page": "cache/landing",
+      "disposition": "Server-rendered navigation document: require native visual, locale, keyboard and reflow review; no client render callback or polling loop exists."
+    }
+  ]
 }

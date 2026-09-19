@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425315a1-f9bf-4a7b-98ca-d7dfb8a509a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
 # Compile the pinned-TLS HttpClient factory once. Guarded so a compile failure on an
 # unexpected runtime degrades to "push disabled" (pull still covers) rather than throwing
 # at import. CustomRootTrust + CustomTrustStore are .NET 5+ (PowerShell 7.2+ is .NET 6+).
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:PoolPinnedTlsType = $false
 try {
     if (-not ([System.Management.Automation.PSTypeName]'YurunaPoolPinnedTls').Type) {
@@ -74,7 +75,7 @@ public static class YurunaPoolPinnedTls {
     }
     $script:PoolPinnedTlsType = [bool]([System.Management.Automation.PSTypeName]'YurunaPoolPinnedTls').Type
 } catch {
-    Write-Warning "Test.PoolPush: pinned-TLS helper did not compile ($($_.Exception.Message)); pool push disabled."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3fb71d44a1260612' -Arguments @{ message = "$($_.Exception.Message)" })
 }
 
 function New-PoolX509Certificate {
@@ -126,7 +127,7 @@ function Get-PoolCaCertPath {
     )
     $path = Join-Path $RuntimeDir 'pool-ca.crt'
     if ((-not $Refresh) -and (Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path).Length -gt 0)) { return $path }
-    if (-not $PSCmdlet.ShouldProcess($path, 'Fetch + cache pool CA')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_2e290fc25f055352'))) { return $null }
     try {
         $resp = Invoke-WebRequest -Uri "http://${ProxyIp}/yuruna-pool-ca.crt" -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop -Verbose:$false
         if ($resp.StatusCode -ne 200) { return $null }
@@ -240,13 +241,13 @@ function Invoke-PoolEventPush {
                 $eventFiles.Add($nf.FullName)
             }
         }
-        if ($eventFiles.Count -eq 0) { $summary.reason = 'no events file'; return $summary }
+        if ($eventFiles.Count -eq 0) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_61f69e28e1bf80b7'); return $summary }
         $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Confirm:$false
-        if (-not $caPath) { $summary.reason = 'pool CA unavailable (cannot pin -> not pushing the token)'; return $summary }
+        if (-not $caPath) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_a41b085e2b6f0524'); return $summary }
         # Per-file read is tolerant: one unreadable nested stream must not
         # cost the cycle the events it can still deliver.
         $lines = @(foreach ($ef in $eventFiles) { Get-Content -LiteralPath $ef -ErrorAction SilentlyContinue })
-        if ($lines.Count -eq 0) { $summary.reason = 'no events file'; return $summary }
+        if ($lines.Count -eq 0) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_61f69e28e1bf80b7'); return $summary }
         $batches = Get-PoolPushBatch -Lines $lines -MaxLines $MaxLines
         $ingestUrl = "https://${ProxyIp}:$Port/ingest"
         $refreshed = $false
@@ -335,7 +336,7 @@ function Invoke-PoolForgetHost {
     $result = @{ ok = $false; status = 0; reason = '' }
     try {
         $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Confirm:$false
-        if (-not $caPath) { $result.reason = 'pool CA unavailable (cannot pin -> not sending the token)'; return $result }
+        if (-not $caPath) { $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_78269874b33db2eb'); return $result }
         $url  = "https://${ProxyIp}:$Port/api/v1/forget-host?hostId=$HostId"
         $code = Send-PoolForgetRequest -Url $url -CaCertPath $caPath -Token $Token -TimeoutSeconds $TimeoutSeconds
         if ($code -lt 200 -or $code -ge 300) {
@@ -344,7 +345,7 @@ function Invoke-PoolForgetHost {
         }
         $result.status = $code
         $result.ok     = ($code -ge 200 -and $code -lt 300)
-        if (-not $result.ok) { $result.reason = "aggregator returned HTTP $code" }
+        if (-not $result.ok) { $result.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_7b977232e1fc6656' -Arguments @{ code = "$code" }) }
     } catch {
         $result.reason = "error: $($_.Exception.Message)"
         Write-Verbose "Invoke-PoolForgetHost: $($_.Exception.Message)"

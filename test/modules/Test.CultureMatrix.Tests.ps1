@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f3b7c1-6e04-4a95-b1d8-27a5c9603ef4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,70 @@ function Invoke-UnderCulture {
 }
 
 Describe 'the host culture decides nothing a reader sees' {
+
+    It 'renders every enabled production domain and selector under all six cultures without fallback' {
+        $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
+            (Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
+        $locales = @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -in @('supported', 'pseudo') } | Sort-Object)
+        $sources = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'globalization/catalogs/en-US') -Filter '*.json' -File)
+        Assert-True ($locales.Count -gt 0 -and $sources.Count -gt 0) 'production catalog discovery was empty'
+        $rows = 0
+        foreach ($sourceFile in $sources) {
+            $source = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sourceFile.FullName)) -AsHashtable
+            foreach ($locale in $locales) {
+                $table = Get-CatalogDomain -Locale $locale -Domain $source.domain
+                foreach ($key in $source.messages.Keys) {
+                    $message = $source.messages[$key]
+                    if ($message.lifecycle -ne 'active') { continue }
+                    Assert-True ($table.ContainsKey($key)) "$locale/$key would fall back to English"
+                    $arguments = @{}
+                    if ($message.placeholders) {
+                        foreach ($name in $message.placeholders.Keys) {
+                            $placeholder = $message.placeholders[$name]
+                            $arguments[$name] = $placeholder.example
+                            if ($null -eq $arguments[$name] -or $arguments[$name] -ceq '') {
+                                $arguments[$name] = switch ($placeholder.type) {
+                                    { $_ -in @('integer', 'duration') } { 2 }
+                                    'datetime' { '2026-09-18T12:00:00Z' }
+                                    default { ('fixture caf' + [char]0x00e9 + ' ' + [char]0x65e5 + [char]0x672c + [char]0x8a9e) }
+                                }
+                            }
+                        }
+                    }
+                    $variants = [Collections.Generic.List[hashtable]]::new()
+                    $variants.Add($arguments.Clone())
+                    if ($message.plural) {
+                        foreach ($count in @(0, 1, 2, 1000000)) {
+                            $argsForCount = $arguments.Clone()
+                            $argsForCount[$message.plural.selector] = $count
+                            $variants.Add($argsForCount)
+                        }
+                    }
+                    if ($message.select) {
+                        foreach ($selector in $message.select.variants.Keys) {
+                            $argsForSelect = $arguments.Clone()
+                            $argsForSelect[$message.select.selector] = $selector
+                            $variants.Add($argsForSelect)
+                        }
+                    }
+                    foreach ($values in $variants) {
+                        $baseline = $null
+                        foreach ($culture in $script:Cultures) {
+                            $rendered = Invoke-UnderCulture -Culture $culture -Script {
+                                Format-CatalogMessage -Key $key -Arguments $values -Locale $locale
+                            }
+                            Assert-True ($rendered -cne $key -and $rendered.Length -gt 0) "$locale/$key has no rendered value"
+                            if ($null -eq $baseline) { $baseline = $rendered }
+                            else { Assert-StringEqual $baseline $rendered "$culture altered $locale/$key" }
+                            $rows++
+                        }
+                    }
+                }
+            }
+        }
+        Assert-True ($rows -gt 0) 'no enabled production locale/culture/message rows ran'
+    }
+
 
     It 'renders every catalog message identically on all six hosts' {
         $findings = @()

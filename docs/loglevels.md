@@ -12,6 +12,17 @@ This module is the single source of truth for the rank table +
 preference cascade, so it is not duplicated across the 60+ scripts and
 runner files that depend on it.
 
+**This cascade is a different concern from "which module do I call to log
+something."** Three modules own disjoint logging jobs and a contributor
+picking the wrong one introduces silent shadowing: `Yuruna.Log.psm1`
+(shadows the standard `Write-*` cmdlets so console output is also teed into
+the cycle HTML), `Test.Log.psm1` (owns the cycle folder, NDJSON events, and
+`manifest.json`), and `Test.Output.psm1` (a reusable PASS/FAIL/WARN tally and
+`Write-Summary` banner for one-shot check scripts, so `Test-Config.ps1` and
+similar scripts do not each reimplement the counters). See
+[test/modules/README.md -- Three loggers, three jobs](../test/modules/README.md#three-loggers-three-jobs)
+for the full decision tree and the drift scenarios it prevents.
+
 <a id="42162449-0002"></a>
 
 ## Levels
@@ -163,6 +174,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

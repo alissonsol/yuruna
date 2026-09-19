@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@ param()
 # existing GUID so a mid-run `git pull` reload doesn't split one cycle's
 # stream across two runIds. New outer / inner / Debug-TestSequence processes
 # get their own GUIDs because each starts with a fresh global scope.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction SilentlyContinue) -or
     -not $global:__YurunaRunId) {
     $global:__YurunaRunId = [Guid]::NewGuid().ToString()
@@ -294,12 +295,12 @@ function Invoke-CycleLogRotation {
     if ($moveSet.Count -eq 0) { return 0 }
     $today      = (Get-Date).ToString('yyyy-MM-dd')
     $historyDir = Join-Path $LogDir "history.$today"
-    if (-not $PSCmdlet.ShouldProcess($historyDir, "Rotate $($moveSet.Count) cycle folders")) { return 0 }
+    if (-not $PSCmdlet.ShouldProcess($historyDir, (Format-YurunaOperatorMessage -Key 'runner.operator_5085bed43884280d' -Arguments @{ count = "$($moveSet.Count)" }))) { return 0 }
     if (-not (Test-Path -LiteralPath $historyDir)) {
         try {
             New-Item -ItemType Directory -Path $historyDir -Force -ErrorAction Stop | Out-Null
         } catch {
-            Write-Warning "Invoke-CycleLogRotation: could not create $historyDir; aborting rotation. $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_462acb4e4f822430' -Arguments @{ historyDir = "$historyDir"; message = "$($_.Exception.Message)" })
             return 0
         }
     }
@@ -310,7 +311,7 @@ function Invoke-CycleLogRotation {
             Move-Item -LiteralPath $folder.FullName -Destination $dest -Force -ErrorAction Stop
             $moved++
         } catch {
-            Write-Warning "Invoke-CycleLogRotation: could not move $($folder.Name) into $historyDir ($($_.Exception.Message)); continuing."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_449f68b7942ea5c6' -Arguments @{ name = "$($folder.Name)"; historyDir = "$historyDir"; message = "$($_.Exception.Message)" })
         }
     }
     Send-CycleEventSafely -EventRecord @{
@@ -326,7 +327,7 @@ function Invoke-CycleLogRotation {
     # Write-Information (not Write-Output) so the caller's `$n = Invoke-
     # CycleLogRotation ...` receives only the [int] return value; pipeline
     # pollution would otherwise turn the assignment into an array.
-    Write-Information "Cycle-log rotation: moved $moved folder(s) into $historyDir (kept $($keep.Count) at top level)." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_11be2539819e732c' -Arguments @{ moved = "$moved"; historyDir = "$historyDir"; count = "$($keep.Count)" }) -InformationAction Continue
     return $moved
 }
 
@@ -348,15 +349,17 @@ function Get-YurunaLogPreamble {
     #>
     [OutputType([string])]
     param()
-    return @'
+    $context = Get-YurunaOperatorLocale
+    $title = [System.Net.WebUtility]::HtmlEncode((Format-YurunaOperatorMessage -Key 'runner.transcript_title'))
+    $html = @'
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="__YURUNA_LOG_LANG__" dir="__YURUNA_LOG_DIR__"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Yuruna test-runner log</title>
+<title>__YURUNA_LOG_TITLE__</title>
 <style>
 /* The transcript declares light explicitly rather than inheriting whatever the
    browser decides. Every color below is measured against this white, so a
@@ -384,9 +387,10 @@ h1 { font: inherit; font-weight: 700; margin: 0 0 8px; }
 .log-step { font-weight: 700; }
 </style>
 </head><body>
-<h1>Yuruna test-runner log</h1>
+<h1>__YURUNA_LOG_TITLE__</h1>
 <pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
 '@
+    return $html.Replace('__YURUNA_LOG_LANG__', $context.ResolvedTag).Replace('__YURUNA_LOG_DIR__', $context.Direction).Replace('__YURUNA_LOG_TITLE__', $title)
 }
 
 function Start-LogFile {
@@ -438,7 +442,7 @@ function Start-LogFile {
     try {
         Invoke-CycleLogRotation -LogDir $logDir -Confirm:$false | Out-Null
     } catch {
-        Write-Warning "Cycle-log rotation failed (non-fatal; cycle continues): $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e23d469e44d81f4b' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     # The cycleFolder name carries the opaque hostId (hostname-free; see
     # Format-CycleFolderBaseName), resolved from the runner-set global with a
@@ -460,7 +464,7 @@ function Start-LogFile {
     # without seeing the suffix flip mid-cycle.
     $cycleFolder = Join-Path $logDir "$cycleBase.incomplete"
     $logFile = Join-Path $cycleFolder "$cycleBase.html"
-    if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
+    if ($PSCmdlet.ShouldProcess($logFile, (Format-YurunaOperatorMessage -Key 'runner.operator_c63cab32a51863c0'))) {
         if (-not (Test-Path $cycleFolder)) {
             New-Item -ItemType Directory -Path $cycleFolder -Force | Out-Null
         }
@@ -591,7 +595,7 @@ function Get-CycleGuestDataFolder {
     if (-not $CycleFolder) { $CycleFolder = [string]$global:__YurunaCycleFolder }
     if (-not $CycleFolder) { return $null }
     $folder = Join-Path $CycleFolder $VMName
-    if ($PSCmdlet.ShouldProcess($folder, 'Ensure cycleGuestDataFolder exists')) {
+    if ($PSCmdlet.ShouldProcess($folder, (Format-YurunaOperatorMessage -Key 'runner.operator_351815477959e7b4'))) {
         if (-not (Test-Path $folder)) {
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
         }
@@ -634,7 +638,7 @@ function Get-CycleScreenDir {
         }
         $folder = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
     }
-    if ($PSCmdlet.ShouldProcess($folder, 'Ensure cycle screen dir exists')) {
+    if ($PSCmdlet.ShouldProcess($folder, (Format-YurunaOperatorMessage -Key 'runner.operator_f800e4f0336cbe99'))) {
         if (-not (Test-Path $folder)) {
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
         }
@@ -704,7 +708,7 @@ function Save-StepFailureEvidence {
         $hasOcr    = $srcOcr    -and (Test-Path -LiteralPath $srcOcr)
         if ($frames.Count -eq 0 -and -not $hasScreen -and -not $hasOcr) { return $null }
 
-        if (-not $PSCmdlet.ShouldProcess($destDir, 'Save step failure evidence')) { return $null }
+        if (-not $PSCmdlet.ShouldProcess($destDir, (Format-YurunaOperatorMessage -Key 'runner.operator_e93a4d7fd69e4e80'))) { return $null }
         if (-not (Test-Path -LiteralPath $destDir)) {
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
         }
@@ -750,7 +754,7 @@ function Write-CycleManifest {
     param([string]$CycleFolder)
     if (-not $CycleFolder) { $CycleFolder = $global:__YurunaCycleFolder }
     if (-not $CycleFolder -or -not (Test-Path -LiteralPath $CycleFolder -PathType Container)) { return }
-    if (-not $PSCmdlet.ShouldProcess($CycleFolder, 'Write cycle manifest.json')) { return }
+    if (-not $PSCmdlet.ShouldProcess($CycleFolder, (Format-YurunaOperatorMessage -Key 'runner.operator_115c537f68698f1e'))) { return }
     try {
         $entries = New-Object System.Collections.Generic.List[hashtable]
         $items = Get-ChildItem -LiteralPath $CycleFolder -Recurse -File -Force -ErrorAction SilentlyContinue
@@ -873,7 +877,7 @@ function Stop-LogFile {
         [ValidateSet('pass','fail','aborted','unknown')][string]$Outcome = 'unknown',
         [string]$Reason = ''
     )
-    if ($PSCmdlet.ShouldProcess('log file', 'Stop logging')) {
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c2f83ae6c19216a6'), (Format-YurunaOperatorMessage -Key 'runner.operator_c0875435d41486ec'))) {
         if ($global:__YurunaCycleFolder) {
             # cycle_end emitted BEFORE the manifest so the manifest's
             # artifact scan picks up the now-completed
@@ -915,7 +919,7 @@ function Stop-LogFile {
                         -StartUtc ([datetime]::Parse($global:__YurunaCycleStartUtc).ToUniversalTime()) `
                         -EndUtc ([datetime]::UtcNow)
                 } catch {
-                    Write-Warning "Stop-LogFile: could not count host address changes -- $($_.Exception.Message)"
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_25e7f69aa1bb6dd3' -Arguments @{ message = "$($_.Exception.Message)" })
                 }
             }
             Write-CycleNdjsonEvent -EventRecord @{
@@ -940,8 +944,7 @@ function Stop-LogFile {
                 } else {
                     "no address record exists at '$(Join-Path $runtimeDir 'hostaddress.changes.ndjson')' -- the beacon writes it, and it runs with the test runner"
                 }
-                Write-Warning ("Host address changes during this cycle could not be counted ($why); the cycle " +
-                    "record carries -1 rather than a number that would read as 'none happened'.")
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_40a63b3866ac44bd' -Arguments @{ why = "$why" }))
             } elseif ($addressChanges -gt 0) {
                 # A cycle that passed THROUGH churn is the evidence this count
                 # exists to keep, and it is also a lab fault worth naming: every
@@ -950,13 +953,9 @@ function Stop-LogFile {
                 # one. Said at warning volume on a pass because a passing cycle
                 # has nothing else loud in it, and this is otherwise discoverable
                 # only by reading a beacon log nobody reads.
-                Write-Warning ("Cycle $($Outcome) with $addressChanges host address change(s) inside it. " +
-                    'Each address the host moved off stays allocated until its lease expires, so this ' +
-                    'spends the LAN pool at a rate the lease time sets. Run ' +
-                    "'pwsh test/Test-Config.ps1' for the verdict and the remedy. Unless this host is one " +
-                    'the lab renumbers on purpose, in which case leave it be.')
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_a662b8bf3cc3c5ba' -Arguments @{ outcome = "$($Outcome)"; addressChanges = "$addressChanges" }))
             } elseif ($Outcome -eq 'pass') {
-                Write-Information "Cycle passed with $addressChanges host address change(s) inside it." -InformationAction Continue
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b21320666af1282e' -Arguments @{ addressChanges = "$addressChanges" }) -InformationAction Continue
             }
             # --- REGION: https://yuruna.link/4220a755-004a
             # The count above says what this ONE cycle met. The verdict says
@@ -1083,7 +1082,7 @@ function Stop-LogFile {
             if ($inProgress -match '\.incomplete$') {
                 $final = $inProgress -replace '\.incomplete$', ''
                 if (Test-Path -LiteralPath $final) {
-                    Write-Warning "Stop-LogFile: cannot rename '$inProgress' to '$final' -- destination already exists; leaving cycle folder with .incomplete suffix."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_145f1b8d7dd8a558' -Arguments @{ inProgress = "$inProgress"; final = "$final" })
                 } else {
                     try {
                         Move-Item -LiteralPath $inProgress -Destination $final -Force -ErrorAction Stop
@@ -1096,7 +1095,7 @@ function Stop-LogFile {
                             Set-CycleFolderUrl -RelativeUrl "log/$finalLeaf/" -ErrorAction SilentlyContinue
                         }
                     } catch {
-                        Write-Warning "Stop-LogFile: rename of '$inProgress' to '$final' failed: $($_.Exception.Message). Folder stays with .incomplete suffix; boot recovery will handle it."
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_55ed12613bc9aad5' -Arguments @{ inProgress = "$inProgress"; final = "$final"; message = "$($_.Exception.Message)" })
                     }
                 }
             }
@@ -1155,7 +1154,7 @@ function Start-NestedLogFile {
     $logRel  = "nested/$safe/$safe.html"
     $nestedFolder = Join-Path $root (Join-Path 'nested' $safe)
     $logFile = Join-Path $nestedFolder "$safe.html"
-    if ($PSCmdlet.ShouldProcess($logFile, 'Start nested log file')) {
+    if ($PSCmdlet.ShouldProcess($logFile, (Format-YurunaOperatorMessage -Key 'runner.operator_b503328ba3bb90e8'))) {
         if (-not (Test-Path -LiteralPath $nestedFolder)) {
             New-Item -ItemType Directory -Path $nestedFolder -Force | Out-Null
         }
@@ -1192,7 +1191,7 @@ function Stop-NestedLogFile {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'Clears the cross-module log handles set by Start-NestedLogFile.')]
     param()
-    if (-not $PSCmdlet.ShouldProcess('nested log file', 'Stop nested logging')) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_46c19be7e346a6c3'), (Format-YurunaOperatorMessage -Key 'runner.operator_b7bdf71746a83de7'))) { return }
     if ($global:__YurunaLogFile) {
         "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
     }
@@ -1341,7 +1340,7 @@ function Send-CycleEventSafely {
         catch { Write-Verbose "Send-CycleEventSafely: schema validator threw ($($_.Exception.Message)); skipping check." }
         if ($violations.Count -gt 0) {
             $badEvent = if ($EventRecord.Contains('event')) { [string]$EventRecord['event'] } else { '(missing)' }
-            Write-Warning "cycle.events.ndjson schema violation for event '$badEvent': $($violations -join '; ')"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3e3305147c74610' -Arguments @{ badEvent = "$badEvent"; join = "$($violations -join '; ')" })
             # Synthetic schema_violation event, emitted FIRST so the
             # consumer reads the diagnosis on the line above the bad
             # record. Direct call to Write-CycleNdjsonEvent (not back
@@ -1443,7 +1442,7 @@ function Send-YurunaDegradation {
         -Dependency $Dependency -Primary $Primary -Fallback $Fallback `
         -Reason $Reason -Severity $Severity)
     $suffix = if ($Reason) { " ($Reason)" } else { '' }
-    Write-Information "  [degradation] ${Dependency}: ${Primary} -> ${Fallback}${suffix}"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_240763f964a4eefb' -Arguments @{ dependency = "${Dependency}"; primary = "${Primary}"; fallback = "${Fallback}"; suffix = "${suffix}" })
 }
 
 Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

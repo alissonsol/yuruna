@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42c5e353-0701-44d3-9ece-c8318df10ad6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here      = Split-Path -Parent $PSCommandPath
 $sharedFile = Join-Path $here 'Test.HostCondition.psm1'
 $script:outerLoopFile = Join-Path $here 'Test.RunnerOuterLoop.psm1'
@@ -349,7 +350,9 @@ Describe 'host-clock-skew repair where a console can answer' {
     It 'reports the clock in Test-Config and offers the fix interactively' {
         $configPath = Join-Path (Split-Path -Parent $here) 'Test-Config.ps1'
         $ast = Get-FileAst -Path $configPath
-        Assert-True ($ast.Extent.Text -match 'Write-Section "Host clock"') 'Test-Config must report the host clock'
+        $sections = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Section' }, $true))
+        $headings = @($sections | ForEach-Object { Get-CatalogSourceMessage -Source $_.Extent.Text })
+        Assert-True ($headings -ccontains 'Host clock') 'Test-Config must report the host clock'
         $offer = Get-FunctionAst -Path $configPath -Name 'Invoke-HostClockSyncOffer'
         Assert-True ($null -ne $offer) 'Test-Config must offer to fix a skewed clock'
         # The offer is the operator's decision, and the unattended config

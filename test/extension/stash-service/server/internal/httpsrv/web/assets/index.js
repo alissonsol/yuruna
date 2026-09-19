@@ -58,13 +58,13 @@
     var q = $('q').value.trim();
     var cls = $('class').value;
     var host = $('host').value;
-    if (q) { add('q', q); }
-    if (cls) { add('class', cls); }
-    if (host) { add('host', host); }
-    add('sort', sortCol);
-    add('dir', sortAsc ? 'asc' : 'desc');
-    add('limit', String(PAGE));
-    add('offset', String(offset));
+    if (q) { add(window.YurunaI18n.t("stash.q"), q); }
+    if (cls) { add(window.YurunaI18n.t("stash.class"), cls); }
+    if (host) { add(window.YurunaI18n.t("stash.host_4740ae63"), host); }
+    add(window.YurunaI18n.t("stash.sort"), sortCol);
+    add(window.YurunaI18n.t("stash.dir"), sortAsc ? 'asc' : 'desc');
+    add(window.YurunaI18n.t("stash.limit"), String(PAGE));
+    add(window.YurunaI18n.t("stash.offset"), String(offset));
     return parts.join('&');
   }
 
@@ -94,7 +94,7 @@
   }
 
   function statusBadge(s) {
-    return Y.el('span', { class: 'badge ' + s, text: s });
+    return Y.el('span', { class: 'badge ' + s, text: Y.displayState(s) });
   }
 
   function showError(text) { Y.replace($('msg'), Y.el('div', { class: 'notice error', text: text })); }
@@ -117,7 +117,7 @@
   }
 
   function renderStatus() {
-    $('status').textContent = total + ' stash' + (total === 1 ? '' : 'es') + ' (showing ' + Math.min(offset, total) + ')';
+    $('status').textContent = (window.YurunaI18n.t('stash.listed_count', {count: total, shown: Math.min(offset, total)}));
     $('more').style.display = offset < total ? '' : 'none';
   }
 
@@ -131,9 +131,7 @@
     if (gate.canDelete || !rendered.length) { Y.replace(el); return; }
     Y.replace(el, Y.el('div', {
       class: 'notice warn',
-      text: gate.labToken
-        ? 'Delete is locked. Unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard, which unlocks it for you.'
-        : 'Delete is unavailable: this service has no pool aggregator configured, so no Lab token or dashboard link can be checked.',
+      text: gate.labToken ? window.YurunaI18n.t("stash.delete_is_locked_unlock_actions_with_the_lab_token_above_or_open_") : window.YurunaI18n.t("stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu"),
     }));
   }
 
@@ -146,12 +144,12 @@
     // control at all, with the reason stated once above the table.
     var del = null;
     if (gate.canDelete) {
-      entry.pick = Y.el('input', { type: 'checkbox', 'aria-label': 'Select stash ' + v.id, onchange: syncControls });
+      entry.pick = Y.el('input', { type: 'checkbox', 'aria-label': window.YurunaI18n.t("stash.select_stash_value1", {value1: (v.id)}), onchange: syncControls });
       del = Y.el('button', {
         class: 'btn destructive compact',
-        'aria-label': 'Delete stash ' + v.id,
+        'aria-label': window.YurunaI18n.t("stash.delete_stash_value1", {value1: (v.id)}),
         onclick: function (e) { e.stopPropagation(); deleteOne(entry, del); }
-      }, 'Delete');
+      }, window.YurunaI18n.t("stash.delete"));
     }
     // The row itself navigates to the permalink, so the controls inside it
     // swallow the click before it bubbles: selecting, deleting, or following
@@ -165,8 +163,8 @@
       // screen reader announces the row as actionable at all. Without it the
       // list is readable and no stash can be opened.
       Y.el('td', { class: 'mono' }, Y.el('a', { href: v.permalink, text: v.id, onclick: stop })),
-      Y.el('td', { text: v.originalFilename || '(unnamed)' }),
-      Y.el('td', {}, Y.el('span', { class: 'badge ' + (v.local ? 'local' : 'host'), title: Y.guid(v.hostId), text: v.local ? 'this host' : Y.shortHost(v.hostId) })),
+      Y.el('td', { text: v.originalFilename || window.YurunaI18n.t("stash.unnamed") }),
+      Y.el('td', {}, Y.el('span', { class: 'badge ' + (v.local ? 'local' : 'host'), title: Y.guid(v.hostId), text: v.local ? window.YurunaI18n.t("stash.this_host") : Y.shortHost(v.hostId) })),
       Y.el('td', { text: v.username }),
       Y.el('td', { class: 'num', text: Y.humanSize(v.sizeBytes) }),
       Y.el('td', { text: Y.fmtDate(v.createdAt) }),
@@ -220,14 +218,14 @@
     // The bulk path below and the detail page both confirm, in these words --
     // the per-row Delete is the easiest of the three to hit by accident.
     var what = entry.view.originalFilename ? (entry.view.id + ' (' + entry.view.originalFilename + ')') : entry.view.id;
-    if (!window.confirm('Delete stash ' + what + '? This cannot be undone.')) { return Promise.resolve(); }
+    if (!window.confirm(window.YurunaI18n.t("stash.delete_stash_value1_this_cannot_be_undone", {value1: (what)}))) { return Promise.resolve(); }
     btn.disabled = true;
     // Blocked like the bulk run, and for the same reason: from the moment the
     // request leaves, this row's Download and its permalink are promises the
     // page can no longer keep. One unlink usually beats the grace period, so
     // the barrier is invisible in the common case and only shows itself when
     // the share is slow enough for the question to arise.
-    var done = Y.block('Deleting...');
+    var done = Y.block(window.YurunaI18n.t("stash.deleting"));
     return Promise.resolve().then(function () {
       var url = Y.stashApiURL(entry.view);
       if (!url) { throw new Error('malformed permalink'); }
@@ -236,15 +234,15 @@
       dropRow(entry);
     }, function (e) {
       btn.disabled = false;
-      showError('Delete failed for ' + entry.view.id + ': ' + e.message);
+      showError(window.YurunaI18n.t("stash.delete_failed_for_value1_value2", {value1: (entry.view.id), value2: (e.message)}));
     }).then(done, done);
   }
 
   function deleteSelected() {
     var picked = selected();
     if (!picked.length || deleting) { return Promise.resolve(); }
-    var label = picked.length + ' stash' + (picked.length === 1 ? '' : 'es');
-    if (!window.confirm('Delete ' + label + '? This cannot be undone.')) { return Promise.resolve(); }
+    var label = (window.YurunaI18n.t('stash.selection_count', {count: picked.length}));
+    if (!window.confirm(window.YurunaI18n.t("stash.delete_value1_this_cannot_be_undone", {value1: (label)}))) { return Promise.resolve(); }
     // A row whose permalink could not be parsed is dropped here rather than
     // guessed at: the request must name exactly the stashes the operator picked.
     var keys = [];
@@ -260,12 +258,12 @@
     // the daemon may already have unlinked. Downloading one, or opening its
     // permalink, would fail in a way that looks like the page's fault -- so
     // there is nothing to press until the page can be trusted again.
-    var done = Y.block('Deleting...');
+    var done = Y.block(window.YurunaI18n.t("stash.deleting"));
     // One request for the whole selection, not one per row: the operator made a
     // single decision, and the daemon records and answers it as one. The
     // per-stash verdicts come back together, so a refusal in the middle cannot
     // hide the deletes that worked.
-    var failed = unaddressable.map(function (id) { return id + ' (malformed permalink)'; });
+    var failed = unaddressable.map(function (id) { return window.YurunaI18n.t("stash.value1_malformed_permalink", {value1: (id)}); });
     var send = keys.length
       ? Y.api('/api/stashes/delete', { method: 'POST', body: { stashes: keys } }).then(function (res) {
         var results = res.results || [];
@@ -287,14 +285,14 @@
       deleting = false;
       return load(true).then(done, done);
     }).then(function () {
-      if (failed.length) { showError(failed.length + ' of ' + picked.length + ' could not be deleted -- ' + failed.join('; ')); }
+      if (failed.length) { showError(window.YurunaI18n.t("stash.value1_of_value2_could_not_be_deleted_value3", {value1: (failed.length), value2: (picked.length), value3: (failed.join('; '))})); }
     });
   }
 
   function load(reset) {
     var readyState = 'error';
     if (reset) { offset = 0; rendered = []; Y.replace($('rows')); clearError(); }
-    $('status').textContent = 'Loading...';
+    $('status').textContent = window.YurunaI18n.t("stash.loading");
     // Before the rows, never after: row() reads the gate as it builds each one.
     // This also spends a control proof carried in from the dashboard, so a
     // browser that arrived by that link renders its first page already unlocked.
@@ -302,6 +300,7 @@
       gate.canDelete = sess.authed;
       gate.labToken = sess.labToken;
       return Y.api('/api/stashes?' + filterQuery()).then(function (data) {
+return window.YurunaFirstUsable.measure("test/extension/stash-service/server/internal/httpsrv/web/index.html", "data", function () {
         total = data.total;
         var list = data.stashes || [];
         for (var i = 0; i < list.length; i++) {
@@ -318,8 +317,10 @@
         readyState = list.length ? 'data' : 'empty';
         renderStatus();
         footer.markLoaded();
-      }, function (e) {
-        $('status').textContent = 'Error: ' + e.message;
+
+});
+}, function (e) {
+        $('status').textContent = window.YurunaI18n.t("stash.error_value1", {value1: (e.message)});
       });
     }).then(function () {
       renderDeleteNote();

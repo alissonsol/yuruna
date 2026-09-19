@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 
 # --- REGION: Host driver contract
 # Change every driver before adding a verb that shared callers will consume.
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:YurunaHostContract = @(
     # --- REGION: VM lifecycle
     'New-VM', 'Start-VM', 'Stop-VM', 'Stop-VMForce', 'Remove-VM',
@@ -57,7 +58,14 @@ $script:YurunaHostContract = @(
     'Test-CachingProxyServiceAvailable', 'Get-CachingProxyServiceVmIp',
     # --- REGION: Host config
     'Set-HostProxy', 'Clear-HostProxy', 'Remove-HostProxy',
-    'Get-HostProxyBackupPath', 'Assert-Virtualization'
+    'Get-HostProxyBackupPath', 'Assert-Virtualization',
+    # --- REGION: Virtualization repair
+    # A versioned structured probe (state/reason/started/timedOut/
+    # observedUtc/elapsedMs), distinct from the plain [bool] Assert-
+    # Virtualization above: a caller deciding whether to disrupt the
+    # hypervisor needs to tell a missing client apart from a denied
+    # permission apart from a genuine timeout, not just yes-or-no.
+    'Test-VirtualizationResponsive'
 )
 
 # --- REGION: Contract discovery
@@ -115,7 +123,7 @@ function Assert-YurunaHostContractCoverage {
         if (-not $exported.Contains($name)) { [void]$missing.Add($name) }
     }
     if ($missing.Count -gt 0) {
-        Write-Warning "Yuruna.Host driver '$HostType' is missing $($missing.Count) contract verb(s): $($missing -join ', '). See host/Yuruna.Host.Contract.psm1."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a9f9eb3eae0014c6' -Arguments @{ hostType = "$HostType"; count = "$($missing.Count)"; join = "$($missing -join ', ')" })
         return $false
     }
     Write-Verbose "Yuruna.Host driver '$HostType' covers all $($script:YurunaHostContract.Count) contract verbs."

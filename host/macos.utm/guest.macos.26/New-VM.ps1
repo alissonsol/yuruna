@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,8 @@ param(
     [int]$DiskSizeGb = 128
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
 # Reuse the caller's log module; a forced reload discards its state.
@@ -77,7 +79,7 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if (-not $IsMacOS) {
-    Write-Error "New-VM.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_74d716391a86a463')
     exit 1
 }
 
@@ -87,12 +89,12 @@ if ($CpuCount -eq 0) {
     $CpuCount = [math]::Max(4, [math]::Floor($hostCores / 2))
 }
 if ($hostCores -lt 4 -or $CpuCount -lt 4) {
-    Write-Error "Host has $hostCores physical cores, -CpuCount=$CpuCount; Yuruna requires at least 4 cores on the host AND at least 4 vCPU assigned. See https://yuruna.link/42fa6f45-0015"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_c487c562962fbd2a' -Arguments @{ hostCores = "$hostCores"; cpuCount = "$CpuCount" })
     exit 1
 }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
     exit 1
 }
 
@@ -111,7 +113,7 @@ $downloadDir = "$HOME/yuruna/image/macos.env"
 $macosVersion = & sw_vers -productVersion 2>$null
 $macosMajor   = [int]($macosVersion -split '\.')[0]
 if ($macosMajor -lt 15) {
-    Write-Error "macOS 15 Sequoia or later is required to host a macOS 26 guest (found macOS $macosVersion)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_31291dddcb802d40' -Arguments @{ macosVersion = "$macosVersion" })
     exit 1
 }
 Write-Verbose "Host macOS version: $macosVersion (OK)"
@@ -120,12 +122,12 @@ Write-Verbose "Host macOS version: $macosVersion (OK)"
 # chip floor is uniform with the nested-virt-requiring Linux guests.
 $chipName = (& system_profiler SPHardwareDataType 2>$null | Select-String "Chip" | ForEach-Object { $_ -replace '.*Chip:\s*', '' }).Trim()
 if (-not $chipName) {
-    Write-Error "Could not detect Apple Silicon chip. macOS 26 guests require Apple M4 or later."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_018a8ff6db7d23da')
     exit 1
 }
 if ($chipName -notmatch 'Apple M([4-9]|[1-9]\d)') {
-    Write-Error "Apple Silicon M4 or later is required for guest.macos.26 (found: $chipName)."
-    Write-Error "M1/M2/M3 hosts are not supported for this guest."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7131673b801b6b6d' -Arguments @{ chipName = "$chipName" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_801f1557f661696a')
     exit 1
 }
 Write-Verbose "Host chip: $chipName (OK)"
@@ -133,7 +135,7 @@ Write-Verbose "Host chip: $chipName (OK)"
 # UTM 4.6+ for ConfigurationVersion 4 + macOS Apple backend.
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
-    Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
     exit 1
 }
 $utmVersion = (& /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $utmPlist 2>$null)
@@ -142,20 +144,20 @@ if ($utmVersion) {
     $utmMajor = [int]$utmParts[0]
     $utmMinor = $utmParts.Count -gt 1 ? [int]$utmParts[1] : 0
     if ($utmMajor -lt 4 -or ($utmMajor -eq 4 -and $utmMinor -lt 6)) {
-        Write-Error "UTM v4.6.0 or later is required for guest.macos.26 (found v$utmVersion)."
-        Write-Error "Update with: brew upgrade --cask utm"
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_14378c99ad998a7a' -Arguments @{ utmVersion = "$utmVersion" })
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9c80476fdd14c462')
         exit 1
     }
     Write-Verbose "UTM version: $utmVersion (OK)"
 } else {
-    Write-Warning "Could not determine UTM version. Ensure UTM v4.6.0 or later is installed."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1ad0986987127caa')
 }
 
 # Swift on PATH -- the embedded VZ helper needs it. Xcode CLT is the
 # usual provider on a yuruna host (Set-MacHostConditionSet already
 # leans on it for EFI variable store creation).
 if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
-    Write-Error "swift not found on PATH. Install Xcode command line tools: xcode-select --install"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fc6e553877a41837')
     exit 1
 }
 
@@ -182,7 +184,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.ps
 Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
-    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 # --- REGION: Create copies and files for VM
@@ -346,7 +348,7 @@ installer.install { result in
 dispatchMain()
 "@
 
-Write-Output "Restoring IPSW into UTM bundle (this can take 15-25 min)..."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7e80cc3f51488991')
 # VZMacOSInstaller only reaches the system installation service when the
 # helper binary carries the com.apple.security.virtualization entitlement;
 # Invoke-EntitledSwift compiles + self-signs it before running. The helper
@@ -369,7 +371,7 @@ $installerOut = Invoke-EntitledSwift -Source $swiftSrc -LineHandler $onRestoreLi
     $baseImageFile, $DiskImage, $AuxImage, "$CpuCount", "$MemoryMb", "$DiskSizeGb")
 Write-Progress -Activity $restoreActivity -Completed
 if ($LASTEXITCODE -ne 0) {
-    Write-Error ("IPSW restore failed: " + ($installerOut -join "`n"))
+    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_e93635f4d6393805' -Arguments @{ n = [string](($installerOut -join "`n")) }))
     exit 1
 }
 
@@ -380,12 +382,12 @@ $tupleLine = ($installerOut -split "`n" |
     Where-Object { $_ -match '^MAC_PLATFORM\b' } |
     Select-Object -Last 1)
 if (-not $tupleLine) {
-    Write-Error "Swift helper did not emit MAC_PLATFORM line. Stdout/stderr was:`n$($installerOut -join "`n")"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6785c036dec5eccd' -Arguments @{ n = "$($installerOut -join "`n")" })
     exit 1
 }
 $tupleFields = $tupleLine -split "`t"
 if ($tupleFields.Count -lt 3) {
-    Write-Error "MAC_PLATFORM line malformed (need 3 tab-separated fields): $tupleLine"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_83567f970fd6c2db' -Arguments @{ tupleLine = "$tupleLine" })
     exit 1
 }
 $HardwareModelB64     = $tupleFields[1].Trim()
@@ -405,7 +407,7 @@ Set-Content -Path $IdsOut -Value @(
 # --- REGION: config.plist (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
-    Write-Error "Template not found at '$TemplatePath'."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
     exit 1
 }
 
@@ -432,14 +434,14 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 # unsubstituted __TOKEN__ before UTM does at open time.
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Generated config.plist failed plist validation: $lintOutput"
-    Write-Error "Inspect the file at: $UtmDir/config.plist"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f3a41b9c5302d96' -Arguments @{ lintOutput = "$lintOutput" })
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e25e0303ffb73b' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
 }
 Write-Verbose "config.plist validated OK."
 
 Write-Output ""
-Write-Output "== VM bundle created: $UtmDir =="
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_94f12e1266d95601' -Arguments @{ utmDir = "$UtmDir" })
 Write-Output ""
 
 # Reveal the freshly-built bundle in Finder, with '$VMName.utm' selected,
@@ -447,15 +449,15 @@ Write-Output ""
 # to ~/yuruna/guest.nosync/ by hand.
 & open -R $UtmDir
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Could not open Finder at '$UtmDir' (open exited $LASTEXITCODE). Navigate there manually."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_61d377ef8d0f4ffa' -Arguments @{ utmDir = "$UtmDir"; lASTEXITCODE = "$LASTEXITCODE" })
 }
 
-Write-Output "Next steps:"
-Write-Output "  1. A Finder window has opened with '$VMName.utm' selected."
-Write-Output "     Double-click it to import the VM into UTM."
-Write-Output "  2. Start the VM. macOS 26 first-boot lands at Setup Assistant"
-Write-Output "     (region, keyboard, Wi-Fi, Apple ID, account). Walk through"
-Write-Output "     it manually -- there is no autoinstall equivalent yet."
-Write-Output "  3. After Setup Assistant completes the test harness can drive"
-Write-Output "     the guest via the shared GUI/SSH sequences once those land"
-Write-Output "     under test/sequences/start.guest.macos.26.yml."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6341d2ccab253d90')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0618b9b886f5f3d1' -Arguments @{ vMName = "$VMName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d3fee16fb660d006')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_01fbe9a8daaa0a47')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b4f2e88c5dba411a')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a53066e5eb933a78')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ec958f718e5cbe92')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_82caa830c2a7dd2b')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b452a787ac5af2a4')

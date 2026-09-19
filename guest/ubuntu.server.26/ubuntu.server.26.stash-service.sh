@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.13
+# Version: 2026.09.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -47,6 +47,10 @@ echo "Service user: $SERVICE_USER"
 
 # --- REGION: Service tunables
 # See https://yuruna.link/42fffc2c-000d
+SERVICE_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
+[ -n "$SERVICE_LANGUAGE" ] || SERVICE_LANGUAGE=auto
+SERVICE_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
+[ "$SERVICE_ALLOW_PSEUDO_LOCALE" = true ] || SERVICE_ALLOW_PSEUDO_LOCALE=false
 HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
@@ -207,6 +211,8 @@ echo ""
 echo -e "\e[1;36m==== /etc/yuruna/stash.env ====\e[0m"
 sudo mkdir -p /etc/yuruna
 sudo tee /etc/yuruna/stash.env >/dev/null <<ENV
+YURUNA_LANGUAGE=$SERVICE_LANGUAGE
+YURUNA_ALLOW_PSEUDO_LOCALE=$SERVICE_ALLOW_PSEUDO_LOCALE
 SHARE_FOLDER=$SHARE_FOLDER
 METADATA_DIR=$METADATA_DIR
 BUFFER_DIR=$BUFFER_DIR
@@ -233,7 +239,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL}
+ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL} --language=\${YURUNA_LANGUAGE} --allow-pseudo-locale=\${YURUNA_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

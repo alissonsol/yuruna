@@ -42,6 +42,8 @@ func main() {
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator-service base URL for hostId->stash-UI resolution and the presence beacon (section 4.7); empty disables both (best-effort)")
 	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (section 4.7); empty disables the beacon")
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (section 4.7); 0 disables the beacon")
+	language := flag.String("language", "auto", "Display language: auto or a supported locale")
+	allowPseudo := flag.Bool("allow-pseudo-locale", false, "Enable diagnostic pseudo locales")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -123,6 +125,7 @@ func main() {
 	go func() { errCh <- srv.ListenAndServe(ctx, *listenAddr) }()
 	if *httpAddr != "" {
 		ui := httpsrv.New(srv, httpsrv.Options{
+			Language: *language, AllowPseudoLocale: *allowPseudo,
 			Addr:           *httpAddr,
 			AggregatorURL:  *aggregatorURL,
 			PoolWindowDays: *poolWindowDays,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,6 +68,7 @@
 # Microsoft Eval Center distributions all publish SHA256SUMS files in the
 # `<sha256>  <filename>` shape (two spaces). Override -ChecksumPattern to
 # match a different mirror layout.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:DefaultChecksumPattern = '^([0-9a-fA-F]{64})\s+\*?{0}\s*$'
 
 # Pinned PRIMARY-key fingerprints that sign Ubuntu's published SHA256SUMS:
@@ -212,7 +213,7 @@ function Get-PublishedChecksumBody {
     }.GetNewClosure()
     $fetchError = $null
     if (Get-Command -Name Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
-        $attempted = Invoke-WithYurunaRetry -Label "checksum fetch $ChecksumUrl" -ScriptBlock $fetch `
+        $attempted = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'host.operator_c02ee678823c4a0e' -Arguments @{ checksumUrl = "$ChecksumUrl" }) -ScriptBlock $fetch `
             -MaxAttempts $MaxAttempts -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
             -ShouldRetry {
                 param($info)
@@ -231,11 +232,11 @@ function Get-PublishedChecksumBody {
         return @{ State = $state; Body = ''; Path = $null; Status = $status; Detail = $fetchError.Exception.Message }
     }
     if (-not (Test-Path -LiteralPath $DestinationPath)) {
-        return @{ State = 'unreachable'; Body = ''; Path = $null; Status = 0; Detail = "the fetch reported success but $DestinationPath is missing" }
+        return @{ State = 'unreachable'; Body = ''; Path = $null; Status = 0; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_783644813e40d771' -Arguments @{ destinationPath = "$DestinationPath" }) }
     }
     $body = ConvertTo-ChecksumText -Content ([System.IO.File]::ReadAllBytes($DestinationPath))
     if (-not $body.Trim()) {
-        return @{ State = 'unreachable'; Body = ''; Path = $null; Status = 0; Detail = 'the fetched checksum file is empty' }
+        return @{ State = 'unreachable'; Body = ''; Path = $null; Status = 0; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_b9a5e1224438d1d2') }
     }
     return @{ State = 'fetched'; Body = $body; Path = $DestinationPath; Status = 0; Detail = '' }
 }
@@ -288,7 +289,7 @@ function Get-ImageChecksumLine {
                 # fetch, a genuinely unpublished checksum and a lookup that
                 # simply broke all read the same -- and a verification bypass
                 # that says nothing is a bypass nobody notices.
-                Write-Warning "Get-ImageChecksumLine: checksum file $($fetched.State) at $ChecksumUrl (HTTP $($fetched.Status)): $($fetched.Detail)"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6d1258b7e215fd7f' -Arguments @{ state = "$($fetched.State)"; checksumUrl = "$ChecksumUrl"; status = "$($fetched.Status)"; detail = "$($fetched.Detail)" })
                 return @{ State = $fetched.State; Hash = ''; Status = $fetched.Status; Detail = $fetched.Detail }
             }
             $body = $fetched.Body
@@ -297,7 +298,7 @@ function Get-ImageChecksumLine {
         }
     }
     if (-not $body) {
-        return @{ State = 'absent'; Hash = ''; Status = 0; Detail = 'the checksum body was empty' }
+        return @{ State = 'absent'; Hash = ''; Status = 0; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_17f44b8d51c1771c') }
     }
     $escaped = [regex]::Escape($TargetFileName)
     # Substitute the filename token literally, NOT via -f: the pattern
@@ -308,7 +309,7 @@ function Get-ImageChecksumLine {
     $rx = [regex]::new($Pattern.Replace('{0}', $escaped), 'Multiline')
     $m = $rx.Match($body)
     if (-not $m.Success) {
-        return @{ State = 'absent'; Hash = ''; Status = 0; Detail = "no line matching '$TargetFileName'" }
+        return @{ State = 'absent'; Hash = ''; Status = 0; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_be4294182f94a395' -Arguments @{ targetFileName = "$TargetFileName" }) }
     }
     return @{ State = 'found'; Hash = $m.Groups[1].Value; Status = 0; Detail = '' }
 }
@@ -511,12 +512,12 @@ function Save-ImageWithChecksum {
         [switch]$VerifyUbuntuSignature,
         [int]$RetryBudgetSeconds = 600
     )
-    if (-not $PSCmdlet.ShouldProcess($DestPath, "Download $SourceUrl with checksum policy $OnMismatch")) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($DestPath, (Format-YurunaOperatorMessage -Key 'host.operator_d3d8465072cfb2bb' -Arguments @{ sourceUrl = "$SourceUrl"; onMismatch = "$OnMismatch" }))) { return $true }
     $destDir = Split-Path -Parent $DestPath
     if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
     }
-    Write-Information "Downloading $SourceUrl -> $DestPath" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2e8b800c04e6bb54' -Arguments @{ sourceUrl = "$SourceUrl"; destPath = "$DestPath" }) -InformationAction Continue
     # A resumed transfer is not available on either path, so every attempt must
     # start from an absent destination: a truncated file left in place would
     # otherwise be appended to or mistaken for a complete one.
@@ -538,12 +539,12 @@ function Save-ImageWithChecksum {
             & $fetch
         }
     } catch {
-        Write-Warning "Save-ImageWithChecksum: download failed for $SourceUrl : $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ba3dea3cf3e04883' -Arguments @{ sourceUrl = "$SourceUrl"; message = "$($_.Exception.Message)" })
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         return $false
     }
     if (-not (Test-Path -LiteralPath $DestPath)) {
-        Write-Warning "Save-ImageWithChecksum: download reported success but $DestPath is missing."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_90da3eeded93b7ec' -Arguments @{ destPath = "$DestPath" })
         return $false
     }
     $expected = $ExpectedSha256
@@ -560,37 +561,37 @@ function Save-ImageWithChecksum {
                 # leg here. Routing it through the unreachable policy instead
                 # would skip the comparison it explicitly asked for and accept
                 # bytes it had everything it needed to reject.
-                Write-Warning "Save-ImageWithChecksum: could not fetch $ChecksumUrl ($($published.Detail)); verifying against the caller-supplied hash, signature unchecked."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1194223b2f7c1e7f' -Arguments @{ checksumUrl = "$ChecksumUrl"; detail = "$($published.Detail)" })
             }
             elseif ($published.State -eq 'unreachable') {
                 Write-Warning ('=' * 72)
-                Write-Warning "  PUBLISHER CHECKSUM UNREACHABLE"
-                Write-Warning "  File     : $DestPath"
-                Write-Warning "  Checksum : $ChecksumUrl"
-                Write-Warning "  Error    : $($published.Detail)"
-                Write-Warning "  The download could not be verified. This is a fetch failure, NOT"
-                Write-Warning "  evidence that the publisher ships no checksum for it."
-                Write-Warning "  Policy   : $OnUnreachableChecksum"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1547abec17d6db9b')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_674e2bcb8e1b2df3' -Arguments @{ destPath = "$DestPath" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_299fa20256a95104' -Arguments @{ detail = "$($published.Detail)" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6342d8c95fdb3c13')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a99dc6eac87b11d7')
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d902ad2cc7a838c6' -Arguments @{ onUnreachableChecksum = "$OnUnreachableChecksum" })
                 Write-Warning ('=' * 72)
                 return (Invoke-UnverifiedDownloadPolicy -Policy $OnUnreachableChecksum -DestPath $DestPath `
                         -Reason "Publisher checksum unreachable at $ChecksumUrl : $($published.Detail)")
             }
             if ($published.State -eq 'fetched' -and $VerifyUbuntuSignature) {
                 switch (Test-PublishedChecksumSignature -ChecksumUrl $ChecksumUrl -ChecksumFilePath $published.Path) {
-                    'good'       { Write-Information "  SHA256SUMS GPG signature OK (pinned Ubuntu key)" -InformationAction Continue }
-                    'unverified' { Write-Warning "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
+                    'good'       { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c61b131638a59bb2') -InformationAction Continue }
+                    'unverified' { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f11ac5338e134c99') }
                     'bad'        {
                         Write-Warning ('=' * 72)
-                        Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
-                        Write-Warning "  Checksum : $ChecksumUrl"
-                        Write-Warning "  The published checksum file failed signature verification against"
-                        Write-Warning "  the pinned Ubuntu signing keys -- treating the source as tampered."
-                        Write-Warning "  Policy   : $OnMismatch"
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ad8085714f2d476d')
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_be2f6115e6fbd1d0')
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_70d3814482fee27f')
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ee1c5f4b650b2c16' -Arguments @{ onMismatch = "$OnMismatch" })
                         Write-Warning ('=' * 72)
                         switch ($OnMismatch) {
                             'WarnAndContinue' { }
                             'WarnAndDelete'   { Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue; return $false }
-                            'Throw'           { throw "SHA256SUMS GPG signature invalid for $ChecksumUrl" }
+                            'Throw'           { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b0946878b754a138' -Arguments @{ checksumUrl = "$ChecksumUrl" }) }
                         }
                     }
                 }
@@ -606,7 +607,7 @@ function Save-ImageWithChecksum {
                     # proxy and a 404 from the mirror lead to different fixes,
                     # and neither is "the publisher lists no entry".
                     $why = if ($published.Status) { "the publisher answered HTTP $($published.Status)" } else { 'the published list has no line for it' }
-                    Write-Warning "Save-ImageWithChecksum: no checksum entry for '$targetName' at $ChecksumUrl -- $why ; policy $OnMissingChecksum."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1f06d94e5b3373da' -Arguments @{ targetName = "$targetName"; checksumUrl = "$ChecksumUrl"; why = "$why"; onMissingChecksum = "$OnMissingChecksum" })
                     return (Invoke-UnverifiedDownloadPolicy -Policy $OnMissingChecksum -DestPath $DestPath `
                             -Reason "No checksum entry for '$targetName' at $ChecksumUrl ($why)")
                 }
@@ -623,25 +624,25 @@ function Save-ImageWithChecksum {
         # the policy so a strict caller can refuse the artifact.
         Write-Verbose "Save-ImageWithChecksum: no checksum source supplied for $DestPath ; policy $OnMissingChecksum."
         if ($OnMissingChecksum -ne 'WarnAndContinue') {
-            Write-Warning "Save-ImageWithChecksum: no checksum source supplied for $SourceUrl ; policy $OnMissingChecksum."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_478b8153c4cd60bf' -Arguments @{ sourceUrl = "$SourceUrl"; onMissingChecksum = "$OnMissingChecksum" })
         }
         return (Invoke-UnverifiedDownloadPolicy -Policy $OnMissingChecksum -DestPath $DestPath `
                 -Reason "No checksum source supplied for $DestPath")
     }
-    Write-Information "Verifying SHA-256 against publisher checksum..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2335b1b944e3bce8') -InformationAction Continue
     $actual = (Get-FileHash -Path $DestPath -Algorithm SHA256).Hash
     if ($actual -ieq $expected) {
-        Write-Information "  checksum OK ($actual)" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_8077179580819d5a' -Arguments @{ actual = "$actual" }) -InformationAction Continue
         return $true
     }
     Write-Warning ('=' * 72)
-    Write-Warning "  IMAGE CHECKSUM MISMATCH"
-    Write-Warning "  File     : $DestPath"
-    Write-Warning "  Source   : $SourceUrl"
-    Write-Warning "  Expected : $expected"
-    Write-Warning "  Actual   : $actual"
-    if ($ChecksumUrl)   { Write-Warning "  Checksum : $ChecksumUrl" }
-    Write-Warning "  Policy   : $OnMismatch"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ae9e0059c4835bf')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_674e2bcb8e1b2df3' -Arguments @{ destPath = "$DestPath" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_cca9aacb594e0955' -Arguments @{ sourceUrl = "$SourceUrl" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ab4a5d9c5e556023' -Arguments @{ expected = "$expected" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_579fcb8248f9459d' -Arguments @{ actual = "$actual" })
+    if ($ChecksumUrl)   { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" }) }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ee1c5f4b650b2c16' -Arguments @{ onMismatch = "$OnMismatch" })
     Write-Warning ('=' * 72)
     switch ($OnMismatch) {
         'WarnAndContinue' { return $true }
@@ -649,7 +650,7 @@ function Save-ImageWithChecksum {
             Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
             return $false
         }
-        'Throw'           { throw "Image checksum mismatch for $DestPath (expected $expected, got $actual)" }
+        'Throw'           { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_df96b1b9a83640ad' -Arguments @{ destPath = "$DestPath"; expected = "$expected"; actual = "$actual" }) }
     }
 }
 
@@ -707,14 +708,14 @@ function Convert-Qcow2ToVhdx {
     )
     $qemuImg = Resolve-QemuImgCommand
     if (-not $qemuImg) {
-        Write-Warning "qemu-img not found. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) or add qemu-img to PATH."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2df007db68e91e6d')
         return $false
     }
     Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
-    Write-Information "Converting qcow2 to VHDX..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2362a852e62ea069') -InformationAction Continue
     $convertOut = & $qemuImg convert -f qcow2 -O vhdx -o subformat=dynamic $SourcePath $DestPath 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "qemu-img convert failed (exit $LASTEXITCODE): $convertOut"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_2de7d46428ba0823' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; convertOut = "$convertOut" })
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         return $false
     }
@@ -722,28 +723,28 @@ function Convert-Qcow2ToVhdx {
     # with 0xC03A001A. See feedback_qemu_img_vhdx_sparse.md.
     & fsutil sparse setflag $DestPath 0 2>&1 | Out-Null
     if ($SizeBytes -le 0) {
-        Write-Information "  convert-only: VHDX left at the cloud image's native capacity." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_37f19dd02679f7aa') -InformationAction Continue
         return $true
     }
     # See https://yuruna.link/42d69dfa-000b
     $sizeGb = [math]::Round($SizeBytes / 1GB)
-    Write-Information "Resizing VHDX to ${sizeGb}GB..." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2e323024e58e4960' -Arguments @{ sizeGb = "${sizeGb}" }) -InformationAction Continue
     $resized = $false
     try {
         Resize-VHD -Path $DestPath -SizeBytes $SizeBytes -ErrorAction Stop
         $resized = $true
     } catch {
-        Write-Warning "Resize-VHD failed: $($_.Exception.Message); falling back to qemu-img resize."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_66927d6a35f745c9' -Arguments @{ message = "$($_.Exception.Message)" })
         $resizeOut = & $qemuImg resize $DestPath "${sizeGb}G" 2>&1
-        if ($LASTEXITCODE -eq 0) { $resized = $true } else { Write-Warning "qemu-img resize failed: $resizeOut" }
+        if ($LASTEXITCODE -eq 0) { $resized = $true } else { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5470b2647c701ca1' -Arguments @{ resizeOut = "$resizeOut" }) }
     }
     if (-not $resized) {
         # Both resize paths failed, so the VHDX is only the base cloud-image
         # capacity. Refuse it as success -- a caller that proceeds would
         # provision an undersized disk (a 512 GB cache on a ~4 GB image) -- and
         # remove the stub so a retry cannot adopt it.
-        Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img; refusing the base-capacity disk."
-        Write-Warning "Resize manually: fsutil sparse setflag '$DestPath' 0; Resize-VHD -Path '$DestPath' -SizeBytes $SizeBytes"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_78f0c0477d8ec1d5')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4568dad83d9c1581' -Arguments @{ destPath = "$DestPath"; sizeBytes = "$SizeBytes" })
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
     }
     return $resized
@@ -813,7 +814,7 @@ function Get-UbuntuExtensionImageInfo {
             switch ($machine) {
                 'x86_64'  { $arch = 'amd64' }
                 'aarch64' { $arch = 'arm64' }
-                default   { throw "Unsupported architecture for the extension-service base image: $machine" }
+                default   { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_fec98f88ac3a6a73' -Arguments @{ machine = "$machine" }) }
             }
             # libvirt-qemu boots qcow2 natively; no conversion needed.
             $format = 'qcow2'
@@ -829,17 +830,17 @@ function Get-UbuntuExtensionImageInfo {
             switch ($osArch) {
                 'X64'   { $arch = 'amd64' }
                 'Arm64' { $arch = 'arm64' }
-                default { throw "Unsupported architecture for the extension-service base image: $osArch. A Hyper-V host must be AMD64 or ARM64." }
+                default { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_5fbd4e8bd8efc5cc' -Arguments @{ osArch = "$osArch" }) }
             }
             # Hyper-V boots VHDX, and it expects guest disks under the host's
             # own VirtualHardDiskPath (which the operator may have relocated).
             $format = 'vhdx'
             $dir    = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
             if (-not $dir) {
-                throw "Could not read the Hyper-V VirtualHardDiskPath: Get-VMHost failed. Hyper-V may not be installed, or this session is not elevated."
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9e776665909b3868')
             }
             if (-not (Test-Path -LiteralPath $dir)) {
-                throw "The Hyper-V default VHDX folder does not exist: $dir"
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.host_6a438f8f59faef03' -Arguments @{ dir = "$dir" })
             }
         }
     }
@@ -898,7 +899,7 @@ function Save-UbuntuExtensionImage {
     )
     foreach ($dependency in @('Test-DownloadAlreadyCurrent', 'Write-ImageSentinel')) {
         if (-not (Get-Command -Name $dependency -ErrorAction SilentlyContinue)) {
-            Write-Error "Save-UbuntuExtensionImage: $dependency is not available. Import the host driver (host/<host-type>/modules/Yuruna.Host.psm1) before calling."
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_df4ea4bfb57c50d3' -Arguments @{ dependency = "$dependency" })
             return $false
         }
     }
@@ -953,7 +954,7 @@ function Save-UbuntuExtensionImage {
                 Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
                 $agentResult = Request-DownloadAgentImage @agentArgs
             } catch {
-                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57234ab9582f912d' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; message = "$($_.Exception.Message)" })
                 $agentResult = $null
             }
             if ($agentResult -and $agentResult.outcome -eq 'skipped') {
@@ -969,10 +970,10 @@ function Save-UbuntuExtensionImage {
                 $agentServed       = $true
                 $agentSourceUrl    = [string]$agentResult.sourceUrl
                 $agentLastModified = [string]$agentResult.lastModified
-                Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $downloadFile"
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
             } elseif ($agentResult) {
                 $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
-                Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
             }
         }
     }
@@ -1007,7 +1008,7 @@ function Save-UbuntuExtensionImage {
             -VerifyUbuntuSignature `
             -Confirm:$false
         if (-not $downloaded) {
-            Write-Error "Download failed for $($Image.SourceUrl)"
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_4880208ccfe2334e' -Arguments @{ sourceUrl = "$($Image.SourceUrl)" })
             return $false
         }
     }
@@ -1016,7 +1017,7 @@ function Save-UbuntuExtensionImage {
     # against the publisher's Content-Length next run.
     $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
     if ($downloadedSize -lt $MinimumBytes) {
-        Write-Error "Downloaded file is suspiciously small ($([math]::Round($downloadedSize / 1MB, 1)) MB). Expected ~600 MB."
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9326163f5beaeed4' -Arguments @{ mB = "$([math]::Round($downloadedSize / 1MB, 1))" })
         Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
         return $false
     }
@@ -1031,7 +1032,7 @@ function Save-UbuntuExtensionImage {
         # Convert-Qcow2ToVhdx owns qemu-img discovery and the NTFS sparse-flag
         # clear (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
         if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $stagedFile)) {
-            Write-Error "qcow2 to VHDX conversion failed for the download"
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_e7460979e261a022')
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
             return $false
         }
@@ -1047,7 +1048,7 @@ function Save-UbuntuExtensionImage {
     Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $Image.BaseImageFile) {
         Move-Item -LiteralPath $Image.BaseImageFile -Destination $previousFile
-        Write-Output "Previous image preserved as: $previousFile"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
     }
     Move-Item -LiteralPath $stagedFile -Destination $Image.BaseImageFile
 
@@ -1062,8 +1063,8 @@ function Save-UbuntuExtensionImage {
     } else {
         Write-ImageSentinel -SourceUrl $Image.SourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -Confirm:$false
     }
-    Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $($Image.OriginFile)"
-    Write-Output "Download complete: $($Image.BaseImageFile)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e3b5217631d5fe3a' -Arguments @{ originFile = "$($Image.OriginFile)" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_792874fab1f72f85' -Arguments @{ baseImageFile = "$($Image.BaseImageFile)" })
     return $true
 }
 
@@ -1091,7 +1092,7 @@ function Expand-ExtensionVmDisk {
         [ValidateSet('qcow2', 'vhdx')][string]$Format = 'qcow2'
     )
     $sizeGb = [math]::Round($SizeBytes / 1GB)
-    Write-Output "Resizing $Format disk to ${sizeGb}GB..."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44c647cd2746b1f3' -Arguments @{ format = "$Format"; sizeGb = "${sizeGb}" })
     if ($Format -eq 'vhdx') {
         # Copying a VHDX can carry the NTFS sparse attribute along, and
         # Resize-VHD refuses a sparse file with 0xC03A001A.
@@ -1102,19 +1103,19 @@ function Expand-ExtensionVmDisk {
             Resize-VHD -Path $Path -SizeBytes $SizeBytes -ErrorAction Stop
             return $true
         } catch {
-            Write-Warning "Resize-VHD failed: $($_.Exception.Message); falling back to qemu-img resize."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_66927d6a35f745c9' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
     $qemuImg = Resolve-QemuImgCommand
     if (-not $qemuImg) {
-        Write-Warning "qemu-img not found; cannot resize $Path."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a943d79451176edc' -Arguments @{ path = "$Path" })
         return $false
     }
     $resizeArgs = @('resize')
     if ($Format -eq 'qcow2') { $resizeArgs += @('-f', 'qcow2') }
     $resizeOut = & $qemuImg @resizeArgs $Path "${sizeGb}G" 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "qemu-img resize failed: $resizeOut"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5470b2647c701ca1' -Arguments @{ resizeOut = "$resizeOut" })
         return $false
     }
     return $true
@@ -1182,12 +1183,12 @@ function Assert-YurunaBaseImage {
 
     $getImageScript = Join-Path $GuestFolder 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
-        Write-Information "$ArtifactLabel missing: $($missing -join ', ')" -InformationAction Continue
-        Write-Information "Auto-running $getImageScript to fetch it..." -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_0a493b2ca3956f0e' -Arguments @{ artifactLabel = "$ArtifactLabel"; join = "$($missing -join ', ')" }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_89de245b64be3673' -Arguments @{ getImageScript = "$getImageScript" }) -InformationAction Continue
         & pwsh -NoProfile -File $getImageScript
         $getImageExit = $LASTEXITCODE
         if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5d14282cecc17295' -Arguments @{ getImageExit = "$getImageExit" })
             return $false
         }
         $missing = @($BaseImageFile | Where-Object { -not (Test-Path -LiteralPath $_) })
@@ -1195,7 +1196,7 @@ function Assert-YurunaBaseImage {
 
     if ($missing.Count -eq 0) { return $true }
 
-    Write-Error "$ArtifactLabel not found after auto Get-Image: $($missing -join ', '). $ManualHint"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a234be2018e96095' -Arguments @{ artifactLabel = "$ArtifactLabel"; join = "$($missing -join ', ')"; manualHint = "$ManualHint" })
     return $false
 }
 

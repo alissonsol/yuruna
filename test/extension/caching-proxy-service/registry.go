@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 // RegistryState is what the daemon reports about zot, the OCI mirror that runs
@@ -59,10 +61,17 @@ func newRegistryReader(baseURL, metaURL, stateRoot string, timeout time.Duration
 	}
 }
 
-func (r *registryReader) state() RegistryState {
+func (r *registryReader) state(locales ...i18n.Context) RegistryState {
+	locale := i18n.Context{ResolvedTag: "en-US"}
+	if len(locales) > 0 && locales[0].ResolvedTag != "" {
+		locale = locales[0]
+	}
+	render := func(key string, args map[string]any) string {
+		return localizedPages().Catalog.Render(key, args, locale.ResolvedTag)
+	}
 	out := RegistryState{}
 	if r == nil || r.baseURL == "" {
-		out.Error = "no registry URL configured"
+		out.Error = render("cache.registry_unconfigured", nil)
 		return out
 	}
 	resp, err := r.http.Get(r.baseURL + "/v2/_catalog")
@@ -72,12 +81,12 @@ func (r *registryReader) state() RegistryState {
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		out.Error = "registry catalog: HTTP " + resp.Status
+		out.Error = render("cache.registry_http", map[string]any{"status": resp.Status})
 		return out
 	}
 	var cat zotCatalog
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&cat); err != nil {
-		out.Error = "registry catalog is not JSON: " + err.Error()
+		out.Error = render("cache.registry_invalid_json", map[string]any{"detail": err.Error()})
 		return out
 	}
 	out.Reachable = true

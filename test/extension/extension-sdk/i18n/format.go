@@ -69,6 +69,15 @@ func PluralCategory(count float64, tag string, m *Manifest) (string, error) {
 			return "one", nil
 		}
 		return "other", nil
+	case "pt-cardinal-cldr46":
+		absolute := math.Abs(count)
+		if math.Floor(absolute) <= 1 {
+			return "one", nil
+		}
+		if absolute > 0 && math.Mod(absolute, 1000000) == 0 {
+			return "many", nil
+		}
+		return "other", nil
 	default:
 		return "", fmt.Errorf("plural rule %q for %s has no implementation here", rule, tag)
 	}

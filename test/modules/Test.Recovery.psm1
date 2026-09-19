@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -160,7 +163,7 @@ function Resolve-OrphanIncompleteCycle {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$MarkerPath)
     if (-not (Test-Path -LiteralPath $MarkerPath)) { return $null }
-    if (-not $PSCmdlet.ShouldProcess($MarkerPath, 'Archive orphan .incomplete signal')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($MarkerPath, (Format-YurunaOperatorMessage -Key 'runner.operator_d3778fb2e379356a'))) { return $null }
 
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
     $now   = (Get-Date).ToUniversalTime().ToString('o')
@@ -288,7 +291,7 @@ function Clear-StalePidFile {
         [switch]$MtimeIdentity
     )
     if (-not (Test-Path -LiteralPath $PidFile)) { return $null }
-    if (-not $PSCmdlet.ShouldProcess($PidFile, 'Clear stale pidfile')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($PidFile, (Format-YurunaOperatorMessage -Key 'runner.operator_1826536dca2a0287'))) { return $null }
     $filePid = 0
     try { $filePid = [int]((Get-Content -LiteralPath $PidFile -Raw -ErrorAction Stop).Trim()) }
     catch { $filePid = 0 }
@@ -382,7 +385,7 @@ function Resolve-StaleBreakActive {
     param([Parameter(Mandatory)][string]$RuntimeDir)
     $path = Join-Path $RuntimeDir 'break-active.json'
     if (-not (Test-Path -LiteralPath $path)) { return $null }
-    if (-not $PSCmdlet.ShouldProcess($path, 'Archive stale break-active.json')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_6b84ccbde66f6a97'))) { return $null }
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
     $archived = Join-Path $RuntimeDir "break-active.$stamp.json.aborted"
     try {
@@ -432,7 +435,7 @@ function Clear-StalePauseFlag {
     [OutputType([hashtable])]
     param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
     if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $null }
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, 'Clear stale pause flags')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.operator_358a2fac95f69915'))) { return $null }
     $cleared = @()
     foreach ($flag in @('control.step-pause', 'control.cycle-pause', 'control.pause',
                         'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release')) {
@@ -517,7 +520,7 @@ function Clear-StaleControlState {
         warnings               = @()
     }
     if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $summary }
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, "Clear stale control state ($Scope)")) { return $summary }
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.operator_deee2e46013a9e37' -Arguments @{ scope = "$Scope" }))) { return $summary }
 
     # control.cycle-restart: only a Startup caller IS the restart, so only
     # Startup consumes it. A PreSpawn caller leaves it for the child cycle.
@@ -606,7 +609,7 @@ function Invoke-YurunaBootRecovery {
         ClearedPauseFlags   = @()
         Warnings            = @()
     }
-    if (-not $PSCmdlet.ShouldProcess('Yuruna runtime state', 'Boot recovery sweep')) {
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_d46434d3b554dbcc'), (Format-YurunaOperatorMessage -Key 'runner.operator_8412fad70c1a7049'))) {
         $summary.CompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         return $summary
     }
@@ -682,12 +685,11 @@ function Invoke-YurunaBootRecovery {
         }
     }
     if ($touched) {
-        Write-Information ("Yuruna boot recovery: archivedCycles={0} clearedPidFiles={1} archivedBreakActive={2} clearedPauseFlags={3} warnings={4}" -f `
-            $summary.ArchivedCycles.Count,
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_052fdf620b9d9d43' -FormatValues ($summary.ArchivedCycles.Count,
             $summary.ClearedPidFiles.Count,
             ($null -ne $summary.ArchivedBreakActive),
             $summary.ClearedPauseFlags.Count,
-            $summary.Warnings.Count) -InformationAction Continue
+            $summary.Warnings.Count) -FormatBindings @{ count = '0'; count2 = '1'; archivedBreakActive = '2'; count3 = '3'; count4 = '4' }) -InformationAction Continue
     }
     return $summary
 }

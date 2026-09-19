@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,11 +44,12 @@ param(
     [switch]$SkipPoolStorage
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = "Stop"
 
 # --- REGION: Platform guard
 if (-not $IsLinux) {
-    Write-Error "Enable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux."
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_8829c3d9ffaef2dd')
     exit 1
 }
 
@@ -112,13 +113,13 @@ function Get-MissingHostPackage {
         default   { 'qemu-system-x86' }
     }
     $required = @(
-        @{ Package = $qemuPkg;                Critical = $true;  Why = 'the QEMU system emulator that actually runs the guests' }
-        @{ Package = 'libvirt-daemon-system'; Critical = $true;  Why = 'the libvirtd/virtlogd services and the libvirt + kvm groups' }
-        @{ Package = 'libvirt-clients';       Critical = $true;  Why = 'virsh, used by every VM lifecycle step' }
-        @{ Package = 'virtinst';              Critical = $true;  Why = 'virt-install, used to build guests' }
-        @{ Package = 'acl';                   Critical = $false; Why = 'setfacl, so libvirt-qemu can traverse $HOME to reach the VM disks' }
-        @{ Package = 'cifs-utils';            Critical = $false; Why = 'the mount.cifs helper the optional networkStorage pool share needs' }
-        @{ Package = 'virt-manager';          Critical = $false; Why = 'the libvirt GUI, to watch a guest a headless step is stuck on' }
+        @{ Package = $qemuPkg;                Critical = $true;  Why = (Format-YurunaOperatorMessage -Key 'host.operator_c981aa2f0a13e26b') }
+        @{ Package = 'libvirt-daemon-system'; Critical = $true;  Why = (Format-YurunaOperatorMessage -Key 'host.operator_77f0eaf6efbc4bf9') }
+        @{ Package = 'libvirt-clients';       Critical = $true;  Why = (Format-YurunaOperatorMessage -Key 'host.operator_4a504bc63a8df63c') }
+        @{ Package = 'virtinst';              Critical = $true;  Why = (Format-YurunaOperatorMessage -Key 'host.operator_92e4fcc8d0e15f7c') }
+        @{ Package = 'acl';                   Critical = $false; Why = (Format-YurunaOperatorMessage -Key 'host.operator_637c4dda4b9191b3') }
+        @{ Package = 'cifs-utils';            Critical = $false; Why = (Format-YurunaOperatorMessage -Key 'host.operator_2d1ab313f776a956') }
+        @{ Package = 'virt-manager';          Critical = $false; Why = (Format-YurunaOperatorMessage -Key 'host.operator_f138be59eb9fb325') }
     )
     return @($required | Where-Object { -not (Test-AptPackageInstalled -Name $_.Package) })
 }
@@ -133,7 +134,7 @@ function Invoke-Step {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Description, [scriptblock]$Action)
     if ($PSCmdlet.ShouldProcess($Description)) {
-        try { & $Action } catch { Write-Warning "$Description failed: $($_.Exception.Message)" }
+        try { & $Action } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_263f53927c61a241' -Arguments @{ description = "$Description"; message = "$($_.Exception.Message)" }) }
     } else {
         Write-Output "WhatIf: $Description"
     }
@@ -210,7 +211,7 @@ function Invoke-HostSudo {
 # -- a second Enable must not capture Enable's own values as the operator's.
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
 $capturePath = Save-HostAutomationState -Platform 'ubuntu.kvm' -WhatIf:$WhatIfPreference
-if ($capturePath) { Write-Output "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
+if ($capturePath) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_03e4abcc5cd53ea9' -Arguments @{ capturePath = "$capturePath" }) }
 
 # --- REGION: Host package prerequisites
 # Establish the ONE fact that explains a whole class of downstream symptoms
@@ -224,7 +225,7 @@ $libvirtReady  = ($missingCrit.Count -eq 0)
 
 if ($missingPkgs.Count -gt 0) {
     Write-Output ''
-    Write-Output 'Missing host packages -- this host either never went through install/ubuntu.kvm.sh, or predates one of these:'
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fb4dd946f32e035c')
     foreach ($p in $missingPkgs) {
         $tag = if ($p.Critical) { 'required' } else { 'optional' }
         Write-Output "  [$tag] $($p.Package) -- $($p.Why)"
@@ -239,7 +240,7 @@ if ($missingPkgs.Count -gt 0) {
     $canPrompt = Test-YurunaCanPrompt
     $installed = $false
     if ($canPrompt -and -not $WhatIfPreference) {
-        $ans = Read-Host "Install them now with apt-get? [y/N]"
+        $ans = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_29aa1547e4e4c25c')
         if ($ans -match '^\s*(y|yes)\s*$') {
             # The one place a sudo password prompt is legitimate: this branch is
             # reached only after a person answered a question at this terminal,
@@ -253,18 +254,18 @@ if ($missingPkgs.Count -gt 0) {
                 $missingPkgs = @(Get-MissingHostPackage)
                 $missingCrit = @($missingPkgs | Where-Object { $_.Critical })
                 $libvirtReady = ($missingCrit.Count -eq 0)
-                if ($missingPkgs.Count -eq 0) { Write-Output 'All host packages are now installed.' }
+                if ($missingPkgs.Count -eq 0) { Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0a3b7c8ba926d7e8') }
             } else {
-                Write-Warning "apt-get install failed (exit $LASTEXITCODE). Run it manually: $aptLine"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_20cc4b8c9d8b0a89' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; aptLine = "$aptLine" })
             }
         }
     }
     if (-not $installed -and $missingPkgs.Count -gt 0) {
-        Write-Output "  Install them with: $aptLine"
-        Write-Output '  (install/ubuntu.kvm.sh installs these plus the rest of the host toolchain.)'
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c6a74dce689da89e' -Arguments @{ aptLine = "$aptLine" })
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ae926188af9d3ca0')
     }
     if (-not $libvirtReady) {
-        Write-Warning 'Skipping the libvirt service, network, group and search-ACL steps: they cannot succeed until the packages above are installed. Re-run this script afterwards.'
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_bf5cb6a52f334520')
     }
 }
 
@@ -293,20 +294,20 @@ if (-not $libvirtReady) {
         $raw = & systemctl is-active $unit 2>$null
         $active = if ($raw) { "$raw".Trim() } else { '' }
         if ($active -ne 'active') {
-            Write-Warning "$unit is not active and root is not reachable without a password. Run 'sudo systemctl enable --now $unit', then re-run this script."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4bda2a4b26710c65' -Arguments @{ unit = "$unit" })
             $Script:Unmet.Add("$unit not running")
         }
     }
 } else {
     Invoke-Step -Description 'Enable + start libvirtd' -Action {
         if (-not (Invoke-HostSudo -Argument @('systemctl', 'enable', '--now', 'libvirtd'))) {
-            Write-Warning "libvirtd could not be enabled; check 'systemctl status libvirtd'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_06933c41d231b3ad')
             $Script:Unmet.Add('libvirtd not enabled')
         }
     }
     Invoke-Step -Description 'Enable + start virtlogd' -Action {
         if (-not (Invoke-HostSudo -Argument @('systemctl', 'enable', '--now', 'virtlogd'))) {
-            Write-Warning "virtlogd could not be enabled; check 'systemctl status virtlogd'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d5046be6d09f1958')
             $Script:Unmet.Add('virtlogd not enabled')
         }
     }
@@ -324,7 +325,7 @@ if (-not $libvirtReady) {
     # net-start above otherwise leaves guests on the default network with no address.
     $netActive = & sudo -n virsh net-list --name 2>$null
     if (-not ($netActive -match '^default$')) {
-        Write-Warning "libvirt 'default' network is not active after net-start/net-autostart; check 'sudo virsh net-list --all'."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_27c4405eda553954')
         $Script:Unmet.Add("libvirt 'default' network not active")
     }
 }
@@ -352,7 +353,7 @@ if (Test-Path -LiteralPath $statusConfigPath) {
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1') -Force
 Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) through the host firewall (ufw)" -Action {
     $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort
-    Write-Output "  status firewall: $($fwResult.Message)"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5bd7d6a7c4fb4e88' -Arguments @{ message = "$($fwResult.Message)" })
 }
 
 # --- REGION: Host clock
@@ -368,9 +369,9 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1') -Forc
 Invoke-Step -Description 'Put the host clock under NTP discipline (timedatectl set-ntp true)' -Action {
     $clockResult = Sync-LinuxHostClock
     if ($clockResult.Succeeded) {
-        Write-Output "  host clock: $($clockResult.Message)"
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f62d769e65f81877' -Arguments @{ message = "$($clockResult.Message)" })
     } else {
-        Write-Warning "host clock not disciplined: $($clockResult.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7add5495ea2b2ef6' -Arguments @{ message = "$($clockResult.Message)" })
     }
 }
 
@@ -409,12 +410,12 @@ if (Test-Path -LiteralPath $cfgPath) {
             $poolCfg = Get-YurunaPoolStorageConfig -Config $poolConfigDoc -WarningAction SilentlyContinue
         }
     } catch {
-        Write-Warning "networkStorage pool mount-point setup: could not read $cfgPath ($($_.Exception.Message)); skipping."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e9c2af0e714f9d69' -Arguments @{ cfgPath = "$cfgPath"; message = "$($_.Exception.Message)" })
     }
     if ($poolCfg -and -not [string]::IsNullOrWhiteSpace($poolCfg.LocalPath)) {
         $mountPoint = $poolCfg.LocalPath
         if (Test-Path -LiteralPath $mountPoint) {
-            Write-Output "networkStorage pool mount point already exists: $mountPoint"
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_4841cd30859f57a0' -Arguments @{ mountPoint = "$mountPoint" })
         } else {
             Invoke-Step -Description "create networkStorage pool mount point $mountPoint (owned by $env:USER)" -Action {
                 # Try unprivileged first (a localPath under $HOME needs no sudo);
@@ -426,7 +427,7 @@ if (Test-Path -LiteralPath $cfgPath) {
                 } catch {
                     $grp = (& id -gn).Trim()
                     if (-not (Invoke-HostSudo -Argument @('install', '-d', '-o', "$env:USER", '-g', $grp, $mountPoint))) {
-                        Write-Warning "Could not create networkStorage pool mount point '$mountPoint'. Create it manually: sudo install -d -o $env:USER -g $grp '$mountPoint'."
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dc167ec9eaab1852' -Arguments @{ mountPoint = "$mountPoint"; uSER = "$env:USER"; grp = "$grp" })
                     }
                 }
             }
@@ -451,13 +452,13 @@ if (-not $libvirtReady) {
     Invoke-Step -Description "setfacl -m u:libvirt-qemu:--x $HOME" -Action {
         & setfacl -m 'u:libvirt-qemu:--x' $HOME
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "setfacl failed on $HOME -- libvirt-qemu may not be able to reach VM disks. Try 'chmod o+x $HOME' as a fallback."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e66e5fac2f0dcb7f' -Arguments @{ hOME = "$HOME" })
         }
     }
 } elseif (-not $haveLibvirtQemu) {
-    Write-Warning "libvirt-qemu user not found -- skipping search-ACL step. (Is libvirt-daemon-system installed?)"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_20e79763dcd1fd23')
 } else {
-    Write-Warning "setfacl not available -- run 'sudo apt-get install acl' so libvirt-qemu can traverse $HOME."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_00bc8834800bb544' -Arguments @{ hOME = "$HOME" })
 }
 
 # --- REGION: GNOME idle / lock / dim
@@ -486,7 +487,7 @@ if ($gsettings) {
         }
     }
 } else {
-    Write-Output "gsettings not present -- headless server, skipping GNOME idle/lock tweaks."
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_21fe3d6e5b9c0ade')
 }
 
 # --- REGION: https://yuruna.link/42d69dfa-0022
@@ -498,7 +499,7 @@ foreach ($grp in @('libvirt','kvm')) {
     # to a group that does not exist, and the operator would chase the wrong fix.
     if (-not $line) {
         if ($libvirtReady) {
-            Write-Warning "group '$grp' does not exist even though the libvirt packages are installed -- check 'sudo dpkg-reconfigure libvirt-daemon-system'."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1c96d636b10e91f1' -Arguments @{ grp = "$grp" })
         } else {
             Write-Verbose "group '$grp' absent; the package that creates it is not installed (reported above)."
         }
@@ -511,9 +512,9 @@ foreach ($grp in @('libvirt','kvm')) {
         # leaves the host broken for no reason.
         Invoke-Step -Description "usermod -aG $grp $env:USER" -Action {
             if (Invoke-HostSudo -Argument @('usermod', '-aG', $grp, "$env:USER")) {
-                Write-Output "  added $env:USER to '$grp'; log out and back in (or 'newgrp $grp') before the next interactive pwsh call."
+                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a5c2b328548a1dd1' -Arguments @{ uSER = "$env:USER"; grp = "$grp" })
             } else {
-                Write-Warning "'sudo usermod -aG $grp $env:USER' failed. Run it manually, then re-run this script."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2c942a7a5d733a' -Arguments @{ grp = "$grp"; uSER = "$env:USER" })
                 $Script:Unmet.Add("$env:USER not in group '$grp'")
             }
         }
@@ -525,7 +526,7 @@ foreach ($grp in @('libvirt','kvm')) {
         # particular environment variable suppresses it for every caller that
         # publishes it, including the ones that print no such reminder of their
         # own -- and virsh then fails for a reason nothing on screen explains.
-        Write-Output "  '$grp' membership is in /etc/group; this shell's group set is stale. Log out and back in (or 'newgrp $grp') before the next interactive pwsh call so virsh / virt-install work without sudo."
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_37d4fa1ce9d640c6' -Arguments @{ grp = "$grp" })
     }
 }
 
@@ -538,19 +539,19 @@ foreach ($grp in @('libvirt','kvm')) {
 # host fingerprint read is included in the -SudoCacheReason banner above.
 # See docs/pool-storage.md.
 if ($SkipPoolStorage) {
-    Write-Output 'Skipping the networkStorage questionnaire (-SkipPoolStorage).'
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d2dcd01d576691e7')
 } elseif (-not $WhatIfPreference) {
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
-Write-Output "Yuruna host configuration applied."
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3f17fafb77a9c9cb')
 
 # --- REGION: Outcome
 # See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
 if ($WhatIfPreference) { exit 0 }
 if ($Script:Unmet.Count -gt 0) {
-    Write-Warning "Host configuration applied, but $($Script:Unmet.Count) condition(s) still need an operator: $($Script:Unmet -join ', ')."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0de8f302c3df063e' -Arguments @{ count = "$($Script:Unmet.Count)"; join = "$($Script:Unmet -join ', ')" })
     exit 2
 }
 exit 0

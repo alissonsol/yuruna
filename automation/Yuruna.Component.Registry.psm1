@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 428308ce-5f89-47bf-9321-39f004dc556d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
 #>
 
 # $PSScriptRoot is automation/, where Yuruna.CredentialProvider.psm1 also lives.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 $script:CredentialProviderModulePath = Join-Path `
     -Path $PSScriptRoot `
     -ChildPath 'Yuruna.CredentialProvider.psm1'
@@ -44,7 +45,7 @@ if (Test-Path -LiteralPath $script:CredentialProviderModulePath) {
     # expose Get-CredentialProvider to the outer scope).
     Import-Module -Name $script:CredentialProviderModulePath -Global -Force
 } else {
-    Write-Warning "Yuruna.Component.Registry: Yuruna.CredentialProvider.psm1 not found at $($script:CredentialProviderModulePath); component-push registry login will be skipped for every registry."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5957b44c1fb2ab86' -Arguments @{ credentialProviderModulePath = "$($script:CredentialProviderModulePath)" })
 }
 
 function Resolve-ComponentRegistryLogin {

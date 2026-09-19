@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,6 +135,7 @@ param(
     [switch]$Force
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -282,29 +283,29 @@ if (-not $WhatIfPreference -and $IsWindows -and -not (Test-IsElevated)) {
 # whose real cause is on the other machine.
 Write-Information ""
 Write-Information "========"
-Write-Information "  Local lab storage -- FOR THIS MACHINE ONLY"
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2aaf7049d95f40bd')
 Write-Information "========"
 Write-Information ""
-Write-Information "This creates pool and stash storage that lives on THIS machine and"
-Write-Information "is served by THIS machine over SMB. It creates local OS accounts,"
-Write-Information "local shares, and local permissions."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8afd8c38c3b8731d')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_023108e4be9f3912')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9476575e311f2d3e')
 Write-Information ""
-Write-Information "It is the right tool ONLY when the storage is local -- a single"
-Write-Information "machine lab, or the machine that hosts the lab's shared services."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6068a5ddfdf6d6e5')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_93c79167e83d00ed')
 Write-Information ""
-Write-Information "For a NAS device or a separate file server, do NOT use this script."
-Write-Information "The accounts and the share permissions have to be created ON THAT"
-Write-Information "DEVICE, by its own administration tool; nothing here can reach them."
-Write-Information "Then set networkStorage.* to point at it and store the passwords in"
-Write-Information "the vault -- see docs/test-config.md."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58b4a3724ed799af')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c5d900851d3d42ed')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_42cc6832338a82ba')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c99546cd0b6770c1')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1e9af1644d738edc')
 Write-Information ""
-Write-Information "It changes this machine: local accounts, an SMB server, shares,"
-Write-Information "hosts-file aliases$(if ($Platform -eq 'windows') { ', two registry values' } else { '' }), and mounted drives."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ed4603d7c4fbd0cd')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b54150c020377016' -Arguments @{ else = "$(if ($Platform -eq 'windows') { ', two registry values' } else { '' })" })
 Write-Information ""
 if ($WhatIfPreference) {
-    Write-Information "-WhatIf: previewing only, so this confirmation is skipped."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5dd7c992e8f01cbf')
 } elseif (-not (Confirm-Step -Question "The storage for this lab is LOCAL to this machine. Continue" -SkipPrompt $Force.IsPresent)) {
-    Write-Information "Canceled. Nothing was changed."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_04265e41f16edc05')
     exit (Get-EntryPointExitCode -Outcome 'Ok')
 }
 
@@ -315,7 +316,7 @@ if ($WhatIfPreference) {
 # spend a sudo authentication; the ShouldProcess messages describe what a real
 # run would do.
 if ($WhatIfPreference) {
-    Write-Information "-WhatIf: skipping the elevation request. A real run needs Administrator (Windows) or sudo (macOS / Ubuntu)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_85f773939904ad98')
 } elseif (-not $IsWindows) {
     if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) {
         throw "sudo not found on PATH. macOS / Ubuntu: sudo is required to create accounts and shares."
@@ -337,10 +338,10 @@ if ($WhatIfPreference) {
         }
         Write-Information ""
         Write-Information "sudo will prompt for YOUR login password ($invokingUser) -- NOT for either storage account."
-        Write-Information "  Elevation is needed to:"
-        Write-Information "    * create the '$PoolAccount' and '$StashAccount' local OS accounts"
-        Write-Information "    * enable the SMB server and publish both shares"
-        Write-Information "    * add the storage server aliases to /etc/hosts"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9c1ed292a1d4be12')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0f3a9b6b8be0ca79' -Arguments @{ poolAccount = "$PoolAccount"; stashAccount = "$StashAccount" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_991c952416c4a937')
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3a2e2fe3744a8041')
         Write-Information ""
         & sudo -v
         if ($LASTEXITCODE -ne 0) {
@@ -362,14 +363,14 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
         $systemDrive = if ($env:SystemDrive) { $env:SystemDrive.TrimEnd('\', '/') } else { 'C:' }
         if ($dataDrive -ieq $systemDrive) {
             Write-Information ""
-            Write-Information "NOTE: this machine has only the system drive ($systemDrive), so the"
-            Write-Information "      suggestion below is on it. A pool share grows without bound"
-            Write-Information "      (pruning retired hosts is manual), and a full system drive takes"
-            Write-Information "      the whole machine down, not just the lab. Prefer another drive."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_74909a37781500c7' -Arguments @{ systemDrive = "$systemDrive" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_212e789fdf43dbc6')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9d6fc2cc7c948ae2')
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d326284fec834a78')
         }
     }
     Write-Information ""
-    $answer = Read-Host "Where should the lab's storage live? [$suggested]"
+    $answer = Read-Host (Format-YurunaOperatorMessage -Key 'runner.operator_78bb755d4fa4c047' -Arguments @{ suggested = "$suggested" })
     $Root = if ([string]::IsNullOrWhiteSpace($answer)) { $suggested } else { $answer.Trim() }
 }
 $Root = $Root.Trim().TrimEnd('\', '/')
@@ -393,11 +394,11 @@ $tiers = @(
 
 Write-Information ""
 Write-Information "Plan:"
-Write-Information "  lab name    : $LabName"
-Write-Information "  storage root: $Root"
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_03e696b55b8c6579' -Arguments @{ labName = "$LabName" })
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5f87f120a40e8157' -Arguments @{ root = "$Root" })
 foreach ($t in $tiers) {
     Write-Information "  $($t.Kind.PadRight(5)) : $($t.FolderPath)"
-    Write-Information "          share '$($t.ShareName)' as '$($t.Account)' -> $($t.NetworkPath) mounted at $($t.LocalPath)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4aad448ce6d21c71' -Arguments @{ shareName = "$($t.ShareName)"; account = "$($t.Account)"; networkPath = "$($t.NetworkPath)"; localPath = "$($t.LocalPath)" })
 }
 Write-Information ""
 
@@ -411,7 +412,7 @@ if (-not (Test-Path -LiteralPath $newLab)) { throw "New-Lab.ps1 not found at $ne
 if ($WhatIfPreference) {
     # New-Lab takes a plain param block, so it has no -WhatIf to forward to.
     # Describing the call is the dry run; invoking it would create the folders.
-    Write-Information "      What if: would run New-Lab.ps1 -Name $LabName -Root $Root -User $PoolAccount,$StashAccount"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_945bb3e94bf9f06d' -Arguments @{ labName = "$LabName"; root = "$Root"; poolAccount = "$PoolAccount"; stashAccount = "$StashAccount" })
 } else {
     & $newLab -Name $LabName -Root $Root -User @($PoolAccount, $StashAccount)
     if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
@@ -452,10 +453,10 @@ Write-LabStorageStep -Number 4 -Title 'SMB shares'
 if ($WhatIfPreference) {
     # The folders are New-Lab's output, which a dry run never produced, so
     # checking their permissions here would only report their absence.
-    foreach ($t in $tiers) { Write-Information "      What if: would grant '$($t.Account)' write access to $($t.FolderPath)." }
+    foreach ($t in $tiers) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_371575ad8c14edb8' -Arguments @{ account = "$($t.Account)"; folderPath = "$($t.FolderPath)" }) }
 } else {
     foreach ($t in $tiers) {
-        Write-Information "      granting '$($t.Account)' write access to $($t.FolderPath)..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe666771e4980c5b' -Arguments @{ account = "$($t.Account)"; folderPath = "$($t.FolderPath)" })
         $null = Set-LocalLabStorageFolderAccess -Tier $t
     }
 }
@@ -471,14 +472,14 @@ foreach ($t in $tiers) {
 # step 8 reads only as a mount that will not mount.
 if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
     foreach ($t in $tiers) {
-        Write-Information "      $($t.Account): proving the credential against the SMB server..."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_50a159114961f9a1' -Arguments @{ account = "$($t.Account)" })
         $verdict = Test-LocalLabStorageSmbAuth -Account $t.Account -Password ([string]$labPassword[$t.Account])
         if ($verdict -eq 'auth') {
             # A refusal HERE is the real thing: the account exists, the password is
             # the vault's, and the sharepoint it authenticates against was
             # published above. That is the only point in the run where deleting
             # the account is justified, so it is the only place that does it.
-            Write-Information "      $($t.Account): refused by the SMB server; rebuilding the account and retrying..."
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c03297466bf30bf9' -Arguments @{ account = "$($t.Account)" })
             if (Reset-LocalLabStorageAccount -Name $t.Account -Password ([string]$labPassword[$t.Account]) `
                     -Description "Yuruna $($t.Kind) storage" -Confirm:$false) {
                 # The folder grant is per-account and the account is a new one.
@@ -487,7 +488,7 @@ if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
             }
         }
         switch ($verdict) {
-            'ok'          { Write-Information "      $($t.Account): authenticates over SMB" }
+            'ok'          { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5833b283f23b8ad6' -Arguments @{ account = "$($t.Account)" }) }
             'auth'        {
                 # Step 3 writes the credential, verifies it, and rebuilds the
                 # account when it cannot -- so reaching here means the account has
@@ -499,7 +500,7 @@ if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
                 throw ("'$($t.Account)' carries a password record but the SMB server still refuses it, so the $($t.Kind) share cannot be mounted. " +
                        "The account and its password are in $labVault.")
             }
-            'unreachable' { Write-Warning "Could not reach the SMB server on this machine to verify '$($t.Account)'. File Sharing may not have finished starting; re-run this script (it is idempotent) before debugging the mount." }
+            'unreachable' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3e112f1a7b94390b' -Arguments @{ account = "$($t.Account)" }) }
             default       { Write-Verbose "SMB auth probe for '$($t.Account)': $verdict" }
         }
     }
@@ -508,14 +509,14 @@ if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
 # --- REGION: Step 5 -- loopback reachability
 Write-LabStorageStep -Number 5 -Title 'Loopback reachability'
 $aliasCount = Set-LocalLabStorageHostAlias -RepoRoot $paths.RepoRoot -Name @($PoolServer, $StashServer)
-Write-Information "      hosts file: $aliasCount alias(es) mapped to the loopback address"
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb395853b2605723' -Arguments @{ aliasCount = "$aliasCount" })
 if ($Platform -eq 'windows') {
     $loopback = Set-LocalLabStorageLoopbackException -Name @($PoolServer, $StashServer)
-    Write-Information "      NTLM loopback exemption: $loopback"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e65ab9d1c0be44ef' -Arguments @{ loopback = "$loopback" })
     $linked = Set-LocalLabStorageLinkedConnection
     Write-Information "      EnableLinkedConnections: $linked"
     if ($linked -eq 'updated') {
-        Write-Warning "EnableLinkedConnections takes effect at the next sign-in. Until then the mapped drives are visible only to elevated processes."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_09f40058a4152d34')
     }
 }
 
@@ -525,15 +526,15 @@ if ($Platform -eq 'windows') {
 # fails against a share that never had that credential.
 Write-LabStorageStep -Number 6 -Title 'Vault'
 if ($WhatIfPreference) {
-    foreach ($t in $tiers) { Write-Information "      What if: would map '$($t.Account)' to vaultKey '$($t.VaultKey)' and store its password." }
+    foreach ($t in $tiers) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_505ccadf1de096e0' -Arguments @{ account = "$($t.Account)"; vaultKey = "$($t.VaultKey)" }) }
 } else {
-    Write-Information "      opening the vault..."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_617cd0cc79f8a3aa')
     Initialize-VaultConnection
     foreach ($t in $tiers) {
         $changed = Set-UserVaultKey -LogicalUser $t.Account -VaultKey $t.VaultKey -Confirm:$false
         Set-Password -Username $t.VaultKey -NewPassword ([string]$labPassword[$t.Account])
         $note = if ($changed) { 'vaultKey mapped' } else { 'vaultKey already correct' }
-        Write-Information "      $($t.Account) -> $($t.VaultKey) ($note), password stored"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7206039f449ff3cc' -Arguments @{ account = "$($t.Account)"; vaultKey = "$($t.VaultKey)"; note = "$note" })
     }
 }
 
@@ -550,7 +551,7 @@ if (-not (Test-Path -LiteralPath $configPath) -and -not $WhatIfPreference) {
     $template = Join-Path $PSScriptRoot '../test.config.yml.template'
     if (Test-Path -LiteralPath $template) {
         Copy-Item -LiteralPath $template -Destination $configPath -Force
-        Write-Information "      created test.config.yml from the template"
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0662379096e5f8cc')
     }
 }
 $wrote = Set-LocalLabStorageConfigValue -ConfigPath $configPath -Tier $tiers -MoveLogs:$MoveLogs
@@ -586,13 +587,13 @@ if ($IsLinux) {
     # stops there having already created the accounts and the shares. Declined,
     # the call returns the exact commands to install the drop-in by hand.
     $sudoers = Set-PoolStorageSudoers -NonInteractive:(-not (Test-YurunaCanPrompt)) -WhatIf:$WhatIfPreference
-    Write-Information "      passwordless sudo for mount: $($sudoers.Action) -- $($sudoers.Message)"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c70a278ff660af73' -Arguments @{ action = "$($sudoers.Action)"; message = "$($sudoers.Message)" })
 }
 $mounted = @{}
 foreach ($t in $tiers) { $mounted[$t.Kind] = $false }
 if ($WhatIfPreference -or -not $wrote) {
     foreach ($t in $tiers) {
-        Write-Information "      What if: would mount $($t.NetworkPath) at $($t.LocalPath) as '$($t.Account)'."
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b641c763e543a0f7' -Arguments @{ networkPath = "$($t.NetworkPath)"; localPath = "$($t.LocalPath)"; account = "$($t.Account)" })
     }
 } else {
     $configDoc  = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
@@ -603,7 +604,7 @@ if ($WhatIfPreference -or -not $wrote) {
     foreach ($t in $tiers) {
         $cfg = $mountConfig[$t.Kind]
         if (-not $cfg) {
-            Write-Warning "The $($t.Kind) tier did not resolve back out of $configPath; skipping its mount."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d86220aef2724166' -Arguments @{ kind = "$($t.Kind)"; configPath = "$configPath" })
             continue
         }
         # Clear what would otherwise serve this mount from the wrong place. Two
@@ -624,8 +625,7 @@ if ($WhatIfPreference -or -not $wrote) {
                 # session still up, the mount below would either fail or -- worse --
                 # succeed against the previous server, and "ready" over one of
                 # those is the false green this whole step exists to prevent.
-                Write-Warning ("Could not unmount $($old.MountPoint) [$($old.Remote)], so the $($t.Kind) tier was left alone: " +
-                    "until it goes, '$($t.Server)' keeps resolving to the server that mount was made against.")
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_7eb620577dbc6b59' -Arguments @{ mountPoint = "$($old.MountPoint)"; remote = "$($old.Remote)"; kind = "$($t.Kind)"; server = "$($t.Server)" }))
                 $blocked = $true
                 break
             }
@@ -644,31 +644,31 @@ $failed = @($tiers | Where-Object { -not $mounted[$_.Kind] })
 Write-Information ""
 Write-Information "========"
 if ($WhatIfPreference) {
-    Write-Information "  -WhatIf: nothing was changed"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3d948aab566ac2da')
 } elseif ($failed.Count -eq 0) {
-    Write-Information "  Local lab storage ready"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_849afde193574fb0')
 } else {
-    Write-Information "  Local lab storage created, but $($failed.Count) share did not mount"
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0c2563432acd6897' -Arguments @{ count = "$($failed.Count)" })
 }
 Write-Information "========"
 Write-Information ""
 Write-Information "Next:"
-Write-Information "  1. Validate:  pwsh test/Test-Config.ps1"
-Write-Information "  2. Finished cycles are archived to the pool share (the paths are set)."
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6b74a80cbd7dbcb7')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a4bcb961c720c665')
 if (-not $MoveLogs) {
-    Write-Information "     To ALSO delete each cycle's local folder once archived, set"
-    Write-Information "     networkStorage.moveLogsToPoolStorage: true in test/test.config.yml"
-    Write-Information "     (or re-run this script with -MoveLogs)."
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e2174bc99a4ce57e')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bce901e7a9cde02e')
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a21c13da46635b03')
 }
-Write-Information "  3. Other machines in this lab mount the SAME shares over the LAN."
-Write-Information "     They need their hosts entries pointing at THIS machine's LAN"
-Write-Information "     address instead of the loopback address, and a copy of"
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_79de44609e5248d4')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8b5c070b4b3e57dc')
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_936654f35dc1384e')
 Write-Information "     $labVault"
 Write-Information ""
 if ($failed.Count -gt 0 -and -not $WhatIfPreference) {
-    Write-Warning "The mount failed for: $(($failed | ForEach-Object { $_.Kind }) -join ', '). See docs/pool-storage.md (Operating & troubleshooting)."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_30db5523f6c10308' -Arguments @{ join = "$(($failed | ForEach-Object { $_.Kind }) -join ', ')" })
     if ($Platform -eq 'windows') {
-        Write-Warning "On Windows an access-denied mount right after this script usually means the NTLM loopback exemption has not taken effect yet -- reboot and re-run."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bcb4366f0c81a203')
     }
     exit (Get-EntryPointExitCode -Outcome 'Failure')
 }

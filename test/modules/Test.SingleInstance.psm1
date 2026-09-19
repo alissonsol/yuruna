@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
     fallback for older pidfiles written before the sidecar landed.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 function Get-RunnerInstanceState {
     <#
     .SYNOPSIS
@@ -154,7 +155,7 @@ function Stop-YurunaProcessTree {
         [int]$GraceMilliseconds = 2000
     )
     if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return }
-    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", 'Stop process tree')) { return }
+    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_ed5c9d2fcb476c82'))) { return }
     try {
         if ($IsWindows) {
             # taskkill /T walks the tree itself; there is no separate TERM.
@@ -198,7 +199,7 @@ function Stop-StaleRunner {
         [int]$WaitForExitMs = 10000,
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
-    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", 'Stop stale runner + clear orphan VMs')) { return }
+    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_fad7deaf725b8e6e'))) { return }
     # The TREE, not the PID. A runner spawns its cycle process, that spawns the
     # inner, and every one of them inherits the terminal (they are started
     # -NoNewWindow). Killing only the runner leaves those children alive, holding
@@ -236,17 +237,17 @@ function Stop-StaleRunner {
     # Surface a runner that outlived the kill: the takeover assumes the PID is gone before it
     # clears orphan VMs, so a survivor means the new cycle may contend with the old one.
     if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
-        Write-Warning "Stop-StaleRunner: PID $ProcessId is still alive after ${WaitForExitMs}ms; the new cycle may contend with the old runner. Investigate a wedged process."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7715a1f636ef1c06' -Arguments @{ processId = "$ProcessId"; waitForExitMs = "${WaitForExitMs}" })
     }
     $cleanup = Join-Path $TestRoot 'Remove-TestVMFiles.ps1'
     if (Test-Path -LiteralPath $cleanup) {
         try {
             & pwsh -NoProfile -File $cleanup -Prefix $CleanupPrefix
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Remove-TestVMFiles.ps1 exited $LASTEXITCODE during single-instance takeover; orphan VMs may remain -- the next cycle could fight them."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_83d11753023f2934' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
             }
         } catch {
-            Write-Warning "Remove-TestVMFiles.ps1 failed during single-instance takeover: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_98db2cfbd3b1f192' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
 }
@@ -284,7 +285,7 @@ function Write-RunnerPidFile {
         [Parameter(Mandatory)][string]$RunnerPidFile,
         [string]$RunnerStartFile
     )
-    if (-not $PSCmdlet.ShouldProcess($RunnerPidFile, 'Write runner pidfile')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($RunnerPidFile, (Format-YurunaOperatorMessage -Key 'runner.operator_afdc01326460cb2c'))) { return $true }
     # Atomic-write contract for the pidfile + StartTime sidecar pair:
     # the reader must never see a pidfile without its sidecar, or it
     # falls back to cmdline regex on a stale identity and may
@@ -334,7 +335,7 @@ function Write-RunnerPidFile {
             $fs.Dispose()
         }
     } catch [System.IO.IOException] {
-        Write-Warning "Write-RunnerPidFile: another runner won the pidfile race ($($_.Exception.Message)). This process should abort or retry."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_56b13207e8b9d8fb' -Arguments @{ message = "$($_.Exception.Message)" })
         if ($startTmp -and (Test-Path -LiteralPath $startTmp)) {
             Remove-Item -LiteralPath $startTmp -Force -ErrorAction SilentlyContinue
         }
@@ -351,4 +352,130 @@ function Write-RunnerPidFile {
     return $true
 }
 
-Export-ModuleMember -Function Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Stop-YurunaProcessTree
+
+function Resolve-YurunaRunnerProcessTarget {
+    <#
+    .SYNOPSIS
+        Pure: given a snapshot process table and a set of verified runner
+        identities, compute which processes are safe to signal, in what
+        order, and which subtrees are excluded and why.
+    .DESCRIPTION
+        Takes no live process query itself -- ProcessTable is a snapshot the
+        caller already captured, so this function is deterministic and
+        testable without spawning or signaling anything. It never touches a
+        real process; it only decides.
+
+        Exclusions are pruned BEFORE their descendants are ever walked: an
+        excluded PID's whole subtree is skipped, so a verified status-server
+        or beacon process is never reached even through a grandchild the
+        caller's own record does not separately know about. Descendants
+        come back in post order -- every process's children appear before
+        it, and a verified root itself appears only after its own subtree
+        -- which is what "signal inner work before outer work" means in
+        practice: the deepest live descendants of a root are always
+        upstream of that root in the returned list.
+
+        Reentrant safe: a PID reachable from two different verified roots
+        (an unusual but possible shape) is expanded and returned only once.
+    .PARAMETER ProcessTable
+        [object[]] snapshot rows, each carrying at least Pid, ParentPid,
+        StartTimeUnixMs; CommandLine/Executable are accepted but not
+        required by this function itself (a caller's own identity checks
+        may already have consumed them before calling this).
+    .PARAMETER VerifiedRoot
+        [object[]] identities this caller has already confirmed by exact
+        PID plus start time (or, for a bare-argv interactive outer, a
+        registered-ownership record it trusts some other way): each row
+        carries Pid, an optional StartTimeUnixMs (omit only when the
+        caller has no start-time evidence at all and accepts PID-only
+        risk), and a free-form Role label used only in Reasons.
+    .PARAMETER ExcludedPid
+        [int[]] PIDs verified as status-server/beacon/bootstrap processes.
+        Each one's entire subtree is pruned before expansion.
+    .OUTPUTS
+        [pscustomobject] @{ Roots; Descendants; Exclusions; Reasons }.
+        Roots is the [int[]] PIDs actually accepted as verified roots (a
+        supplied root that failed its own identity check is not in here).
+        Descendants is the full pruned, post-ordered signal list -- the
+        actual ProcessTable rows, not just PIDs -- including each accepted
+        root at the end of its own subtree. Reasons is a [string[]] audit
+        trail: one entry per root that was rejected and one per subtree
+        that was pruned as excluded.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$ProcessTable,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$VerifiedRoot,
+        [int[]]$ExcludedPid = @()
+    )
+
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    $byPid = @{}
+    foreach ($row in $ProcessTable) { $byPid[[int]$row.Pid] = $row }
+    $childrenOf = @{}
+    foreach ($row in $ProcessTable) {
+        $parentPid = [int]$row.ParentPid
+        if (-not $childrenOf.ContainsKey($parentPid)) {
+            $childrenOf[$parentPid] = [System.Collections.Generic.List[object]]::new()
+        }
+        $childrenOf[$parentPid].Add($row)
+    }
+
+    $excludedSet = [System.Collections.Generic.HashSet[int]]::new([int[]]$ExcludedPid)
+    $acceptedRoots = [System.Collections.Generic.List[int]]::new()
+    $descendants   = [System.Collections.Generic.List[object]]::new()
+    $visited       = [System.Collections.Generic.HashSet[int]]::new()
+
+    function Test-YurunaRunnerIdentityMatch {
+        param($Row, $Verified)
+        if ([int]$Row.Pid -ne [int]$Verified.Pid) { return $false }
+        if ($null -eq $Verified.StartTimeUnixMs) { return $true }
+        return ([Math]::Abs([int64]$Row.StartTimeUnixMs - [int64]$Verified.StartTimeUnixMs) -le 2000)
+    }
+
+    function Expand-YurunaRunnerSubtree {
+        param([int]$TargetPid)
+        if ($visited.Contains($TargetPid)) { return }
+        [void]$visited.Add($TargetPid)
+        if ($excludedSet.Contains($TargetPid)) {
+            $reasons.Add("pid $TargetPid excluded: verified status-server/beacon/bootstrap process; subtree pruned before expansion")
+            return
+        }
+        if ($childrenOf.ContainsKey($TargetPid)) {
+            foreach ($child in $childrenOf[$TargetPid]) {
+                Expand-YurunaRunnerSubtree -TargetPid ([int]$child.Pid)
+            }
+        }
+        if ($byPid.ContainsKey($TargetPid)) {
+            $descendants.Add($byPid[$TargetPid])
+        }
+    }
+
+    foreach ($verified in $VerifiedRoot) {
+        $row = $byPid[[int]$verified.Pid]
+        if (-not $row) {
+            $reasons.Add("pid $($verified.Pid) ($($verified.Role)): not present in the process table; nothing to signal")
+            continue
+        }
+        if (-not (Test-YurunaRunnerIdentityMatch -Row $row -Verified $verified)) {
+            $reasons.Add("pid $($verified.Pid) ($($verified.Role)): a different process now holds this PID (start-time mismatch); refusing to treat it as the verified root")
+            continue
+        }
+        if ($excludedSet.Contains([int]$verified.Pid)) {
+            $reasons.Add("pid $($verified.Pid) ($($verified.Role)): explicitly excluded; not accepted as a root")
+            continue
+        }
+        [void]$acceptedRoots.Add([int]$verified.Pid)
+        Expand-YurunaRunnerSubtree -TargetPid ([int]$verified.Pid)
+    }
+
+    return [pscustomobject]@{
+        Roots       = $acceptedRoots.ToArray()
+        Descendants = $descendants.ToArray()
+        Exclusions  = @($excludedSet)
+        Reasons     = $reasons.ToArray()
+    }
+}
+
+Export-ModuleMember -Function Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Stop-YurunaProcessTree, Resolve-YurunaRunnerProcessTarget

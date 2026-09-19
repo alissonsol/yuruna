@@ -1,0 +1,1203 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "download",
+  "locale": "en-US",
+  "messages": {
+    "download.diagnostics_yuruna_download_agent": {
+      "message": "Diagnostics — Yuruna Download Agent",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.yuruna_download_agent": {
+      "message": "Yuruna Download Agent",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.menu": {
+      "message": "Menu",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.pages": {
+      "message": "Pages",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.download_pool": {
+      "message": "Download pool",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.diagnostics": {
+      "message": "Diagnostics",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.guide": {
+      "message": "Guide",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.six_character_lab_token_from_the_dashboard": {
+      "message": "Six-character lab token from the dashboard",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.lab_token": {
+      "message": "Lab token",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.unlock_actions": {
+      "message": "Unlock actions",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.windows_11_family": {
+      "message": "Windows 11 family",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.interpreter": {
+      "message": "Interpreter",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.fido_script": {
+      "message": "Fido script",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.guest": {
+      "message": "Guest",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.proxy": {
+      "message": "Proxy",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.pool": {
+      "message": "Pool",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.refresh_view": {
+      "message": "Refresh view",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.resolver_test": {
+      "message": "Resolver test",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u": {
+      "message": "Runs the vendored Fido once with the exact parameters a resolve uses.\n      It mints a signed URL and downloads nothing, but each run spends a\n      Microsoft session (their servers rate-ban chatty addresses), so use it to\n      diagnose, not to poll. A successful test clears a remembered failure on\n      the spot; a failed one re-arms it.",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.test_amd64_resolve": {
+      "message": "Test amd64 resolve",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.test_arm64_resolve": {
+      "message": "Test arm64 resolve",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.running_a_resolve_can_take_up_to_3_minutes": {
+      "message": "Running — a resolve can take up to 3 minutes…",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.last_resolver_run": {
+      "message": "Last resolver run",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.recent_image_errors": {
+      "message": "Recent image errors",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.failed": {
+      "message": "failed",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.recent_errors": {
+      "message": "Recent errors",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.entry": {
+      "message": "Entry",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.error": {
+      "message": "Error",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.when": {
+      "message": "When",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.no_remembered_refresh_errors": {
+      "message": "No remembered refresh errors.",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.ips": {
+      "message": "IPs:",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.refresh": {
+      "message": "Refresh",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.pause": {
+      "message": "Pause",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.download_pool_yuruna_download_agent": {
+      "message": "Download pool — Yuruna Download Agent",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.lease": {
+      "message": "Lease",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.scanner": {
+      "message": "Scanner",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.auto_seed": {
+      "message": "Auto-seed",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.best_effort": {
+      "message": "Best effort",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.pool_bytes": {
+      "message": "Pool bytes",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.row_number": {
+      "message": "Row number",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.actions": {
+      "message": "Actions",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o": {
+      "message": "No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.",
+      "description": "Visible text in test/extension/download-agent-service/server/internal/httpsrv/web/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "download.no_resolver_run_recorded_since_the_daemon_started_a_scan_a_host_r": {
+      "message": "No resolver run recorded since the daemon started. A scan, a host request, or the test button above will record one.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.command_line": {
+      "message": "Command line",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.argv_value1": {
+      "message": "argv: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.stdout": {
+      "message": "stdout",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.standard_output": {
+      "message": "Standard output",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.stderr": {
+      "message": "stderr",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.standard_error": {
+      "message": "Standard error",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.as_of_value1": {
+      "message": "As of {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.this_folder": {
+      "message": "this folder",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.enter_the_dashboard_lab_token_to_enable_actions": {
+      "message": "Enter the dashboard Lab token to enable actions",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.actions_need_the_internal_authentication_key_as_a_bearer": {
+      "message": "Actions need the internal authentication key as a bearer",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.no_aggregator_url_or_internal_authentication_key_configured_on_th": {
+      "message": "No aggregator URL or internal authentication key configured on the daemon",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.no_resolver": {
+      "message": "no resolver",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.previous_value1": {
+      "message": "previous {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.no_previous": {
+      "message": "no previous",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.totals": {
+      "message": "Totals",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.value1_on_the_share": {
+      "message": "{value1} on the share",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.v": {
+      "message": "v",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.as_of_value1_273588ee": {
+      "message": "as of {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.diagnostics_load_failed_value1": {
+      "message": "Diagnostics load failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.available": {
+      "message": "available",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.unavailable": {
+      "message": "unavailable",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.missing": {
+      "message": "missing",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.found": {
+      "message": "found",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.configured": {
+      "message": "configured",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.none": {
+      "message": "none",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.byte_downloads_go_direct": {
+      "message": "Byte downloads go direct.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.unlock_actions_first_enter_the_lab_token_above": {
+      "message": "Unlock actions first -- enter the Lab token above.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.resolver_test_refused_value1": {
+      "message": "Resolver test refused: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.resolve_succeeded_the_family_is_usable_on_this_agent": {
+      "message": "Resolve succeeded -- the family is usable on this agent.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.resolve_failed_the_capture_below_says_why": {
+      "message": "Resolve failed -- the capture below says why.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.resolver_test_failed_to_run_value1": {
+      "message": "Resolver test failed to run: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.read_only": {
+      "message": "read-only",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.writer": {
+      "message": "writer",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.held_by_value1": {
+      "message": "held by {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.every_value1": {
+      "message": "every {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.last_value1": {
+      "message": "last {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.last_pass_failed_value1": {
+      "message": "last pass failed: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.skipped_value1": {
+      "message": "skipped: {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.value1_started_value2": {
+      "message": "{value1} - started {value2}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.on": {
+      "message": "on",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.off": {
+      "message": "off",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.value1_of_value2_available": {
+      "message": "{value1} of {value2} available",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.expires_in_value1": {
+      "message": "expires in {value1}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.expired_value1_ago": {
+      "message": "expired {value1} ago",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.this_page": {
+      "message": "this page",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.value1_started": {
+      "message": "{value1} started.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.value1_failed_for_value2_value3": {
+      "message": "{value1} failed for {value2}: {value3}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.value1_failed_value2": {
+      "message": "{value1} failed: {value2}",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.force_refresh": {
+      "message": "Force refresh",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.delete": {
+      "message": "Delete",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.prune_previous": {
+      "message": "Prune previous",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.the_pool_share_is_not_available_the_agent_still_answers_metadata_": {
+      "message": "The pool share is not available. The agent still answers metadata, but nothing can be downloaded or served until it is mounted.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.delete_every_generation_of_value1_value2_value3_value4_the_next_h": {
+      "message": "Delete every generation of {value1} ({value2}, {value3}, {value4})?\n\nThe next host request or seed pass re-downloads it from origin. Hosts keep their local copies.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.discard_the_previous_generations_of_value1_value2_value3_value4_t": {
+      "message": "Discard the previous generations of {value1} ({value2}, {value3}, {value4})?\n\nThe current generation is kept. The discarded ones are not recoverable.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value4": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "message": "The 6-character code on the Yuruna hosts dashboard's Lab token tile; upper or lower case both work. Needed only for the resolver test below -- everything else on this page is read-only.",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.no_aggregator_url_and_no_internal_authentication_key_are_configur": {
+      "message": "No aggregator URL and no internal authentication key are configured, so the resolver test is disabled. Set {command1} or {command2} on the daemon to enable it.",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "--aggregator-url"
+        },
+        "command2": {
+          "type": "token",
+          "trust": "internal",
+          "example": "--auth-token-file"
+        }
+      }
+    },
+    "download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t": {
+      "message": "The last remembered refresh failure per pool entry, newest first. These are the errors behind a failed badge on the pool page.",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.loaded": {
+      "message": "Loaded:",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2": {
+      "message": "The 6-character code on the Yuruna hosts dashboard's Lab token tile; upper or lower case both work. The pool aggregator checks it, and it rotates, so a code noted down last week will not open anything.",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e": {
+      "message": "No aggregator URL and no internal authentication key are configured, so Force refresh, Delete and Prune are disabled. Set {command1} (which lets the dashboard's Lab token unlock them) or {command2} on the daemon to enable them.",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command1": {
+          "type": "token",
+          "trust": "internal",
+          "example": "--aggregator-url"
+        },
+        "command2": {
+          "type": "token",
+          "trust": "internal",
+          "example": "--auth-token-file"
+        }
+      }
+    },
+    "download.state": {
+      "message": "State",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.image": {
+      "message": "Image",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.artifact": {
+      "message": "Artifact",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.size_current_previous": {
+      "message": "Size (current / previous)",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.verified": {
+      "message": "Verified",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.checksum": {
+      "message": "Checksum",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.source": {
+      "message": "Source",
+      "description": "Complete paragraph or standalone label in test/extension/download-agent-service/server/internal/httpsrv/web/index.html. Command placeholders preserve literal machine syntax.",
+      "lifecycle": "active"
+    },
+    "download.state_fresh": {
+      "message": "fresh",
+      "description": "Display label for the stable fresh state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_stale": {
+      "message": "stale",
+      "description": "Display label for the stable stale state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_downloading": {
+      "message": "downloading",
+      "description": "Display label for the stable downloading state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_failed": {
+      "message": "failed",
+      "description": "Display label for the stable failed state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_absent": {
+      "message": "absent",
+      "description": "Display label for the stable absent state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_deleting": {
+      "message": "deleting",
+      "description": "Display label for the stable deleting state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_ready": {
+      "message": "ready",
+      "description": "Display label for the stable ready state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_unsupported": {
+      "message": "unsupported",
+      "description": "Display label for the stable unsupported state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_unavailable": {
+      "message": "unavailable",
+      "description": "Display label for the stable unavailable state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_resolving": {
+      "message": "resolving",
+      "description": "Display label for the stable resolving state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_probing": {
+      "message": "probing",
+      "description": "Display label for the stable probing state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_verifying": {
+      "message": "verifying",
+      "description": "Display label for the stable verifying state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_promoting": {
+      "message": "promoting",
+      "description": "Display label for the stable promoting state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_adopting": {
+      "message": "adopting",
+      "description": "Display label for the stable adopting state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_working": {
+      "message": "working",
+      "description": "Display label for the stable working state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_match": {
+      "message": "match",
+      "description": "Display label for the stable match state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_mismatch": {
+      "message": "mismatch",
+      "description": "Display label for the stable mismatch state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.state_missing": {
+      "message": "missing",
+      "description": "Display label for the stable missing state. The underlying protocol token and CSS class never change.",
+      "lifecycle": "active"
+    },
+    "download.entry_count": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} entry",
+          "other": "{count} entries"
+        }
+      }
+    },
+    "download.entry_bytes": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "bytes": {
+          "type": "text",
+          "trust": "internal",
+          "example": "example"
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} entry - {bytes} current",
+          "other": "{count} entries - {bytes} current"
+        }
+      }
+    },
+    "download.interpreter_and_script_present_resolves_are_attempted": {
+      "message": "Interpreter and script present; resolves are attempted.",
+      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "download.api_invalid_json_body_detail": {
+      "message": "invalid JSON body: {detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "download.api_arch_query_parameter_is_required_amd64_or_arm64": {
+      "message": "arch query parameter is required (amd64 or arm64)",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "download.api_detail": {
+      "message": "{detail}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "download.api_invalid_generation_name": {
+      "message": "invalid generation name",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "download.api_generation_not_found": {
+      "message": "generation not found",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "download.api_no_image_store_configured": {
+      "message": "no image store configured",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "download.api_refresh_refused_reason": {
+      "message": "refresh refused: {reason}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "download.api_pool_refresh_refused_reason": {
+      "message": "pool refresh refused: {reason}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "download.manual_resolve": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Fido failed. Visit the download page and select: {selections}.",
+      "placeholders": {
+        "selections": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.manual_copy": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Copy the downloaded file into the destination folder."
+    },
+    "download.next_scan": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Next scan: {time}.",
+      "placeholders": {
+        "time": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.freshness_window": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Freshness: {freshness}; prefetch lead: {lead}.",
+      "placeholders": {
+        "freshness": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "lead": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.deferred_count": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Deferred: {count}.",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "download.hosts_without_status": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host without status.",
+          "other": "{count} hosts without status."
+        }
+      },
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "download.resolved_variant": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "{identity} (resolved {variant})",
+      "placeholders": {
+        "identity": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "variant": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.best_effort_identity": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "{identity} - best effort",
+      "placeholders": {
+        "identity": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.attempt_arch": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "arch {value}",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.attempt_exit": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "exit {value}",
+      "placeholders": {
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.minted_url": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Minted: {url}",
+      "placeholders": {
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.retries_after": {
+      "description": "Complete operator-facing browser instruction or status line. Named arguments are data; links and protocol identifiers are kept separate from translated prose.",
+      "lifecycle": "active",
+      "message": "Retries after {time}.",
+      "placeholders": {
+        "time": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.refresh_origin_probe": {
+      "message": "origin probe {url}: {detail}",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.refresh_size_mismatch": {
+      "message": "origin {url}: HEAD reported {expected} byte(s), the download produced {actual}",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "expected": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "actual": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "download.refresh_proxy_retry": {
+      "message": "proxy stream failed ({proxy}); direct retry: {direct}",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "proxy": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "direct": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@ param(
 # host/modules/Yuruna.VMCleanup.psm1 so a future tweak to the routing
 # contract (or a new piece of cleanup state) lands in one place rather
 # than three.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
@@ -56,13 +57,13 @@ Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 # --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
-Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_f3adc201e5fa38f4')
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
-Write-CleanupMessage "  This script deletes UTM VM bundles (.utm) from ~/yuruna/guest.nosync"
-Write-CleanupMessage "  that are NOT registered in UTM."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_2c990e0b39de5483')
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d36c28967dd8572f')
 Write-CleanupMessage ""
-Write-CleanupMessage "  THIS CANNOT BE UNDONE."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d506f23d4fcc7fa4')
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
@@ -77,22 +78,22 @@ $baseImageNames = $nameInfo.BaseImageNames
 
 # --- REGION: Check prerequisites
 if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
-    Write-Error "utmctl not found. Ensure UTM is installed and utmctl is in your PATH."
-    Write-Error "UTM.app ships utmctl at: /Applications/UTM.app/Contents/MacOS/utmctl"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6c671ec7d3b6b0d2')
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1a34f423edf48db4')
     exit 1
 }
 
 # --- REGION: Scan for VM artifacts
 $scanPath = "$HOME/yuruna/guest.nosync"
 if (-not (Test-Path $scanPath)) {
-    Write-CleanupMessage "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_a2880f954215ada2' -Arguments @{ scanPath = "$scanPath" })
     exit 0
 }
 
 # --- REGION: Enumerate registered VMs
 $utmOutput = & utmctl list 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to query UTM VMs. Is UTM running? Output: $utmOutput"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6d45ba53c1de42dd' -Arguments @{ utmOutput = "$utmOutput" })
     exit 1
 }
 
@@ -109,18 +110,7 @@ if ($LASTEXITCODE -ne 0) {
 # and no OSStatus value has "believe the empty list" as its right reading.
 $utmText = ($utmOutput | ForEach-Object { "$_" }) -join "`n"
 if ($utmText -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
-    Write-Error @"
-utmctl could not reach UTM:
-$utmText
-
-Refusing to proceed -- a utmctl that cannot ask UTM would mis-classify
-every registered VM as orphaned and -Force would delete the bundles.
-Run from a Terminal/iTerm session (NOT SSH), after UTM.app is launched
-and a user is logged in graphically. If prompted, grant pwsh access in
-System Settings -> Privacy & Security -> Automation -> pwsh -> UTM.
-If UTM is up and this persists, the request is timing out rather than
-being denied -- retry once UTM.app is responsive.
-"@
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2bb96dc39812d94e' -Arguments @{ utmText = "$utmText" })
     exit 1
 }
 
@@ -162,7 +152,7 @@ function Get-UTMBundleUUID {
     return $null
 }
 
-Write-CleanupMessage "UTM registered VMs: $($registeredVMs.Count)"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_2a896884b1a21323' -Arguments @{ count = "$($registeredVMs.Count)" })
 Write-CleanupMessage ""
 
 $utmBundles = Get-ChildItem -Path $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
@@ -174,7 +164,7 @@ foreach ($bundle in $utmBundles) {
 
 # --- REGION: List registered VMs and their associated files
 if ($registeredVMs.Count -gt 0) {
-    Write-CleanupMessage "Currently registered VMs and their associated bundle files:"
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_23aa4a8fe6d65a18')
     Write-CleanupMessage ""
 }
 
@@ -190,7 +180,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
             Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
         }
     } else {
-        Write-CleanupMessage "    (no bundle found in ~/yuruna/guest.nosync)"
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_a2099ea8e59df16f')
     }
     Write-CleanupMessage ""
 }
@@ -234,24 +224,24 @@ foreach ($vmName in $bundleMap.Keys) {
 
 # --- REGION: List protected base images
 if ($protectedItems.Count -gt 0) {
-    Write-CleanupMessage "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_fe45a4bdfe18d51e')
     Write-CleanupMessage ""
     foreach ($item in $protectedItems) {
         $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
         Write-CleanupMessage "  $($item.Path)  ($sizeStr)"
         $guestName = ($item.Name -replace "^$([regex]::Escape($hostFolder))\.", '')
-        Write-CleanupMessage "    Reason: base image for $($guestName). Update by rerunning Get-Image.ps1 in $($guestName)/"
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_a601ce2317e589b6' -Arguments @{ guestName = "$($guestName)" })
     }
     Write-CleanupMessage ""
 }
 
 # --- REGION: Delete orphaned VM artifacts
 if ($orphanedItems.Count -eq 0) {
-    Write-CleanupMessage "No orphaned VM bundles found. Nothing to clean up."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_b912b4ce68796c85')
     exit 0
 }
 
-Write-CleanupMessage "The following .utm bundles are NOT associated with any registered UTM VM:"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_17be5c98af6eef11')
 Write-CleanupMessage ""
 $totalSize = 0
 foreach ($item in $orphanedItems) {
@@ -265,15 +255,15 @@ foreach ($item in $orphanedItems) {
     }
 }
 Write-CleanupMessage ""
-Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3e2337ab67132732' -FormatValues (($totalSize / 1GB)) -FormatBindings @{ gB = '0:N2' })
 Write-CleanupMessage ""
 
 if ($Force) {
-    Write-CleanupMessage "Force mode enabled -- skipping confirmation."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_7fe1c2acfba18375')
 } else {
-    $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
+    $confirmation = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_67b2df91dc3bcc59')
     if ($confirmation -ne "YES") {
-        Write-CleanupMessage "Operation canceled. No files were deleted."
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_ac15f0cb601d9a5f')
         exit 0
     }
 }
@@ -302,14 +292,14 @@ foreach ($item in $orphanedItems) {
         $null = & utmctl status $probeTarget 2>&1
         if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
         if ($stillRegistered) {
-            Write-Warning "  Skipped: $($item.Path) -- VM still registered in UTM (probe '$probeTarget'). Remove it from UTM first."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0f6134c653d7783e' -Arguments @{ path = "$($item.Path)"; probeTarget = "$probeTarget" })
             $errors++
             continue
         }
         Remove-Item -Path $item.Path -Recurse -Force
         Write-CleanupMessage "  Deleted: $($item.Path)"
     } catch {
-        Write-Warning "  Failed to delete: $($item.Path) - $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_33915575638287d2' -Arguments @{ path = "$($item.Path)"; value = "$_" })
         $errors++
     }
 }
@@ -317,7 +307,7 @@ foreach ($item in $orphanedItems) {
 # --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-CleanupMessage "Cleanup complete. All orphaned bundles deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_048665fc498f2dc3')
 } else {
-    Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }

@@ -16,31 +16,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Diagnostics &mdash; Yuruna Download Agent</title>
+  <title data-i18n="download.diagnostics_yuruna_download_agent">Diagnostics &mdash; Yuruna Download Agent</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Download Agent</a></span>
+      <span class="name"><a href="/" data-i18n="download.yuruna_download_agent">Yuruna Download Agent</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="download.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Download pool</a>
-        <a href="/diagnostics" aria-current="page">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4268e4cb" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="download.pages">
+        <a href="/" data-i18n="download.download_pool">Download pool</a>
+        <a href="/diagnostics" aria-current="page" data-i18n="download.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4268e4cb" target="_blank" rel="noopener" data-i18n="download.guide">Guide</a>
       </nav>
     </div>
   </header>
 
   <main>
-    <h1>Diagnostics</h1>
+    <h1 data-i18n="download.diagnostics">Diagnostics</h1>
 
     <!-- Same lab-token prompt as the pool page: reads below render regardless,
          the resolver test is the one action that needs an unlocked session. -->
@@ -48,40 +48,32 @@
       <form id="login-form" class="row">
         <input id="lab-token" type="text" maxlength="6" size="8"
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
-        <button type="submit" class="primary">Unlock actions</button>
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard" data-i18n-aria-label="download.six_character_lab_token_from_the_dashboard" data-i18n-placeholder="download.lab_token">
+        <button type="submit" class="primary" data-i18n="download.unlock_actions">Unlock actions</button>
         <span id="login-error" role="alert" class="muted"></span>
       </form>
-      <p class="muted">
-        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
-        tile; upper or lower case both work. Needed only for the resolver test
-        below -- everything else on this page is read-only.
-      </p>
+      <p class="muted" data-i18n="download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti">The 6-character code on the Yuruna hosts dashboard&#x27;s Lab token tile; upper or lower case both work. Needed only for the resolver test below -- everything else on this page is read-only.</p>
     </section>
-    <p id="gate-unconfigured" class="muted" hidden>
-      No aggregator URL and no internal authentication key are configured, so the resolver
-      test is disabled. Set <code>--aggregator-url</code> or
-      <code>--auth-token-file</code> on the daemon to enable it.
-    </p>
+    <p id="gate-unconfigured" class="muted" hidden data-i18n="download.no_aggregator_url_and_no_internal_authentication_key_are_configur" data-i18n-args="{&quot;command1&quot;: &quot;--aggregator-url&quot;, &quot;command2&quot;: &quot;--auth-token-file&quot;}">No aggregator URL and no internal authentication key are configured, so the resolver test is disabled. Set --aggregator-url or --auth-token-file on the daemon to enable it.</p>
 
     <div id="notice" role="alert" class="notice"></div>
 
     <section class="cards" id="diag-cards">
-      <div class="card"><span class="card-label">Windows 11 family</span><span class="card-value" id="dg-family">&mdash;</span><span class="card-sub" id="dg-family-sub"></span></div>
-      <div class="card"><span class="card-label">Interpreter</span><span class="card-value" id="dg-pwsh">&mdash;</span><span class="card-sub" id="dg-pwsh-sub"></span></div>
-      <div class="card"><span class="card-label">Fido script</span><span class="card-value" id="dg-script">&mdash;</span><span class="card-sub" id="dg-script-sub"></span></div>
-      <div class="card"><span class="card-label">Guest</span><span class="card-value" id="dg-os">&mdash;</span><span class="card-sub" id="dg-os-sub"></span></div>
-      <div class="card"><span class="card-label">Proxy</span><span class="card-value" id="dg-proxy">&mdash;</span><span class="card-sub" id="dg-proxy-sub"></span></div>
-      <div class="card"><span class="card-label">Pool</span><span class="card-value" id="dg-pool">&mdash;</span><span class="card-sub" id="dg-pool-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.windows_11_family">Windows 11 family</span><span class="card-value" id="dg-family">&mdash;</span><span class="card-sub" id="dg-family-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.interpreter">Interpreter</span><span class="card-value" id="dg-pwsh">&mdash;</span><span class="card-sub" id="dg-pwsh-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.fido_script">Fido script</span><span class="card-value" id="dg-script">&mdash;</span><span class="card-sub" id="dg-script-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.guest">Guest</span><span class="card-value" id="dg-os">&mdash;</span><span class="card-sub" id="dg-os-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.proxy">Proxy</span><span class="card-value" id="dg-proxy">&mdash;</span><span class="card-sub" id="dg-proxy-sub"></span></div>
+      <div class="card"><span class="card-label" data-i18n="download.pool">Pool</span><span class="card-value" id="dg-pool">&mdash;</span><span class="card-sub" id="dg-pool-sub"></span></div>
     </section>
 
     <div class="row">
-      <button id="refresh-view">Refresh view</button>
+      <button id="refresh-view" data-i18n="download.refresh_view">Refresh view</button>
       <span id="as-of" role="status" class="muted"></span>
     </div>
 
-    <h2>Resolver test</h2>
-    <p class="muted">
+    <h2 data-i18n="download.resolver_test">Resolver test</h2>
+    <p class="muted" data-i18n="download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u">
       Runs the vendored Fido once with the exact parameters a resolve uses.
       It mints a signed URL and downloads nothing, but each run spends a
       Microsoft session (their servers rate-ban chatty addresses), so use it to
@@ -89,33 +81,30 @@
       the spot; a failed one re-arms it.
     </p>
     <div class="row">
-      <button id="test-amd64" class="primary">Test amd64 resolve</button>
-      <button id="test-arm64" class="primary">Test arm64 resolve</button>
-      <span id="test-running" role="status" class="muted" hidden>Running &mdash; a resolve can take up to 3 minutes&hellip;</span>
+      <button id="test-amd64" class="primary" data-i18n="download.test_amd64_resolve">Test amd64 resolve</button>
+      <button id="test-arm64" class="primary" data-i18n="download.test_arm64_resolve">Test arm64 resolve</button>
+      <span id="test-running" role="status" class="muted" hidden data-i18n="download.running_a_resolve_can_take_up_to_3_minutes">Running &mdash; a resolve can take up to 3 minutes&hellip;</span>
     </div>
     <div id="test-result" role="status"></div>
 
-    <h2>Last resolver run</h2>
+    <h2 data-i18n="download.last_resolver_run">Last resolver run</h2>
     <div id="attempt"></div>
 
-    <h2>Recent image errors</h2>
-    <p class="muted">
-      The last remembered refresh failure per pool entry, newest first. These
-      are the errors behind a <em>failed</em> badge on the pool page.
-    </p>
-    <div class="table-wrap" tabindex="0" role="region" aria-label="Recent errors">
+    <h2 data-i18n="download.recent_image_errors">Recent image errors</h2>
+    <p class="muted" data-i18n="download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t">The last remembered refresh failure per pool entry, newest first. These are the errors behind a failed badge on the pool page.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Recent errors" data-i18n-aria-label="download.recent_errors">
       <table>
-      <thead><tr><th>Entry</th><th>Error</th><th>When</th></tr></thead>
+      <thead><tr><th data-i18n="download.entry">Entry</th><th data-i18n="download.error">Error</th><th data-i18n="download.when">When</th></tr></thead>
       <tbody id="error-rows"></tbody>
     </table>
     </div>
-    <p id="no-errors" role="status" class="muted" hidden>No remembered refresh errors.</p>
+    <p id="no-errors" role="status" class="muted" hidden data-i18n="download.no_remembered_refresh_errors">No remembered refresh errors.</p>
   </main>
 
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="download.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="download.loaded">Loaded:</span> <span id="last-loaded">--</span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="download.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="download.pause">Pause</button></span>
   </footer>
 
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)

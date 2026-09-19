@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423b72a7-afb9-44a7-8fef-2acb7cbf69b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,11 +62,12 @@
 # ubuntu.kvm: the caching-proxy port map (Add-PortMap / Remove-PortMap) writes
 # and removes /etc/systemd/system/yuruna-cacheproxy-p<port>.{socket,service} and
 # reloads systemd. That is the whole per-cycle elevation surface on KVM.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ElevationManifest = @{
     'host.ubuntu.kvm' = @(
-        @{ Command = '/usr/bin/systemctl'; Why = 'enable/disable/stop the yuruna-cacheproxy forwarder units and daemon-reload' }
-        @{ Command = '/usr/bin/tee';       Why = 'write the yuruna-cacheproxy unit files under /etc/systemd/system' }
-        @{ Command = '/usr/bin/rm';        Why = 'remove those unit files when the cache moves or goes external' }
+        @{ Command = '/usr/bin/systemctl'; Why = (Format-YurunaOperatorMessage -Key 'runner.operator_bd88240ec3b1cd35') }
+        @{ Command = '/usr/bin/tee';       Why = (Format-YurunaOperatorMessage -Key 'runner.operator_604d9f0496a9b12e') }
+        @{ Command = '/usr/bin/rm';        Why = (Format-YurunaOperatorMessage -Key 'runner.operator_14e76f2e18dad575') }
     )
     # macOS binds privileged port 80 for the CA-cert page during a
     # caching-proxy bring-up, which is not part of a normal cycle; the per-cycle
@@ -236,32 +237,32 @@ function Install-RunnerSudoers {
         [Parameter()][string]$User
     )
     if (-not $IsLinux) {
-        return @{ Action = 'unsupported'; Message = 'the runner sudoers drop-in applies to Linux hosts only.'; Spec = $null }
+        return @{ Action = 'unsupported'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3a19699a3495e5dd'); Spec = $null }
     }
     if ([string]::IsNullOrWhiteSpace($User)) {
         try { $User = "$(& '/usr/bin/id' -un 2>$null)".Trim() } catch { $User = '' }
         if ([string]::IsNullOrWhiteSpace($User)) { $User = "$($env:USER)".Trim() }
     }
     if ([string]::IsNullOrWhiteSpace($User)) {
-        return @{ Action = 'failed'; Message = 'could not determine the current user to grant passwordless sudo to.'; Spec = $null }
+        return @{ Action = 'failed'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_86312bcc38bf3748'); Spec = $null }
     }
 
     $spec = Get-RunnerSudoersSpec -User $User -Command $Command
     if (-not $spec.Rule) {
-        return @{ Action = 'present'; Message = 'no elevated commands are needed on this host type.'; Spec = $spec }
+        return @{ Action = 'present'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_5cad3d2afe4e70f0'); Spec = $spec }
     }
     if (Test-RunnerElevationReady -Command $Command) {
-        return @{ Action = 'present'; Message = "passwordless sudo is already configured for '$User'."; Spec = $spec }
+        return @{ Action = 'present'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_975aeffb59ab36e1' -Arguments @{ user = "$User" }); Spec = $spec }
     }
-    if (-not $PSCmdlet.ShouldProcess($spec.File, "Install the runner's passwordless-sudo drop-in for '$User'")) {
+    if (-not $PSCmdlet.ShouldProcess($spec.File, (Format-YurunaOperatorMessage -Key 'runner.operator_b8dbea72f0f1ab3a' -Arguments @{ user = "$User" }))) {
         return @{ Action = 'failed'; Message = 'declined.'; Spec = $spec }
     }
 
-    Write-Host "Yuruna runner: installing $($spec.File) so unattended cycles never need a password (sudo may prompt once)..."
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_e230cf2d8a677fb4' -Arguments @{ file = "$($spec.File)" })
     try {
         $spec.Rule | & sudo tee $spec.File | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            return @{ Action = 'failed'; Message = "could not write $($spec.File) (sudo tee exit $LASTEXITCODE)."; Spec = $spec }
+            return @{ Action = 'failed'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_17e3671adc2cd21c' -Arguments @{ file = "$($spec.File)"; lASTEXITCODE = "$LASTEXITCODE" }); Spec = $spec }
         }
         & sudo chmod 0440 $spec.File | Out-Null
         $chmodRc   = $LASTEXITCODE
@@ -269,11 +270,11 @@ function Install-RunnerSudoers {
         $visudoRc  = $LASTEXITCODE
         if ($chmodRc -ne 0 -or $visudoRc -ne 0) {
             & sudo rm -f $spec.File | Out-Null
-            return @{ Action = 'failed'; Message = "the drop-in failed validation (chmod $chmodRc, visudo ${visudoRc}: $visudoOut) and was removed."; Spec = $spec }
+            return @{ Action = 'failed'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3bede14c56c86651' -Arguments @{ chmodRc = "$chmodRc"; visudoRc = "${visudoRc}"; visudoOut = "$visudoOut" }); Spec = $spec }
         }
-        return @{ Action = 'installed'; Message = "installed $($spec.File): '$User' may now run the runner's elevated commands without a password."; Spec = $spec }
+        return @{ Action = 'installed'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_e1cc816e5df1c676' -Arguments @{ file = "$($spec.File)"; user = "$User" }); Spec = $spec }
     } catch {
-        return @{ Action = 'failed'; Message = "install threw: $($_.Exception.Message)"; Spec = $spec }
+        return @{ Action = 'failed'; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_2dc454219a20b265' -Arguments @{ message = "$($_.Exception.Message)" }); Spec = $spec }
     }
 }
 
@@ -324,10 +325,10 @@ function Assert-RunnerElevation {
     if ($interactive) {
         $result = Install-RunnerSudoers -Command $commands -Confirm:$false
         if ($result.Action -in @('present', 'installed')) {
-            Write-Host "Yuruna runner: elevation ready -- $($result.Message)"
+            Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_939fbceb401bd101' -Arguments @{ message = "$($result.Message)" })
             return $true
         }
-        Write-Warning "Yuruna runner: could not configure passwordless sudo -- $($result.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2e1d7b95af5db17f' -Arguments @{ message = "$($result.Message)" })
     }
 
     $user = try { "$(& '/usr/bin/id' -un 2>$null)".Trim() } catch { '' }
@@ -339,25 +340,25 @@ function Assert-RunnerElevation {
     $spec = Get-RunnerSudoersSpec -User $specUser -Command $commands
     Write-Host ''
     Write-Host '========'
-    Write-Host '  RUNNER NOT STARTED -- elevation required'
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_e32f750d74cf5f68')
     Write-Host '========'
     Write-Host ''
-    Write-Host "  Host type: $HostType"
-    Write-Host "  Account:   $(if ($user) { $user } else { '(could not be determined)' })"
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_ca23e4cc60d56e37' -Arguments @{ hostType = "$HostType" })
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_eda94c82a5f42c6c' -Arguments @{ determined = "$(if ($user) { $user } else { '(could not be determined)' })" })
     Write-Host ''
-    Write-Host '  This host needs passwordless sudo for the commands below. Without'
-    Write-Host '  it a cycle would stop mid-run on a password prompt that nobody is'
-    Write-Host '  present to answer, and the status page would keep reporting the'
-    Write-Host '  last cycle as healthy.'
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_bb7aca237986c9d3')
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_2911629c58691e3f')
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_f8ed754bec9a4f32')
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_c4508e97d7d7bd45')
     Write-Host ''
     foreach ($c in $commands) { Write-Host "    * $($c.Command) -- $($c.Why)" }
     Write-Host ''
-    Write-Host '  Fix (needs onsite / console access -- this cannot be repaired'
-    Write-Host '  remotely, for the same reason a network fault cannot):'
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_a4150727306b3ee6')
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_d855afd5544885e8')
     Write-Host ''
     foreach ($line in (Get-RunnerElevationHint -Spec $spec)) { Write-Host $line }
     Write-Host ''
-    Write-Host '  Then re-run: pwsh test/Start-TestRunner.ps1'
+    Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_4ecf34a6a2e1f68e')
     Write-Host '========'
     Write-Host ''
     return $false

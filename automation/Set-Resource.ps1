@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429746c7-cf5b-4f84-8ccd-0d7f99927afa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ param (
 )
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
@@ -66,7 +67,7 @@ if (-not $roots) {
     # PROCESS exit code at 0, and the guest wrappers run this entrypoint under
     # `set -euo pipefail` -- a zero exit reads as "provisioned" and the sequence
     # marches on. Same contract as Complete-YurunaRun's failure tail.
-    Write-Warning "Root resolution failed; no resource was provisioned."
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_36db573bfe1ac885')
     exit 1
 }
 $yuruna_root = $roots.YurunaRoot

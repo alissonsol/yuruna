@@ -7,58 +7,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Scan &mdash; Yuruna Pool Control</title>
+  <title data-i18n="pool.scan_yuruna_pool_control">Scan &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <div class="menu">
       <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
       </button>
-      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-        <a href="/">Board</a>
-        <a href="/assign">Assign</a>
-        <a href="/hosts">Hosts</a>
-        <a href="/pools">Pools</a>
-        <a href="/test-sets">Test sets</a>
-        <a href="/scan" aria-current="page">Scan</a>
-        <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener">Guide</a>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/assign" data-i18n="pool.assign">Assign</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/test-sets" data-i18n="pool.test_sets">Test sets</a>
+        <a href="/scan" aria-current="page" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
       </nav>
     </div>
   </header>
   <main>
-    <h1>Scan a network for Yuruna hosts</h1>
-    <p class="muted">
+    <h1 data-i18n="pool.scan_a_network_for_yuruna_hosts">Scan a network for Yuruna hosts</h1>
+    <p class="muted" data-i18n="pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic">
       Asks every address in the network for a Yuruna host status service and adds the ones
       that answer to the monitored hosts &mdash; pooled or not, enrolled or not.
       Scanning changes nothing on the hosts themselves.
     </p>
 
-    <h2>Which network? (CIDR notation)</h2>
-    <p class="muted">
-      <code>192.168.7.0/24</code> scans <code>192.168.7.1</code> through <code>192.168.7.254</code>;
-      a smaller prefix number covers more addresses (<code>/16</code> is 65,536), a larger one fewer
-      (<code>/32</code> is one machine). An address inside the network means the same subnet:
-      <code>192.168.7.34/24</code> equals <code>192.168.7.0/24</code>.
-    </p>
+    <h2 data-i18n="pool.which_network_cidr_notation">Which network? (CIDR notation)</h2>
+    <p class="muted" data-i18n="pool.command1_scans_command2_through_command3_a_smaller_prefix_number_" data-i18n-args="{&quot;command1&quot;: &quot;192.168.7.0/24&quot;, &quot;command2&quot;: &quot;192.168.7.1&quot;, &quot;command3&quot;: &quot;192.168.7.254&quot;, &quot;command4&quot;: &quot;/16&quot;, &quot;command5&quot;: &quot;/32&quot;, &quot;command6&quot;: &quot;192.168.7.34/24&quot;, &quot;command7&quot;: &quot;192.168.7.0/24&quot;}">192.168.7.0/24 scans 192.168.7.1 through 192.168.7.254 ; a smaller prefix number covers more addresses ( /16 is 65,536), a larger one fewer ( /32 is one machine). An address inside the network means the same subnet: 192.168.7.34/24 equals 192.168.7.0/24 .</p>
 
     <div id="notice" role="alert" class="notice"></div>
     <div class="row">
       <label class="scan-field">
-        <span class="scan-label">Network</span>
+        <span class="scan-label" data-i18n="pool.network">Network</span>
         <input type="text" id="cidr" name="cidr" inputmode="text" spellcheck="false" autocapitalize="off"
                autocomplete="off" placeholder="192.168.7.0/24" aria-describedby="cidr-hint">
       </label>
-      <button id="scan" class="primary">Scan</button>
-      <button id="use-default" type="button">Use this network</button>
+      <button id="scan" class="primary" data-i18n="pool.scan">Scan</button>
+      <button id="use-default" type="button" data-i18n="pool.use_this_network">Use this network</button>
     </div>
     <!-- Two lines with two jobs: the hint answers "is what I typed valid",
          the note answers "what happens without me". Sharing one element would
@@ -66,38 +61,38 @@
     <div id="cidr-hint" role="status" class="hint"></div>
     <div id="sweep-note" role="status" class="muted scan-note"></div>
 
-    <h2>Progress</h2>
+    <h2 data-i18n="pool.progress">Progress</h2>
     <!-- aria-live on the summary, not on the address ticker below it: the
          ticker changes several times a second, and announcing every address
          would bury the one sentence that says how far the scan has got. -->
-    <div id="progress" class="muted" aria-live="polite">No scan has run yet.</div>
+    <div id="progress" class="muted" aria-live="polite" data-i18n="pool.no_scan_has_run_yet">No scan has run yet.</div>
     <div id="current" class="scan-current"></div>
 
-    <h2>Found and added</h2>
-    <p class="muted">Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.</p>
+    <h2 data-i18n="pool.found_and_added">Found and added</h2>
+    <p class="muted" data-i18n="pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor">Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.</p>
     <table>
       <thead>
-        <tr><th>Address</th><th>Host ID</th><th>Hostname</th><th>Type</th><th>Found</th></tr>
+        <tr><th data-i18n="pool.address">Address</th><th data-i18n="pool.host_id">Host ID</th><th data-i18n="pool.hostname">Hostname</th><th data-i18n="pool.type">Type</th><th data-i18n="pool.found">Found</th></tr>
       </thead>
       <tbody id="found-rows"></tbody>
     </table>
 
-    <h2>Monitored by discovery</h2>
+    <h2 data-i18n="pool.monitored_by_discovery">Monitored by discovery</h2>
     <p class="muted">
       Every host this service has found by scanning, newest sighting first on the right.
-      They also appear on the <a href="/hosts">Hosts</a> page, where they can be put into a pool.
+      They also appear on the <a href="/hosts" data-i18n="pool.hosts">Hosts</a> page, where they can be put into a pool.
     </p>
     <table>
       <thead>
-        <tr><th>Address</th><th>Host ID</th><th>Hostname</th><th>Type</th><th>First seen</th><th>Last seen</th><th></th></tr>
+        <tr><th data-i18n="pool.address">Address</th><th data-i18n="pool.host_id">Host ID</th><th data-i18n="pool.hostname">Hostname</th><th data-i18n="pool.type">Type</th><th data-i18n="pool.first_seen">First seen</th><th data-i18n="pool.last_seen">Last seen</th><th></th></tr>
       </thead>
       <tbody id="host-rows"></tbody>
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
-    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
   </footer>
   <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
        and defines Y, which every script below extends rather than rebuilds. -->

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Set-StrictMode -Version Latest
 
 # The version of the capture FORMAT, and equally of what its readers mean. Bump
@@ -96,6 +97,89 @@ function Get-HostAutomationStatePath {
     return (Join-Path $env:YURUNA_RUNTIME_DIR 'host.pre-automation.json')
 }
 
+function Get-HostOsVersionStamp {
+<#
+.SYNOPSIS
+    This host's operating-system identity, in the shape the capture records it.
+.DESCRIPTION
+    Every knob Enable writes is a setting of the operating system or of an app
+    that ships alongside it, so a capture only describes the OS it was taken on.
+    A major upgrade rebuilds parts of that surface -- app preference domains are
+    recreated from defaults, privacy grants are re-asked -- and a host upgraded
+    after setup comes back with some of those settings gone while the capture
+    still records them as applied. Recording the OS is what lets a later reader
+    name that as the cause instead of reporting drifted knobs with no
+    explanation for why they drifted together.
+
+    Only the major component is compared downstream. A point release does not
+    rebuild an app container, and a check that spoke up on every 27.0 -> 27.1
+    would be silenced long before the upgrade it exists to catch.
+.OUTPUTS
+    [pscustomobject] with Family, Version, Build and Major. Version is '' and
+    Major is 0 on a host that does not answer, which readers treat as "cannot
+    tell" rather than as a change.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $family  = 'unknown'
+    $version = ''
+    $build   = ''
+
+    # os-release quotes values inconsistently across distributions, and a
+    # version compared with its quotes still attached never matches the one
+    # read back without them.
+    $unquote = {
+        param([string]$Text)
+        $t = "$Text".Trim()
+        $t = $t -replace '^"(.*)"$', '$1'
+        $t = $t -replace "^'(.*)'$", '$1'
+        return $t
+    }
+
+    try {
+        if ($IsMacOS) {
+            $family  = 'macos'
+            $version = "$(& sw_vers -productVersion 2>$null)".Trim()
+            $build   = "$(& sw_vers -buildVersion   2>$null)".Trim()
+        } elseif ($IsWindows) {
+            $family  = 'windows'
+            $osv     = [Environment]::OSVersion.Version
+            $version = "$($osv.Major).$($osv.Minor)"
+            $build   = "$($osv.Build)"
+        } elseif ($IsLinux) {
+            $family = 'linux'
+            # The kernel version moves with a routine security update and says
+            # nothing about whether the settings surface was rebuilt; the
+            # distribution release is the thing that does. /etc/os-release is
+            # the one file every distribution agrees on.
+            if (Test-Path -LiteralPath '/etc/os-release') {
+                foreach ($line in (Get-Content -LiteralPath '/etc/os-release' -ErrorAction Stop)) {
+                    if ($line -match '^\s*ID\s*=\s*(.+)$')         { $family  = 'linux/' + (& $unquote $Matches[1]) }
+                    if ($line -match '^\s*VERSION_ID\s*=\s*(.+)$') { $version = (& $unquote $Matches[1]) }
+                }
+            }
+        }
+    } catch {
+        # A host that will not say what it is records as unknown and the drift
+        # check stays quiet. Failing the capture over the stamp would trade a
+        # configured host for a bookkeeping field.
+        Write-Debug "OS version stamp failed: $_"
+    }
+
+    $major = 0
+    $majorMatch = [regex]::Match($version, '^\s*(\d+)')
+    if ($majorMatch.Success) { $major = [int]$majorMatch.Groups[1].Value }
+
+    return [pscustomobject]@{
+        Family  = $family
+        Version = $version
+        Build   = $build
+        Major   = $major
+    }
+}
+
 function Read-HostAutomationState {
 <#
 .SYNOPSIS
@@ -119,7 +203,7 @@ function Read-HostAutomationState {
         if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
         return ($raw | ConvertFrom-Json -ErrorAction Stop)
     } catch {
-        Write-Warning "Could not read the pre-automation capture at $Path ($($_.Exception.Message)); treating this host as having no capture."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ca27bb897af1e0b4' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
         return $null
     }
 }
@@ -173,7 +257,7 @@ function Invoke-CaptureRead {
         return (New-HostAutomationKnob -Name $Name -Value $value)
     } catch {
         Write-Verbose "capture '$Name': $($_.Exception.Message)"
-        return (New-HostAutomationKnob -Name $Name -Present $false -Note "could not be read: $($_.Exception.Message)")
+        return (New-HostAutomationKnob -Name $Name -Present $false -Note (Format-YurunaOperatorMessage -Key 'runner.operator_a26e642cab079303' -Arguments @{ message = "$($_.Exception.Message)" }))
     }
 }
 
@@ -569,12 +653,13 @@ function Save-HostAutomationState {
     $doc = [ordered]@{
         schemaVersion = $script:HostAutomationStateSchemaVersion
         platform      = $Platform
+        os            = Get-HostOsVersionStamp
         capturedUtc   = [datetime]::UtcNow.ToString('o')
         capturedBy    = $(if ($env:USER) { $env:USER } elseif ($env:USERNAME) { $env:USERNAME } else { 'unknown' })
         knobs         = $knobs
     }
 
-    if (-not $PSCmdlet.ShouldProcess($path, 'Write the pre-automation state capture')) { return '' }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_a84605d29e1e0867'))) { return '' }
     try {
         $dir = Split-Path -Parent $path
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -589,7 +674,7 @@ function Save-HostAutomationState {
         # because the record could not be written would trade a working host for
         # a bookkeeping problem. Disable degrades to "reverse only what is
         # provably ours", which it already handles.
-        Write-Warning "Could not write the pre-automation capture to $path ($($_.Exception.Message)). Disable-TestAutomation will only be able to reverse what it can prove it added."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7def89dc77aaa4db' -Arguments @{ path = "$path"; message = "$($_.Exception.Message)" })
         return ''
     }
 }
@@ -620,6 +705,61 @@ function Get-HostAutomationKnob {
     $prop = $knobs.PSObject.Properties[$Name]
     if (-not $prop) { return $null }
     return $prop.Value
+}
+
+function Get-HostAutomationOsDrift {
+<#
+.SYNOPSIS
+    One operator-readable line naming the operating-system change since this
+    host was set up, or $null when there is nothing to say.
+.DESCRIPTION
+    The settings Enable applies survive a reboot but not always a major OS
+    upgrade: app preference domains are rebuilt from defaults and privacy
+    grants are re-asked, so a host that was configured and then upgraded
+    presents as a host that was never configured -- several unrelated-looking
+    settings gone at once, each reported on its own, none of them naming the
+    event they share. Said once, up front, the whole set reads as one thing
+    with one fix.
+
+    Silent unless the MAJOR version moved. A capture taken before the OS was
+    recorded, a host that will not say what it is, and a point release all
+    answer $null: none of them is evidence of a rebuilt settings surface, and a
+    line that appears without evidence is one operators learn to scroll past.
+.PARAMETER State
+    A capture from Read-HostAutomationState.
+.OUTPUTS
+    [string] or $null.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($State)
+
+    if (-not $State) { return $null }
+    # A capture written before this field existed holds no opinion about the OS.
+    # Treating its silence as a match would be inventing agreement; treating it
+    # as a change would warn every host that was set up earlier, once, forever.
+    if (-not $State.PSObject.Properties['os']) { return $null }
+    $was = $State.os
+    if (-not $was -or -not $was.PSObject.Properties['Major']) { return $null }
+
+    $wasMajor = 0
+    try { $wasMajor = [int]$was.Major } catch { return $null }
+    if ($wasMajor -le 0) { return $null }
+
+    $now = Get-HostOsVersionStamp
+    if ($now.Major -le 0)        { return $null }
+    if ($now.Major -eq $wasMajor) { return $null }
+
+    $wasText   = if ($was.PSObject.Properties['Version'] -and $was.Version) { "$($was.Version)" } else { "$wasMajor" }
+    $nowText   = if ($now.Version) { $now.Version } else { "$($now.Major)" }
+    # The captured family names what the settings were applied on; the current
+    # one would be right only for as long as the two agree.
+    $wasFamily = if ($was.PSObject.Properties['Family'] -and $was.Family) { "$($was.Family)" } else { "$($now.Family)" }
+
+    return ("Host settings were applied on $wasFamily $wasText; this host now runs $nowText. " +
+            'A major upgrade rebuilds app preference domains from their defaults and re-asks the privacy grants, ' +
+            'so settings this host was configured with can be gone while the capture still records them as applied. ' +
+            'Re-apply them with: pwsh test/lab/Enable-TestAutomation.ps1')
 }
 
 function Assert-SafeToDisable {
@@ -798,11 +938,11 @@ function Write-DisableReport {
         Write-Output 'Restored:'
         foreach ($r in $Restored) { Write-Output "  - $r" }
     } else {
-        Write-Output 'Nothing needed restoring.'
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_98dbeb0d77206daf')
     }
     if ($Skipped.Count -gt 0) {
         Write-Output ''
-        Write-Output 'Left as it is:'
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_890e86089cc829e8')
         foreach ($s in $Skipped) { Write-Output "  - $s" }
     }
 }
@@ -940,23 +1080,24 @@ function Write-DisableCommonEpilogue {
         [bool]$StateCaptured,
         [bool]$StopServices
     )
-    Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentials that are painful to recreate, so it is never removed automatically' -Command @(
-        'Get-SecretVault                     # find the Yuruna vault',
-        'Unregister-SecretVault -Name <name> # then delete its store on disk'
+    Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'runner.operator_6517519a4976598d') -Command @(
+        (Format-YurunaOperatorMessage -Key 'runner.operator_fc2210541a12444e'),
+        (Format-YurunaOperatorMessage -Key 'runner.operator_36713d21e973242b')
     )
     if (-not $StopServices) {
-        Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
+        Write-DisableManualStep -What (Format-YurunaOperatorMessage -Key 'runner.operator_c194a20f14fba4b7')
     }
 
     $capturePath = Get-HostAutomationStatePath
     if ($StateCaptured -and (Test-Path -LiteralPath $capturePath)) {
         Write-Output ''
-        Write-Output "The capture is kept at $capturePath so this can be re-run; delete it once the host is where you want it."
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_da263395d86391a6' -Arguments @{ capturePath = "$capturePath" })
     }
 }
 
 Export-ModuleMember -Function Get-HostAutomationStatePath, Get-HostAutomationStateSchemaVersion,
     Test-HostRestorePreviewOnly, Read-HostAutomationState, Save-HostAutomationState,
+    Get-HostOsVersionStamp, Get-HostAutomationOsDrift,
     Get-LinuxPreAutomationState, Get-MacPreAutomationState, Get-WindowsPreAutomationState,
     Get-HostAutomationKnob, Assert-SafeToDisable, Write-DisableManualStep,
     Invoke-HostKnobRestore, Write-DisableReport, Get-PoolStorageManualTeardown,

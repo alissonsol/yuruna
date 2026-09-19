@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 # cycle. It is kept for the derivation and its tests --
 # https://yuruna.link/4220a755-001a
 
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:RailNetwork = 'default'
 # The band reservations are allocated from. Inside libvirt's default DHCP range
 # (192.168.122.2-254), because dnsmasq only serves a reservation that falls
@@ -166,7 +167,7 @@ function Register-GuestRailAddress {
         return $want
     }
     foreach ($stale in $mine) {
-        if (-not $PSCmdlet.ShouldProcess($VMName, "drop the stale rail reservation at $($stale.Ip)")) { continue }
+        if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_43a3bbcab70a1061' -Arguments @{ ip = "$($stale.Ip)" }))) { continue }
         $null = & virsh net-update $script:RailNetwork delete ip-dhcp-host `
             ("<host mac='{0}' name='{1}' ip='{2}'/>" -f $stale.Mac, $stale.VMName, $stale.Ip) --live --config 2>&1
     }
@@ -181,16 +182,16 @@ function Register-GuestRailAddress {
             if ($taken -notcontains $candidate) { $ip = $candidate; break }
         }
         if (-not $ip) {
-            Write-Warning "Register-GuestRailAddress: every rail address between $($script:RailPrefix).$($script:RailFirstOctet) and .$($script:RailLastOctet) is reserved; '$VMName' will run without a rail address."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_df10f38143b3b549' -Arguments @{ railPrefix = "$($script:RailPrefix)"; railFirstOctet = "$($script:RailFirstOctet)"; railLastOctet = "$($script:RailLastOctet)"; vMName = "$VMName" })
             return $null
         }
         Write-Verbose "Register-GuestRailAddress: '$VMName' derives $($want.Ip), which another guest holds; using $ip."
     }
-    if (-not $PSCmdlet.ShouldProcess($VMName, "reserve the rail address $ip")) { return $null }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e97a5320d78112ee' -Arguments @{ ip = "$ip" }))) { return $null }
     $entry  = "<host mac='{0}' name='{1}' ip='{2}'/>" -f $want.Mac, $VMName, $ip
     $output = & virsh net-update $script:RailNetwork add ip-dhcp-host $entry --live --config 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Register-GuestRailAddress: could not reserve $ip for '$VMName' -- $($output -join ' '). The guest will run without a rail address."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_82d7b4c9909ca4dd' -Arguments @{ ip = "$ip"; vMName = "$VMName"; join = "$($output -join ' ')" })
         return $null
     }
     return [pscustomobject]@{ VMName = $VMName; Mac = $want.Mac; Ip = $ip }
@@ -216,7 +217,7 @@ function Unregister-GuestRailAddress {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not (Test-GuestRailAvailable)) { return }
     foreach ($row in @(Get-GuestRailReservation | Where-Object { $_.VMName -eq $VMName })) {
-        if (-not $PSCmdlet.ShouldProcess($VMName, "release the rail address $($row.Ip)")) { continue }
+        if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_868207db699b0be7' -Arguments @{ ip = "$($row.Ip)" }))) { continue }
         $output = & virsh net-update $script:RailNetwork delete ip-dhcp-host `
             ("<host mac='{0}' name='{1}' ip='{2}'/>" -f $row.Mac, $row.VMName, $row.Ip) --live --config 2>&1
         if ($LASTEXITCODE -ne 0) {

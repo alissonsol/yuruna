@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42de31ac-8059-47bf-a365-0d6eb81f94c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,16 +67,97 @@ if ($authority.schema -ne 'yuruna.conversion-authority/v1') {
     exit 1
 }
 
+$script:MatchedLiteralContract = @{}
+$script:CatalogMessageKeys = @{}
+$script:MatchedGeneratedSource = @{}
+
+function Get-HtmlCompositeText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+    if ($Node -is [Management.Automation.Language.BinaryExpressionAst] -and $Node.Operator -eq 'Plus') {
+        return (Get-HtmlCompositeText -Node $Node.Left) + (Get-HtmlCompositeText -Node $Node.Right)
+    }
+    if ($Node -is [Management.Automation.Language.StringConstantExpressionAst] -or $Node -is [Management.Automation.Language.ExpandableStringExpressionAst]) { return [string]$Node.Value }
+    return '__YURUNA_DYNAMIC_VALUE__'
+}
+
 function Get-SourceString {
     [CmdletBinding()]
     [OutputType([string[]])]
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Text)
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Text, [switch]$ForBoundary)
 
     if ([IO.Path]::GetExtension($Path) -in @('.ps1', '.psm1')) {
-        $tokens = $null
-        $null = [Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$null)
-        return [string[]]@($tokens | Where-Object { $_.Kind -in @('StringLiteral', 'StringExpandable') } |
-            ForEach-Object { [string]$_.Value })
+        $ast = [Management.Automation.Language.Parser]::ParseInput($Text, [ref]$null, [ref]$null)
+        $values = [Collections.Generic.List[string]]::new()
+        $contracts = @($authority.literalContracts | Where-Object path -CEQ $Path)
+        foreach ($node in $ast.FindAll({ param($item) $item -is [Management.Automation.Language.StringConstantExpressionAst] -or $item -is [Management.Automation.Language.ExpandableStringExpressionAst] }, $true)) {
+            if ($node.StringConstantType -eq 'BareWord') { continue }
+            $skip = $false
+            if ($ForBoundary -and [string]$node.StringConstantType -match 'HereString') {
+                $assignment = $node.Parent
+                while ($assignment -and $assignment -isnot [Management.Automation.Language.AssignmentStatementAst]) { $assignment = $assignment.Parent }
+                $generated = @($authority.generatedPowerShell | Where-Object { $_.path -ceq $Path -and $assignment -and $_.variable -ceq $assignment.Left.Extent.Text })
+                if ($generated.Count) {
+                    # Interpolation belongs to the generator. Substitute its
+                    # expressions without evaluating them, then parse the code
+                    # the here-string emits so comments never become literals.
+                    $script:MatchedGeneratedSource[$Path + '|' + $assignment.Left.Extent.Text] = $true
+                    $body = [string]$node.Value
+                    if ($node -is [Management.Automation.Language.ExpandableStringExpressionAst]) {
+                        foreach ($expression in @($node.NestedExpressions | Sort-Object { $_.Extent.Text.Length } -Descending)) { $body = $body.Replace($expression.Extent.Text, 'generated_value') }
+                    }
+                    $parseError = $null
+                    $null = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$parseError)
+                    if ($parseError.Count) { throw "Declared generated PowerShell does not parse: $Path $($assignment.Left.Extent.Text)" }
+                    foreach ($literal in @(Get-SourceString -Path $Path -Text $body -ForBoundary)) { $values.Add($literal) }
+                    continue
+                }
+            }
+            if ($ForBoundary) {
+                $parent = $node.Parent
+                while ($parent -and $parent -isnot [Management.Automation.Language.CommandAst] -and $parent -isnot [Management.Automation.Language.BinaryExpressionAst]) { $parent = $parent.Parent }
+                if ($parent -is [Management.Automation.Language.CommandAst] -and $parent.GetCommandName() -in @('Write-Verbose', 'Write-Debug', 'Write-ServerErr')) { continue }
+            }
+            if ($ForBoundary -and $contracts.Count) {
+                $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$node.Value))).ToLowerInvariant()
+                foreach ($contract in @($contracts | Where-Object sha256 -CEQ $digest)) {
+                    if (-not $contract.reason) { continue }
+                    $parent = $node.Parent
+                    if ($contract.kind -ceq 'external-process-pattern' -and $parent -is [Management.Automation.Language.BinaryExpressionAst] -and $parent.Right -eq $node -and $parent.Left.Extent.Text -ceq $contract.input -and [string]$parent.Operator -ceq $contract.operator) {
+                        while ($parent -and $parent -isnot [Management.Automation.Language.FunctionDefinitionAst]) { $parent = $parent.Parent }
+                        if ($parent -and $parent.Name -ceq $contract.function) { $skip = $true }
+                    } elseif ($contract.kind -ceq 'test-result-reason' -and $Path -like '*.Tests.ps1') {
+                        while ($parent -and $parent -isnot [Management.Automation.Language.CommandAst]) { $parent = $parent.Parent }
+                        if ($parent -and $parent.GetCommandName() -ceq 'Set-ItResult') {
+                            $elements = $parent.CommandElements
+                            for ($index = 1; $index -lt $elements.Count - 1; $index++) {
+                                if ($elements[$index] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$index].ParameterName -ceq 'Because' -and $elements[$index + 1] -eq $node) { $skip = $true }
+                            }
+                        }
+                    }
+                    if ($skip) { $script:MatchedLiteralContract[$Path + '|' + $digest] = $true; break }
+                }
+            }
+            if (-not $skip) {
+                $value = [string]$node.Value
+                if ($ForBoundary -and $Text -match '\bConvertTo-CatalogHtml\b') {
+                    $composite = $node
+                    while ($composite.Parent -is [Management.Automation.Language.BinaryExpressionAst] -and $composite.Parent.Operator -eq 'Plus') { $composite = $composite.Parent }
+                    if ($composite -ne $node) {
+                        $html = Get-HtmlCompositeText -Node $composite
+                        if ($html -match '^\s*<[a-z][a-z0-9]*\b[^>]*\bdata-i18n=') { $value = $html }
+                    }
+                    $value = [regex]::Replace($value, '(?is)<[a-z][a-z0-9]*\b[^>]*\bdata-i18n=["''](?<key>[a-z0-9_.-]+)["''][^>]*>(?<fallback>[^<]*)', {
+                        param($match)
+                        if ($script:CatalogMessageKeys.ContainsKey($match.Groups['key'].Value)) { return $match.Value.Substring(0, $match.Value.Length - $match.Groups['fallback'].Length) }
+                        return $match.Value
+                    })
+                }
+                $values.Add($value)
+            }
+        }
+        return $values.ToArray()
     }
     # One comment-aware lexical pass for JavaScript and Go. JavaScript regex
     # bodies are literals too: /Paused \(waiting...\)/ is just as much a prose
@@ -102,6 +183,7 @@ function Get-SourceString {
             continue
         }
         if ($c -eq '"' -or $c -eq "'" -or $c -eq '`') {
+            $literalStart = $i
             $quote = $c; $i++; $value = [Text.StringBuilder]::new()
             while ($i -lt $Text.Length -and $Text[$i] -ne $quote) {
                 if ($Text[$i] -eq '\' -and $quote -ne '`' -and $i + 1 -lt $Text.Length) {
@@ -110,7 +192,13 @@ function Get-SourceString {
                 [void]$value.Append($Text[$i]); $i++
             }
             if ($i -lt $Text.Length) { $i++ }
-            $found.Add($value.ToString())
+            $literalValue = $value.ToString()
+            # Prometheus HELP/TYPE frames define the exported metric contract.
+            # Their English descriptions travel with immutable metric names,
+            # and are never a control-flow test over a rendered UI message.
+            $prefix = $Text.Substring([Math]::Max(0, $literalStart - 120), [Math]::Min(120, $literalStart))
+            $metricFrame = [IO.Path]::GetExtension($Path) -eq '.go' -and $literalValue -match '^# (?:HELP|TYPE) [A-Za-z_:][A-Za-z0-9_:]* ' -and $prefix -match '(?:fmt\.Fprintf\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,|[A-Za-z_][A-Za-z0-9_]*\.WriteString\()\s*$'
+            if (-not $metricFrame) { $found.Add($literalValue) }
             $previous = 'literal'; $previousWord = ''
             continue
         }
@@ -132,6 +220,7 @@ function Get-SourceString {
                 [void]$value.Append($part); $i++
             }
             while ($i -lt $Text.Length -and $Text[$i] -match '[A-Za-z]') { $i++ }
+            $literalValue = $value.ToString()
             $found.Add($value.ToString())
             $previous = 'literal'; $previousWord = ''
             continue
@@ -205,6 +294,7 @@ foreach ($scope in @($authority.convertedScopes)) {
 $boundaryFiles = @($registry.codes | ForEach-Object {
         @($_.producedBy) + @($_.consumedBy)
     } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+$boundaryFiles = @(@($boundaryFiles) + @($authority.literalContracts | ForEach-Object { [string]$_.path }) | Where-Object { $_ } | Sort-Object -Unique)
 $exceptions = @($authority.protocolExceptions)
 foreach ($exception in $exceptions) {
     $date = [datetime]::MinValue
@@ -219,12 +309,18 @@ foreach ($exception in $exceptions) {
 
 $phrases = @($authority.legacyProtocolPhrases | ForEach-Object { [string]$_ })
 foreach ($catalog in @(Get-ChildItem -LiteralPath (Join-Path $Root 'globalization/catalogs/en-US') -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
-    # Catalog fragments are serialized structures. Pull human strings from the
-    # JSON tree, then keep phrase-sized values; short labels would make common
-    # words such as "Continue" look like protocol wherever they occur.
-    foreach ($m in [regex]::Matches([IO.File]::ReadAllText($catalog.FullName), '"((?:[^"\\]|\\.)*)"')) {
-        try { $value = ConvertFrom-Json -InputObject ('"' + $m.Groups[1].Value + '"') } catch { continue }
-        if ([string]$value -match '\s' -and ([string]$value).Length -ge 8) { $phrases += [string]$value }
+    # Placeholder examples and translator guidance describe code; they are not
+    # rendered sentences. Only message forms can become a prose protocol.
+    $document = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($catalog.FullName)) -AsHashtable
+    if (-not $document.ContainsKey('messages')) { $findings.Add("catalog message collection missing: $($catalog.Name)"); continue }
+    foreach ($key in $document.messages.Keys) { if ($document.messages[$key].lifecycle -ne 'retired') { $script:CatalogMessageKeys[$key] = $true } }
+    foreach ($message in $document.messages.Values) {
+        $forms = @()
+        if ($message.ContainsKey('message')) { $forms += [string]$message.message }
+        foreach ($kind in @('plural', 'select')) {
+            if ($message.ContainsKey($kind)) { $forms += @($message[$kind].variants.Values | ForEach-Object { [string]$_ }) }
+        }
+        foreach ($value in $forms) { if ($value -match '\s' -and $value.Length -ge 8) { $phrases += $value } }
     }
 }
 $phrases = @($phrases | Sort-Object -Unique)
@@ -235,11 +331,12 @@ foreach ($path in $boundaryFiles) {
         $findings.Add("code-registry boundary file is missing: $path"); continue
     }
     $source = Get-SourceWithoutEmbeddedCatalog -Text ([IO.File]::ReadAllText($full))
-    $literals = @(Get-SourceString -Path $path -Text $source)
+    $literals = @(Get-SourceString -Path $path -Text $source -ForBoundary)
+    # A NUL separator cannot occur in catalog prose, so this preserves the
+    # per-literal substring rule while avoiding a pipeline per catalog phrase.
+    $literalText = [string]::Join([string][char]0, [string[]]$literals)
     foreach ($phrase in $phrases) {
-        $matched = @($literals | Where-Object {
-                $_.IndexOf($phrase, [StringComparison]::Ordinal) -ge 0
-            }).Count -gt 0
+        $matched = $literalText.IndexOf($phrase, [StringComparison]::Ordinal) -ge 0
         if (-not $matched) { continue }
         $exception = @($exceptions | Where-Object {
                 $_.path -ceq $path -and $_.text -ceq $phrase
@@ -264,6 +361,18 @@ foreach ($exception in $exceptions) {
         if (-not $matched) {
             $findings.Add("stale protocol exception no longer matches code: $($exception.path) '$($exception.text)'")
         }
+    }
+}
+
+foreach ($generated in @($authority.generatedPowerShell)) {
+    if (-not $generated) { continue }
+    if (-not $generated.reason -or -not $script:MatchedGeneratedSource.ContainsKey([string]$generated.path + '|' + [string]$generated.variable)) { $findings.Add("generated PowerShell declaration no longer matches its exact assignment: $($generated.path) $($generated.variable)") }
+}
+
+foreach ($contract in @($authority.literalContracts)) {
+    if (-not $contract) { continue }
+    if ($contract.kind -notin @('external-process-pattern', 'test-result-reason') -or -not $contract.reason -or $contract.sha256 -cnotmatch '^[a-f0-9]{64}$' -or -not $script:MatchedLiteralContract.ContainsKey([string]$contract.path + '|' + [string]$contract.sha256)) {
+        $findings.Add("literal contract is malformed or no longer matches its exact boundary context: $($contract.path) $($contract.kind)")
     }
 }
 

@@ -8,7 +8,7 @@
   <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title>Diagnostics — Yuruna</title>
+  <title data-i18n="status.diagnostics_yuruna">Diagnostics — Yuruna</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
@@ -63,26 +63,26 @@
   <span class="machine" id="header-machine"></span>
   <div class="menu">
     <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
-      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
     </button>
-    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
-      <a href="index.html">Status</a>
-      <a href="config.html">Config</a>
-      <a href="performance.html">Performance</a>
-      <a href="diagnostics.html" aria-current="page">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener">Guide</a>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" aria-current="page" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
     </nav>
   </div>
 </header>
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
-  <span id="banner-user-row">User account: <span id="banner-user">—</span></span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+  <span id="banner-user-row"><span data-i18n="status.user_account">User account:</span> <span id="banner-user">—</span></span>
 </div>
 
 <main>
-  <h1 class="sr-only">Host diagnostics</h1>
+  <h1 class="sr-only" data-i18n="status.host_diagnostics">Host diagnostics</h1>
   <pre id="diagnostics-output" role="status" class="loading">Running Get-SystemDiagnostic on host…</pre>
 </main>
 

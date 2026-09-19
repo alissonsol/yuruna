@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42e3bcc4-f80a-473e-9173-4d943fa7def8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -200,10 +203,7 @@ function Get-YurunaGitHubSource {
     $result.Repo  = $remoteSlug
 
     if ($remoteSlug -and $configSlug -and ($remoteSlug -ne $configSlug)) {
-        Write-Warning ("This checkout came from '$remoteSlug' but repositories.frameworkUrl names '$configSlug'. " +
-                       "Serving the guest fallback from '$remoteSlug' so it matches the commit being pinned; " +
-                       "a commit from one repository cannot be fetched from the other. " +
-                       'Point frameworkUrl at the repository this host actually tracks, or run the host from a checkout of it.')
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'automation.operator_aa6008fc30719924' -Arguments @{ remoteSlug = "$remoteSlug"; configSlug = "$configSlug"; remoteSlug2 = "$remoteSlug" }))
     }
     if (-not $result.Repo) {
         # No GitHub remote at all: the configured URL is the only candidate left.
@@ -212,8 +212,7 @@ function Get-YurunaGitHubSource {
         # exists only here) otherwise reads as a permissions problem.
         $result.Repo = $configSlug
         if ($result.Repo) {
-            Write-Warning ("This checkout has no GitHub remote, so the guest fallback falls back to repositories.frameworkUrl " +
-                           "('$($result.Repo)'). Its HEAD commit may not exist there, in which case the fallback 404s.")
+            Write-Warning ((Format-YurunaOperatorMessage -Key 'automation.operator_edd1385e46d681de' -Arguments @{ repo = "$($result.Repo)" }))
         }
     }
     if (-not $result.FrameworkUrl -and $result.Repo) {

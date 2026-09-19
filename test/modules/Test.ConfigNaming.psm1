@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424e6b7b-ee0a-4ebd-a491-d47db10eedbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 <#
 .SYNOPSIS
@@ -196,7 +199,7 @@ function Set-ConfigNamingValueAtPath {
         [Parameter(Mandatory)][string[]]$Segment,
         [Parameter(Mandatory)][AllowNull()]$Value
     )
-    if (-not $PSCmdlet.ShouldProcess(($Segment -join '.'), 'Set config value')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess(($Segment -join '.'), (Format-YurunaOperatorMessage -Key 'runner.operator_4d9b7a82ece07c12'))) { return $false }
     $cur = $Config
     for ($i = 0; $i -lt $Segment.Count - 1; $i++) {
         $name = $Segment[$i]
@@ -260,7 +263,7 @@ function Update-RetiredConfigKey {
         if (-not $actual) { continue }
 
         $value = $parent[$actual]
-        if (-not $PSCmdlet.ShouldProcess("$old -> $($entry.New)", 'Migrate retired config key')) { continue }
+        if (-not $PSCmdlet.ShouldProcess("$old -> $($entry.New)", (Format-YurunaOperatorMessage -Key 'runner.operator_ee4aeeca3723b96a'))) { continue }
         [void]$parent.Remove($actual)
 
         $newSeg    = [string]$entry.New -split '\.'

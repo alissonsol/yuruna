@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4215c5b2-75d8-47ea-9edd-261bf78adcaa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
 # evicts + re-imports the Yuruna.* operation modules) without side effects.
 # (The module name is historical -- it began as the logLevel helper.)
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 function Set-YurunaLogLevel {
     <#
     .SYNOPSIS
@@ -93,14 +94,14 @@ function Resolve-YurunaRootSet {
 
     if ([string]::IsNullOrEmpty($ProjectRoot)) { $ProjectRoot = Get-Location }
     $resolvedRoot = Resolve-Path -LiteralPath $ProjectRoot -ErrorAction SilentlyContinue
-    if ($null -eq $resolvedRoot -or @($resolvedRoot).Count -ne 1) { Write-Information "Project folder not found or ambiguous: $ProjectRoot"; return $false }
+    if ($null -eq $resolvedRoot -or @($resolvedRoot).Count -ne 1) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_6530aabbb1b7a40a' -Arguments @{ projectRoot = "$ProjectRoot" }); return $false }
     $ProjectRoot = $resolvedRoot
     Set-Item -Path Env:project_root -Value ${ProjectRoot}
     Write-Debug "project_root is $ProjectRoot"
 
     $configRelative = Join-Path -Path $ProjectRoot -ChildPath "config/$ConfigSubfolder"
     $configRoot = Resolve-Path -LiteralPath $configRelative -ErrorAction SilentlyContinue
-    if ($null -eq $configRoot -or @($configRoot).Count -ne 1) { Write-Information "Configuration folder not found or ambiguous: $configRelative"; return $false }
+    if ($null -eq $configRoot -or @($configRoot).Count -ne 1) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_2bcf3d5983bd68a0' -Arguments @{ configRelative = "$configRelative" }); return $false }
     Set-Item -Path Env:config_root -Value ${configRoot}
     Write-Debug "config_root is $configRoot"
 

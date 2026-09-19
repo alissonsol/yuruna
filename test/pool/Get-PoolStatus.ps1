@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 422c4baa-b4df-4b35-a65a-b6bdf04ee952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,7 @@ param(
     [string]$IntentDir
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
@@ -55,18 +56,18 @@ Import-Module powershell-yaml -ErrorAction Stop
 # --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7dd0aa845d3a93ea') -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5080fa98b3c9b51c' -Arguments @{ intentGitUrl = "$($t.IntentGitUrl)"; error = "$($open.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 
 # --- REGION: Report
 $doc   = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pools = @($doc['pools'] | Where-Object { $_ -is [System.Collections.IDictionary] })
 if ($PoolId) { $pools = @($pools | Where-Object { [string]$_['poolId'] -eq $PoolId }) }
 if ($pools.Count -eq 0) {
-    Write-Information "No pools defined$(if ($PoolId) { " matching '$PoolId'" })." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_11ce0062a4d872e8' -Arguments @{ poolId = "$(if ($PoolId) { " matching '$PoolId'" })" }) -InformationAction Continue
     exit $ExitOk
 }
 
@@ -74,10 +75,10 @@ foreach ($p in $pools) {
     $members = @($p['members'])
     $ts      = if ($p['testSet'] -is [System.Collections.IDictionary]) { $p['testSet'] } else { $null }
     Write-Information "" -InformationAction Continue
-    Write-Information ("Pool {0} [{1}] ({2})  desiredState={3}" -f $p['poolId'], $(if ($p['poolGuid']) { $p['poolGuid'] } else { '-' }), $(if ($p['displayName']) { $p['displayName'] } else { '-' }), $(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })) -InformationAction Continue
-    Write-Information ("  members ({0}): {1}" -f $members.Count, $(if ($members.Count) { $members -join ', ' } else { '(none)' })) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe92e0ad4340efe9' -FormatValues ($p['poolId'], $(if ($p['poolGuid']) { $p['poolGuid'] } else { '-' }), $(if ($p['displayName']) { $p['displayName'] } else { '-' }), $(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })) -FormatBindings @{ poolId = '0'; else = '1'; else2 = '2'; run = '3' }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5353aae93ac87aae' -FormatValues ($members.Count, $(if ($members.Count) { $members -join ', ' } else { '(none)' })) -FormatBindings @{ count = '0'; none = '1' }) -InformationAction Continue
     if ($ts) {
-        Write-Information ("  testSet: {0}  framework={1}  project={2}" -f [string]$ts['name'], [string]$ts['frameworkUrl'], [string]$ts['projectUrl']) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_41a636e6dabd5864' -FormatValues ([string]$ts['name'], [string]$ts['frameworkUrl'], [string]$ts['projectUrl']) -FormatBindings @{ name = '0'; frameworkUrl = '1'; projectUrl = '2' }) -InformationAction Continue
     } else {
         Write-Information "  testSet: (none)" -InformationAction Continue
     }

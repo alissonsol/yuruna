@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 # ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
 # Resolve-OcrImagePath / Clear-OcrImagePath: WinRT's StorageFile rejects a path
@@ -110,7 +111,7 @@ function Invoke-OcrProvider {
         [Parameter(Mandatory)] [string]$ImagePath
     )
     $provider = & $script:OcrProviderRegistry.Get $Name
-    if (-not $provider) { throw "OCR provider '$Name' is not registered." }
+    if (-not $provider) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_30370fb77a74bcc8' -Arguments @{ name = "$Name" }) }
     return (& $provider.Invoke $ImagePath)
 }
 
@@ -247,7 +248,7 @@ function Invoke-AllEnabledOcr {
             $results[$name] = Invoke-OcrProvider -Name $name -ImagePath $ImagePath
         } catch {
             $ocrErr = $_
-            Write-Warning "OCR provider '$name' failed: $ocrErr"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_73d10a49fd4c1b71' -Arguments @{ name = "$name"; ocrErr = "$ocrErr" })
             $results[$name] = ''
             # Structured failure signal so a remediator routes on
             # `event=ocr_provider_failed` (vs the silent empty-string
@@ -614,7 +615,7 @@ function Start-WinRtOcrWorker {
     if ($script:WinRtOcrWorker -and -not $script:WinRtOcrWorker.HasExited) {
         return $script:WinRtOcrWorker
     }
-    if (-not $PSCmdlet.ShouldProcess('powershell.exe', 'Spawn persistent WinRT OCR worker')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess('powershell.exe', (Format-YurunaOperatorMessage -Key 'runner.operator_abd1cb1d73ac3d65'))) { return $null }
     $script:WinRtOcrWorker = $null
     $scriptFile = Get-WinRtOcrWorkerScriptPath
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -680,7 +681,7 @@ function Stop-WinRtOcrWorker {
     param()
     $w = $script:WinRtOcrWorker
     if (-not $w) { return }
-    if (-not $PSCmdlet.ShouldProcess("PID $($w.Id)", 'Stop WinRT OCR worker')) { return }
+    if (-not $PSCmdlet.ShouldProcess("PID $($w.Id)", (Format-YurunaOperatorMessage -Key 'runner.operator_47b6aec9bf18e688'))) { return }
     $script:WinRtOcrWorker = $null
     try {
         if (-not $w.HasExited) {
@@ -821,7 +822,7 @@ function Invoke-WinRtOcr {
             # to ErrorRecord alone can throw with an empty detail. Join whatever is
             # present so the failure is always diagnosable.
             $detail  = (@($errText, $text) | Where-Object { $_ }) -join "`n"
-            throw "WinRT OCR failed (exit $exitCode): $detail"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_aebd04afebf25aaf' -Arguments @{ exitCode = "$exitCode"; detail = "$detail" })
         }
         # powershell.exe -File exits 0 even when the script it ran threw, so the
         # exit code alone cannot separate a blank screen from a helper that never
@@ -832,7 +833,7 @@ function Invoke-WinRtOcr {
         # no ocr_provider_failed event is raised, and anything waiting for that
         # console to change waits out its whole budget against a dead reader.
         if (-not $text -and $errText) {
-            throw "WinRT OCR read no text and reported: $errText"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_8ab33e8dd3c14ea8' -Arguments @{ errText = "$errText" })
         }
         return $text
     } finally {
@@ -997,7 +998,15 @@ request.recognitionLanguages = ["en-US"]
 let handler = VNImageRequestHandler(cgImage: cleanCG)
 try handler.perform([request])
 
-guard let observations = request.results, !observations.isEmpty else { exit(0) }
+// VNRecognizeTextRequest.results is typed [VNRecognizedTextObservation]? by some
+// SDKs and [Any]? by others, so the element type cannot be relied on at compile
+// time. Erasing each element to Any before the conditional cast compiles against
+// both spellings: cast straight from the array element and the compiler either
+// rejects it ("value of type 'Any' has no member 'boundingBox'") or flags it as a
+// cast that does nothing, depending on which SDK is in front of it.
+guard let rawResults = request.results, !rawResults.isEmpty else { exit(0) }
+let observations = rawResults.compactMap { ($0 as Any) as? VNRecognizedTextObservation }
+guard !observations.isEmpty else { exit(0) }
 
 // Sort top-to-bottom, group into rows, then left-to-right within each row.
 struct TextFragment {
@@ -1013,6 +1022,11 @@ for obs in observations {
     let topY = 1.0 - b.origin.y - b.size.height
     fragments.append(TextFragment(text: cand.string, x: b.origin.x, y: topY, h: b.size.height))
 }
+// An observation carrying no candidate string is skipped above, so a frame the
+// recognizer saw text in can still leave nothing to lay out. The median-height and
+// first-row reads below both index into these arrays unconditionally, which traps
+// on an empty one -- the same "no text on screen" answer the guards above give.
+guard !fragments.isEmpty else { exit(0) }
 fragments.sort { $0.y < $1.y }
 
 let heights = fragments.map { $0.h }.sorted()
@@ -1219,7 +1233,7 @@ function Invoke-MacVisionOcr {
         $output = & $binPath $ImagePath 2>&1
         if ($LASTEXITCODE -ne 0) {
             $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-            throw "Vision OCR failed: $errMsg"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0d9384b17d6408a3' -Arguments @{ errMsg = "$errMsg" })
         }
         return ($output | Where-Object { $_ -is [string] }) -join "`n"
     }
@@ -1232,7 +1246,7 @@ function Invoke-MacVisionOcr {
         $output = & swift $swiftFile $ImagePath 2>&1
         if ($LASTEXITCODE -ne 0) {
             $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-            throw "Vision OCR failed: $errMsg"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0d9384b17d6408a3' -Arguments @{ errMsg = "$errMsg" })
         }
         return ($output | Where-Object { $_ -is [string] }) -join "`n"
     } finally {

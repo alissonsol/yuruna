@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,10 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.ProductGlobalization.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
+Import-Module (Join-Path $here 'Test.Catalog.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
@@ -456,8 +458,19 @@ Describe 'the shipped board renders the project locale-map result' {
             'the assignment failure detail escaped its bidi isolate'
 
         $hostsDom = Invoke-PoolPseudoPage -Locale 'qps-Ploc' -Direction 'ltr' -FullDocument
-        Assert-True ($hostsDom.Contains('Aggregator unavailable (' + $start + 'aggregate  spoof' + $end +
-                '); control state is unknown. Moving hosts still works.')) `
+        $expectedFailure = Format-CatalogMessage -Key 'pool.aggregator_unavailable_value1_control_state_is_unknown_moving_hos' `
+            -Arguments @{ value1 = ([string]$start + 'aggregate  spoof' + $end) } -Locale 'qps-Ploc'
+        Assert-True ($hostsDom.Contains($expectedFailure)) `
             'the hosts aggregator failure detail escaped its bidi isolate'
+    }
+}
+
+Describe 'product globalization acceptance' {
+    It 'globalization acceptance: every pool and aggregator state' {
+        Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/extension/ui-pages.test.js'
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/pool-aggregator-service'
+    }
+    It 'globalization acceptance: all framework project compatibility pairs' {
+        Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension/pool-control-service'
     }
 }

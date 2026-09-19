@@ -45,6 +45,17 @@ holding the current artifact stops immediately, a host that needs bytes takes
 them from the LAN, and anything else falls back to the publisher path with the
 same output and exit codes as a lab that runs no agent.
 
+The Go daemon (image pool over the pool share, freshness scanner,
+single-flight downloads, embedded web UI) lives under
+[`server/`](../test/extension/download-agent-service/server/) inside the
+extension. The extension's own `default.psm1` exposes the host-side cmdlet
+vocabulary shared across extension areas: `Get-DownloadAgentServiceInfo`
+returns the uniform status hashtable, currently a stub whose flags stay
+`$false` until host-side status probing against a running agent VM is wired
+up; `Test-DownloadAgentServiceHost` is the reachability pre-flight a caller
+runs *before* committing to an agent address, so an unreachable agent
+surfaces up front rather than in the middle of a multi-gigabyte fetch.
+
 <a id="4268e4cb-0003"></a>
 
 ## Activating it
@@ -146,6 +157,21 @@ serves committed generations and answers metadata, but defers downloads to the
 holder and reports `leaseHolder` in its status. Correctness never depends on the
 lease -- generation-addressed storage makes concurrent writers safe on its own;
 the lease only makes duplicate work rare.
+
+**Operational state** -- `audit.jsonl` (one line per unlock and pool
+mutation) and `status.json` (last action, counters, health, heartbeat) --
+survives a service restart because both live on the pool share rather than
+inside the disposable VM. When no state directory is configured the store is
+an inert no-op, so unit tests and a pool-less bring-up run without a NAS. A
+write failure there is recorded in the status's health field and never blocks
+the mutation itself: losing the audit trail is strictly better than refusing
+to serve images because the share went read-only. Internally the store holds
+two separate locks rather than one: the mutex guarding the in-memory snapshot
+is never held across a file operation, because `/healthz` reads that snapshot
+and the launcher polls `/healthz` to decide the daemon is up -- a lock held
+across a CIFS write to a hung NAS would hang the one endpoint whose entire
+purpose is to keep answering while the share is sick. A second lock
+serializes the writes themselves.
 
 <a id="4268e4cb-0005"></a>
 
@@ -625,6 +651,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

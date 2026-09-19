@@ -12,16 +12,10 @@ import (
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
-// mcpTools builds this daemon's MCP surface.
-//
-// Every tool calls the SAME internal function its HTTP route calls. That is the
-// whole rule: MCP is a second way in, never a second implementation, so there
-// is one answer to "what does this proxy report" and one answer to "who may
-// flip a switch" rather than one per protocol.
-//
-// The mutating pair inherits both refusals it already has over HTTP: the
-// lab-token gate in front, and the remote-mode 501 underneath, which arrives
-// as a ReasonError carrying the same caching-proxy-remote-readonly token.
+// mcpTools builds this daemon's MCP surface. See
+// ../../../docs/extensions-api.md#mcp-endpoints and
+// ../../../docs/extensions-api.md#what-a-tool-may-do-and-who-decides
+// for the shared-implementation rule and the remote-mode refusal it inherits. -- mcp.go
 func (d *daemon) mcpTools() *mcp.Registry {
 	reg := mcp.NewRegistry()
 	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)

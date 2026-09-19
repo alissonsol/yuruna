@@ -48,6 +48,32 @@
     finished = true;
     marker.ready = true;
   }
+  // Opt-in collection times application rendering only; callbacks keep their
+  // return values and exceptions when measurement is disabled or unavailable.
+  marker.measure = function (page, state, callback) {
+    var clock = window.performance;
+    if (window.YurunaMeasureRenders !== true || !clock || typeof clock.now !== 'function') {
+      return callback();
+    }
+    var start;
+    try { start = clock.now(); } catch (unavailable) { return callback(); }
+    if (typeof start !== 'number' || !isFinite(start) || start < 0) { return callback(); }
+    var result = callback();
+    var elapsed;
+    try { elapsed = clock.now() - start; } catch (unavailableEnd) { return result; }
+    if (typeof elapsed === 'number' && isFinite(elapsed) && elapsed >= 0) {
+      var queue = window.YurunaRenderMeasurements;
+      if (!queue || queue.schema !== 'yuruna.render-measurements/v1' || !Array.isArray(queue.samples)) {
+        queue = window.YurunaRenderMeasurements = { schema: 'yuruna.render-measurements/v1', samples: [] };
+      }
+      queue.render = function () { return marker.measure(page, state, callback); };
+      var element = window.document && window.document.documentElement;
+      var locale = window.YurunaI18n ? window.YurunaI18n.locale() : element && element.getAttribute('lang');
+      queue.samples.push({ milliseconds: elapsed, locale: locale || marker.locale, page: page, state: state });
+      if (queue.samples.length > 1000) { queue.samples.shift(); }
+    }
+    return result;
+  };
   marker.hold = function (name) { if (!finished) { waiting[name] = true; } };
   marker.release = function (name) { delete waiting[name]; publish(); };
   marker.mark = function (page, state) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,7 @@ param(
 # all three Remove-OrphanedVMFiles.ps1 scripts share one routing path
 # and one quiet-flag contract (Set-VMCleanupQuiet) -- a change to how
 # -Quiet is honored lands in one place rather than three.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $_repoRoot      = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $_vmCleanupMod  = Join-Path $_repoRoot 'host/modules/Yuruna.VMCleanup.psm1'
 Import-Module -Name $_vmCleanupMod -Force
@@ -79,13 +80,13 @@ if (Test-Path $_testHost) {
 # --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
-Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_f3adc201e5fa38f4')
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
-Write-CleanupMessage "  This script deletes VM directories under ~/yuruna/vms/"
-Write-CleanupMessage "  that are NOT registered with libvirt."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_cc667d1ef7c4306b')
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_184c1b1b54f3870b')
 Write-CleanupMessage ""
-Write-CleanupMessage "  THIS CANNOT BE UNDONE."
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d506f23d4fcc7fa4')
 Write-CleanupMessage ""
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
@@ -93,13 +94,13 @@ Write-CleanupMessage ""
 # --- REGION: Scan for VM artifacts
 $vmRoot = Join-Path $HOME 'yuruna/vms'
 if (-not (Test-Path -LiteralPath $vmRoot)) {
-    Write-CleanupMessage "No VM directory at '$vmRoot'. Nothing to scan."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_20ed766361c51090' -Arguments @{ vmRoot = "$vmRoot" })
     exit 0
 }
 
 # --- REGION: Check prerequisites
 if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
-    Write-Error "virsh not found. Install libvirt-clients (apt-get install libvirt-clients)."
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6f88583aeb61d648')
     exit 1
 }
 
@@ -108,7 +109,7 @@ $virshUri = 'qemu:///system'
 # --- REGION: Enumerate registered VMs
 $virshOutput = & virsh --connect $virshUri list --all --name 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "virsh list failed (is libvirtd running?). Output: $virshOutput"
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_477902afa81ff4c0' -Arguments @{ virshOutput = "$virshOutput" })
     exit 1
 }
 $registered = @{}
@@ -117,12 +118,12 @@ foreach ($n in $virshOutput) {
     if ($name) { $registered[$name] = $true }
 }
 
-Write-CleanupMessage "libvirt registered VMs: $($registered.Count)"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_d081eb7e3c3452a0' -Arguments @{ count = "$($registered.Count)" })
 Write-CleanupMessage ""
 
 # --- REGION: List registered VMs and their associated files
 if ($registered.Count -gt 0) {
-    Write-CleanupMessage "Currently registered VMs and their on-disk artifacts:"
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_309174d61e003200')
     Write-CleanupMessage ""
     foreach ($vmName in ($registered.Keys | Sort-Object)) {
         $vmDir = Join-Path $vmRoot $vmName
@@ -134,7 +135,7 @@ if ($registered.Count -gt 0) {
                 Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
             }
         } else {
-            Write-CleanupMessage "    (no artifact directory under $vmRoot)"
+            Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_47829d777dc4fff8' -Arguments @{ vmRoot = "$vmRoot" })
         }
         Write-CleanupMessage ""
     }
@@ -153,11 +154,11 @@ foreach ($d in $dirs) {
 
 # --- REGION: Delete orphaned VM artifacts
 if ($orphanedItems.Count -eq 0) {
-    Write-CleanupMessage "No orphaned VM directories found. Nothing to clean up."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_0b8ee65b79a09973')
     exit 0
 }
 
-Write-CleanupMessage "The following directories are NOT associated with any registered libvirt domain:"
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_91c56ae74ac1dc10')
 Write-CleanupMessage ""
 $totalSize = [int64]0
 foreach ($item in $orphanedItems) {
@@ -171,15 +172,15 @@ foreach ($item in $orphanedItems) {
     }
 }
 Write-CleanupMessage ""
-Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_3e2337ab67132732' -FormatValues (($totalSize / 1GB)) -FormatBindings @{ gB = '0:N2' })
 Write-CleanupMessage ""
 
 if ($Force) {
-    Write-CleanupMessage "Force mode enabled -- skipping confirmation."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_7fe1c2acfba18375')
 } else {
-    $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
+    $confirmation = Read-Host (Format-YurunaOperatorMessage -Key 'host.operator_67b2df91dc3bcc59')
     if ($confirmation -ne "YES") {
-        Write-CleanupMessage "Operation canceled. No files were deleted."
+        Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_ac15f0cb601d9a5f')
         exit 0
     }
 }
@@ -207,7 +208,7 @@ foreach ($item in $orphanedItems) {
             $env:LC_MESSAGES = $priorMessages
         }
         if ($dominfoExit -eq 0) {
-            Write-Warning "  Skipped: $($item.Path) -- domain '$($item.Name)' is registered with libvirt. Remove it first."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7a41071119739fdb' -Arguments @{ path = "$($item.Path)"; name = "$($item.Name)" })
             $errors++
             continue
         }
@@ -216,14 +217,14 @@ foreach ($item in $orphanedItems) {
         # then would destroy a live VM's disk. Require the not-found signature before deleting.
         $dominfoText = ($dominfoOutput | Out-String)
         if ($dominfoText -notmatch 'Domain not found|failed to get domain') {
-            Write-Warning "  Skipped: $($item.Path) -- could not confirm '$($item.Name)' is unregistered (virsh dominfo exit ${dominfoExit}): $($dominfoText.Trim())"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_725ce223025976c2' -Arguments @{ path = "$($item.Path)"; name = "$($item.Name)"; dominfoExit = "${dominfoExit}"; trim = "$($dominfoText.Trim())" })
             $errors++
             continue
         }
         Remove-Item -Path $item.Path -Recurse -Force -ErrorAction Stop
         Write-CleanupMessage "  Deleted: $($item.Path)"
     } catch {
-        Write-Warning "  Failed to delete: $($item.Path) - $_"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_33915575638287d2' -Arguments @{ path = "$($item.Path)"; value = "$_" })
         $errors++
     }
 }
@@ -231,7 +232,7 @@ foreach ($item in $orphanedItems) {
 # --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-CleanupMessage "Cleanup complete. All orphaned directories deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_4d6f149ebebc1e87')
 } else {
-    Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-CleanupMessage (Format-YurunaOperatorMessage -Key 'host.operator_42dbc0a404948dc9' -Arguments @{ errors = "$errors" })
 }

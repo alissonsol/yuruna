@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,6 +164,7 @@ param(
     [switch]$Force
 )
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
@@ -231,8 +232,7 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # shell to LOOK at the plan is what makes an operator skip the preview and run
 # the real thing first.
 if ($IsWindows -and -not $WhatIfPreference -and -not (Test-IsAdministrator)) {
-    Write-Error ('Convert-ToPoolWorker needs an elevated session: the sync writes the hosts file and the teardown removes VMs. ' +
-                 'Re-run from an elevated PowerShell (Start-Process pwsh -Verb RunAs), or add -WhatIf to preview from here.')
+    Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_b42ca86b5468a010'))
     exit 1
 }
 
@@ -257,11 +257,10 @@ $reference = $null
 try {
     $reference = Get-ConfigSyncReferenceConfig -ReferenceHost $ReferenceHost -Port $StatusPort
 } catch {
-    Write-Error ("$ReferenceHost is not serving its configuration on :$StatusPort ($($_.Exception.Message)). " +
-                 'Start the status service there (pwsh test/service/Start-StatusService.ps1) and re-run.')
+    Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_0b5b89a98217c515' -Arguments @{ referenceHost = "$ReferenceHost"; statusPort = "$StatusPort"; message = "$($_.Exception.Message)" }))
     exit 1
 }
-Write-Information "  Reference host $ReferenceHost is serving its configuration." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_492e3907acfd538a' -Arguments @{ referenceHost = "$ReferenceHost" }) -InformationAction Continue
 
 # The token is resolved here rather than left to the sync, because THIS script
 # treats its absence as fatal and the sync does not. Order matches the sync's:
@@ -274,14 +273,10 @@ if (-not $token) {
 }
 if (-not $token) {
     Write-Error (
-        "This host holds no internal authentication key, so the credentials for the lab's shares cannot be fetched from $ReferenceHost.`n" +
-        "Without them the conversion would leave the passwords this machine minted for the shares it served ITSELF -- which the lab's`n" +
-        "storage has never seen -- and the mount would fail later with a credential error.`n" +
-        "Enroll first:  pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the Yuruna hosts dashboard>`n" +
-        "or pass the raw key:  -InternalAuthKey '<value>'")
+        (Format-YurunaOperatorMessage -Key 'runner.operator_12c561c4673122c2' -Arguments @{ referenceHost = "$ReferenceHost" }))
     exit 1
 }
-Write-Information "  Internal authentication key available (from $tokenSource)." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8d497fa5c51c5694' -Arguments @{ tokenSource = "$tokenSource" }) -InformationAction Continue
 
 # A reference that cannot serve credentials fails the run for the same reason:
 # the sync would degrade to prompting, and under -NonInteractive to keeping the
@@ -298,14 +293,14 @@ if ($refNs -is [System.Collections.IDictionary]) {
 foreach ($user in $refUsers) {
     $capability = Test-ConfigSyncCredentialEndpoint -ReferenceHost $ReferenceHost -Port $StatusPort -User $user
     if (-not $capability.Ready) {
-        Write-Error "The '$user' credential cannot be fetched from the reference host -- $($capability.Error)"
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_05c7282e24926d99' -Arguments @{ user = "$user"; error = "$($capability.Error)" })
         exit 1
     }
 }
 if ($refUsers.Count -gt 0) {
-    Write-Information "  $ReferenceHost can serve the credentials for: $($refUsers -join ', ')." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c4039a9cab875775' -Arguments @{ referenceHost = "$ReferenceHost"; join = "$($refUsers -join ', ')" }) -InformationAction Continue
 } else {
-    Write-Information "  $ReferenceHost names no networkStorage users; this host will join without shared storage." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_005f0cdc10b5b3bf' -Arguments @{ referenceHost = "$ReferenceHost" }) -InformationAction Continue
 }
 
 # Same $WhatIfPreference suppression, and for the same reason, as the imports
@@ -334,7 +329,7 @@ if ($KeepCachingProxy) {
     }
 }
 $toRetire = @($plan | Where-Object { $_.Action -eq 'retire' })
-Write-Information '  Local service VMs:' -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_48b519cc6b1730fe') -InformationAction Continue
 foreach ($item in $plan) {
     $note = switch ($item.Action) {
         'retire'      { "will be retired (state: $($item.State))" }
@@ -353,14 +348,14 @@ $exemptArea = if ($KeepCachingProxy) { @(Get-PoolWorkerCachingProxyArea) } else 
 $runtimeDir = ''
 try { $runtimeDir = Initialize-YurunaRuntimeDir } catch { Write-Verbose "runtime dir: $($_.Exception.Message)" }
 if (-not $runtimeDir) {
-    Write-Warning 'The runtime directory could not be resolved, so what this host advertises to the pool cannot be read -- it may keep claiming services it no longer runs.'
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d032f928223f6a19')
 }
 $adPlan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea (Get-PoolWorkerAdvertisedArea -RuntimeDir $runtimeDir) -ExemptArea $exemptArea)
 $toClear = @($adPlan | Where-Object { $_.Action -eq 'clear' })
 if ($adPlan.Count -eq 0) {
-    Write-Information '  Extension advertisements: none; this host claims no service.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6f5475cfe0463b76') -InformationAction Continue
 } else {
-    Write-Information '  Extension advertisements:' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2db0e26ab514e113') -InformationAction Continue
     foreach ($item in $adPlan) {
         $note = if ($item.Action -eq 'clear') { 'will be withdrawn' } else { 'kept (-KeepCachingProxy)' }
         Write-Information "    $($item.Area) -- $note" -InformationAction Continue
@@ -391,42 +386,42 @@ try {
 }
 $servedShare = @(Get-PoolWorkerServedShare -Tier (Get-PoolWorkerStorageTier -Config $preflightConfig))
 if ($servedShare.Count -eq 0) {
-    Write-Information '  Storage this machine serves: none; it already mounts its storage from elsewhere.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5ba9084b1d879b87') -InformationAction Continue
 } elseif ($KeepLocalShares) {
-    Write-Information "  Storage this machine serves: $($servedShare -join ', ') -- left published (-KeepLocalShares); only this host's own mounts of them are released." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb02c2b5ad84571f' -Arguments @{ join = "$($servedShare -join ', ')" }) -InformationAction Continue
 } else {
-    Write-Information "  Storage this machine serves: $($servedShare -join ', ') -- the shares and their accounts will be withdrawn (the data is kept)." -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f2fc8e0c8ff8ad11' -Arguments @{ join = "$($servedShare -join ', ')" }) -InformationAction Continue
 }
 
 # --- REGION: 1b. Consent
 if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
     if (-not (Test-YurunaCanPrompt)) {
-        Write-Error 'This session cannot prompt and neither -Force nor -NonInteractive was passed; nothing was changed.'
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e00f34b9d984deb1')
         exit 1
     }
     Write-Information '' -InformationAction Continue
-    Write-Information "This converts this machine from a standalone host into a worker in ${ReferenceHost}'s lab:" -InformationAction Continue
-    Write-Information "  * test.config.yml is replaced with ${ReferenceHost}'s, converted for this host (the previous file is backed up)" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_128daa13cdfaa03b' -Arguments @{ referenceHost = "${ReferenceHost}" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_48a02c490af1798a' -Arguments @{ referenceHost = "${ReferenceHost}" }) -InformationAction Continue
     if ($toRetire.Count -gt 0) {
-        Write-Information "  * $($toRetire.Count) local service VM(s) are DELETED along with their disks: $(($toRetire | ForEach-Object { $_.DisplayName }) -join ', ')" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0d13c4e9be217ef7' -Arguments @{ count = "$($toRetire.Count)"; join = "$(($toRetire | ForEach-Object { $_.DisplayName }) -join ', ')" }) -InformationAction Continue
     }
     if ($toClear.Count -gt 0) {
-        Write-Information "  * this host stops advertising $($toClear.Count) service(s) to the pool: $(($toClear | ForEach-Object { $_.Area }) -join ', ')" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b91e6b509e4aa1d' -Arguments @{ count = "$($toClear.Count)"; join = "$(($toClear | ForEach-Object { $_.Area }) -join ', ')" }) -InformationAction Continue
     }
     if ($servedShare.Count -gt 0 -and -not $KeepLocalShares) {
-        Write-Information "  * the SMB share(s) $($servedShare -join ', ') and their storage accounts are withdrawn, and this host mounts the lab's storage instead" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b8c9d8a96559ab86' -Arguments @{ join = "$($servedShare -join ', ')" }) -InformationAction Continue
     } elseif ($servedShare.Count -gt 0) {
-        Write-Information "  * the SMB share(s) $($servedShare -join ', ') stay published (-KeepLocalShares), but this host's own mounts of them are released so the lab's storage can take their place" -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c552ef08d35b50bd' -Arguments @{ join = "$($servedShare -join ', ')" }) -InformationAction Continue
     }
-    Write-Information "  * the networkStorage vault entries are overwritten with ${ReferenceHost}'s" -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9e0394d14d46767b' -Arguments @{ referenceHost = "${ReferenceHost}" }) -InformationAction Continue
     Write-Information '' -InformationAction Continue
-    Write-Information 'No data is deleted. Cycle archives, stash artifacts, the lab vault and the' -InformationAction Continue
-    Write-Information 'pool-intent repository under the storage root are left exactly as they are;' -InformationAction Continue
-    Write-Information 'the command that reclaims that disk is printed at the end for you to run.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ab7b14042d87e157') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_051583e964e5ccb5') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_93d9eec8ac1ddbb1') -InformationAction Continue
     Write-Information '' -InformationAction Continue
     $answer = (Read-Host 'Proceed? [y/N]').Trim()
     if ($answer -notmatch '^(y|yes)$') {
-        Write-Information 'Canceled; nothing was changed.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2b91fa5b6a130260') -InformationAction Continue
         exit 0
     }
 }
@@ -478,8 +473,7 @@ if ($PSBoundParameters.ContainsKey('Verbose')) { $syncArgs['Verbose'] = $true }
 & $syncScript @syncArgs
 $syncExit = [int]$LASTEXITCODE
 if ($syncExit -ne 0) {
-    Write-Error ("Sync-HostConfiguration exited $syncExit; the conversion stopped before retiring anything. " +
-                 'This host still has its standalone services and, if the sync wrote a config, its backup at test/test.config.yml.backup.')
+    Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_ac5925b7ec6e9ced' -Arguments @{ syncExit = "$syncExit" }))
     exit 1
 }
 
@@ -505,7 +499,7 @@ try {
 # configuration naming anyone else's.
 Write-ConvertStep -Title 'Retire the local service VMs'
 if ($toRetire.Count -eq 0) {
-    Write-Information '  Nothing to retire.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7b3131e52bc106ed') -InformationAction Continue
 }
 $teardown = @(Invoke-PoolWorkerServiceTeardown -TestRoot $TestRoot -Plan $plan)
 foreach ($result in $teardown) {
@@ -522,7 +516,7 @@ $teardownFailed = @($teardown | Where-Object { $_.Action -in @('failed', 'unreti
 Write-ConvertStep -Title 'Stop announcing the retired services'
 $adPlan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea (Get-PoolWorkerAdvertisedArea -RuntimeDir $runtimeDir) -ExemptArea $exemptArea)
 if ($adPlan.Count -eq 0) {
-    Write-Information '  Nothing advertised; this host claims no service.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e4ef019adc61cf69') -InformationAction Continue
 }
 foreach ($outcome in @(Clear-PoolWorkerAdvertisement -Plan $adPlan -RepoRoot $RepoRoot -RuntimeDir $runtimeDir -HostType (Get-HostType))) {
     Write-Information "  $($outcome.Area) -> $($outcome.Action) ($($outcome.Message))" -InformationAction Continue
@@ -538,14 +532,14 @@ if (Test-Path -LiteralPath $ConfigPath) {
         Import-Module powershell-yaml -ErrorAction Stop
         $config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
     } catch {
-        Write-Warning "Could not read $ConfigPath ($($_.Exception.Message)); the storage handover, alias cleanup and verification are limited."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a68e62c0387fe161' -Arguments @{ configPath = "$ConfigPath"; message = "$($_.Exception.Message)" })
     }
 }
 
 Write-ConvertStep -Title 'Hand the storage over to the lab'
 $tiers = @(Get-PoolWorkerStorageTier -Config $config)
 if ($tiers.Count -eq 0) {
-    Write-Information '  The synced configuration names no networkStorage tier; nothing to hand over.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d37c37886aaefc65') -InformationAction Continue
 } else {
     # Order is load-bearing, and each step is the precondition of the next.
     #
@@ -556,27 +550,26 @@ if ($tiers.Count -eq 0) {
     # has just been withdrawn can wedge on I/O that never completes.
     $released = @(Clear-PoolWorkerSupersededMount -Tier $tiers)
     if ($released.Count -eq 0) {
-        Write-Information '  No mount of this host''s own storage is standing in the way.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a1491541b62120ad') -InformationAction Continue
     }
     foreach ($item in $released) {
         Write-Information "  $($item.MountPoint) [$($item.Remote)] -> $($item.Action) ($($item.Reason))" -InformationAction Continue
     }
     $releaseFailed = @($released | Where-Object { $_.Action -eq 'failed' })
     foreach ($item in $releaseFailed) {
-        Write-Warning ("The mount at $($item.MountPoint) could not be released, so the '$($item.Kind)' tier will not mount: " +
-                       "until it goes, its SMB session keeps answering for that server name. Unmount it by hand (macOS: diskutil unmount force '$($item.MountPoint)').")
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_18e115dd3f5303d5' -Arguments @{ mountPoint = "$($item.MountPoint)"; kind = "$($item.Kind)"; mountPoint2 = "$($item.MountPoint)" }))
     }
 
     # THEN stop serving. Withdrawing the shares while a copy of each is still
     # reachable under the same name is what leaves a machine mounting itself.
     if ($KeepLocalShares) {
-        Write-Information '  -KeepLocalShares: the shares and their accounts stay published for the hosts that still mount them.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1cb00ee9f6034d6e') -InformationAction Continue
     } elseif ($servedShare.Count -eq 0) {
-        Write-Information '  This machine publishes no lab share; nothing to withdraw.' -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_271f3ed69f32cd7c') -InformationAction Continue
     } else {
         $withdrawal = Invoke-PoolWorkerShareWithdrawal -TestRoot $TestRoot
         if ($withdrawal.Action -in @('failed', 'missing')) {
-            Write-Warning "The shares this machine serves were NOT withdrawn: $($withdrawal.Message). It keeps answering for $($servedShare -join ', ') under the same names the lab's storage uses."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_65802ea5d5be8110' -Arguments @{ message = "$($withdrawal.Message)"; join = "$($servedShare -join ', ')" })
         } else {
             Write-Information "  shares + accounts -> $($withdrawal.Action) ($($withdrawal.Message))" -InformationAction Continue
         }
@@ -588,11 +581,11 @@ if ($tiers.Count -eq 0) {
     $hostId = ''
     try { $hostId = [string](Get-YurunaHostId) } catch { Write-Verbose "host id: $($_.Exception.Message)" }
     if (-not $hostId) {
-        Write-Warning "This host's id (runtime/host.uuid) could not be resolved, so the pool tier's per-host destination folder is not pre-created; the first replication creates it."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_105801cd48a8b5ae')
     }
     foreach ($item in @(Connect-PoolWorkerStorage -Tier $tiers -HostId $hostId)) {
         if ($item.Action -eq 'failed') {
-            Write-Warning "The $($item.Kind) tier did not mount: $($item.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a40a19ce8bb36556' -Arguments @{ kind = "$($item.Kind)"; message = "$($item.Message)" })
         } else {
             Write-Information "  $($item.Kind) storage -> $($item.Message)" -InformationAction Continue
         }
@@ -632,14 +625,14 @@ foreach ($outcome in @(Remove-PoolWorkerAlias -RepoRoot $RepoRoot -Plan $aliasPl
 # perfectly valid worker configuration while behaving like a standalone.
 Write-ConvertStep -Title 'Verify this host is now a pool worker'
 if ($WhatIfPreference) {
-    Write-Information '  -WhatIf: nothing was changed, so there is no end state to verify.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e45625b8aae24091') -InformationAction Continue
     exit 0
 }
 $validationExit = 0
 if ($SkipValidation) {
-    Write-Information '  -SkipValidation: test/Test-Config.ps1 was not run.' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_48c2def57446e5b5') -InformationAction Continue
 } else {
-    Write-Information '  Validating the converted host (test/Test-Config.ps1) ...' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f91fa6f03cfc81e6') -InformationAction Continue
     & pwsh -NoProfile -File (Join-Path $TestRoot 'Test-Config.ps1')
     $validationExit = [int]$LASTEXITCODE
     if ($validationExit -ne 0) {
@@ -677,10 +670,10 @@ foreach ($checked in $verdict.Checked) { Write-Information "  checked: $checked"
 $took = '{0:N1}s' -f $elapsed.Elapsed.TotalSeconds
 Write-Information '' -InformationAction Continue
 if (-not $verdict.Ready) {
-    Write-Warning "This host is NOT yet a pool worker (after ${took}):"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_46a2f78e87cff704' -Arguments @{ took = "${took}" })
     foreach ($problem in $verdict.Problem) { Write-Warning "  * $problem" }
     if ($teardownFailed.Count -gt 0) {
-        Write-Warning 'A service teardown did not complete; re-running this script is safe and resumes from where it stopped.'
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ff67962efb5a7e60')
     }
     exit 1
 }
@@ -689,12 +682,11 @@ if (-not $verdict.Ready) {
 # verdict above: the conversion converged, and what is left is a configuration
 # problem whose reasons Test-Config already printed in full.
 if ($validationExit -ne 0) {
-    Write-Warning ("This host is a worker in ${ReferenceHost}'s lab (after ${took}), but test/Test-Config.ps1 still reports failures " +
-                   'the cycle gate will refuse to start on. Fix those, then re-run: pwsh test/Test-Config.ps1')
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_4c525448b228ec4a' -Arguments @{ referenceHost = "${ReferenceHost}"; took = "${took}" }))
     exit 1
 }
 
-Write-Information "Done in ${took}: this host is a worker in ${ReferenceHost}'s lab." -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_539a739cfc7d9841' -Arguments @{ took = "${took}"; referenceHost = "${ReferenceHost}" }) -InformationAction Continue
 Write-Information '' -InformationAction Continue
 Write-Information 'Next:' -InformationAction Continue
 if (-not $KeepLocalShares -and $servedShare.Count -gt 0) {

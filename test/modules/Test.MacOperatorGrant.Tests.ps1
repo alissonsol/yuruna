@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,8 @@ BeforeAll {
     $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    Import-Module (Join-Path $here 'Test.Catalog.psm1') -Global -DisableNameChecking
+    Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
     Import-Module (Join-Path $here 'Test.HostCondition.Mac.psm1') -Force -DisableNameChecking
 
     $script:MacModulePath   = Join-Path $here 'Test.HostCondition.Mac.psm1'
@@ -100,6 +102,46 @@ Describe 'the operator-grant registry' {
 }
 
 Describe 'the instruction renderer' {
+    It 'renders named application arguments without parsing translated format strings' {
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            foreach ($locale in @('en-US', 'qps-Ploc')) {
+                & $adapter { param($tag) $script:OperatorContext = [pscustomobject]@{ ResolvedTag = $tag } } $locale
+                foreach ($grant in @(Get-MacOperatorGrant)) {
+                    $grant.EnableStep | Should -BeOfType ([scriptblock])
+                    $application = 'Terminal {0} ' + [char]0x5916 + [char]0x90E8 + ' <detail>'
+                    $step = & $grant.EnableStep $application
+                    $step | Should -Match ([regex]::Escape($application))
+                    if ($locale -eq 'en-US') {
+                        $expected = if ($grant.Id -eq 'AutomationUtm') {
+                            "Find $application in the list and turn ON the UTM row underneath it. This pane has no + button -- an application appears in it only after it has asked once, which is exactly what the first utmctl call does."
+                        } else {
+                            "Add and enable $application -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing"
+                        }
+                        $step | Should -BeExactly $expected
+                    } else { $step | Should -Match '^\[' }
+                }
+            }
+        } finally { & $adapter { param($context) $script:OperatorContext = $context } $priorContext }
+    }
+
+    It 'localizes the automation title while preserving grant identity and system pane selector' {
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'en-US' } }
+            $english = @(Get-MacOperatorGrant -Id AutomationUtm)[0]
+            $english.Title | Should -BeExactly 'Automation -> UTM'
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'qps-Ploc' } }
+            $pseudo = @(Get-MacOperatorGrant -Id AutomationUtm)[0]
+            $pseudo.Title | Should -Not -BeExactly $english.Title
+            $pseudo.Id | Should -BeExactly 'AutomationUtm'
+            $pseudo.DeepLink | Should -BeExactly 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+            $pseudo.Blocking | Should -BeFalse
+        } finally { & $adapter { param($context) $script:OperatorContext = $context } $priorContext }
+    }
+
     It 'names the pane, the shortcut and the application to enable' {
         foreach ($g in @(Get-MacOperatorGrant)) {
             $full = (Get-MacOperatorGrantInstruction -Grant $g) -join "`n"

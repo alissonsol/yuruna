@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42770e9b-1161-4f72-bdeb-a3f05fc207ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,12 +183,20 @@ function Complete-YurunaRun {
         A non-empty result-manifest hashtable coerces to $true, so a bare
         `if (-Not $result)` would silently take the success branch on a failure
         manifest; this tests the `.success` key via Test-YurunaResultManifestOk. On
-        failure it writes the compact result JSON and the transcript to the success
-        stream (stdout) and exits 1, so bash wrappers using `set -e` observe the
-        non-zero process exit instead of marching on with a missing image / failed
-        deploy (a failed Publish-*List that printed the transcript but exited 0 would
-        surface only later as a `kubectl wait` timeout). On success it writes only a
-        Write-Debug pointer to the transcript.
+        failure it writes the transcript and then the compact result JSON to the
+        success stream (stdout) and exits 1, so bash wrappers using `set -e` observe
+        the non-zero process exit instead of marching on with a missing image /
+        failed deploy (a failed Publish-*List that printed the transcript but exited
+        0 would surface only later as a `kubectl wait` timeout). On success it writes
+        only a Write-Debug pointer to the transcript.
+
+        ORDER IS LOAD-BEARING: the result JSON is emitted LAST, after the transcript.
+        Not every consumer keeps all of stdout. A guest driven through its console
+        yields evidence by OCR of the final screenful, so whatever prints last is
+        what survives; an unbounded transcript printed after the JSON scrolls the one
+        line naming the failure clean out of the record, leaving an operator with the
+        tail of a successful-looking transcript and no reason. The transcript is still
+        emitted in full for consumers that do capture all of stdout.
 
         CALL AS A STATEMENT (not `$x = Complete-YurunaRun`): it streams the report to
         stdout and may terminate the process. $Result is intentionally not
@@ -203,8 +211,8 @@ function Complete-YurunaRun {
         [Parameter(Position = 1)][string]$TranscriptFile
     )
     if (-Not (Test-YurunaResultManifestOk $Result)) {
-        Write-Output ($Result | ConvertTo-Json -Depth 4 -Compress)
         Write-Output $(Get-Content -Path $TranscriptFile)
+        Write-Output ($Result | ConvertTo-Json -Depth 4 -Compress)
         exit 1
     }
     Write-Debug "`n-- See transcript with command: Write-Output `$(Get-Content -Path $TranscriptFile)"

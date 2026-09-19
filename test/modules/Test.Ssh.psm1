@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,27 +16,14 @@
 
 #requires -version 7
 
-# SSH-based guest driver. Parallel to the GUI keystroke flow in
-# Test.SequenceEngine.psm1; selected by test.config.yml "keystrokeMechanism"
-# ("GUI"|"SSH", case-insensitive, normalized uppercase by the validator).
-# A per-host ed25519 key pair lives under test/status/ssh/ (runtime,
-# gitignored) and is injected into each guest's cloud-init user-data via
-# SSH_AUTHORIZED_KEY_PLACEHOLDER.
-#
-# Host-key policy: yuruna recreates guests constantly and reuses VM names
-# and NAT-assigned IPs, so every fresh guest presents a different host
-# key on an address that previously had a different one. Every ssh call
-# site MUST pass all three of:
-#   -o StrictHostKeyChecking=no
-#   -o UserKnownHostsFile=/dev/null
-#   -o GlobalKnownHostsFile=/dev/null   (closes the ssh-keyscan-into-
-#                                        /etc/ssh/ssh_known_hosts trap)
-# Microsoft's OpenSSH port accepts /dev/null verbatim, so one line works
-# on every host.
+# SSH-based guest driver, a parallel path to the GUI keystroke flow. See
+# ../../docs/host-io.md#backends-today for the keystrokeMechanism config
+# knob and why host-key checking is disabled. -- Test.Ssh.psm1
 
 # -Global is load-bearing: without it, -Force evicts Test.VMUtility from
 # the runner's session mid-cycle (Start-GuestOS triggers this re-import)
 # and the next New-VM.Resource step crashes on missing Wait-VMRunning.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
 
 # test/modules/Test.Ssh.psm1 -> test/ is one Split-Path up; the SSH key
@@ -98,7 +85,7 @@ The address the successful handshake used.
         [Parameter(Mandatory)][string]$Address
     )
     if (-not (Test-IpAddress $Address)) { return }
-    if (-not $PSCmdlet.ShouldProcess($VMName, "remember proven address $Address")) { return }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_f9b3416b76c9c449' -Arguments @{ address = "$Address" }))) { return }
     $script:ProvenGuestAddress[$VMName] = @{ Address = $Address; AtUtc = (Get-Date).ToUniversalTime() }
 }
 
@@ -144,7 +131,7 @@ Guest to forget. Omit to forget all.
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param([string]$VMName = '')
-    if (-not $PSCmdlet.ShouldProcess(($VMName ? $VMName : 'all guests'), 'forget proven address')) { return }
+    if (-not $PSCmdlet.ShouldProcess(($VMName ? $VMName : (Format-YurunaOperatorMessage -Key 'runner.operator_1caefd7b465819d0')), (Format-YurunaOperatorMessage -Key 'runner.operator_1340687148474f48'))) { return }
     if ($VMName) { $script:ProvenGuestAddress.Remove($VMName) | Out-Null }
     else { $script:ProvenGuestAddress.Clear() }
 }
@@ -167,7 +154,7 @@ authentication fail later with a misleading transport error.
 
     try {
         $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-        if ($null -eq $currentSid) { throw 'the current Windows account has no SID' }
+        if ($null -eq $currentSid) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_6b875a73f815e66a') }
 
         $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
         # Protect without preserving inherited rules, then remove every
@@ -187,20 +174,20 @@ authentication fail later with a misleading transport error.
             [System.Security.AccessControl.AccessControlType]::Allow)
         $acl.AddAccessRule($allow)
 
-        if (-not $PSCmdlet.ShouldProcess($Path, 'Restrict the SSH private-key ACL to the current account SID')) { return }
+        if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_5d665dd5ea6989aa'))) { return }
         Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 
         $written = Get-Acl -LiteralPath $Path -ErrorAction Stop
         if (-not $written.AreAccessRulesProtected) {
-            throw 'access-rule inheritance is still enabled'
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_486dd5400df4805b')
         }
         $writtenOwner = $written.GetOwner([System.Security.Principal.SecurityIdentifier])
         if ($null -eq $writtenOwner -or $writtenOwner.Value -ne $currentSid.Value) {
             $ownerValue = if ($null -eq $writtenOwner) { '<none>' } else { $writtenOwner.Value }
-            throw "the resulting owner SID is $ownerValue, expected $($currentSid.Value)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_249290e3cb220e63' -Arguments @{ ownerValue = "$ownerValue"; value = "$($currentSid.Value)" })
         }
         $rules = @($written.Access)
-        if ($rules.Count -eq 0) { throw 'the resulting ACL has no access rule' }
+        if ($rules.Count -eq 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_23c851299b3a4f8f') }
         foreach ($rule in $rules) {
             $sid = if ($rule.IdentityReference -is [System.Security.Principal.SecurityIdentifier]) {
                 $rule.IdentityReference
@@ -209,15 +196,15 @@ authentication fail later with a misleading transport error.
             }
             if ($rule.IsInherited -or $sid.Value -ne $currentSid.Value -or
                 $rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
-                throw "unexpected access rule for SID $($sid.Value)"
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_4a5aa2a294fb3299' -Arguments @{ value = "$($sid.Value)" })
             }
             $fullControl = [System.Security.AccessControl.FileSystemRights]::FullControl
             if (($rule.FileSystemRights -band $fullControl) -ne $fullControl) {
-                throw "the access rule for SID $($sid.Value) does not grant FullControl"
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_956bc257626cca2e' -Arguments @{ value = "$($sid.Value)" })
             }
         }
     } catch {
-        throw "Could not secure SSH private key '$Path': $($_.Exception.Message)"
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_4fc4598b71d43c23' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -242,7 +229,7 @@ System.String. Absolute path to the private key file.
 
     $sshKeygen = (Get-Command ssh-keygen -ErrorAction SilentlyContinue)?.Source
     if (-not $sshKeygen) {
-        throw "ssh-keygen not found on PATH. Install OpenSSH client."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_92362a2623a29d74')
     }
 
     # Reject keys carrying the legacy-quoting regression: -N '""' passed
@@ -253,8 +240,8 @@ System.String. Absolute path to the private key file.
     if (Test-Path $script:SshKeyPath -PathType Leaf) {
         $probe = & $sshKeygen -y -P '' -f $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Existing yuruna SSH key is not usable with empty passphrase (legacy passphrase-quoting bug). Regenerating."
-            Write-Warning "  ssh-keygen probe output: $($probe | Out-String)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ab42c01570126a5f')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_baf8514ce2f996c8' -Arguments @{ string = "$($probe | Out-String)" })
             Remove-Item -Force $script:SshKeyPath -ErrorAction SilentlyContinue
             Remove-Item -Force "$script:SshKeyPath.pub" -ErrorAction SilentlyContinue
         }
@@ -264,12 +251,12 @@ System.String. Absolute path to the private key file.
         # -N "" = empty passphrase (PowerShell 7 passes "" as a real empty arg).
         & $sshKeygen -t ed25519 -f $script:SshKeyPath -N "" -C "yuruna-test-harness@$env:COMPUTERNAME" -q 2>&1 | Out-Null
         if (-not (Test-Path $script:SshKeyPath -PathType Leaf)) {
-            throw "ssh-keygen failed to create key at $script:SshKeyPath"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d0e5e81b3dcaf9c7' -Arguments @{ sshKeyPath = "$script:SshKeyPath" })
         }
         # Probe the just-created key: catches the legacy quoting regression at creation.
         $probe = & $sshKeygen -y -P '' -f $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw "Newly generated key is not loadable with empty passphrase. ssh-keygen output: $($probe | Out-String)"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_636858bd74711c9e' -Arguments @{ string = "$($probe | Out-String)" })
         }
     }
 
@@ -281,7 +268,7 @@ System.String. Absolute path to the private key file.
     } else {
         $chmodText = & chmod 600 $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw "Could not secure SSH private key '$script:SshKeyPath': chmod exited $LASTEXITCODE ($($chmodText -join ' '))"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0f52ca7e110a77a5' -Arguments @{ sshKeyPath = "$script:SshKeyPath"; lASTEXITCODE = "$LASTEXITCODE"; join = "$($chmodText -join ' ')" })
         }
     }
     return $script:SshKeyPath
@@ -1280,14 +1267,14 @@ System.String. A single shell command line to hand to ssh.
         [Parameter(Mandatory)][AllowEmptyString()][string]$Command
     )
     if ($Token -notmatch '^[A-Za-z0-9._-]+$') {
-        throw "Get-GuestRunWrapperCommand: Token '$Token' must match ^[A-Za-z0-9._-]+$ -- it is interpolated into a shell command line."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_7f5f244997a1c718' -Arguments @{ token = "$Token" })
     }
     if (-not $script:RunSupervisorPath) {
         # test/modules -> test -> repo root -> automation/
         $script:RunSupervisorPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation' -AdditionalChildPath 'yuruna-run.sh'
     }
     if (-not (Test-Path -LiteralPath $script:RunSupervisorPath -PathType Leaf)) {
-        throw "Get-GuestRunWrapperCommand: the run supervisor is missing at '$script:RunSupervisorPath'."
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2316b2b4214772a1' -Arguments @{ runSupervisorPath = "$script:RunSupervisorPath" })
     }
     if (-not $script:RunSupervisorB64) {
         $supervisorBytes = [System.IO.File]::ReadAllBytes($script:RunSupervisorPath)
@@ -1445,7 +1432,7 @@ with a different owner, that is likewise invisible in the exit status.
     if (-not $addressResolved) {
         $proven = Get-ProvenGuestAddress -VMName $VMName
         if ($proven) {
-            Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; trying $proven, where ssh last authenticated to it."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9dd1cd480bd67b50' -Arguments @{ vMName = "$VMName"; proven = "$proven" })
             $address         = $proven
             $addressResolved = $true
         }
@@ -1456,7 +1443,7 @@ with a different owner, that is likewise invisible in the exit status.
     # is occasionally the thing that works. What must not happen is reporting the
     # resulting resolver error as though the guest had run something.
     if (-not $addressResolved) {
-        Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; dialing the bare name as the last route left."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_723670a0cb757294' -Arguments @{ vMName = "$VMName" })
     }
     $cmd = [string]$Command
     # --- REGION: https://yuruna.link/4220a755-003e
@@ -1483,7 +1470,7 @@ with a different owner, that is likewise invisible in the exit status.
                 # entire point -- it is still running and still producing the
                 # output this attach is going to collect -- so waiting for the
                 # guest to kill it would destroy the work and spend 75s doing it.
-                Write-Warning "Invoke-GuestSsh: SSH transport to '$VMName' dropped; re-attaching to detached run '$DetachToken' from line $fromLine (attempt $attempt)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6894dbd9a8e209ac' -Arguments @{ vMName = "$VMName"; detachToken = "$DetachToken"; fromLine = "$fromLine"; attempt = "$attempt" })
                 # A re-attach is the mechanism doing its job, and it is otherwise
                 # invisible: the supervisor keeps its own chatter on stderr so the
                 # transcript stays byte-clean for the pattern matchers, which
@@ -1513,7 +1500,7 @@ with a different owner, that is likewise invisible in the exit status.
                 # plus margin. A guest from an image predating that seed reaps on
                 # the kernel's TCP timeout instead, far outside any wait worth
                 # spending here, which is the case -TransportRetryCount 0 exists for.
-                Write-Warning "Invoke-GuestSsh: SSH transport to '$VMName' dropped; waiting ${script:TransportReapSeconds}s for the guest to reap the dead session, then reconnecting (attempt $attempt/$maxAttempt)."
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39a418c70f35ba4d' -Arguments @{ vMName = "$VMName"; transportReapSeconds = "${script:TransportReapSeconds}"; attempt = "$attempt"; maxAttempt = "$maxAttempt" })
                 Start-Sleep -Seconds $script:TransportReapSeconds
             }
             # Resolve again rather than reusing $address: an endpoint that
@@ -1522,7 +1509,7 @@ with a different owner, that is likewise invisible in the exit status.
             $reResolved = Get-GuestAddress -VMName $VMName
             if ($reResolved -and -not ($reResolved -eq $VMName -and -not (Test-IpAddress $reResolved))) {
                 if ($reResolved -ne $address) {
-                    Write-Warning "Invoke-GuestSsh: '$VMName' answers at $reResolved now (was $address); reconnecting there."
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_69b0df6a07af08a4' -Arguments @{ vMName = "$VMName"; reResolved = "$reResolved"; address = "$address" })
                 }
                 $address         = $reResolved
                 $addressResolved = $true
@@ -1530,7 +1517,7 @@ with a different owner, that is likewise invisible in the exit status.
         }
         $remainingSeconds = [int][Math]::Ceiling(($deadlineUtc - (Get-Date).ToUniversalTime()).TotalSeconds)
         if ($detached -and $attempt -gt 1 -and $remainingSeconds -le 0) {
-            Write-Warning "Invoke-GuestSsh: detached run '$DetachToken' on '$VMName' ran past its ${TimeoutSeconds}s budget while reconnecting."
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_73aea97df6aa7e4b' -Arguments @{ detachToken = "$DetachToken"; vMName = "$VMName"; timeoutSeconds = "${TimeoutSeconds}" })
             return @{
                 success         = $false
                 exitCode        = -1
@@ -1588,7 +1575,7 @@ with a different owner, that is likewise invisible in the exit status.
         try {
             $proc = [System.Diagnostics.Process]::Start($psi)
         } catch {
-            Write-Warning "Invoke-GuestSsh: Process.Start('ssh') threw: $($_.Exception.Message)"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2052ced41d626878' -Arguments @{ message = "$($_.Exception.Message)" })
             return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)"; addressResolved = $addressResolved; transportLost = $false }
         }
         # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
@@ -1597,7 +1584,7 @@ with a different owner, that is likewise invisible in the exit status.
         $stderrTask = $proc.StandardError.ReadToEndAsync()
         $completed  = $proc.WaitForExit($attemptTimeout * 1000)
         if (-not $completed) {
-            Write-Warning "Invoke-GuestSsh timed out after ${attemptTimeout}s: $target"
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47fb5ca7e06b3e23' -Arguments @{ attemptTimeout = "${attemptTimeout}"; target = "$target" })
             try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
             $timeoutOutput = "Timed out after ${TimeoutSeconds}s"
             if ($PreservePartialOutputOnTimeout -and [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),1000)) {
@@ -1891,34 +1878,34 @@ IsFailure [bool], Summary [string].
         return [pscustomobject]@{
             Outcome   = 'NotServing'
             IsFailure = $true
-            Summary   = 'the readiness wait never ran, so nothing confirmed the daemon'
+            Summary   = (Format-YurunaOperatorMessage -Key 'runner.operator_73a2a2329ea0bccc')
         }
     }
     if ($Endpoint.Ready) {
         return [pscustomobject]@{
             Outcome   = 'Ready'
             IsFailure = $false
-            Summary   = 'the daemon answered from this host'
+            Summary   = (Format-YurunaOperatorMessage -Key 'runner.operator_b85fb226033e3953')
         }
     }
     if ($Endpoint.Unreachable) {
         return [pscustomobject]@{
             Outcome   = 'Unreachable'
             IsFailure = $false
-            Summary   = 'the guest confirmed the daemon is bound; only this host cannot reach it'
+            Summary   = (Format-YurunaOperatorMessage -Key 'runner.operator_79c2c9d51ebdef1b')
         }
     }
     if ($Endpoint.StillBuilding) {
         return [pscustomobject]@{
             Outcome   = 'StillBuilding'
             IsFailure = $false
-            Summary   = 'cloud-init is still running, so the build is progressing'
+            Summary   = (Format-YurunaOperatorMessage -Key 'runner.operator_998384ffee8b4990')
         }
     }
     return [pscustomobject]@{
         Outcome   = 'NotServing'
         IsFailure = $true
-        Summary   = 'the budget ran out with the daemon unbound and the guest not building'
+        Summary   = (Format-YurunaOperatorMessage -Key 'runner.operator_57f65a2ea64a2589')
     }
 }
 
@@ -2168,18 +2155,17 @@ Summary [string].
     try { $recovered = [string](Resolve-GuestDiagnosticAddress -VMName $VMName) }
     catch { Write-Verbose "Confirm-ServiceVmAtRecoveredAddress: $($_.Exception.Message)" }
     if (-not $recovered) {
-        $result.Summary = "'$VMName' could not be located by any discovery route this host has"
+        $result.Summary = (Format-YurunaOperatorMessage -Key 'runner.operator_bbda28200e67c553' -Arguments @{ vMName = "$VMName" })
         return [pscustomobject]$result
     }
     $result.Address = $recovered
     if ($KnownAddress -and $recovered -eq $KnownAddress) {
-        $result.Summary = "'$VMName' is at $recovered, the address the wait already probed -- nothing new to try"
+        $result.Summary = (Format-YurunaOperatorMessage -Key 'runner.operator_6f96728c3546b95a' -Arguments @{ vMName = "$VMName"; recovered = "$recovered" })
         return [pscustomobject]$result
     }
 
     $result.Probed = $true
-    Write-Warning ("Located '$VMName' at $recovered -- an address the readiness wait never probed. " +
-                   "Re-checking :$Port there before failing the bring-up.")
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_2c902df97adc2687' -Arguments @{ vMName = "$VMName"; recovered = "$recovered"; port = "$Port" }))
     $deadline = (Get-Date).AddSeconds([Math]::Max(1, $TimeoutSeconds))
     while ((Get-Date) -lt $deadline) {
         $open = $false
@@ -2187,12 +2173,12 @@ Summary [string].
         catch { Write-Verbose "Confirm-ServiceVmAtRecoveredAddress: probe ${recovered}:${Port}: $($_.Exception.Message)" }
         if ($open) {
             $result.Ready   = $true
-            $result.Summary = "the daemon IS serving at ${recovered}:$Port -- the wait was probing an address this guest never had"
+            $result.Summary = (Format-YurunaOperatorMessage -Key 'runner.operator_dccef796140b31b9' -Arguments @{ recovered = "${recovered}"; port = "$Port" })
             return [pscustomobject]$result
         }
         Start-Sleep -Seconds ([Math]::Max(1, $PollSeconds))
     }
-    $result.Summary = "${recovered}:$Port did not answer within ${TimeoutSeconds}s either, so the guest was found but its daemon is not serving"
+    $result.Summary = (Format-YurunaOperatorMessage -Key 'runner.operator_8876d7b0f25e4076' -Arguments @{ recovered = "${recovered}"; port = "$Port"; timeoutSeconds = "${TimeoutSeconds}" })
     return [pscustomobject]$result
 }
 

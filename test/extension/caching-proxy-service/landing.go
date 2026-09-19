@@ -14,24 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
-// The landing page is what port 80 of this VM answers with, and what every
-// host status page's "Dashboards" link now points at.
-//
-// It replaced a redirect straight into a Grafana dashboard. That redirect
-// assumed the operator's browser could run Grafana, which is a single-page
-// application: a browser that cannot lands on a blank screen with no way back
-// and nothing saying why. This page is plain server-rendered HTML -- no script
-// at all, so there is no version of it that fails to render -- and it names
-// every destination rather than choosing one. An operator on an old tablet can
-// at least see what exists and which parts of it are reachable.
-//
-// A link is present only where the thing behind it is: an absent Grafana
-// dashboard and an extension service the pool cannot locate both render as
-// plain text. That is the page's whole signal, so it must never link
-// optimistically.
+// The landing page is what port 80 of this VM answers with. See
+// ../../../docs/caching.md#the-bare-80-redirect-and-what-must-not-be-redirected
+// for why it is plain server-rendered HTML and why a link renders only where
+// its destination is actually reachable. -- landing.go
 
 // landingDashboard is one Grafana board this page offers. The uid is the join
 // key -- Grafana's search API answers with uid and canonical url, so the url is
@@ -224,10 +214,14 @@ const landingStyle = `
 // landingRow renders one entry: linked when there is somewhere to go, and named
 // plus "(unavailable)" when there is not.
 func landingRow(b *strings.Builder, href, title, what string) {
+	landingRowLocalized(b, href, title, what, i18n.NewContext("", "", "", i18n.DefaultManifest()))
+}
+
+func landingRowLocalized(b *strings.Builder, href, title, what string, locale i18n.Context) {
 	b.WriteString("    <li>")
 	if href == "" {
-		fmt.Fprintf(b, `<span class="off">%s</span> <span class="what">&mdash; %s (unavailable)</span>`,
-			html.EscapeString(title), html.EscapeString(what))
+		fmt.Fprintf(b, `<span class="off">%s</span> <span class="what">&mdash; %s</span>`,
+			html.EscapeString(title), html.EscapeString(localizedPages().Catalog.Render("cache.landing_unavailable", map[string]any{"description": what}, locale.ResolvedTag)))
 	} else {
 		fmt.Fprintf(b, `<a href="%s">%s</a> <span class="what">&mdash; %s</span>`,
 			html.EscapeString(href), html.EscapeString(title), html.EscapeString(what))
@@ -240,6 +234,34 @@ func landingRow(b *strings.Builder, href, title, what string) {
 // the operator reached this page on some address, and Grafana is behind the
 // same one on :3000.
 func renderLanding(grafanaBase string, dashboards map[string]string, services map[string]string) string {
+	return renderLandingLocale(grafanaBase, dashboards, services, i18n.NewContext("", "", "", i18n.DefaultManifest()))
+}
+
+var landingMessageKeys = map[string]string{
+	"Yuruna hosts":                                      "cache.yuruna_hosts",
+	"Hosts and test execution progress":                 "cache.hosts_and_test_execution_progress",
+	"Yuruna caching-proxy service":                      "cache.yuruna_caching_proxy_service",
+	"Caching proxy statistics":                          "cache.caching_proxy_statistics",
+	"Zot (official, Grafana ID 20501)":                  "cache.zot_official_grafana_id_20501",
+	"Community Zot statistics":                          "cache.community_zot_statistics",
+	"Caching-proxy service":                             "cache.landing_caching_proxy_service",
+	"Statistics summary":                                "cache.statistics_summary",
+	"Download-agent service":                            "cache.download_agent_service",
+	"Download agent control":                            "cache.download_agent_control",
+	"Pool-control service":                              "cache.pool_control_service",
+	"Assign hosts to pools and pools to test sequences": "cache.assign_hosts_to_pools_and_pools_to_test_sequences",
+	"Stash service":                                     "cache.stash_service",
+	"Stash inspection and creating":                     "cache.stash_inspection_and_creating",
+}
+
+func landingText(text string, locale i18n.Context) string {
+	if key, ok := landingMessageKeys[text]; ok {
+		return localizedPages().Catalog.Render(key, nil, locale.ResolvedTag)
+	}
+	return text
+}
+
+func renderLandingLocale(grafanaBase string, dashboards map[string]string, services map[string]string, locale i18n.Context) string {
 	var b strings.Builder
 	b.WriteString(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -250,9 +272,9 @@ func renderLanding(grafanaBase string, dashboards map[string]string, services ma
 	b.WriteString(`</style>
 </head><body>
   <h1>Yuruna</h1>
-  <p class="lead">Everything this lab serves, and whether it is reachable right now.</p>
+  <p class="lead" data-i18n="cache.everything_this_lab_serves_and_whether_it_is_reachable_right_now">Everything this lab serves, and whether it is reachable right now.</p>
 
-  <h2>Dashboards (may demand a compatible browser)</h2>
+  <h2 data-i18n="cache.dashboards_may_demand_a_compatible_browser">Dashboards (may demand a compatible browser)</h2>
   <ul>
 `)
 	for _, d := range landingDashboards {
@@ -260,20 +282,20 @@ func renderLanding(grafanaBase string, dashboards map[string]string, services ma
 		if path, ok := dashboards[d.UID]; ok {
 			href = strings.TrimRight(grafanaBase, "/") + path
 		}
-		landingRow(&b, href, d.Title, d.What)
+		landingRowLocalized(&b, href, landingText(d.Title, locale), landingText(d.What, locale), locale)
 	}
 	b.WriteString(`  </ul>
 
-  <h2>Extension hosts</h2>
+  <h2 data-i18n="cache.extension_hosts">Extension hosts</h2>
   <ul>
 `)
 	for _, s := range landingServices {
-		landingRow(&b, services[s.Area], s.Title, s.What)
+		landingRowLocalized(&b, services[s.Area], landingText(s.Title, locale), landingText(s.What, locale), locale)
 	}
 	b.WriteString(`  </ul>
 </body></html>
 `)
-	return b.String()
+	return string(i18n.RenderHTML([]byte(b.String()), locale, localizedPages().Catalog))
 }
 
 // browserHost is the address the operator reached this page on, which is what
@@ -326,5 +348,7 @@ func (d *daemon) handleLanding(w http.ResponseWriter, r *http.Request) {
 	// connect-src stays closed too.
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-	_, _ = io.WriteString(w, renderLanding(grafanaBase, dashboards, services))
+	locale := localizedPages().Negotiator.Resolve(r)
+	i18n.Apply(w.Header(), locale)
+	_, _ = io.WriteString(w, renderLandingLocale(grafanaBase, dashboards, services, locale))
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 $SuspendRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -67,6 +68,7 @@ $script:SuspendMacCondition = Join-Path $SuspendRepoRoot 'test/modules/Test.Host
 $script:SuspendStateModule = Join-Path $SuspendRepoRoot 'test/modules/Test.HostAutomationState.psm1'
 $script:SuspendDisableScript = Join-Path $SuspendRepoRoot 'host/macos.utm/Disable-TestAutomation.ps1'
 $script:SuspendInstaller   = Join-Path $SuspendRepoRoot 'install/macos.utm.sh'
+$script:SuspendConfigReport = Join-Path $SuspendRepoRoot 'test/Test-Config.ps1'
 
 }
 
@@ -109,7 +111,10 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # return.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $lastResumeAt = $body.LastIndexOf('Resume-YurunaServiceVM')
-        $warnAt = $body.IndexOf('UTM relaunch did not surface')
+        $ast = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$null)
+        $warnings = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Warning' }, $true))
+        $warning = @($warnings | Where-Object { ((Get-CatalogSourceMessage -Source $_.Extent.Text) -join "`n") -match 'UTM relaunch did not surface' })
+        $warnAt = if ($warning.Count -eq 1) { $warning[0].Extent.StartOffset } else { -1 }
         Assert-True ($lastResumeAt -ge 0 -and $warnAt -ge 0) 'both the resume and the timeout warning exist'
         Assert-True ($lastResumeAt -lt $warnAt) 'the resume runs before the timeout is reported'
     }
@@ -117,20 +122,25 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
     It 'Resume-YurunaServiceVM waits for re-registration before starting' {
         # UTM ingests its library asynchronously after launch. utmctl answers
         # "not found" until that finishes and the start is silently dropped,
-        # which reads as a resume that worked.
+        # which reads as a resume that worked. The wait now uses a shared
+        # boot-relative deadline (New-YurunaDeadline / Test-YurunaDeadline
+        # Expired) rather than a per-call (Get-Date).AddSeconds wall clock, so
+        # the same budget can be threaded into Invoke-UtmVMStartWithRetry
+        # instead of being spent twice.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
-        $registerAt = $body.IndexOf("-eq 'absent'")
-        $startAt    = $body.IndexOf('utmctl start')
+        $registerAt = $body.IndexOf("Test-YurunaDeadlineExpired")
+        $startAt    = $body.IndexOf('Invoke-UtmVMStartWithRetry -VMName')
         Assert-True ($registerAt -ge 0 -and $startAt -ge 0) 'both the registration wait and the start exist'
         Assert-True ($registerAt -lt $startAt) 'registration is confirmed before the start'
-        Assert-True ($body -match 'Get-Date\)\.AddSeconds') 'the waits are wall-clock, not iteration counts'
+        Assert-True ($body -match 'New-YurunaDeadline') 'the wait is a shared monotonic deadline, not a wall-clock literal'
+        Assert-True ($body -notmatch '\(Get-Date\)\.AddSeconds') 'the obsolete wall-clock literal is actually gone, not just supplemented'
     }
 
     It 'Resume-YurunaServiceVM reports a service that did not come back' {
         # A silent failure here is the whole outage again, one layer down.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
         Assert-True ($body -match 'Write-Warning') 'a service that will not resume is surfaced'
-        Assert-True ($body -match 'utmctl start') 'the warning carries the manual recovery command'
+        Assert-True (((Get-CatalogSourceMessage -Source $body) -join "`n") -match 'utmctl start') 'the warning carries the manual recovery command'
     }
 }
 
@@ -145,10 +155,83 @@ Describe 'UTM is configured to outlive its last window' {
     It 'the precheck fails a host where it is off' {
         # Without the gate the setting silently drifts back -- a UTM
         # reinstall or a fresh account starts from the default.
-        $text = Get-Content -Raw -LiteralPath $script:SuspendMacCondition
-        $assertBody = [regex]::Match($text, '(?ms)^function Assert-HostConditionSet\b.*?\n\}').Value
-        if (-not $assertBody) { $assertBody = $text }
-        Assert-True ($assertBody -match 'KeepRunningAfterLastWindowClosed') 'the assert path checks the knob'
+        $probe = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Get-MacUtmLifetimeIssue'
+        Assert-True ($probe -match 'KeepRunningAfterLastWindowClosed') 'the probe reads the knob'
+        Assert-True ($probe -match 'NSAppSleepDisabled') 'and the App Nap knob beside it'
+    }
+
+    It 'tells a container it may not open apart from a knob that is off' {
+        # `defaults read` exits non-zero for both, and the two have different
+        # fixes: one is a switch to set, the other is a grant to give. Reported
+        # as the first, the second sends the operator to re-run a host setup
+        # that is refused identically and reports the same two lines again.
+        $probe = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Get-MacUtmLifetimeIssue'
+        $accessAt = $probe.IndexOf('Test-MacUtmAppDataGrant')
+        $valueAt  = $probe.IndexOf('NSAppSleepDisabled')
+        Assert-True ($accessAt -ge 0) 'the probe asks whether it can open the container at all'
+        Assert-True ($valueAt -ge 0) 'and it reads the knobs'
+        Assert-True ($accessAt -lt $valueAt) 'access is settled before a value is read out of it'
+    }
+
+    It 'gates the container grant ahead of the settings it makes readable' {
+        # Refusing on the knobs alone names a symptom whose remedy cannot work
+        # while the access behind it is missing.
+        $gate = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Assert-MacHostConditionSet'
+        $grantAt = $gate.IndexOf('Assert-MacUtmAppData')
+        $knobAt   = $gate.IndexOf('Assert-MacUtmLifetime')
+        Assert-True ($grantAt -ge 0 -and $knobAt -ge 0) 'both gates are wired in'
+        Assert-True ($grantAt -lt $knobAt) 'and the access grant is asserted first'
+    }
+
+    It 'says why a refused write was refused' {
+        # `defaults` explains a refusal on stderr -- a container it may not
+        # touch, a managed domain, a path that does not exist -- and an exit
+        # code alone cannot tell those apart. Discarding that sentence leaves a
+        # number with nothing to act on.
+        $body = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Confirm-MacDefaultWrite'
+        Assert-True ($body -match '\$writeOutput') 'the write stderr is captured'
+        Assert-True ($body -match 'defaults said') 'and carried into the warning'
+        Assert-True ($body -match 'could not be read') 'a read-back that was refused is not reported as unset'
+    }
+
+    It 'the cycle gate refuses on what that probe returns' {
+        # A probe nothing consults describes a host without protecting it.
+        $gate = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Assert-MacHostConditionSet'
+        Assert-True ($gate -match 'Assert-MacUtmLifetime') 'the per-cycle gate asserts UTM lifetime'
+        $assert = Get-FunctionBody -Path $script:SuspendMacCondition -Name 'Assert-MacUtmLifetime'
+        Assert-True ($assert -match 'Get-MacUtmLifetimeIssue') 'from the same probe the health report prints'
+    }
+
+    It 'the health report files the knobs apart from the screen-lock findings' {
+        # A UTM preference reported under a screen-lock heading arrives beside
+        # a remedy that announces a password prompt, which sends the operator
+        # to a System Settings pane that has no such knob in it. Neither of
+        # these two needs sudo.
+        $report = Get-Content -Raw -LiteralPath $script:SuspendConfigReport
+        Assert-True ($report -match 'Get-MacUtmLifetimeIssue') 'the report reads the UTM-lifetime probe'
+        # Bounded at the next region marker, not the next Write-Section: a
+        # section's guard clause names its probe BEFORE it writes its heading,
+        # so a heading-to-heading span reaches into the section that follows.
+        $screenLockSection = [regex]::Match($report, '(?ms)^# --- REGION: Section 5a2: macOS screen lock / display sleep.*?(?=^# --- REGION:)').Value
+        Assert-True ($screenLockSection.Length -gt 0) 'the screen-lock section is still there'
+        Assert-True ($screenLockSection -notmatch 'UtmLifetime') 'and the UTM knobs are not reported inside it'
+    }
+
+    It 'carries the fix inside the failure line, where a refused cycle reprints it' {
+        # Write-Summary's end-of-run FAILURES block re-emits the failure message
+        # and nothing else; an info line written after it is not recorded at
+        # all. That block is the whole of what an operator sees when the gate
+        # refuses, so a remedy placed beside the finding instead of inside it
+        # reaches only whoever watched the report scroll past.
+        $report = Get-Content -Raw -LiteralPath $script:SuspendConfigReport
+        $section = [regex]::Match($report, '(?ms)^# --- REGION: Section 5a3: UTM app lifetime.*?(?=^# --- REGION:)').Value
+        Assert-True ($section.Length -gt 0) 'the UTM lifetime section is there'
+        $ast = [Management.Automation.Language.Parser]::ParseInput($section, [ref]$null, [ref]$null)
+        $failure = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Fail' }, $true)
+        Assert-NotNull $failure 'the probe result must reach the failure stream'
+        $failMessage = (Get-CatalogSourceMessage -Source $failure.Extent.Text) -join "`n"
+        Assert-True ($failMessage.Length -gt 0) 'the section fails on what the probe returned'
+        Assert-True ($failMessage -match 'Enable-TestAutomation') 'and the failure itself names the command that fixes it'
     }
 
     It 'the knob is captured and restored, not just applied' {

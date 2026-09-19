@@ -25,6 +25,7 @@ import (
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
 	"yuruna.com/test/extension/extension-sdk/labgate"
+	"yuruna.com/test/extension/extension-sdk/webui"
 	// Aliased: this package already calls the ARTIFACT index "pool", and the two
 	// meanings must not read as one.
 	poolapi "yuruna.com/test/extension/extension-sdk/pool"
@@ -37,6 +38,7 @@ const hostResolutionTTL = 30 * time.Second
 
 // Server is the UI/API HTTP server.
 type Server struct {
+	pages       *webui.Pages
 	ssh         *sshsrv.Server
 	stashRoot   string // parent of the share folder = <mount>/stash
 	localHostID string // base of the share folder = this host's hostId
@@ -54,12 +56,14 @@ type Server struct {
 // Options carries the VM-side configurable knobs.
 // Zero values fall back to the spec defaults.
 type Options struct {
-	Addr           string
-	AggregatorURL  string
-	PoolWindowDays int
-	PoolRefresh    time.Duration
-	DefaultLimit   int
-	Version        string
+	Language          string
+	AllowPseudoLocale bool
+	Addr              string
+	AggregatorURL     string
+	PoolWindowDays    int
+	PoolRefresh       time.Duration
+	DefaultLimit      int
+	Version           string
 }
 
 // New builds the UI server. stashRoot and localHostID are derived from the
@@ -93,7 +97,9 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 	// No BearerToken: this VM is never given the lab auth token, so the
 	// aggregator is the only judge of a lab token or a control proof, and the
 	// gate reports itself unconfigured when there is no aggregator to ask.
+	s.pages = prepareLocalizedPages(opts.Language, opts.AllowPseudoLocale)
 	s.gate = labgate.New(labgate.Options{
+		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
 		CookieName:    sessionCookie,
 		Audit:         s.auditUnlock,

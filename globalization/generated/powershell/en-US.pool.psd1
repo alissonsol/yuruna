@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 4287c576-70ba-465a-5472-248e943d02a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,1045 @@
 # locale: en-US  domain: pool
 
 @{
+    'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = 'A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.'
+    'pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee' = @(
+        '* A pool''s members are meant to be configured alike. To copy one peer''s configuration onto another host, run on that host: '
+        @{
+            'arg' = 'command1'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'pool.a_scan_of_value1_is_already_running_following_that_one' = @(
+        'A scan of '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is already running; following that one.'
+    )
+    'pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store' = 'A test set is a framework + project repo pair. GH_TOKEN is not stored here — it stays host-local on each host''s test.config.yml / vault.'
+    'pool.actions' = 'Actions'
+    'pool.add_host_failed_value1' = @(
+        'Add host failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.added_value1' = @(
+        'Added '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.added_value1_to_value2' = @(
+        'Added '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' to '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.address' = 'Address'
+    'pool.aggregator_unavailable_value1_control_state_is_unknown_moving_hos' = @(
+        'Aggregator unavailable ('
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); control state is unknown. Moving hosts still works.'
+    )
+    'pool.aggregator_url' = 'aggregator URL'
+    'pool.all_checks_passed_pool_control_service_value1_value2_collected_va' = @(
+        'All checks passed. pool-control-service '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), collected '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.apply_value1_to_all_value2_host_s_in_pool_value3' = @(
+        'Apply "'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '" to all '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' host(s) in pool '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '?'
+    )
+    'pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic' = "Asks every address in the network for a Yuruna host status service and adds the ones`n      that answer to the monitored hosts — pooled or not, enrolled or not.`n      Scanning changes nothing on the hosts themselves."
+    'pool.assign' = 'Assign'
+    'pool.assign_failed_value1' = @(
+        'Assign failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.assign_test_set' = 'Assign test set?'
+    'pool.assign_test_set_50fb7bbc' = 'Assign test set'
+    'pool.assign_test_sets_to_pools' = 'Assign test sets to pools'
+    'pool.assign_value1_to_value2' = @(
+        'Assign "'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '" to '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '?'
+    )
+    'pool.assign_yuruna_pool_control' = 'Assign — Yuruna Pool Control'
+    'pool.assigned_value1_to_pool_value2' = @(
+        'Assigned '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' to pool '''
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.board' = 'Board'
+    'pool.board_yuruna_pool_control' = 'Board — Yuruna Pool Control'
+    'pool.cancel' = 'Cancel'
+    'pool.change_test_set' = 'Change test set...'
+    'pool.check' = 'Check'
+    'pool.choose_a_test_set' = '(choose a test set)'
+    'pool.command1_scans_command2_through_command3_a_smaller_prefix_number_' = @(
+        @{
+            'arg' = 'command1'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' scans '
+        @{
+            'arg' = 'command2'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' through '
+        @{
+            'arg' = 'command3'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; a smaller prefix number covers more addresses ('
+        @{
+            'arg' = 'command4'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' is 65,536), a larger one fewer ('
+        @{
+            'arg' = 'command5'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' is one machine). An address inside the network means the same subnet: '
+        @{
+            'arg' = 'command6'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' equals '
+        @{
+            'arg' = 'command7'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'pool.continue' = 'Continue'
+    'pool.control' = 'Control'
+    'pool.cores' = 'Cores'
+    'pool.could_not_assign_value1' = @(
+        'Could not assign: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_collect_diagnostics_value1' = @(
+        'Could not collect diagnostics: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_forget_that_host_value1' = @(
+        'Could not forget that host: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_load_pool_intent_value1' = @(
+        'Could not load pool intent: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_load_pools_value1' = @(
+        'Could not load pools: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_load_test_sets_value1' = @(
+        'Could not load test sets: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.could_not_load_the_board_value1_retrying_on_the_next_refresh' = @(
+        'Could not load the board: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Retrying on the next refresh.'
+    )
+    'pool.could_not_read_the_scan_status_value1' = @(
+        'Could not read the scan status: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.create_failed_value1' = @(
+        'Create failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.create_pool' = 'Create pool'
+    'pool.created_pool_value1' = @(
+        'Created pool '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.cycles' = 'cycles'
+    'pool.delete' = 'Delete'
+    'pool.delete_failed_value1' = @(
+        'Delete failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.delete_pool' = 'Delete pool'
+    'pool.delete_pool_value1' = @(
+        'Delete pool '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.delete_pool_value1_this_cannot_be_undone' = @(
+        'Delete pool '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''? This cannot be undone.'
+    )
+    'pool.delete_test_set_value1' = @(
+        'Delete test set '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.delete_test_set_value1_this_cannot_be_undone' = @(
+        'Delete test set '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''? This cannot be undone.'
+    )
+    'pool.deleted_pool_value1' = @(
+        'Deleted pool '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.deleted_value1' = @(
+        'Deleted '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.detail' = 'Detail'
+    'pool.diagnostic_auto_enrollment_assignment' = 'Hosts land here automatically and keep running their own project.'
+    'pool.diagnostic_configure_repo' = 'Pass --repo-dir pointing at the yuruna framework checkout.'
+    'pool.diagnostic_git_not_found' = @(
+        'not found on PATH: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_install_git' = 'The pool-admin CLIs clone and push pool intent; install git in the guest.'
+    'pool.diagnostic_install_pwsh' = 'Install PowerShell in the guest. packages.microsoft.com has no powershell package for this Ubuntu release; use the GitHub-release tarball, then restart pool-control-service.service.'
+    'pool.diagnostic_intent_absent' = 'no intent URL to check'
+    'pool.diagnostic_intent_configure' = 'The guest bring-up creates a writable store on the pool NAS when one is absent; an empty value here means the NAS was not mounted at bring-up. Set POOL_CONTROL_INTENT_GIT_URL in /etc/yuruna/pool-control-service.env (re-read per request, no restart needed), or pool.intentGitUrl in test/test.config.yml before rebuilding.'
+    'pool.diagnostic_intent_empty' = 'empty: no intent store resolved from the launch flag or the config file'
+    'pool.diagnostic_intent_initialize' = 'The pool NAS store is created by the guest bring-up; if the NAS mounted late, re-run the bring-up script or git init --bare it.'
+    'pool.diagnostic_intent_not_bare' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': not a bare git repo ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'pool.diagnostic_intent_not_writable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': bare repo present but NOT writable: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_intent_override' = @(
+        '  (config file overrides the launch flag '
+        @{
+            'arg' = 'flag'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'pool.diagnostic_intent_permission' = 'Writes will fail at push. Check the pool NAS mount''s uid/gid against the service user.'
+    'pool.diagnostic_intent_pull_only' = 'An http(s) intent store is pull-only unless the server runs git-http-backend: reads will work and every write will fail at push. The writable store is the bare repo on the pool NAS.'
+    'pool.diagnostic_intent_remote' = 'remote URL; reachability is covered by intent-read'
+    'pool.diagnostic_intent_writable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': bare repo, writable'
+    )
+    'pool.diagnostic_no_output' = 'no output'
+    'pool.diagnostic_not_configured' = 'not configured'
+    'pool.diagnostic_persistence_configure' = 'Pass Options.StateDir alongside Options.Store so this check can probe the real path.'
+    'pool.diagnostic_persistence_disabled' = 'persistence disabled (no state dir configured)'
+    'pool.diagnostic_persistence_logs_missing' = 'The audit log and status.json are not being written; the pool NAS mount is what supplies this dir.'
+    'pool.diagnostic_persistence_nas_missing' = 'The pool NAS mount is absent; the audit log is not durable.'
+    'pool.diagnostic_persistence_permission' = 'Check the mount''s uid/gid options against the service user.'
+    'pool.diagnostic_persistence_unknown' = 'store is enabled but no state dir was reported to the server'
+    'pool.diagnostic_pwsh_execution' = @(
+        'pwsh exists at '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' but did not run; check its shared-library dependencies.'
+    )
+    'pool.diagnostic_pwsh_not_found' = @(
+        'not found: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_raw_invocation' = 'See the raw invocation below for the CLI''s own output; the checks above name any missing dependency.'
+    'pool.diagnostic_repo_complete' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': all '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' pool-admin CLIs present'
+    )
+    'pool.diagnostic_repo_missing' = 'The framework checkout is missing; re-run the guest bring-up script.'
+    'pool.diagnostic_repo_missing_files' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': missing '
+        @{
+            'arg' = 'files'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_repo_partial' = 'The checkout is stale or partial; re-fetch the framework archive.'
+    'pool.diagnostic_revision_archive' = @(
+        @{
+            'arg' = 'revision'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', archive-only checkout)'
+    )
+    'pool.diagnostic_revision_conflict' = @(
+        'git reports '
+        @{
+            'arg' = 'git'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' but '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' records '
+        @{
+            'arg' = 'sidecar'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_revision_corrupt' = 'The revision sidecar is corrupt, so the deployed commit is unprovable. Re-fetch the framework archive from the status service and restart pool-control-service.service.'
+    'pool.diagnostic_revision_git' = @(
+        @{
+            'arg' = 'revision'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (Git checkout)'
+    )
+    'pool.diagnostic_revision_missing' = 'Nothing in the checkout names a commit, so this deployment cannot be tied to reviewed source. Re-fetch the framework archive from the status service and restart pool-control-service.service.'
+    'pool.diagnostic_revision_mixed' = 'The checkout and its revision sidecar describe different commits; the tree is a mix of sources. Re-fetch the framework archive from the status service and restart pool-control-service.service.'
+    'pool.diagnostic_revision_no_source' = @(
+        'no Git checkout and no '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_state_not_writable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': not writable: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.diagnostic_state_writable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': writable'
+    )
+    'pool.diagnostics' = 'Diagnostics'
+    'pool.diagnostics_yuruna_pool_control' = 'Diagnostics — Yuruna Pool Control'
+    'pool.discovered' = 'discovered'
+    'pool.discovered_hosts_are_not_being_saved_value1' = @(
+        'Discovered hosts are not being saved: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.display_name' = 'Display name'
+    'pool.duration' = 'duration'
+    'pool.each_of_the_four_numbers_must_be_0_to_255' = 'Each of the four numbers must be 0 to 255.'
+    'pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok' = "Each pool tests one test set (a framework + project repo pair).`n      GH_TOKEN stays host-local — never stored in pool intent."
+    'pool.edit' = 'Edit'
+    'pool.empty' = '(empty)'
+    'pool.enrollment_target' = @(
+        @{
+            'arg' = 'pool'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -- auto-enrollment target'
+    )
+    'pool.enter_a_network_for_example_value1' = @(
+        'Enter a network, for example '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.enter_a_pool_id' = 'Enter a pool id.'
+    'pool.enter_the_lab_token' = 'Enter the Lab token'
+    'pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque' = 'Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.'
+    'pool.every_host_the_aggregator_knows_control_command1_this_lab_s_token' = @(
+        'Every host the aggregator knows. Control: '
+        @{
+            'arg' = 'command1'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (this lab''s token, clock agrees — only these auto-enroll), '
+        @{
+            'arg' = 'command2'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (different token), '
+        @{
+            'arg' = 'command3'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (clock problem), '
+        @{
+            'arg' = 'command4'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (never enrolled). Choosing a pool moves the host — a host belongs to at most one. Framework and Project are the repos the host reports, linked to their source; '
+        @{
+            'arg' = 'command5'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' means it cannot read the one configured. A re-keyed row is one machine''s old identity: it was reimaged or re-cloned, so the live host answers under the id shown beside it while any pool membership stays on the old one — hand it over from that row. Hostnames appear once this browser is unlocked.'
+    )
+    'pool.exit_code' = 'exit code'
+    'pool.fail' = 'FAIL'
+    'pool.failed' = 'failed'
+    'pool.first_seen' = 'First seen'
+    'pool.forget' = 'Forget'
+    'pool.found' = 'Found'
+    'pool.found_and_added' = 'Found and added'
+    'pool.found_by_a_network_scan_value1' = @(
+        'Found by a network scan'
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r' = 'Found by scanning the network; it belongs to no pool and has not registered with the aggregator.'
+    'pool.framework' = 'Framework'
+    'pool.framework_project' = 'Framework / Project'
+    'pool.framework_revision' = 'framework revision'
+    'pool.framework_url' = 'Framework URL'
+    'pool.framework_version' = 'framework version'
+    'pool.free_storage' = 'Free Storage'
+    'pool.go' = 'go'
+    'pool.guide' = 'Guide'
+    'pool.hand_over' = 'Hand over'
+    'pool.hand_over_failed_value1' = @(
+        'Hand over failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.holds_a_different_token_re_enroll_against_this_proxy' = 'Holds a DIFFERENT token -- re-enroll against this proxy.'
+    'pool.holds_this_lab_s_token_clock_agrees' = 'Holds this lab''s token; clock agrees.'
+    'pool.home' = 'HOME'
+    'pool.host' = '+ host'
+    'pool.host_id' = 'Host ID'
+    'pool.host_id_7b624c8f' = 'host id'
+    'pool.host_id_to_add_to_pool_value1' = @(
+        'Host id to add to pool '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool' = @(
+        'Host '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' no longer answers at '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        " does.`n`nMove the pool membership to that id and forget this one?"
+    )
+    'pool.hostid_42_30hex' = 'hostId (42+30hex)'
+    'pool.hostname' = 'Hostname'
+    'pool.hosts' = 'Hosts'
+    'pool.hosts_project_denied' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' host cannot read the assigned project. Grant its token access, or assign a different test set.'
+            )
+            'other' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' hosts cannot read the assigned project. Grant its token access, or assign a different test set.'
+            )
+        }
+    }
+    'pool.hosts_reporting' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' host - '
+                @{
+                    'arg' = 'reporting'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' reporting'
+            )
+            'other' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' hosts - '
+                @{
+                    'arg' = 'reporting'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' reporting'
+            )
+        }
+    }
+    'pool.hosts_switch_assigned' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' host will switch to the assigned project on their next cycle.'
+            )
+            'other' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' hosts will switch to the assigned project on their next cycle.'
+            )
+        }
+    }
+    'pool.hosts_switch_project' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' host will switch to '
+                @{
+                    'arg' = 'project'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' on their next cycle.'
+            )
+            'other' = @(
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' hosts will switch to '
+                @{
+                    'arg' = 'project'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' on their next cycle.'
+            )
+        }
+    }
+    'pool.hosts_yuruna_pool_control' = 'Hosts — Yuruna Pool Control'
+    'pool.intent_git_url' = 'intent git URL'
+    'pool.intent_read_raw_invocation' = 'Intent read — raw invocation'
+    'pool.ips' = 'IPs:'
+    'pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n' = "`n`nIt will also be excluded from auto-enrollment, so the sweep will not add it back."
+    'pool.lab_token' = 'Lab token'
+    'pool.label_1h' = '1h'
+    'pool.label_24h' = '24h'
+    'pool.label_30d' = '30d'
+    'pool.label_7d' = '7d'
+    'pool.last_seen' = 'Last seen'
+    'pool.last_seen_value1' = @(
+        ', last seen '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.listen_addr' = 'listen addr'
+    'pool.live_numbers_unavailable_value1_assigning_still_works' = @(
+        'Live numbers unavailable ('
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Assigning still works.'
+    )
+    'pool.loaded' = 'Loaded:'
+    'pool.loading_hosts' = 'Loading hosts...'
+    'pool.loading_pools' = 'Loading pools...'
+    'pool.loading_test_sets' = 'Loading test sets...'
+    'pool.lowercase_dns_safe' = 'lowercase, dns-safe'
+    'pool.members' = 'Members *'
+    'pool.members_1044a4c0' = 'Members'
+    'pool.memory' = 'Memory'
+    'pool.menu' = 'Menu'
+    'pool.mixed' = 'Mixed'
+    'pool.monitored_by_discovery' = 'Monitored by discovery'
+    'pool.move_failed_value1' = @(
+        'Move failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.move_host_value1_to_value2_value3' = @(
+        'Move host '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' to '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '?'
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.move_this_host_s_pool_membership_to_value1_the_id_that_answers_at' = @(
+        'Move this host''s pool membership to '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', the id that answers at this address, and stop showing this one.'
+    )
+    'pool.moved_to_value1' = @(
+        'Moved to '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.moves' = 'moves'
+    'pool.name' = 'Name'
+    'pool.name_frameworkurl_and_projecturl_are_all_required' = 'name, frameworkUrl and projectUrl are all required.'
+    'pool.network' = 'Network'
+    'pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host' = 'Never enrolled a lab token -- run Set-LabToken.ps1 on the host.'
+    'pool.no_hosts_discovered_yet' = 'No hosts discovered yet.'
+    'pool.no_id_reported' = '(no id reported)'
+    'pool.no_pools_defined_create_one_on_the_pools_page' = 'No pools defined. Create one on the Pools page.'
+    'pool.no_pools_yet' = 'No pools yet.'
+    'pool.no_pools_yet_create_one_from_menu_pools' = 'No pools yet. Create one from Menu → Pools.'
+    'pool.no_scan_has_run_yet' = 'No scan has run yet.'
+    'pool.no_test_sets_yet' = 'No test sets yet.'
+    'pool.none' = '(none)'
+    'pool.not' = 'not'
+    'pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own' = 'Not answered yet, or the proxy holds no token of its own.'
+    'pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19' = 'Not CIDR notation. Write an address, a slash, and a prefix length: 192.168.7.0/24.'
+    'pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored' = 'Nothing new. Every Yuruna host in that range was already monitored.'
+    'pool.nothing_to_move_the_live_id_already_has_the_pool_it_should' = 'Nothing to move: the live id already has the pool it should.'
+    'pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor' = 'Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.'
+    'pool.open_this_host_s_own_status_page_at_value1_found_by_a_network_sca' = @(
+        'Open this host''s own status page at '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (found by a network scan'
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'pool.optional' = 'optional'
+    'pool.own_network' = 'this service''s own network'
+    'pool.pages' = 'Pages'
+    'pool.pass' = 'PASS'
+    'pool.path' = 'PATH'
+    'pool.pause' = 'Pause'
+    'pool.pause_after_cycle' = 'Pause after cycle'
+    'pool.pause_after_step' = 'Pause after step'
+    'pool.paused_after_cycle_and_step' = 'Paused after cycle and step'
+    'pool.persisted_health' = 'Persisted health'
+    'pool.persistence_disabled' = '(persistence disabled)'
+    'pool.pick_a_test_set_first_define_one_on_the_test_sets_page' = 'Pick a test set first (define one on the Test sets page).'
+    'pool.pid' = 'pid'
+    'pool.platform' = 'platform'
+    'pool.pool' = 'Pool'
+    'pool.pool_for_host_value1' = @(
+        'Pool for host '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.pool_id' = 'Pool ID'
+    'pool.pool_id_66d3d3f3' = 'Pool id'
+    'pool.pool_membership_moved_to_value1' = @(
+        'Pool membership moved to '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
     'pool.pool_project_denied' = 'The pool assigned this host a project its git credential cannot read. Grant its token access to that repository, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.'
     'pool.pool_project_unreachable' = 'The project this host''s pool assigned did not answer. This is network, not permission, and the clone retries through the normal backoff.'
+    'pool.pool_status' = 'Pool Status'
+    'pool.pool_status_change_failed_value1' = @(
+        'Pool status change failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.pool_status_for_value1' = @(
+        'Pool status for '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.pool_value1_has_members_remove_them_first' = @(
+        'Pool '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' has members; remove them first.'
+    )
+    'pool.pool_value1_has_no_members_nothing_to_drive' = @(
+        'Pool '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' has no members; nothing to drive.'
+    )
+    'pool.pools' = 'Pools'
+    'pool.pools_yuruna_pool_control' = 'Pools — Yuruna Pool Control'
+    'pool.process' = 'Process'
+    'pool.progress' = 'Progress'
+    'pool.project' = 'Project'
+    'pool.project_url' = 'Project URL'
+    'pool.pwsh_pwsh_flag' = 'pwsh (--pwsh flag)'
+    'pool.pwsh_resolved' = 'pwsh (resolved)'
+    'pool.re_keyed' = 're-keyed'
+    'pool.re_run_checks' = 'Re-run checks'
+    'pool.refresh' = 'Refresh'
+    'pool.remove_failed_value1' = @(
+        'Remove failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.remove_host_failed_value1' = @(
+        'Remove host failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.remove_host_value1_from_pool_value2' = @(
+        'Remove host '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' from pool '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.remove_host_value1_from_pool_value2_this_cannot_be_undone' = @(
+        'Remove host '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' from pool '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '? This cannot be undone.'
+    )
     'pool.repo_denied_detail' = @{
         'kind' = 'select'
         'selector' = 'repo'
@@ -30,6 +1067,7 @@
             'project' = 'This host cannot read the project repository it is configured with. Check its git credential and the url in test.config.yml.'
         }
     }
+    'pool.repo_dir' = 'repo dir'
     'pool.repo_held_detail' = @{
         'kind' = 'select'
         'selector' = 'repo'
@@ -49,6 +1087,324 @@
             'project' = 'This host has no project repository and none configured, or it has not answered yet.'
         }
     }
+    'pool.result' = 'Result'
+    'pool.row_number' = 'Row number'
+    'pool.run' = 'run'
+    'pool.running' = 'Running: '
+    'pool.running_checks' = 'Running checks...'
+    'pool.runtime_environment' = 'Runtime environment'
+    'pool.save_failed_value1' = @(
+        'Save failed: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.save_test_set' = 'Save test set'
+    'pool.saved_test_set_value1' = @(
+        'Saved test set '''
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.scan' = 'Scan'
+    'pool.scan_a_network_for_yuruna_hosts' = 'Scan a network for Yuruna hosts'
+    'pool.scan_count' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                'Scans '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' address.'
+            )
+            'other' = @(
+                'Scans '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' addresses.'
+            )
+        }
+    }
+    'pool.scan_finished' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                @{
+                    'arg' = 'kind'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' finished '
+                @{
+                    'arg' = 'time'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ': '
+                @{
+                    'arg' = 'done'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' of '
+                @{
+                    'arg' = 'total'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' addresses probed, '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' host added, '
+                @{
+                    'arg' = 'monitored'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' already monitored. '
+                @{
+                    'arg' = 'detail'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+            )
+            'other' = @(
+                @{
+                    'arg' = 'kind'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' finished '
+                @{
+                    'arg' = 'time'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ': '
+                @{
+                    'arg' = 'done'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' of '
+                @{
+                    'arg' = 'total'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' addresses probed, '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' hosts added, '
+                @{
+                    'arg' = 'monitored'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' already monitored. '
+                @{
+                    'arg' = 'detail'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+            )
+        }
+    }
+    'pool.scan_label' = 'Scan'
+    'pool.scan_limit' = @(
+        '/'
+        @{
+            'arg' = 'prefix'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' covers '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' addresses; this service scans at most '
+        @{
+            'arg' = 'limit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Use a narrower network (a larger prefix length).'
+    )
+    'pool.scan_refused_value1' = @(
+        'Scan refused: '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.scan_yuruna_pool_control' = 'Scan — Yuruna Pool Control'
+    'pool.service_diagnostics' = 'Service diagnostics'
+    'pool.service_user' = 'service user'
+    'pool.show_hostnames' = 'Show hostnames'
+    'pool.started_at' = 'started at'
+    'pool.state' = 'State'
+    'pool.state_dir' = 'state dir'
+    'pool.state_fail' = 'fail'
+    'pool.state_idle' = 'idle'
+    'pool.state_mismatch' = 'mismatch'
+    'pool.state_none' = 'none'
+    'pool.state_pass' = 'pass'
+    'pool.state_paused' = 'paused'
+    'pool.state_ready' = 'ready'
+    'pool.state_running' = 'running'
+    'pool.state_skew' = 'skew'
+    'pool.state_stopped' = 'stopped'
+    'pool.state_unknown' = 'unknown'
+    'pool.stdout' = 'stdout'
+    'pool.stop_monitoring_value1_the_next_scan_of_that_network_will_find_it' = @(
+        'Stop monitoring '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "?`n`nThe next scan of that network will find it again if it is still there."
+    )
+    'pool.success' = 'success'
+    'pool.sweep_label' = 'Periodic sweep'
+    'pool.sweep_minutes' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                'A sweep of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' runs on its own every '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' minute, asking port '
+                @{
+                    'arg' = 'port'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+            'other' = @(
+                'A sweep of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' runs on its own every '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' minutes, asking port '
+                @{
+                    'arg' = 'port'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+        }
+    }
+    'pool.sweep_seconds' = @{
+        'kind' = 'plural'
+        'selector' = 'count'
+        'variants' = @{
+            'one' = @(
+                'A sweep of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' runs on its own every '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' second, asking port '
+                @{
+                    'arg' = 'port'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+            'other' = @(
+                'A sweep of '
+                @{
+                    'arg' = 'network'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                ' runs on its own every '
+                @{
+                    'arg' = 'count'
+                    'type' = 'integer'
+                    'trust' = 'internal'
+                }
+                ' seconds, asking port '
+                @{
+                    'arg' = 'port'
+                    'type' = 'detail'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+        }
+    }
+    'pool.test_set_for_pool_value1' = @(
+        'Test set for pool '
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'pool.test_set_label' = @(
         'Test set for '
         @{
@@ -57,4 +1413,152 @@
             'trust' = 'external'
         }
     )
+    'pool.test_sets' = 'Test sets'
+    'pool.test_sets_yuruna_pool_control' = 'Test sets — Yuruna Pool Control'
+    'pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti' = 'The 6-character code on the Yuruna hosts dashboard''s Lab token tile. A code you have just read stays valid for about three minutes, so there is no need to rush it.'
+    'pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo' = 'The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on stdout, so stdout is usually where the real message is.'
+    'pool.the_hosts_own_projects' = 'the hosts'' own projects'
+    'pool.the_id_that_answers_at_this_address_now' = 'The id that answers at this address now.'
+    'pool.the_periodic_sweep_is_off_this_page_is_the_only_way_a_scan_runs' = 'The periodic sweep is off; this page is the only way a scan runs.'
+    'pool.the_prefix_length_must_be_0_to_32' = 'The prefix length must be 0 to 32.'
+    'pool.the_same_document_command1_serves_from_the_state_dir_on_the_pool_' = @(
+        'The same document '
+        @{
+            'arg' = 'command1'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' serves, from the state dir on the pool NAS.'
+    )
+    'pool.this_host_answered_but_its_registration_record_could_not_be_read' = 'This host answered but its registration record could not be read.'
+    'pool.this_host_has_not_reported_a_name' = 'This host has not reported a name.'
+    'pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po' = 'This host has not reported an id, so it cannot be assigned to a pool yet.'
+    'pool.this_host_has_not_reported_hardware_facts' = 'This host has not reported hardware facts.'
+    'pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o' = 'This id no longer answers at this address; the id beside it does. One machine, two ids -- it was reimaged or re-cloned. Any pool membership is still recorded against THIS id, so the live host is doing the work outside the pool.'
+    'pool.time_period' = 'Time period'
+    'pool.token_is_right_but_the_clock_is_off_fix_the_host_clock' = 'Token is right but the clock is off -- fix the host clock.'
+    'pool.total_storage' = 'Total Storage'
+    'pool.type' = 'Type'
+    'pool.unlock' = 'Unlock'
+    'pool.unlock_with_the_lab_token_to_see_hostnames' = 'Unlock with the Lab token to see hostnames.'
+    'pool.unsupported_range' = 'unsupported range; use 1h, 24h, 7d or 30d'
+    'pool.uptime' = 'uptime'
+    'pool.use_this_network' = 'Use this network'
+    'pool.value1_applied_to_value2_host_s_in_pool_value3' = @(
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': applied to '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' host(s) in pool '''
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'pool.value1_host_s' = @(
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' host(s)'
+    )
+    'pool.value1_of_value2_checks_failing_pool_control_service_value3_value' = @(
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' checks failing. pool-control-service '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), collected '
+        @{
+            'arg' = 'value5'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.value1_of_value2_value3_of_value4_addresses' = @(
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' addresses. '
+    )
+    'pool.value1_value2_applied_value3_failed_value4' = @(
+        @{
+            'arg' = 'value1'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'value2'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' applied, '
+        @{
+            'arg' = 'value3'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' failed -- '
+        @{
+            'arg' = 'value4'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.version' = 'version'
+    'pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch' = 'What the daemon was launched with, and the environment its pwsh child processes inherit.'
+    'pool.what_to_do' = 'What to do'
+    'pool.which_build_is_actually_running_and_for_how_long_establishes_whet' = 'Which build is actually running, and for how long — establishes whether a fix was deployed at all.'
+    'pool.which_network_cidr_notation' = 'Which network? (CIDR notation)'
+    'pool.x' = 'x'
+    'pool.yuruna_pool_control' = 'Yuruna Pool Control'
 }

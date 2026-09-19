@@ -160,12 +160,78 @@ The capability gate fails the cycle when a sequence references an
 OCR-requiring action (`waitForText`, `passwdPrompt`, ...) and no
 provider's `IsAvailable` returns `$true`.
 
+<a id="42607283-0009"></a>
+
+## Detecting a corrupted console echo
+
+The last-resort diagnostics path types a command at a console and reads back
+what OCR saw echoed, to judge whether the terminal is actually receiving
+keystrokes or a stuck key is mangling them. `Test-ConsoleEchoIntact`
+(`test/modules/Test.Diagnostic.psm1`) makes that judgment as a pure
+function -- given only the text that was typed and the text OCR read off the
+screen, with no screenshot, engine or host contact -- which is what makes its
+failure signature testable against captured samples with no VM in the loop.
+
+**The hard constraint is that OCR of a console is very noisy.** A correctly
+typed line came back from a real, healthy capture as
+`HFhttp:/7192.168.64.1:8080:F=...` -- `H=` read as `HF`, `//` as `/7`, `;` as
+`:`, `curl` as `cur`, `2>&1` as `2>81` -- and cut off two-thirds through
+because the rest had scrolled or fallen outside the recognized region. Any
+check resembling equality, or any check demanding the whole command be
+visible, rejects every healthy capture and makes this last-resort rung
+strictly worse than no check at all.
+
+So the test does not ask "does the screen match the command" but "does the
+screen contain a long stretch the command cannot explain":
+
+1. Both strings are normalized through `Get-OCRNormalized`, which folds known
+   OCR confusion groups (`o`/`O`/`0`/`@`, `l`/`I`/`1`/`i`, `S`/`5`/`s`,
+   `:`/`;`/`.`, ...) and drops characters OCR routinely invents or loses.
+2. The command's distinct `GramSize`-character windows form the set of
+   everything the screen is allowed to show.
+3. Walking the OCR text, each position is *explained* if its window is in
+   that set. The corruption signal is the longest run of consecutive
+   *unexplained* positions that follows the command's own echo -- a run is
+   counted only once at least `AnchorMinRun` explained positions have
+   appeared in a row, marking where the command genuinely landed on screen.
+   That anchor is what separates corruption from ordinary scrollback: text
+   printed *before* the command (a login banner, a boot log, earlier output)
+   is unexplained and unbounded but never preceded by the command's dense
+   echo, so it goes uncounted. A stuck key, by contrast, appends or inserts
+   its garbage at or after the command it corrupted, producing one
+   continuous counted run hundreds of characters long -- isolated OCR noise
+   can only ever invalidate `GramSize` consecutive windows, so it cannot
+   accumulate into a false positive.
+4. Independently, the fraction of the command's windows that appear anywhere
+   in the OCR text is the truncation signal.
+
+**Deliberately not used: `Test-OCRMatch`.** It answers "is this prompt on
+screen" by splitting its pattern on whitespace and punctuation and requiring
+only that each fragment appear somewhere -- measured against a fully
+corrupted frame it still returns true for the pattern `rm -f y.ps1 y.txt`, so
+a predicate built on it would never fire.
+
+**Also deliberately not used: the longest run of one repeated character.** It
+reads as the obvious test for a stuck key and does not work: on real frames
+the longest same-character run was 24 on a corrupted capture against 25 on a
+healthy one, no discrimination at all, because thousands of stuck glyphs do
+not survive OCR as a clean run -- Tesseract renders them as scattered
+fragments like "PUPPY PY BBY PPP YB BP..." across dozens of lines. Those
+fragments are still unexplainable by the command, which is why the
+run-of-unexplained-positions test above catches them anyway.
+
+**`unknown` is a first-class verdict and always means "proceed."** It is
+returned when the OCR text is too short to judge, or when the normalizer
+itself is unavailable. A caller must press Enter on `unknown`: this is the
+last-resort diagnostics path, and refusing to submit a line that simply could
+not be read would lose the capture outright.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

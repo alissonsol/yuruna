@@ -11,20 +11,10 @@ import (
 	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
-// mcpRegistry is this daemon's MCP surface.
-//
-// Every tool is built with mcp.FromRoute over the handler the HTTP route
-// already uses, so a tool cannot answer differently from the route it wraps --
-// there is one body, produced once, by one function.
-//
-// Read-only, deliberately. The mutating routes here are per-image refresh,
-// delete and prune, and the pool-wide refresh; wrapping those is a deliberate
-// deferral rather than an oversight, because the one route an agent would most
-// want -- POST .../ensure -- is DELIBERATELY ungated on the HTTP side (it is
-// the call a host makes for itself on the read path), and a tool for it could
-// not both mirror its route's gate and honor the rule that a mutating tool
-// takes the lab token. That contradiction is reconciled before it gets a tool,
-// not by quietly picking one side.
+// mcpRegistry is this daemon's MCP surface. See
+// ../../../../../../docs/extensions-api.md#mcp-endpoints and
+// ../../../../../../docs/extensions-api.md#what-a-tool-may-do-and-who-decides
+// for the mcp.FromRoute pattern and why this surface stays read-only. -- mcp.go
 func (s *Server) mcpRegistry() *mcp.Registry {
 	reg := mcp.NewRegistry()
 	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)

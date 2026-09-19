@@ -220,7 +220,7 @@ func TestScanPageServed(t *testing.T) {
 	defer srv.Close()
 
 	page := getText(t, srv.URL+"/scan")
-	if !strings.Contains(page, "Scan &mdash; Yuruna Pool Control") {
+	if !strings.Contains(page, "Scan — Yuruna Pool Control") {
 		t.Fatalf("the Scan page must carry its own title: %.120s", page)
 	}
 	if !strings.Contains(page, `src="/assets/scan.js"`) {

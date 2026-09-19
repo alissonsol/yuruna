@@ -166,3 +166,22 @@ func TestSharedFormatCorpus(t *testing.T) {
 		}
 	}
 }
+
+func TestPortugueseCardinalCorpus(t *testing.T) {
+	var corpus struct {
+		Locale string `json:"locale"`
+		Rule   string `json:"rule"`
+		Cases  []struct {
+			Count    float64 `json:"count"`
+			Category string  `json:"category"`
+		} `json:"cases"`
+	}
+	readFixture(t, "pt-BR-plurals.json", &corpus)
+	m := DefaultManifest()
+	for _, row := range corpus.Cases {
+		actual, err := PluralCategory(row.Count, corpus.Locale, m)
+		if err != nil || actual != row.Category {
+			t.Errorf("count %v: got %q (%v), want %q", row.Count, actual, err, row.Category)
+		}
+	}
+}

@@ -80,6 +80,42 @@ so a chord cannot live there. On macOS a chord takes the CGEvent path
 even when AppleScript would serve a plain key -- `key code` cannot hold
 a modifier down across the base key.
 
+**VNC connection caching and recovery.** `Test.Transport` caches a single VNC
+handle (`$script:CachedVnc`, `$script:CachedVncVM`) and reuses it across
+steps on macOS UTM -- fast (saves roughly 200 ms per VNC `Send-Key` call) but
+brittle: a guest reboot, a network partition, or a VNC server restart leaves
+the handle in a closed state, and the next VNC text send silently drops every
+keystroke until the cache is invalidated. `Test.VncProvider`'s
+`Repair-VncConnection` is the recovery primitive that forces the next call to
+re-handshake. It is invoked from `Wait-ForText`'s bounded no-text self-heal
+(several consecutive polls with no OCR text is a likely sign the cached
+handle is feeding frozen frames) and is available to any `host_io_blocked`
+recovery path.
+
+**Screenshot capture is the same shape**, in `Test.ScreenshotProvider`:
+per-host capture implementations register, and `Wait-ForText` /
+`saveDebugScreenshot` dispatch through `Invoke-ScreenshotProvider`. The
+legacy `Yuruna.Host\Get-VMScreenshot` contract still works; the registry is
+the seam for adding a fast-path capturer (a delta-only frame grabber, say)
+or a fallback for when WMI / `virsh screenshot` times out. Its own
+self-healing primitive is `Repair-ScreenshotRing`.
+
+**The SSH driver is a parallel path, not another backend in this table.**
+`Test.Ssh.psm1` bypasses the GUI keystroke flow entirely: selected by
+`test.config.yml`'s `keystrokeMechanism` (`GUI`|`SSH`, case-insensitive,
+normalized uppercase by the validator), it drives a guest over SSH instead of
+through the registry above. A per-host ed25519 key pair lives under
+`test/status/ssh/` (runtime, gitignored) and is injected into each guest's
+cloud-init user-data via `SSH_AUTHORIZED_KEY_PLACEHOLDER`. Host-key checking
+is deliberately disabled: Yuruna recreates guests constantly and reuses VM
+names and NAT-assigned IPs, so a fresh guest routinely presents a different
+host key on an address that previously answered with a different one. Every
+SSH call site must therefore pass all three of `-o StrictHostKeyChecking=no`,
+`-o UserKnownHostsFile=/dev/null`, and `-o GlobalKnownHostsFile=/dev/null` --
+the third closes the trap where `ssh-keyscan` would otherwise still write
+into `/etc/ssh/ssh_known_hosts`. Microsoft's OpenSSH port accepts
+`/dev/null` verbatim, so the same one-liner works on every host.
+
 <a id="4222e5f2-0005"></a>
 
 ## Hyper-V PS/2 scancode behavior
@@ -272,6 +308,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.13
+Last review: 2026.09.18
 
 Back to [Yuruna](../README.md)

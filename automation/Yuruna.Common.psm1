@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
 # modules use for Yuruna.Result / Yuruna.VariableExpansion), so the helpers resolve
 # at operation time and the module holds no per-run state of its own.
 
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 function New-YurunaTimestampedBackup {
     <#
     .SYNOPSIS
@@ -107,7 +108,7 @@ function ConvertTo-ProxyHostPort {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Url)
     if ($Url -notmatch '^https?://([^:/]+):(\d+)/?$') {
-        throw "ConvertTo-ProxyHostPort: '$Url' is not a valid http://host:port URL."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_cfcb46f2db95508a' -Arguments @{ url = "$Url" })
     }
     return @{
         Host     = $matches[1]
@@ -497,7 +498,7 @@ function Get-CachingProxyServicePort {
         if ([int]::TryParse($val, [ref]$parsed) -and $parsed -gt 0 -and $parsed -lt 65536) {
             return $parsed
         }
-        Write-Warning "${envVar}='$val' is not a valid TCP port; falling through to default."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_baf284244c809741' -Arguments @{ envVar = "${envVar}"; val = "$val" })
     }
     switch ($Scheme) {
         'http'  { return 3128 }
@@ -759,7 +760,7 @@ function ConvertTo-Sha512CryptHash {
         [Parameter(Mandatory)][string]$Plaintext,
         [string]$OpenSslPath
     )
-    if (-not $Plaintext) { throw 'ConvertTo-Sha512CryptHash: Plaintext is empty.' }
+    if (-not $Plaintext) { throw (Format-YurunaOperatorMessage -Key 'automation.operator_e89fa5a7953b2b69') }
 
     $candidates = @()
     if ($OpenSslPath) {
@@ -800,7 +801,7 @@ function ConvertTo-Sha512CryptHash {
             Write-Verbose "ConvertTo-Sha512CryptHash: '$p' not usable: $($_.Exception.Message)"
         }
     }
-    throw "ConvertTo-Sha512CryptHash: no working openssl with SHA-512 (-6) support found. Tried: $($candidates -join ', '). Install OpenSSL >= 1.1 (Linux/macOS) or Git for Windows."
+    throw (Format-YurunaOperatorMessage -Key 'automation.operator_d8870f8f0c55a665' -Arguments @{ join = "$($candidates -join ', ')" })
 }
 
 function ConvertTo-YurunaMacAddress {
@@ -839,21 +840,21 @@ function ConvertTo-YurunaMacAddress {
     # A permissive strip-all-separators pass would accept mixed forms
     # like '02:11-22...' that are more likely typos than intent.
     if ($trimmed -notmatch '^([0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{2}(-[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{12})$') {
-        Write-Warning "MAC address '$MacAddress' is not valid. Use AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or AABBCCDDEEFF (12 hex digits)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_3c501632d2ed2862' -Arguments @{ macAddress = "$MacAddress" })
         return $null
     }
     $bare = ($trimmed -replace '[:-]', '').ToUpperInvariant()
     if ($bare -eq '000000000000') {
-        Write-Warning "MAC address '$MacAddress' is all-zeros; hypervisors reject it."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_a6692253a1a34a18' -Arguments @{ macAddress = "$MacAddress" })
         return $null
     }
     $firstOctet = [Convert]::ToInt32($bare.Substring(0, 2), 16)
     if ($firstOctet -band 0x01) {
-        Write-Warning "MAC address '$MacAddress' is multicast (first octet's low bit is set); a NIC cannot source from it, so DHCP would never lease. Use an even first octet (e.g. 02:...)."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5d063be800d28f8d' -Arguments @{ macAddress = "$MacAddress" })
         return $null
     }
     if (-not ($firstOctet -band 0x02)) {
-        Write-Warning "MAC address '$MacAddress' does not have the locally-administered bit set (first octet 0x02); it may collide with real hardware on the LAN. Consider a first octet like 02, 06, 0A, or 0E."
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_951861044b696fe1' -Arguments @{ macAddress = "$MacAddress" })
     }
     return (($bare -split '(..)' | Where-Object { $_ }) -join ':')
 }
@@ -903,31 +904,8 @@ function Get-YurunaGuestMacAddress {
     The deterministic MAC for one (Yuruna host, VM name) pair: the same host
     rebuilding the same guest always gets the same address back.
 .DESCRIPTION
-    WHY THIS EXISTS. Every hypervisor hands a freshly-built VM a random MAC, and
-    a lab's guests are rebuilt constantly -- so each build asks the DHCP server
-    for a NEW lease while the old one is still held by a guest that no longer
-    exists. A pool drains steadily until it has nothing left to hand out, and
-    guests then boot with no IPv4 at all. Deriving the MAC from identity instead
-    of randomness turns unbounded lease churn into a fixed footprint: one address
-    per (host, guest), reclaimed on every rebuild.
-
-    LAYOUT -- 42:HH:HH:VV:VV:VV
-      42     Yuruna's marker. Not decorative and not arbitrary: 0x42 is
-             0100 0010, so the locally-administered bit (0x02) is set and the
-             multicast bit (0x01) is clear -- a valid unicast LAA octet needing
-             no correction. It is also the prefix a Yuruna hostId carries, so an
-             operator reading a DHCP lease table can tell Yuruna's addresses from
-             everything else on the LAN at a glance.
-      HH:HH  SHA-256 of the host seed. Constant for every guest on one host, so
-             leases visibly group by host in that same table.
-      VV:VV:VV
-             SHA-256 of host-seed + VM name -- NOT of the VM name alone. Guest
-             slots are named identically across hosts ('test-guest.ubuntu.server.24-01'
-             exists on every one), so hashing the name by itself would leave the
-             whole address depending on the two host bytes, and two hosts landing
-             on the same pair would then collide on every guest they share. Mixing
-             the host in restores the full 40 bits of separation while keeping the
-             leading pair stable per host.
+    See ../docs/network.md#defining-deterministic-guest-mac-addresses for why
+    this exists and the 42:HH:HH:VV:VV:VV layout it produces.
 .PARAMETER VMName
     The name to key on. Callers building a guest pass the identity that guest
     will keep for its whole life -- its cloud-init hostname where the sequence
@@ -1749,7 +1727,7 @@ function ConvertTo-MemoryStartupBytes {
     $t = $Value.Trim()
     $m = [regex]::Match($t, '^(?<num>\d+)\s*(?<unit>KB|MB|GB|TB|KiB|MiB|GiB|TiB|B)?$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if (-not $m.Success) {
-        throw "Invalid memoryStartupBytes '$Value': expected an integer byte count or a number with a KB/MB/GB/TB suffix (e.g. 34359738368, 32768MB, 32GB)."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_c8d5acba93bb94a2' -Arguments @{ value = "$Value" })
     }
     $num  = [int64]$m.Groups['num'].Value
     $unit = $m.Groups['unit'].Value.ToUpperInvariant()
@@ -1764,35 +1742,17 @@ function ConvertTo-MemoryStartupBytes {
     }
     $bytes = [int64]$num * [int64]$mult
     if ($bytes -le 0) {
-        throw "Invalid memoryStartupBytes '$Value': must be a positive size."
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_4e2d63d457a25a3e' -Arguments @{ value = "$Value" })
     }
     return $bytes
 }
 
-# --- REGION: What the service VMs commit, and what the host has to carry it
-# The service guests are sized in their per-host builders and nowhere else, and
-# every hypervisor here PINS that size: the UTM guests carry no balloon driver,
-# Hyper-V builds them with DynamicMemoryEnabled $false, and virt-install is given
-# a flat --memory. So a size is a commitment from the moment the VM runs, not a
-# ceiling it grows into, and the sum of them is knowable before the first build.
-
-# A hypervisor's resident set is larger than the guest memory it was configured
-# with -- the device model, the framebuffer and the accelerator's own page tables
-# are host-side. Measured across a three-guest service set, 20.0 GB of configured
-# guest memory was held as 24.7 GB resident, and a single 12 GB guest as 15.2 GB.
-# Both land about a quarter over, which is what this factor carries.
+# Service-VM sizing/overhead methodology: see
+# ../docs/architecture.md#service-vm-memory-budget -- Yuruna.Common.psm1
 $script:ServiceVmResidentOverheadFactor = 1.24
 
-# What has to be LEFT once the service VMs are resident: the operating system,
-# the hypervisor's own process, and the harness driving the run. Calibrated from
-# the same measurement -- with 7.3 GB left, that host stayed up only by holding
-# ~1.9 GB in its memory compressor, so a remainder of that size is already under
-# reclaim rather than comfortable. Rounded UP from the measured point, because
-# the point measured was the squeezed side of the line.
-#
-# Fixed rather than a fraction of installed memory: what a host needs for itself
-# is roughly constant, so a fraction would excuse a large machine from the floor
-# a small one is held to, and would tighten as machines grow.
+# See ../docs/architecture.md#service-vm-memory-budget for why this reserve is
+# fixed rather than a fraction of installed memory. -- Yuruna.Common.psm1
 $script:HostMemoryReserveMb = 8192
 
 function Get-GuestBuilderMemoryMb {
@@ -2039,7 +1999,7 @@ function Get-ServiceVmMemoryVerdict {
     $reserve   = [int]$script:HostMemoryReserveMb
     $remaining = [int]$HostMemoryMb - $resident
     $needed    = $resident + $reserve
-    $gb        = { param($mb) '{0:0.0} GB' -f ([double]$mb / 1024) }
+    $gb        = { param($mb) Format-YurunaOperatorMessage -Key 'automation.memory_size' -FormatValues ([double]$mb / 1024) -FormatBindings @{ size = '0:0.0' } }
 
     # The per-service breakdown is what makes the total checkable by hand -- and
     # is dropped for a single service, where it would only restate the total.
@@ -2050,8 +2010,7 @@ function Get-ServiceVmMemoryVerdict {
     # still starts, so the figures are a floor and the operator is told which
     # service is missing from them rather than being handed a guess.
     $floorNote = if ($unsized.Count -gt 0 -and $known.Count -gt 0) {
-        ' Not in that total: {0}, whose configured size could not be read from the host builder{1} -- so these figures are a floor.' -f
-            ($unsized -join ', '), $(if ($unsized.Count -eq 1) { '' } else { 's' })
+        Format-YurunaOperatorMessage -Key 'automation.memory_unsized_floor' -Arguments @{ count = $unsized.Count; names = ($unsized -join ', ') }
     } else { '' }
 
     $verdict = [ordered]@{
@@ -2066,29 +2025,29 @@ function Get-ServiceVmMemoryVerdict {
         Summary      = ''
     }
     if ($known.Count -eq 0 -or $HostMemoryMb -le 0) {
-        $missing = if ($rows.Count -eq 0) { 'this run starts no service VM' }
-                   elseif ($known.Count -eq 0) { "no service VM size could be read from the host builders ($($unsized -join ', '))" }
-                   else { 'this host does not report its installed memory' }
-        $verdict.Message = "Service VM memory was not checked: $missing.$floorNote"
-        $verdict.Summary = 'memory headroom not checked'
+        $missing = if ($rows.Count -eq 0) { (Format-YurunaOperatorMessage -Key 'automation.operator_41fce0708182b250') }
+                   elseif ($known.Count -eq 0) { (Format-YurunaOperatorMessage -Key 'automation.operator_1fde11cd758abf02' -Arguments @{ join = "$($unsized -join ', ')" }) }
+                   else { (Format-YurunaOperatorMessage -Key 'automation.operator_00010ebe540ede32') }
+        $verdict.Message = (Format-YurunaOperatorMessage -Key 'automation.operator_77e3426b7eb34748' -Arguments @{ missing = "$missing"; floorNote = "$floorNote" })
+        $verdict.Summary = (Format-YurunaOperatorMessage -Key 'automation.operator_d984bd8b6c4ca252')
         return [pscustomobject]$verdict
     }
 
     # 'sized' appears only when something could not be read, so the count in the
     # sentence always matches the services the total is actually made of.
-    $plan   = '{0} {1}service VM{2} this run starts' -f $known.Count,
-                $(if ($unsized.Count -gt 0) { 'sized ' } else { '' }),
-                $(if ($known.Count -eq 1) { '' } else { 's' })
-    $commit = if ($known.Count -eq 1) { 'commits' } else { 'commit' }
+    $plan = if ($unsized.Count -gt 0) {
+        Format-YurunaOperatorMessage -Key 'automation.memory_sized_plan' -Arguments @{ count = $known.Count }
+    } else {
+        Format-YurunaOperatorMessage -Key 'automation.memory_plan' -Arguments @{ count = $known.Count }
+    }
     if ($remaining -ge $reserve) {
         $verdict.Level   = 'ok'
-        $verdict.Message = ('Memory: this host has {0}; the {1} {2} {3} of guest memory{4}, about {5} resident, ' +
-                            'leaving {6}.{7}') -f (& $gb $HostMemoryMb), $plan, $commit, (& $gb $committed), $list,
-                            (& $gb $resident), (& $gb $remaining), $floorNote
+        $verdict.Message = (Format-YurunaOperatorMessage -Key 'automation.operator_4aff59adcc34fceb' -Arguments @{ count = $known.Count } -FormatValues ((& $gb $HostMemoryMb), $plan, $known.Count, (& $gb $committed), $list,
+                            (& $gb $resident), (& $gb $remaining), $floorNote) -FormatBindings @{ hostMemoryMb = '0'; plan = '1'; committed = '3'; list = '4'; resident = '5'; remaining = '6'; floorNote = '7' })
         # Phrased without an article in front of the host size: the figure is
         # formatted at run time and '8.0 GB' would need 'an' where '32.0 GB'
         # needs 'a'.
-        $verdict.Summary = 'memory: {0} committed, host has {1}, {2} left' -f (& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining)
+        $verdict.Summary = (Format-YurunaOperatorMessage -Key 'automation.operator_11aa67846cf16f87' -FormatValues ((& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining)) -FormatBindings @{ committed = '0'; hostMemoryMb = '1'; remaining = '2' })
         return [pscustomobject]$verdict
     }
 
@@ -2113,37 +2072,30 @@ function Get-ServiceVmMemoryVerdict {
         # told it saves that guest too, while the size beside the sentence counts
         # only the stash -- and a lever whose name and figure disagree is the one
         # sentence here an operator can catch being wrong.
-        $sharedNames = ($shared | ForEach-Object { [string]$_.Name }) -join ' and '
-        $sharedNoun  = if ($shared.Count -eq 1) { 'service' } else { 'services' }
-        [void]$lever.Add("storage.kind = none skips the $sharedNames $sharedNoun$sharedSize, giving up shared storage")
+        $sharedNames = if ($shared.Count -eq 2) { Format-YurunaOperatorMessage -Key 'automation.memory_service_names' -Arguments @{ first = [string]$shared[0].Name; second = [string]$shared[1].Name } } else { [string]$shared[0].Name }
+        [void]$lever.Add((Format-YurunaOperatorMessage -Key 'automation.operator_a07107e65b3dc315' -Arguments @{ sharedNames = "$sharedNames"; count = $shared.Count; sharedSize = "$sharedSize" }))
     }
     if ($names -contains 'download-agent') {
         $daMb = [int][Math]::Max(0, [int](@($rows | Where-Object { $_.Name -eq 'download-agent' })[0].MemoryMb))
         $daSize = if ($daMb -gt 0) { " ($(& $gb $daMb))" } else { '' }
-        [void]$lever.Add("downloadAgentService.enabled: false in test/test.config.yml skips the download agent alone$daSize")
+        [void]$lever.Add((Format-YurunaOperatorMessage -Key 'automation.operator_2cf639068f11200e' -Arguments @{ daSize = "$daSize" }))
     }
-    $levers = if ($lever.Count -gt 0) { ' Skip a service to get it back: ' + ($lever -join '; ') + '.' }
-              elseif ($isLab) { ' A lab runs all of these, so the only lever left is the memory in the machine.' }
-              else { ' Nothing in this run can be skipped -- the caching proxy is what every guest install goes through.' }
+    $levers = if ($lever.Count -gt 0) { Format-YurunaOperatorMessage -Key 'automation.memory_reclaim' -Arguments @{ options = ($lever -join '; ') } }
+              elseif ($isLab) { (Format-YurunaOperatorMessage -Key 'automation.operator_cb7cb002c87ecc4f') }
+              else { (Format-YurunaOperatorMessage -Key 'automation.operator_912a7349029915c6') }
 
     $shortfall = if ($remaining -ge 0) {
-        'Only {0} would be left for the operating system, the hypervisor and this run' -f (& $gb $remaining)
+        (Format-YurunaOperatorMessage -Key 'automation.operator_44b14d5da1878689' -FormatValues ((& $gb $remaining)) -FormatBindings @{ value = '0' })
     } else {
-        'The service VMs alone want about {0} on a host with {1} -- {2} more than it has' -f
-            (& $gb $resident), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))
+        (Format-YurunaOperatorMessage -Key 'automation.operator_7564908a891ca5fd' -FormatValues ((& $gb $resident), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))) -FormatBindings @{ resident = '0'; hostMemoryMb = '1'; remaining = '2' })
     }
     $verdict.Level   = 'warn'
-    $verdict.Message = ('{0}. This host has {1}; the {2} {3} {4} of guest memory{5} as fixed allocations with no ' +
-                        'balloon, which the hypervisor holds at about {6} resident. Carrying that and still leaving ' +
-                        'the host the {7} it needs for itself takes about {8} of RAM.{9}{10} Continuing.') -f
-                        $shortfall, (& $gb $HostMemoryMb), $plan, $commit, (& $gb $committed), $list,
-                        (& $gb $resident), (& $gb $reserve), (& $gb $needed), $levers, $floorNote
+    $verdict.Message = (Format-YurunaOperatorMessage -Key 'automation.operator_d79ea1202ce9e895' -Arguments @{ count = $known.Count } -FormatValues ($shortfall, (& $gb $HostMemoryMb), $plan, $known.Count, (& $gb $committed), $list,
+                        (& $gb $resident), (& $gb $reserve), (& $gb $needed), $levers, $floorNote) -FormatBindings @{ shortfall = '0'; hostMemoryMb = '1'; plan = '2'; committed = '4'; list = '5'; resident = '6'; reserve = '7'; needed = '8'; levers = '9'; floorNote = '10' })
     $verdict.Summary = if ($remaining -ge 0) {
-        'memory: {0} committed, host has {1}, leaving {2} for the host itself -- under {3}' -f
-            (& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining), (& $gb $reserve)
+        (Format-YurunaOperatorMessage -Key 'automation.operator_c61cf155a222f155' -FormatValues ((& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining), (& $gb $reserve)) -FormatBindings @{ committed = '0'; hostMemoryMb = '1'; remaining = '2'; reserve = '3' })
     } else {
-        'memory: {0} committed, host has {1} -- {2} short' -f
-            (& $gb $committed), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))
+        (Format-YurunaOperatorMessage -Key 'automation.operator_93fe53da38102f00' -FormatValues ((& $gb $committed), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))) -FormatBindings @{ committed = '0'; hostMemoryMb = '1'; remaining = '2' })
     }
     return [pscustomobject]$verdict
 }
@@ -2276,4 +2228,579 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName
+function Invoke-BoundedNativeCommand {
+<#
+.SYNOPSIS
+    Run a native command under a wall-clock cap with stdin closed and both
+    output streams captured and size-bounded, killing the process tree if the
+    cap is reached.
+.DESCRIPTION
+    `& tool args` inherits the caller's stdin, stdout and stderr and then waits
+    with no bound. On an unattended host both halves of that are load-bearing:
+
+      * A tool that reaches for the terminal -- a credential prompt, a consent
+        dialog, anything that opens the controlling tty -- stops its whole
+        process group with SIGTTIN/SIGTTOU when the caller is not the
+        foreground job, and nobody is there to resume it
+        (feedback_timeout-background-pgrp-tty-stop.md).
+      * A tool that talks to a wedged system service simply never returns.
+        macOS `osascript` and `utmctl` both ride Apple Events, and an
+        unresponsive tccd, appleeventsd or target application blocks the call
+        indefinitely -- the tools carry no timeout of their own.
+
+    Either way the caller stops making progress, and the only thing left that
+    can end the wait is the runner's step-heartbeat watchdog, which ends the
+    whole cycle over a single unanswered probe. Bounding the call turns that
+    into a verdict the caller can act on in seconds.
+
+    Closing stdin is what makes an interactive prompt fail rather than wait;
+    redirecting both output streams keeps the child off the caller's terminal
+    so it can never become a background reader of one.
+
+    A timeout is reported as exit code 124, matching timeout(1) and the other
+    bounded wrappers in the repo, with TimedOut set so a caller can tell it
+    apart from a tool that ran and refused.
+
+    The immediate child exiting is not the same event as its output streams
+    reaching end of file: a client that backgrounds real work in a helper
+    process (or simply forks) can exit itself while a descendant keeps both
+    pipes open. `WaitForExit` returning `$true` only proves the direct child
+    is gone. This function tracks stream end-of-file as a separate condition
+    from process exit and never blocks past its own deadline waiting for
+    either -- in particular it never touches an async read task's result
+    before confirming, through a bounded wait, that the task has actually
+    finished; doing so blocks the calling thread for as long as the task
+    takes to complete, which can be far longer than any cap the caller
+    thought they were getting. `DrainTimedOut` reports exactly that
+    situation: the process produced a real exit code, but its streams did
+    not reach EOF inside the deadline, so the captured output may be
+    incomplete and must not be read as a complete answer.
+
+    Captured output is capped at `MaxCapturedChars` per stream. Once a stream
+    hits the cap this function keeps reading (and discarding) from it rather
+    than stopping: an OS pipe has a finite buffer, and a reader that simply
+    stops taking bytes leaves a still-running, unbounded-output child blocked
+    on its next write for as long as it lives -- exactly the kind of hang
+    this primitive exists to prevent. `OutputTruncated` reports when either
+    stream was cut.
+.PARAMETER FilePath
+    Command to run: a name resolved on PATH, or a full path to an executable.
+.PARAMETER ArgumentList
+    Arguments passed through verbatim -- no shell, so no quoting to undo.
+.PARAMETER TimeoutSeconds
+    Wall-clock cap covering the entire call: launch, execution, and draining
+    both streams to EOF. Default 15s: long enough that a merely busy host
+    still answers, short enough that a wedged one is reported inside a
+    preamble rather than by the watchdog. A confirmed timeout may still cost
+    a short, separately bounded allowance beyond this cap while the process
+    tree is killed and its pipes given a last chance to close; that allowance
+    never re-runs or extends the operation itself.
+.PARAMETER Environment
+    Extra environment variables for the child only.
+.PARAMETER MaxCapturedChars
+    Per-stream cap on retained output. Defaults to 256K characters, generous
+    for any diagnostic tool this wraps while keeping a runaway or malicious
+    writer from growing this call's memory without bound.
+.OUTPUTS
+    [hashtable] @{ ExitCode; StdOut; StdErr; TimedOut; Started; DrainTimedOut;
+    KillFailed; OutputTruncated; ElapsedMs }. The first five keys and their
+    values are unchanged from before this primitive was rewritten -- Started
+    is $false when the command could not be found or launched at all, where
+    ExitCode stays -1 and both streams are empty; TimedOut with ExitCode 124
+    means the wall-clock cap was reached. The four new keys add facts this
+    version can now detect without changing what existing callers already
+    read: DrainTimedOut means a stream had not reached EOF when this call
+    returned, so StdOut/StdErr may be incomplete even though ExitCode is
+    real; KillFailed means the tree-kill itself threw after a timeout;
+    OutputTruncated means a stream was cut at MaxCapturedChars.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 15,
+        [hashtable]$Environment,
+        [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 262144
+    )
+    $result = @{
+        ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
+        DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 0
+    }
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $resolved = (Get-Command -CommandType Application -Name $FilePath -ErrorAction SilentlyContinue |
+        Select-Object -First 1).Source
+    if (-not $resolved -and (Test-Path -LiteralPath $FilePath -PathType Leaf)) { $resolved = $FilePath }
+    if (-not $resolved) {
+        Write-Verbose "Invoke-BoundedNativeCommand: '$FilePath' was not found."
+        $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
+        return $result
+    }
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $resolved
+    foreach ($argument in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$argument) }
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    if ($Environment) {
+        foreach ($key in $Environment.Keys) { $psi.Environment["$key"] = [string]$Environment[$key] }
+    }
+    $proc = $null
+    try {
+        $proc = [System.Diagnostics.Process]::Start($psi)
+    } catch {
+        Write-Verbose "Invoke-BoundedNativeCommand: could not start '$resolved': $($_.Exception.Message)"
+        $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
+        return $result
+    }
+    $result.Started = $true
+    # Closed rather than left open and empty: a child that reads stdin gets EOF
+    # and gives up, where an open pipe leaves it waiting on input never coming.
+    try { $proc.StandardInput.Close() } catch { $null = $_ }
+
+    $capMs = [long]$TimeoutSeconds * 1000
+    $cts   = [System.Threading.CancellationTokenSource]::new()
+
+    $outBuf     = [char[]]::new(8192)
+    $errBuf     = [char[]]::new(8192)
+    $outSb      = [System.Text.StringBuilder]::new()
+    $errSb      = [System.Text.StringBuilder]::new()
+    $outTrunc   = $false
+    $errTrunc   = $false
+    $outEof     = $false
+    $errEof     = $false
+    $exited     = $false
+    $killFailed = $false
+
+    # Appends at most enough of Buffer to fill Builder to MaxChars, then keeps
+    # silently discarding: the caller's own next ReadAsync call is what
+    # actually keeps draining the pipe, this only decides what to keep.
+    function Add-BoundedNativeChunk {
+        param([System.Text.StringBuilder]$Builder, [char[]]$Buffer, [int]$Count, [int]$MaxChars, [ref]$Truncated)
+        if ($Truncated.Value) { return }
+        $room = $MaxChars - $Builder.Length
+        if ($room -le 0) { $Truncated.Value = $true; return }
+        $take = [Math]::Min($room, $Count)
+        [void]$Builder.Append($Buffer, 0, $take)
+        if ($take -lt $Count) { $Truncated.Value = $true }
+    }
+
+    # Both streams and the exit signal are pumped from this one thread via
+    # WaitAny, never a background thread: PowerShell scriptblocks are
+    # runspace-affinitized and cannot safely run on an arbitrary .NET
+    # thread-pool thread the way a raw Task.Run delegate would need to.
+    # Task.WaitAny/.Wait(timeoutMs) below never block past the millisecond
+    # count given them; only a task those calls have already confirmed
+    # finished ever has its GetAwaiter().GetResult() (equivalently .Result)
+    # read -- that is the exact guard the prior implementation lacked.
+    $outTask  = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
+    $errTask  = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
+    $exitTask = $proc.WaitForExitAsync()
+
+    while (-not ($outEof -and $errEof -and $exited)) {
+        $remaining = $capMs - $stopwatch.ElapsedMilliseconds
+        if ($remaining -le 0) { break }
+        $pending = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        if (-not $outEof) { [void]$pending.Add($outTask) }
+        if (-not $errEof) { [void]$pending.Add($errTask) }
+        if (-not $exited) { [void]$pending.Add($exitTask) }
+        $slice = [Math]::Min(500, [int]$remaining)
+        if ($slice -le 0) { break }
+        $idx = [System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), $slice)
+        if ($idx -lt 0) { continue }
+        $finished = $pending[$idx]
+        if ($finished -eq $exitTask -and -not $exited) {
+            $exited = $true
+            try { $null = $exitTask.GetAwaiter().GetResult() } catch { $null = $_ }
+        }
+        if ($finished -eq $outTask -and -not $outEof) {
+            $n = 0
+            try { $n = $outTask.GetAwaiter().GetResult() } catch { $outEof = $true }
+            if ($n -le 0) { $outEof = $true }
+            else {
+                Add-BoundedNativeChunk -Builder $outSb -Buffer $outBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$outTrunc)
+                $outTask = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
+            }
+        }
+        if ($finished -eq $errTask -and -not $errEof) {
+            $n = 0
+            try { $n = $errTask.GetAwaiter().GetResult() } catch { $errEof = $true }
+            if ($n -le 0) { $errEof = $true }
+            else {
+                Add-BoundedNativeChunk -Builder $errSb -Buffer $errBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$errTrunc)
+                $errTask = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
+            }
+        }
+    }
+
+    if (-not $exited) {
+        # The tree, not just the child: the tools this guards are thin clients
+        # that leave the actual work sitting in a helper process of their own,
+        # and killing only the client orphans it still holding the resource.
+        # This cleanup allowance is separate from, and does not extend, the
+        # caller's own TimeoutSeconds cap -- it only bounds how long we wait
+        # for the kill itself to take effect and for already-open pipes to
+        # close, matching this function's behavior before this rewrite.
+        try { $proc.Kill($true) } catch { $killFailed = $true }
+        $joinDeadline = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($joinDeadline.ElapsedMilliseconds -lt 5000 -and -not ($outEof -and $errEof)) {
+            if (-not $outEof -and $outTask.Wait(200)) {
+                $n = 0
+                try { $n = $outTask.GetAwaiter().GetResult() } catch { $outEof = $true }
+                if ($n -le 0) { $outEof = $true } else {
+                    Add-BoundedNativeChunk -Builder $outSb -Buffer $outBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$outTrunc)
+                    $outTask = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
+                }
+            }
+            if (-not $errEof -and $errTask.Wait(200)) {
+                $n = 0
+                try { $n = $errTask.GetAwaiter().GetResult() } catch { $errEof = $true }
+                if ($n -le 0) { $errEof = $true } else {
+                    Add-BoundedNativeChunk -Builder $errSb -Buffer $errBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$errTrunc)
+                    $errTask = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
+                }
+            }
+        }
+        try { $cts.Cancel() } catch { $null = $_ }
+        try { $null = $proc.WaitForExit(1000) } catch { $null = $_ }
+        try { $proc.Dispose() } catch { $null = $_ }
+        try { $cts.Dispose() } catch { $null = $_ }
+        $result.TimedOut        = $true
+        $result.ExitCode        = 124
+        $result.KillFailed      = $killFailed
+        $result.DrainTimedOut   = -not ($outEof -and $errEof)
+        $result.OutputTruncated = ($outTrunc -or $errTrunc)
+        $result.StdOut          = $outSb.ToString()
+        $result.StdErr          = $errSb.ToString()
+        $result.ElapsedMs       = $stopwatch.ElapsedMilliseconds
+        return $result
+    }
+
+    # The process itself exited inside the caller's own deadline, and the loop
+    # above already drained both streams for as long as that same deadline
+    # allowed, concurrently with waiting for exit. Do not grant extra time
+    # here just because the process finished -- a lingering descendant still
+    # holding a pipe open must show up as DrainTimedOut, not push this call
+    # past the cap the caller asked for.
+    $result.DrainTimedOut = -not ($outEof -and $errEof)
+    if ($result.DrainTimedOut) { try { $cts.Cancel() } catch { $null = $_ } }
+    $result.ExitCode        = [int]$proc.ExitCode
+    $result.OutputTruncated = ($outTrunc -or $errTrunc)
+    $result.StdOut          = $outSb.ToString()
+    $result.StdErr          = $errSb.ToString()
+    try { $proc.Dispose() } catch { $null = $_ }
+    try { $cts.Dispose() } catch { $null = $_ }
+    $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
+    return $result
+}
+
+function New-YurunaDeadline {
+<#
+.SYNOPSIS
+    Build a boot-relative deadline from a budget in milliseconds, comparable
+    across process boundaries on this host.
+.DESCRIPTION
+    [System.Diagnostics.Stopwatch] resets whenever the process that started it
+    exits, so it cannot describe a deadline that must survive the sg group
+    re-exec in Invoke-LibvirtGroupReExecIfNeeded, or any other relaunch: the
+    child process needs to recompute "how much is left" on its own, without
+    the parent's Stopwatch object. [Environment]::TickCount64 is a signed
+    64-bit count of milliseconds since boot that every process on the same
+    host reads from the same clock, so passing the absolute expiry tick --
+    not a remaining-seconds count computed once and never revisited -- lets
+    any later process on this host, including one that received only a
+    plain [long] over a command line or environment variable, recompute the
+    true remaining time at the moment it asks.
+
+    Only ExpiryTick is meant to cross a process boundary; reconstruct a
+    deadline object from it with New-YurunaDeadlineFromExpiry rather than
+    passing this object itself, which pwsh -File cannot transport anyway.
+.PARAMETER TotalMilliseconds
+    Budget from the current tick.
+.PARAMETER ClockTicks
+    Injected clock for tests: a scriptblock returning the current tick as a
+    [long]. Defaults to { [Environment]::TickCount64 }.
+.OUTPUTS
+    [pscustomobject] @{ ExpiryTick; ClockTicks }. Treat ExpiryTick as
+    immutable once returned; nothing in this module mutates it.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes, so ShouldProcess would be theater.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateRange(0, [long]::MaxValue)][long]$TotalMilliseconds,
+        [scriptblock]$ClockTicks
+    )
+    $clock = if ($ClockTicks) { $ClockTicks } else { { [Environment]::TickCount64 } }
+    $now = [long](& $clock)
+    return New-YurunaDeadlineFromExpiry -ExpiryTick ($now + $TotalMilliseconds) -ClockTicks $clock
+}
+
+function New-YurunaDeadlineFromExpiry {
+<#
+.SYNOPSIS
+    Wrap an already-computed boot-relative expiry tick -- received from a
+    parent process, an admitted request's journal, or a relaunch -- as a
+    deadline object with the same Get-YurunaDeadlineRemainingMs /
+    Test-YurunaDeadlineExpired surface as New-YurunaDeadline.
+.PARAMETER ExpiryTick
+    A value from [Environment]::TickCount64 on this same host, plus whatever
+    budget the original caller applied. Clamping a caller-supplied value to
+    an entry's own allowed maximum is the caller's policy, not this
+    function's: it stores exactly what it is given.
+.PARAMETER ClockTicks
+    Injected clock for tests; see New-YurunaDeadline.
+.OUTPUTS
+    [pscustomobject] @{ ExpiryTick; ClockTicks }
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes, so ShouldProcess would be theater.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][long]$ExpiryTick,
+        [scriptblock]$ClockTicks
+    )
+    $clock = if ($ClockTicks) { $ClockTicks } else { { [Environment]::TickCount64 } }
+    return [pscustomobject]@{
+        PSTypeName = 'Yuruna.Deadline'
+        ExpiryTick = $ExpiryTick
+        ClockTicks = $clock
+    }
+}
+
+function Get-YurunaDeadlineRemainingMs {
+<#
+.SYNOPSIS
+    Milliseconds left on a deadline built by New-YurunaDeadline or
+    New-YurunaDeadlineFromExpiry, floored at zero.
+.OUTPUTS
+    [long]
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <Name>Ms so a bare number cannot be read in the wrong unit.')]
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([Parameter(Mandatory)][ValidateNotNull()]$Deadline)
+    $clock = if ($Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $now = [long](& $clock)
+    return [Math]::Max([long]0, [long]$Deadline.ExpiryTick - $now)
+}
+
+function Test-YurunaDeadlineExpired {
+<#
+.SYNOPSIS
+    $true once a deadline's remaining time has reached zero.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][ValidateNotNull()]$Deadline)
+    return (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -le 0
+}
+
+function Get-YurunaDeadlineBoundedSeconds {
+<#
+.SYNOPSIS
+    Remaining whole seconds on a deadline, clamped to a native call's own
+    ceiling, or $null when there is no usable time left.
+.DESCRIPTION
+    Invoke-BoundedNativeCommand declares -TimeoutSeconds as
+    [ValidateRange(1, 3600)], and Invoke-UtmctlProbe / Invoke-MacBoundedTool
+    narrow that further to 600: passing a computed remainder of 0 or a
+    fractional second below 1 throws a parameter-binding error at the call
+    site instead of returning a structured refusal. Every call that derives
+    its timeout from a shared deadline checks the remaining time through this
+    function first and skips the call entirely on $null, rather than ever
+    passing a sub-one-second value through to a [ValidateRange(1, ...)]
+    parameter.
+.PARAMETER Ceiling
+    The target parameter's own upper bound (600 for Invoke-UtmctlProbe /
+    Invoke-MacBoundedTool, 3600 for Invoke-BoundedNativeCommand itself).
+.OUTPUTS
+    [Nullable[int]]
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <Name>Seconds so a bare number cannot be read in the wrong unit.')]
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNull()]$Deadline,
+        [ValidateRange(1, 3600)][int]$Ceiling = 3600
+    )
+    $remainingMs = Get-YurunaDeadlineRemainingMs -Deadline $Deadline
+    $seconds = [Math]::Floor($remainingMs / 1000.0)
+    if ($seconds -lt 1) { return $null }
+    return [Math]::Min([int]$seconds, $Ceiling)
+}
+
+function Get-YurunaPrivateStateRoot {
+<#
+.SYNOPSIS
+    Resolve, and on first use create and secure, the private per-host-owner
+    application-data root at $HOME/.yuruna/host-refresh, beside the existing
+    cross-host per-user state Get-HostProxyBackupPath already keeps at
+    $HOME/.yuruna.
+.DESCRIPTION
+    Everything the host-refresh protocol treats as authoritative -- the
+    lifetime single-flight lock, the request journal, the recovery snapshot
+    -- has to live outside every HTTP-served root. The status server serves
+    runtime/, log/, test/status/ and the whole repository by deny-list, not
+    allow-list, so anything written under a served tree is public unless its
+    name shape happens to be denied; this root is never inside one of those
+    trees regardless of naming.
+
+    Refuses, rather than silently degrading to an OS-temp fallback or a
+    weaker location, when the resolved path:
+      * cannot be created;
+      * is a symbolic link or reparse point at any component from $HOME
+        down to the leaf -- there is no legitimate reason for this specific
+        path to be an alias for something else, and chasing a link only
+        reopens the redirect risk it exists to close;
+      * is owned (on Unix, via a bounded `stat` call compared against the
+        current effective UID) by a user other than the one running this
+        process;
+      * cannot be locked to owner-only access -- 0700 on Unix, or an ACL
+        granting only the current Windows identity full control and
+        removing inherited access on Windows.
+
+    A single owning runtime/configuration is registered under this root by
+    the request/lock code that package 4 adds; this function only resolves
+    and secures the directory itself.
+.OUTPUTS
+    [pscustomobject] @{ Resolved; Path; Reason }. Trust Path only when
+    Resolved is $true. Reason is one of: ok, no-home, create-failed,
+    resolve-failed, reparse-point, owner-mismatch, permission-failed.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    if ([string]::IsNullOrWhiteSpace($HOME)) {
+        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'no-home' }
+    }
+    $stateDir = Join-Path $HOME '.yuruna'
+    $root     = Join-Path $stateDir 'host-refresh'
+
+    try {
+        if (-not (Test-Path -LiteralPath $stateDir)) {
+            New-Item -ItemType Directory -Path $stateDir -Force -ErrorAction Stop | Out-Null
+        }
+        if (-not (Test-Path -LiteralPath $root)) {
+            New-Item -ItemType Directory -Path $root -Force -ErrorAction Stop | Out-Null
+        }
+    } catch {
+        Write-Verbose "Get-YurunaPrivateStateRoot: could not create '$root': $($_.Exception.Message)"
+        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'create-failed' }
+    }
+
+    # Every component from $HOME to the leaf must be a plain directory: a
+    # symlink or reparse point anywhere in that chain could otherwise
+    # redirect this "private" root into a served tree or another user's
+    # data, and this path has no legitimate reason to be an alias. Uses the
+    # raw .NET FileSystemInfo rather than Get-Item/Test-Path: on this class
+    # of sandboxed filesystem a directory just created in this same process
+    # can occasionally take a few milliseconds to become visible through
+    # PowerShell's own provider layer even though the OS-level view (and
+    # System.IO directly) is already consistent, so a single provider-level
+    # existence check is not reliable immediately after New-Item.
+    foreach ($component in @($stateDir, $root)) {
+        $info = $null
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            $candidate = [System.IO.DirectoryInfo]::new($component)
+            if ($candidate.Exists) { $info = $candidate; break }
+            Start-Sleep -Milliseconds 20
+        }
+        if (-not $info) {
+            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'resolve-failed' }
+        }
+        if ($info.LinkTarget) {
+            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'reparse-point' }
+        }
+    }
+
+    if ($IsWindows) {
+        try {
+            $acl = Get-Acl -LiteralPath $root
+            $acl.SetAccessRuleProtection($true, $false)
+            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $root -AclObject $acl -ErrorAction Stop
+        } catch {
+            Write-Verbose "Get-YurunaPrivateStateRoot: ACL hardening failed for '$root': $($_.Exception.Message)"
+            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'permission-failed' }
+        }
+        return [pscustomobject]@{ Resolved = $true; Path = $root; Reason = 'ok' }
+    }
+
+    # Unix: verify ownership with a bounded `stat`, since .NET exposes
+    # permission bits but not the owning UID without native interop, then
+    # lock the directory to owner-only access.
+    $statResult = Invoke-BoundedNativeCommand -FilePath 'stat' -ArgumentList @('-c', '%u', $root) -TimeoutSeconds 5
+    if ($statResult.Started -and -not $statResult.TimedOut -and $statResult.ExitCode -eq 0) {
+        $ownerUid = ($statResult.StdOut | Select-Object -First 1).Trim()
+        $idResult = Invoke-BoundedNativeCommand -FilePath 'id' -ArgumentList @('-u') -TimeoutSeconds 5
+        $currentUid = if ($idResult.Started -and $idResult.ExitCode -eq 0) { $idResult.StdOut.Trim() } else { $null }
+        if ($currentUid -and $ownerUid -and $ownerUid -ne $currentUid) {
+            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'owner-mismatch' }
+        }
+    }
+    $chmodResult = Invoke-BoundedNativeCommand -FilePath 'chmod' -ArgumentList @('0700', $root) -TimeoutSeconds 5
+    if (-not $chmodResult.Started -or $chmodResult.TimedOut -or $chmodResult.ExitCode -ne 0) {
+        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'permission-failed' }
+    }
+    return [pscustomobject]@{ Resolved = $true; Path = $root; Reason = 'ok' }
+}
+
+function Get-BoundedNativeOutputLine {
+<#
+.SYNOPSIS
+    Split an Invoke-BoundedNativeCommand result's captured streams into the
+    line array a `& tool` call site used to receive.
+.DESCRIPTION
+    Native output arrives from the bounded runner as one string, while the
+    call sites it replaces were written against PowerShell's line-per-element
+    array. Converting in one place keeps each of those sites a one-line change
+    and keeps "what counts as a line" from drifting between them.
+
+    A timed-out or unlaunched command yields an empty array: there is no
+    output to interpret, and inventing an empty string as a line would let a
+    caller's first-element read succeed with nothing in it.
+.PARAMETER Result
+    The hashtable returned by Invoke-BoundedNativeCommand.
+.PARAMETER IncludeError
+    Append stderr lines after stdout, for a caller that ran the tool to read
+    its complaint rather than its answer.
+.OUTPUTS
+    [string[]]
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Result,
+        [switch]$IncludeError
+    )
+    if (-not $Result.Started -or $Result.TimedOut) { return [string[]]@() }
+    $text = [string]$Result.StdOut
+    if ($IncludeError -and $Result.StdErr) { $text = ($text.TrimEnd("`r", "`n") + "`n" + [string]$Result.StdErr) }
+    if ([string]::IsNullOrEmpty($text)) { return [string[]]@() }
+    # Only the trailing empty element is dropped, and only when the text ended
+    # on a newline. Interior blank lines are real output -- `pmset -g custom`
+    # separates its AC and battery blocks with one -- and a filter that removed
+    # every empty element would renumber the rows a caller indexes by position.
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in ($text -split "`r?`n")) { [void]$lines.Add([string]$line) }
+    while ($lines.Count -gt 0 -and [string]::IsNullOrEmpty($lines[$lines.Count - 1])) {
+        $lines.RemoveAt($lines.Count - 1)
+    }
+    return [string[]]$lines.ToArray()
+}
+
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Get-YurunaPrivateStateRoot

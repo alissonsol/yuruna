@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,5 +361,40 @@ Describe 'Reporting an auth-shaped failure as one -- not as "offline, or maybe c
         $warning = Get-FreshnessWarning -GitOutput "fatal: unable to access 'https://github.com/acme/p/': Could not resolve host: github.com"
         Assert-Match 'offline'             $warning 'an outage is an outage'
         Assert-True  ($warning -notmatch 'gh auth login') 'refreshing a login cannot fix a resolver failure, so do not suggest it'
+    }
+}
+
+Describe 'external Git diagnostics use an invariant child locale' {
+    It 'pins the fallback child locale and restores the caller even when Git fails' {
+        Mock -ModuleName Test.HostGit Get-Command { $null } -ParameterFilter { $Name -eq 'Invoke-PoolSyncGitCapture' }
+        InModuleScope Test.HostGit {
+            $before = @{}
+            foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) { $before[$name] = [Environment]::GetEnvironmentVariable($name) }
+            try {
+                $env:LC_ALL = 'pt_BR.UTF-8'; $env:LANG = 'de_DE.UTF-8'; $env:LANGUAGE = 'pt:de'
+                function git {
+                    $env:LC_ALL | Should -BeExactly 'C'
+                    $env:LANG | Should -BeExactly 'C'
+                    $env:LANGUAGE | Should -BeExactly 'C'
+                    throw 'synthetic child failure'
+                }
+                { Invoke-GitNetworkCommandOnce -GitArgs @('--version') } | Should -Throw 'synthetic child failure'
+                $env:LC_ALL | Should -BeExactly 'pt_BR.UTF-8'
+                $env:LANG | Should -BeExactly 'de_DE.UTF-8'
+                $env:LANGUAGE | Should -BeExactly 'pt:de'
+            } finally {
+                Remove-Item function:git -ErrorAction SilentlyContinue
+                foreach ($name in $before.Keys) { [Environment]::SetEnvironmentVariable($name, $before[$name]) }
+            }
+        }
+    }
+    It 'pins only the bounded Git child environment' {
+        $module = Join-Path $repoRoot 'test/modules/Test.PoolSync.psm1'
+        $ast = Get-ModuleAst -Path $module
+        $function = Get-FunctionAst -RootAst $ast -FunctionName 'Invoke-PoolSyncGitCapture'
+        foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) {
+            $function.Extent.Text | Should -Match ([regex]::Escape("`$psi.Environment['$name'] = 'C'"))
+        }
+        $function.Extent.Text | Should -Not -Match '\$env:(?:LC_ALL|LANG|LANGUAGE)\s*='
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -222,13 +222,29 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
         # first boot; one started after the build is one the guest never saw.
         $statusEnsure = Get-FirstCallOffset -Ast $ast -Name 'Start-YurunaStatusServiceIfEnabled'
         Assert-True ($statusEnsure -ge 0) 'the host status service is ensured'
+        $argumentAssignments = @($ast.FindAll({ param($n)
+            $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+            $n.Left.Extent.Text -eq '$newVmArgs' -and
+            $n.Operator -eq [Management.Automation.Language.TokenKind]::Equals
+        }, $true))
+        Assert-Equal 1 $argumentAssignments.Count 'the child invocation needs one authoritative base argument list'
+        Assert-Match "'-File',\s*\`$newVm,\s*'-VMName',\s*\`$VMName" $argumentAssignments[0].Right.Extent.Text `
+            'the child must still run the selected New-VM script with the exact VM name'
         $newVmOffsets = @($ast.FindAll({ param($n)
-            $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.CommandElements.Count -gt 0 -and
-            $n.CommandElements[-1].Extent.Text -eq '$VMName' -and
-            $n.Extent.Text -match '\$newVm'
+            $n -is [Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'pwsh' -and
+            @($n.CommandElements | Where-Object {
+                $_ -is [Management.Automation.Language.VariableExpressionAst] -and $_.Splatted -and
+                $_.VariablePath.UserPath -eq 'newVmArgs'
+            }).Count -eq 1
         }, $true) | ForEach-Object { $_.Extent.StartOffset })
-        Assert-True ($newVmOffsets.Count -ge 1) 'the per-host New-VM.ps1 is invoked with -VMName'
+        Assert-Equal 1 $newVmOffsets.Count 'the prepared child arguments must be used by exactly one invocation'
+        $pseudoGuard = @($ast.FindAll({ param($n)
+            $n -is [Management.Automation.Language.IfStatementAst] -and
+            $n.Clauses[0].Item1.Extent.Text -eq '$AllowPseudoLocale' -and
+            $n.Clauses[0].Item2.Extent.Text -match '\$newVmArgs\s*\+=\s*''-AllowPseudoLocale'''
+        }, $true))
+        Assert-Equal 1 $pseudoGuard.Count 'pseudo locale forwarding must remain explicitly opt-in'
         $newVmOffset = (@($newVmOffsets) | Sort-Object)[0]
         Assert-True ($storageGate -lt $newVmOffset) 'the storage gate runs before the VM is built'
         Assert-True ($statusEnsure -lt $newVmOffset) 'the status service is up before the guest first boots'

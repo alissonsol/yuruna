@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.13
+.VERSION 2026.09.18
 .GUID 42fadadf-22f5-4510-87bc-365af8d1047c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
 
 # Cross-platform "make the status-service port reachable from the LAN" helper:
 # centralizes the per-OS allow-rule logic used by BOTH the one-time elevated
@@ -133,16 +136,16 @@ function Set-YurunaStatusFirewallRule {
                 ($existing.Direction -eq 'Inbound') -and ($existing.Action -eq 'Allow') -and ("$($existing.Profile)" -eq 'Any')
             if ($shapeCorrect -and $existing.Enabled -eq 'True') {
                 $result.Ensured = $true
-                $result.Message = "Windows Firewall rule '$ruleName' already present and correct."
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_b317060ba0e0784f' -Arguments @{ ruleName = "$ruleName" })
                 Write-Verbose $result.Message
                 return $result
             }
             if (-not (Test-YurunaHostElevated)) {
                 # Can't mutate, but we KNOW it's misconfigured -> tell the caller it's blocked.
                 $result.Blocked = $true
-                $result.Message = if (-not $existing) { "No Windows Firewall rule for inbound TCP :$Port -- LAN clients will time out. Run host\windows.hyper-v\Enable-TestAutomation.ps1 (elevated)." }
-                                  elseif ($existing.Enabled -ne 'True') { "Windows Firewall rule '$ruleName' is DISABLED -- LAN clients will time out. Run host\windows.hyper-v\Enable-TestAutomation.ps1 (elevated)." }
-                                  else { "Windows Firewall rule '$ruleName' does not match inbound TCP :$Port -- LAN clients will time out. Run host\windows.hyper-v\Enable-TestAutomation.ps1 (elevated)." }
+                $result.Message = if (-not $existing) { (Format-YurunaOperatorMessage -Key 'runner.operator_b9a7825b7bd7c0f8' -Arguments @{ port = "$Port" }) }
+                                  elseif ($existing.Enabled -ne 'True') { (Format-YurunaOperatorMessage -Key 'runner.operator_af63446eff94d379' -Arguments @{ ruleName = "$ruleName" }) }
+                                  else { (Format-YurunaOperatorMessage -Key 'runner.operator_b9696695949fcb4f' -Arguments @{ ruleName = "$ruleName"; port = "$Port" }) }
                 if ($NonInteractive) { Write-Verbose $result.Message } else { Write-Warning $result.Message }
                 return $result
             }
@@ -150,27 +153,27 @@ function Set-YurunaStatusFirewallRule {
             # mismatch (wrong port/action/profile from a stale hand-made rule);
             # a lighter Enable when the shape is right but it was just disabled.
             if ($existing -and -not $shapeCorrect) {
-                if ($PSCmdlet.ShouldProcess($ruleName, "Rebuild inbound TCP :$Port allow rule")) {
+                if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'runner.operator_7f790a1ce866569c' -Arguments @{ port = "$Port" }))) {
                     Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
                     $null = New-NetFirewallRule -DisplayName $ruleName -Description $desc `
                         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Any
                     $result.Changed = $true
                 }
             } elseif ($existing -and $existing.Enabled -ne 'True') {
-                if ($PSCmdlet.ShouldProcess($ruleName, 'Enable existing firewall rule')) {
+                if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'runner.operator_900c7dfb1e5d32e3'))) {
                     Enable-NetFirewallRule -DisplayName $ruleName
                     $result.Changed = $true
                 }
             } elseif (-not $existing) {
-                if ($PSCmdlet.ShouldProcess($ruleName, "Create inbound TCP :$Port allow rule (all profiles)")) {
+                if ($PSCmdlet.ShouldProcess($ruleName, (Format-YurunaOperatorMessage -Key 'runner.operator_e0720d7702cdcf1f' -Arguments @{ port = "$Port" }))) {
                     $null = New-NetFirewallRule -DisplayName $ruleName -Description $desc `
                         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Any
                     $result.Changed = $true
                 }
             }
             $result.Ensured = $true
-            $result.Message = if ($result.Changed) { "Ensured Windows Firewall rule '$ruleName'." }
-                              else { "Windows Firewall rule '$ruleName' not applied (WhatIf)." }
+            $result.Message = if ($result.Changed) { (Format-YurunaOperatorMessage -Key 'runner.operator_484765f94376e1f7' -Arguments @{ ruleName = "$ruleName" }) }
+                              else { (Format-YurunaOperatorMessage -Key 'runner.operator_5cb379d1027f2e31' -Arguments @{ ruleName = "$ruleName" }) }
             Write-Information $result.Message
             return $result
         }
@@ -181,7 +184,7 @@ function Set-YurunaStatusFirewallRule {
             # a host on raw nftables/iptables is reported (indeterminate), not touched.
             $ufwCmd = Get-Command ufw -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $ufwCmd) {
-                $result.Message = "ufw not found; nftables/iptables are not managed. If inbound TCP :$Port is firewalled, allow it manually (e.g. an nft accept rule)."
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_169147ae321c1e82' -Arguments @{ port = "$Port" })
                 Write-Verbose $result.Message
                 return $result
             }
@@ -204,20 +207,20 @@ function Set-YurunaStatusFirewallRule {
                 # Blocked): the routine state on the unprivileged Linux runner. Stay
                 # quiet so a healthy host isn't warned every cycle; host setup owns
                 # the durable fix (Enable-TestAutomation runs elevated).
-                $result.Message = "Could not query ufw (exit $($st.ExitCode)); status-port firewall state unknown. If :$Port is blocked, run elevated: sudo ufw allow $Port/tcp"
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d5b5d8e0969942b5' -Arguments @{ exitCode = "$($st.ExitCode)"; port = "$Port" })
                 Write-Verbose $result.Message
                 return $result
             }
             if ($st.Output -notmatch '(?im)^\s*Status:\s*active') {
                 # Inactive ufw does not DROP, so there is nothing to open.
                 $result.Ensured = $true
-                $result.Message = "ufw is inactive; no inbound DROP to open for TCP :$Port."
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_9ba18d5e6791dd85' -Arguments @{ port = "$Port" })
                 Write-Verbose $result.Message
                 return $result
             }
             if ($st.Output -match "(?im)^\s*$Port/tcp\s+ALLOW") {
                 $result.Ensured = $true
-                $result.Message = "ufw already allows inbound TCP :$Port."
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_b7a070baef311891' -Arguments @{ port = "$Port" })
                 Write-Verbose $result.Message
                 return $result
             }
@@ -226,13 +229,13 @@ function Set-YurunaStatusFirewallRule {
                 if ($al.ExitCode -eq 0) {
                     $result.Ensured = $true
                     $result.Changed = $true
-                    $result.Message = "Added ufw allow $Port/tcp so LAN clients can reach the status service."
+                    $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_268e6069d124cd41' -Arguments @{ port = "$Port" })
                     Write-Information $result.Message
                 } else {
                     # ufw is active and the port is not allowed, and we could not add
                     # it -> genuinely blocked and unfixable here.
                     $result.Blocked = $true
-                    $result.Message = "ufw is active and inbound TCP :$Port is blocked, but 'ufw allow $Port/tcp' failed (exit $($al.ExitCode)). Run elevated: sudo ufw allow $Port/tcp"
+                    $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_106a8475358e4e82' -Arguments @{ port = "$Port"; exitCode = "$($al.ExitCode)" })
                     if ($NonInteractive) { Write-Verbose $result.Message } else { Write-Warning $result.Message }
                 }
             }
@@ -244,7 +247,7 @@ function Set-YurunaStatusFirewallRule {
             # The macOS application firewall filters by app, not by port, and does
             # not block inbound TCP :<port> by default -- nothing to do.
             $result.Ensured = $true
-            $result.Message = "macOS does not port-filter inbound TCP :$Port by default; no firewall rule needed."
+            $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_2bc0c6c200d92473' -Arguments @{ port = "$Port" })
             Write-Verbose $result.Message
             return $result
         }

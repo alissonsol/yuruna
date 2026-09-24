@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,35 +291,30 @@ foreach ($asset in @('style.css', 'common.js', 'hosts.js', 'qps-Ploc.pool.js', '
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'test/extension/extension-sdk/webui/assets/yuruna.core.js') `
     -Destination (Join-Path $poolAssetsOut 'yuruna.core.js') -Force
 
+# The exported page opens from disk with no service behind it, so the routes the
+# hosts builder reads are answered locally. Y.api is this runtime's request seam,
+# the counterpart of window.yurunaRequest in the Go pages, and Y.hostInfo goes
+# through it too, so overriding it covers every route the page asks for. No
+# browser global is replaced: a fixture that supplied its own fetch would be
+# measuring the stand-in rather than the page. The block is spliced in after the
+# runtime defines Y and before the page script runs.
 $poolTransport = @'
 <script>
 (function () {
-  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
-  window.XMLHttpRequest = function () {
-    var self = this;
-    this.open = function (method, url) { self.url = url; };
-    this.setRequestHeader = function () {};
-    this.abort = function () { if (self.onabort) { self.onabort(); } };
-    this.send = function () {
-      var data;
-      if (self.url === '/api/hosts') {
-        data = { ok: true, pools: ['lab'], targetPoolId: '', hostnamesVisible: false,
-          hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] };
-      } else if (self.url === '/api/hosts/facts') {
-        data = { ok: true, hosts: { '42cc': { ok: true,
-          frameworkAccess: 'yuruna', frameworkAccessState: 'readable',
-          projectAccess: 'No access', projectAccessState: 'denied',
-          projectUrl: 'https://example.test/private' } } };
-      } else if (self.url === '/api/hostinfo') {
-        data = { ok: true, goBaseUrl: '' };
-      } else {
-        data = { ok: false, error: 'unexpected fixture request ' + self.url };
-      }
-      self.status = data.ok === false ? 500 : 200;
-      self.statusText = data.ok === false ? 'Error' : 'OK';
-      self.responseText = JSON.stringify(data);
-      window.setTimeout(function () { if (self.onload) { self.onload(); } }, 0);
-    };
+  var FIXTURES = {
+    '/api/hosts': { ok: true, pools: ['lab'], targetPoolId: '', hostnamesVisible: false,
+      hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] },
+    '/api/hosts/facts': { ok: true, hosts: { '42cc': { ok: true,
+      frameworkAccess: 'yuruna', frameworkAccessState: 'readable',
+      projectAccess: 'No access', projectAccessState: 'denied',
+      projectUrl: 'https://example.test/private' } } },
+    '/api/hostinfo': { ok: true, goBaseUrl: '' }
+  };
+  window.Y.api = function (path) {
+    if (Object.prototype.hasOwnProperty.call(FIXTURES, path)) {
+      return Promise.resolve(FIXTURES[path]);
+    }
+    return Promise.reject(new Error('unexpected fixture request ' + path));
   };
 }());
 </script>
@@ -332,7 +327,7 @@ foreach ($locale in @(
     $poolHtml = $poolHtml.Replace('<tbody id="host-rows">',
         '<tbody id="host-rows" data-yuruna-globalization-reference data-yuruna-pseudo-markers="1">')
     $poolHtml = $poolHtml.Replace('<script src="/assets/yuruna.core.js"></script>',
-        $poolTransport.Trim() + "`n" + '<script src="/assets/yuruna.core.js"></script>')
+        '<script src="/assets/yuruna.core.js"></script>' + "`n" + $poolTransport.Trim())
     $poolHtml = ConvertTo-ReferencePageLocale -Html $poolHtml -Tag $tag -Direction $locale.Direction `
         -RuntimeTag '<script src="/assets/common.js"></script>' `
         -CatalogTag "<script src=`"/assets/$tag.pool.js`"></script>"
@@ -370,7 +365,12 @@ try {
         Write-Information '----- [1/3] initialize-lab : PASS -----'
         Write-Information '----- [2/3] workload.guest.ubuntu.server.26.amisad-core.s001 -----'
         Write-Warning 'Cycle pass with 1 host address change(s) inside it.'
-        Write-Information 'A line long enough to need wrapping: /usr/bin/env pwsh -NoProfile -File /home/ytest/git/yuruna/test/service/Start-StatusService.ps1 -Port 8080 -RuntimeDir /var/lib/yuruna/runtime'
+        # The sample has to be long enough to wrap and has to carry a real path,
+        # and the fixture that records it rewrites this checkout's location to a
+        # token. Spelling the location out instead would record one machine's
+        # directory as content, and match only on that machine.
+        Write-Information ('A line long enough to need wrapping: /usr/bin/env pwsh -NoProfile -File ' +
+            (Join-Path $RepoRoot 'test/service/Start-StatusService.ps1') + ' -Port 8080 -RuntimeDir /var/lib/yuruna/runtime')
         Write-Information '----- [2/3] workload.guest.ubuntu.server.26.amisad-core.s001 : PASS -----'
         Write-Information '----- [3/3] finalize -----'
         Write-Error 'guest did not answer within 300 s' -ErrorAction SilentlyContinue

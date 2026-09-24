@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,13 +330,13 @@ Describe 'one registry names every browser source' {
 
     It 'claims every file that produces CSS a browser will apply' {
         # Same shape as the asset check above, and the same reason. Dropping a
-        # producer from the registry does not fail the palette tools -- they
-        # simply check one file fewer and report success over the gap. So the
-        # tree is asked instead: anything that consumes a custom property is a
-        # producer, and must be declared.
+        # producer from the registry does not fail the gates that read it --
+        # they simply check one file fewer and report success over the gap. So
+        # the tree is asked instead: anything that consumes a custom property
+        # is a producer, and must be declared.
         #
-        # Test files and the generator itself carry var(--) as fixture text or
-        # as the pattern they search for. They ship to no browser.
+        # Test files carry var(--) as fixture text, and nothing under tools/ is
+        # served to a browser. Neither ships to one.
         $declared = @($script:Registry.cssProducers | ForEach-Object { [string]$_.path })
         Assert-True ($declared.Count -ge 10) 'the registry declares too few CSS producers to describe the surface'
 
@@ -374,7 +374,7 @@ Describe 'one registry names every browser source' {
                 $findings += "$relative $why and is not a declared CSS producer"
             }
         }
-        Assert-NoFinding $findings 'a file the floor has to render is outside the palette-fallback tools'
+        Assert-NoFinding $findings 'a file the floor has to render is outside the browser-source registry'
     }
 
     It 'recognizes Go script bodies without joining unrelated HTML literals' {
@@ -692,8 +692,7 @@ Describe 'the shipped surface stays inside its budget' {
     It 'keeps the default path free of an extra request for its language' {
         # The reason the kernel and the default locale are compiled into the
         # runtime rather than fetched: a label that arrives after the paint it
-        # belonged to is a flash of nothing, and on the floor browser that flash
-        # is most of the load.
+        # belonged to is a flash of nothing.
         $baseline = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
                 (Join-Path $script:RepoRoot 'globalization/perf-baseline.json')))
         $findings = @()
@@ -786,7 +785,7 @@ Describe 'generated pages substitute only the request seam' {
     It 'does not install a positive fetch global' {
         $exporter = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'tools/Export-GeneratedPages.ps1'))
         Assert-False ($exporter -match 'window\.fetch\s*=\s*function') `
-            'the fixture masks capability-off behavior by supplying fetch'
+            'the fixture supplies its own transport, so the export measures the stand-in and not the page'
         Assert-True ($exporter -match 'window\.yurunaRequest\s*=\s*function') `
             'the fixture no longer injects data behind the canonical request seam'
     }
@@ -799,9 +798,9 @@ Describe 'generated pages substitute only the request seam' {
         foreach ($name in @('caching-proxy-ui.html', 'caching-proxy-parser-ui.html',
                 'caching-proxy-ui-failed.html', 'caching-proxy-parser-ui-failed.html')) {
             $html = [IO.File]::ReadAllText((Join-Path $output $name))
-            Assert-Equal -Expected 1 -Actual ([regex]::Matches($html,
+            Assert-Equal -Expected 0 -Actual ([regex]::Matches($html,
                     'window\.fetch\s*=\s*function').Count) `
-                "$name must contain only the production adapter's conditional fetch stand-in"
+                "$name installs a fetch global instead of substituting the adapter's request seam"
             Assert-Equal -Expected 2 -Actual ([regex]::Matches($html,
                     'window\.yurunaRequest\s*=\s*function').Count) `
                 "$name needs the real adapter followed by one fixture transport"
@@ -883,7 +882,7 @@ Describe 'the publisher validates the artifacts it is about to publish' {
             'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
             'suite-baseline', 'config-locale-seed',
             'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
-            'globalization-authority', 'locale-support', 'terminology', 'es5-floor', 'palette-fallback',
+            'globalization-authority', 'locale-support', 'terminology',
             'perf-baseline', 'js-test', 'go-build', 'accessibility',
             'doc-reachability', 'code-registry-contract', 'reference-slice-matrix',
             'status-slice-matrix', 'pool-slice-matrix'
@@ -1037,17 +1036,11 @@ Describe 'the generated artifacts match their sources' {
             Set-ItResult -Skipped -Because 'a cross-repository gate could not run on this host'
             return
         }
-        foreach ($gate in @('es5-floor', 'palette-fallback', 'catalog-compile', 'perf-baseline', 'go-build')) {
+        foreach ($gate in @('catalog-compile', 'perf-baseline', 'go-build')) {
             Assert-True ($result.Output -match [regex]::Escape($gate)) "the report does not mention $gate at all"
         }
         Assert-True ($result.Output -match 'not-applicable') `
             'nothing is reported as inapplicable, which would mean every gate reaches a repository it cannot see'
-    }
-
-    It 'holds every browser source to the floor' {
-        $result = Invoke-Gate -Script 'tools/Invoke-Es5Check.ps1' -Arguments @('-Quiet')
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "a shipped browser source is outside the floor:`n$($result.Output)"
     }
 
     It 'keeps the private development repository out of every generated artifact' {

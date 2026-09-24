@@ -43,19 +43,6 @@
       ]
     },
     {
-      "path": "test/status/diagnostics.html",
-      "service": "status",
-      "routeTemplate": "/diagnostics.html",
-      "expectedState": "data",
-      "fixtureFields": [],
-      "readOnlyProbePaths": [
-        "/control/host-diagnostic"
-      ],
-      "preconditions": [
-        "The host diagnostic snapshot for the identified fixture is available."
-      ]
-    },
-    {
       "path": "test/status/share-cycle.html",
       "service": "status",
       "routeTemplate": "/share-cycle.html?cycle={statusCycle}",

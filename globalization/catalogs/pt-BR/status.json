@@ -1,0 +1,1471 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "status",
+  "locale": "pt-BR",
+  "messages": {
+    "status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy": {
+      "sourceHash": "23cca4b3efc0477206a3b810f2704af090fdb927e672f5f94a80e43b5be92417",
+      "message": "Um ciclo está em execução atualmente. Salve a configuração, aborte o ciclo em execução e inicie um novo? As VMs em andamento são removidas primeiro -- isto não é instantâneo: cada VM em execução é dada até ~ 30 segundos para desligar (macOS/UTM é o mais lento), assim com várias VMs acima do novo ciclo pode levar um minuto ou dois para começar."
+    },
+    "status.add_item": {
+      "sourceHash": "6e6d91c6625136e8d967f706c183c4e60df57e2a2a13965976b73945f2fe06d6",
+      "message": "+ adicionar item"
+    },
+    "status.add_item_all_guests_added": {
+      "sourceHash": "5ec1512892ba1250010db286692f4bc1c5534160ccca7f33b64d181fbb7cfa8f",
+      "message": "+ adicionar item (todos os convidados adicionados)"
+    },
+    "status.aggregate_summary": {
+      "sourceHash": "b22d2acc616491096e7d4e1bac138b96e52af0c65085d019380d00718e4c0f81",
+      "plural": {
+        "variants": {
+          "one": "{count} sequência · mais recente {cycles} ciclos cada · gerado {generated}",
+          "other": "Sequências {count} · mais recentes ciclos {cycles} cada · gerada {generated}",
+          "many": "Sequências {count} · mais recentes ciclos {cycles} cada · gerada {generated}"
+        }
+      }
+    },
+    "status.api_another_start_cycle_request_is_in_progress_3f51d139": {
+      "sourceHash": "604eaf8b11b3d91ec9959dee48bdccbb1e2db4d53d3afcb98b72bdc9661fe311",
+      "message": "está em curso outro pedido de início do ciclo"
+    },
+    "status.api_authentication_extension_unavailable_2ece9896": {
+      "sourceHash": "bb06ebdc648d66f9f7501d24e05825d9073009b485ec8c351c14a127b29c4d35",
+      "message": "extensão de autenticação indisponível"
+    },
+    "status.api_body_must_be_a_json_object_831ab327": {
+      "sourceHash": "7412a01b8fe3f26bb8427656d44500bf0fd428db0d98693405be46ecca87dfc1",
+      "message": "corpo deve ser um objeto JSON"
+    },
+    "status.api_could_not_pack_folder_detail_268ee848": {
+      "sourceHash": "6add72f79c9fa9300be8c0d9a7f60a4a66a213bcf53737bafa741802daf803e5",
+      "message": "Não foi possível embalar {folder}: {detail}"
+    },
+    "status.api_could_not_read_body_aa31dc00": {
+      "sourceHash": "afabf58ee0538c19855440e9f7a2c8d5bb32fbc451148c754d3b53dc164c084e",
+      "message": "não foi possível ler o corpo"
+    },
+    "status.api_detail_caf3c2c2": {
+      "sourceHash": "e11518095598f833c57800bbf90bbf93865577f7ce10274d8caf49312b153294",
+      "message": "{detail}"
+    },
+    "status.api_diagnostic_failed": {
+      "sourceHash": "b5c3123f4bd6a26efab8cbb5ce0ea661f03e1335d564aea88ce051d2966a9776",
+      "message": "Erro ao executar o Get-SystemDiagnostic.ps1: {detail}"
+    },
+    "status.api_diagnostic_script_missing": {
+      "sourceHash": "68f1af2feed8c5b8ee98360fc8bacd92d02248d35d89729bd6f99d97e4175512",
+      "message": "Get-SystemDiagnostic.ps1 não encontrado em {path}"
+    },
+    "status.api_expected_diagnostics_folder_filename_5f581c78": {
+      "sourceHash": "7d8197fc55ed93f46375faf9151cb17ca5e00b36ad88d38072a277dcafe19ecf",
+      "message": "esperado /diagnóstico/<folder>.../<filename>"
+    },
+    "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e": {
+      "sourceHash": "b504b2fed475f0ae1344237dec9dc04e7800a5f0bf834682237fa7501c75b9aa",
+      "message": "pasta de falha não encontrada; o corredor deve tê- la criado primeiro"
+    },
+    "status.api_filename_must_match_system_diagnostic_id_txt_ec048334": {
+      "sourceHash": "c63b6a5245d50c47e080d996213c41eb93a6b4a8daa90bd203c97beb5ed71599",
+      "message": "o nome do arquivo deve corresponder a *.system.diagnostic.<id>.txt"
+    },
+    "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5": {
+      "sourceHash": "df2a8a683508bf19cc28cc6c30ae45548c78a44e7c3c1e69d700842faa4ad41c",
+      "message": "segmento de pasta contém transversal ou backslash"
+    },
+    "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1": {
+      "sourceHash": "59aaa47728a907044fb32f73af426219f5bdc457120eecbce26fa06af09c9e6d",
+      "message": "seguir orientações em https://yuruna.link/42185271-0007"
+    },
+    "status.api_forbidden_78342a09": {
+      "sourceHash": "a54638835be26123d4e829bae7ab191346374119b46a3873b19734fa69277810",
+      "message": "Proibido"
+    },
+    "status.api_forbidden_deny_list_1c7d1cfa": {
+      "sourceHash": "17eb6de23467b38c4a9c9a9effd22a14836fe4418314e3bb6689edcfa25162e7",
+      "message": "Proibido (lista de recusa)"
+    },
+    "status.api_forbidden_directory_listing_disabled_5d107f5b": {
+      "sourceHash": "f6f01585c8b76762f8a2a194baa28e0a97706351efff8c0f809a6abac810358e",
+      "message": "Proibido (a listagem do directório está desactivada)"
+    },
+    "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": {
+      "sourceHash": "42bcc1931e637027625c17f035b3b735fc21af4d4e7b226115b7886a028b0fe8",
+      "message": "proibido: faltando o cabeçalho de solicitação X-Yuruna (guarda de requisição entre locais)"
+    },
+    "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": {
+      "sourceHash": "c1e6111d2a870fa521b05f9c64f14fe65411000a6c2ee26d1dee4d33faabb54c",
+      "message": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado"
+    },
+    "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": {
+      "sourceHash": "633aaafa885d71ff38403bac3bd2f6e64885805e955c2371ef0d732dcd7cca28",
+      "message": "chave de autenticação interna não configurada nesta máquina"
+    },
+    "status.api_invalid_json_detail_c907dfc3": {
+      "sourceHash": "40e44a1eb2c314ce03c9bf6252f9a101e9aa4f88b150dcd2d0e2cf0646708e23",
+      "message": "JSON inválido: {detail}"
+    },
+    "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": {
+      "sourceHash": "b66a0ac57747a2ca5b8c787308f3dbcf7efaf76b36ee3653841e46b6ef1792df",
+      "message": "caminho de envio inválido (deve terminar em .log/.txt/.json/.err/.crash/.tar, sem travessia)"
+    },
+    "status.api_method_not_allowed_be4fb6a2": {
+      "sourceHash": "9326020a4fe3251d0031b34632ebf89ed11d01a8fcae4833d76286cdc720f9d1",
+      "message": "método não autorizado"
+    },
+    "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf": {
+      "sourceHash": "a31d4c444acd44ed0aa61cc0d2aefb98c3b834b3d2c45d08775027046e2cbde3",
+      "message": "método não permitido; POST o órgão de controle"
+    },
+    "status.api_method_not_allowed_post_the_dump_body_fa73866b": {
+      "sourceHash": "78689dbd5bcacc24a9582cfd0c16fbb2c0af988719db6fe121dfae8762ecea13",
+      "message": "método não permitido; POST o corpo de despejo"
+    },
+    "status.api_no_break_active_bc29bdab": {
+      "sourceHash": "158f0c42303a2d454c3b3513a0ce1f5ea10bcfcc17794cfd761d69aafd2c6588",
+      "message": "sem quebra ativa"
+    },
+    "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa": {
+      "sourceHash": "8c5310494dae103c533768f7b93a9de3172945c3b2a2eb0cd246eb7760ecb2f3",
+      "message": "não é possível resolver caching-proxy-service CA"
+    },
+    "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2": {
+      "sourceHash": "5f6e8c93c088f0f0c232b25094194ef99a55614c8314480838252e0e2c0183aa",
+      "message": "Nenhum ciclo {cycle} no histórico de log retido."
+    },
+    "status.api_no_cycle_results_folder_folder_on_this_host_51798923": {
+      "sourceHash": "d02c7f4fe1fb69c09b741aafae00a6ab568dbf0323769f592710877c98bd95d5",
+      "message": "Nenhuma pasta de resultados de ciclo {folder} nesta máquina."
+    },
+    "status.api_no_lab_hold_is_active_49dd8185": {
+      "sourceHash": "d3c6399ac506736dcd4f6f435da305f65afac644f603cd0a42c4e2c0aae0d765",
+      "message": "nenhum laboratório está ativo"
+    },
+    "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b": {
+      "sourceHash": "7c83ef85adc45a4c235ba4aadbe711280a85b39feb8964876911af1308927e2d",
+      "message": "nenhuma credencial armazenada para esse usuário nesta máquina"
+    },
+    "status.api_not_a_cycle_results_archive_name_395b9777": {
+      "sourceHash": "e4f8be43b4d0ae22576d55acef9eeb1f97d47a2e4c885eacc3991e4231a79353",
+      "message": "Não é um nome de arquivo de resultados de ciclo."
+    },
+    "status.api_path_escapes_log_dir_355b2034": {
+      "sourceHash": "d76cfd8c3270f9be936871b046874c476c1da982a86279d8d26b3d2d21fd15ad",
+      "message": "caminho escapa dir log"
+    },
+    "status.api_path_escapes_log_root_13754cf8": {
+      "sourceHash": "eb68e359e573042168f06bba2dee609005f2e9eb3c179f90673cfe287ad883b4",
+      "message": "caminho escapa ao log root"
+    },
+    "status.api_payload_too_large_1_mb_350b49df": {
+      "sourceHash": "c9d24fa7e07270f20ad9cd12308f3f81b31bc777ef36d69e7c165f65084a1ada",
+      "message": "carga útil muito grande (> 1 MB)"
+    },
+    "status.api_payload_too_large_256_kb_ad49d5cd": {
+      "sourceHash": "1de2953925ab854f778147cd211ad6aee8f55348cbb273cb6ef4a0859129b341",
+      "message": "carga útil muito grande (> 256 KB)"
+    },
+    "status.api_payload_too_large_4_mb_3455f869": {
+      "sourceHash": "87f703f9014e249faf2038df966ccad569034570a5cf5f4941af205c4a87ad78",
+      "message": "carga útil muito grande (> 4 MB)"
+    },
+    "status.api_payload_too_large_5_mb_ab90ca52": {
+      "sourceHash": "cf10971514429b32e3bcdbc19b7f0c3db02f43d6dd40bafff3d54e878a7a236e",
+      "message": "carga útil muito grande (> 5 MB)"
+    },
+    "status.api_post_required_663cc07c": {
+      "sourceHash": "3d22dd210e8493f71a15cbbf2a1468b268b33500942f80153489f860a04c4c83",
+      "message": "PÓS requerido"
+    },
+    "status.api_project_repo_not_present_on_host_885e6338": {
+      "sourceHash": "7fecf2c8f71bb0342c14cacbef18f5029f560c9c6135a943812560451809715a",
+      "message": "projeto repo não presente na máquina"
+    },
+    "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": {
+      "sourceHash": "8ddc26bc5747483cd8f56db6b2f61409888de54844880a0e1d7e7b9bdbfe9630",
+      "message": "prova de incompatibilidade (chave de autenticação interna incorreta ou antiga)"
+    },
+    "status.api_put_or_post_required_1f919659": {
+      "sourceHash": "57f9d8e98c7116b0506f0b55f4cd4b5b431b43da6ae8f7cc2766d19d834818e2",
+      "message": "PUT ou POST requerido"
+    },
+    "status.api_runner_script_missing": {
+      "sourceHash": "366a5be5ceec556cf401e43f5c43d7fb2a19f437ae88dcf49fe38b852fe2eeda",
+      "message": "O Start-TestRunner.ps1 não foi encontrado em {path}"
+    },
+    "status.api_sidecar_write_failed_0ce361a9": {
+      "sourceHash": "245b0aeb9ea5ee102bb4897bbb41eba68552789777f1a83325e5e6a85fa8d8ca",
+      "message": "gravação sidecar falhou"
+    },
+    "status.api_test_config_yml_not_found_3b38d785": {
+      "sourceHash": "adafdf3ded1ece408b7646a47e8c8326fd0f921315ebc691d292b0287b9834ae",
+      "message": "test.config.yml não foi encontrado"
+    },
+    "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c": {
+      "sourceHash": "1bf65453b3fabc5caae1e8f039c0835af7258ce87839fbe84fe2465cc6c203d8",
+      "message": "Test.ConfigServiceSync / Test.Config não pôde ser carregado no espaço de execução do servidor (ver runtime/server.err)"
+    },
+    "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c": {
+      "sourceHash": "fc160d5572b841b246d7aa0f50d908358a4f7fa940025beb664ea94600f8a0db",
+      "message": "Test.PoolStorage / Test.Config não pôde ser carregado no espaço de execução do servidor (ver runtime/server.err)"
+    },
+    "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": {
+      "sourceHash": "5a2b0f1173da1ccd01d9d3d356f37a062f6ca63ab8e905c9ade07f335cad06ce",
+      "message": "são necessários parâmetros de consulta de usuário, nonce e prova"
+    },
+    "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3": {
+      "sourceHash": "b865037f1c137d33fd3bbdd9be024243af781cbe33ddafaa3f8d1155d6a4aad4",
+      "message": "usuário não referenciado pela rede desta máquinaStorage config"
+    },
+    "status.api_write_failed_detail_c07681e1": {
+      "sourceHash": "4594f0be2c1c9b89e52bfa0f52308d880fed4dd08b273df57ccb84f8d2261418",
+      "message": "erro ao escrever: {detail}"
+    },
+    "status.api_yaml_parse_failed_detail_363d5cf4": {
+      "sourceHash": "2b991fc5a4a0288252dfbe88fcc4e4dbd1f010cc4ceaddcf199b10a6fe7a5361",
+      "message": "Falha na análise do YAML: {detail}"
+    },
+    "status.archive": {
+      "sourceHash": "63590acb06399362012b39ece295a93619cfd4caa1978f186512d3480e6e6ab4",
+      "message": "Arquivo"
+    },
+    "status.attach_downloaded_file": {
+      "sourceHash": "30f3e75164bab34b56fcc1d53f13ed2dc08ee46b9b79b62d5957751722c86505",
+      "message": "O rascunho de e-mails não pode incluir automaticamente anexos, então, por favor, anexe manualmente o arquivo baixado antes de enviá-lo."
+    },
+    "status.auto_refresh_paused": {
+      "sourceHash": "7c04f1178af3e19751351514b1dfd049820668d3d88c8c65443669c949f4c8fc",
+      "message": "Actualização automática pausada"
+    },
+    "status.banner_fail": {
+      "sourceHash": "61856ed5a08af081f7f7be2496de60f18dbb60fc374ee512380dbfbc3954340e",
+      "message": "Incidente detectado — ver estado"
+    },
+    "status.banner_idle": {
+      "sourceHash": "4c606123acc97525e4d7cb09e03b3665d231f220e9e297f43fd0ce5fb90a52b2",
+      "message": "Não existem dados de ensaio disponíveis"
+    },
+    "status.banner_incident_details": {
+      "sourceHash": "aef230789acb7d5c77337fdbaaa4f88ea4279df1f387ecda293c2284e1c21370",
+      "message": "Incidente detectado — ver detalhes abaixo"
+    },
+    "status.banner_pass": {
+      "sourceHash": "b88365dfab57d5482782749be89d3c525e5a9a0bf2e2e3f1826d724fdb01e16b",
+      "message": "Todos os hóspedes operacionais"
+    },
+    "status.banner_running": {
+      "sourceHash": "2c6675f82bc7bc983d34d2a5756713002b4f8efc751d8d3b6d0cc38d9ab4556b",
+      "message": "Teste em curso"
+    },
+    "status.banner_stopped": {
+      "sourceHash": "de613e08a00e8006af9a432d717cb6b85c6a5822cb00153e484d44a563fbda13",
+      "message": "O corredor de teste parou"
+    },
+    "status.cache_caching_proxy_service_306beb37": {
+      "sourceHash": "9789f74305471c49498897976c0288b348a41c0292204d20e26235d062b2238a",
+      "message": "Serviço de cache- proxy:"
+    },
+    "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": {
+      "sourceHash": "a824c0a877584374786a3ae0961f15f0b57cd086ec7b91bd5fd36793966451b2",
+      "message": "Serviço de cache- proxy: configurado no {address}, não respondendo"
+    },
+    "status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf": {
+      "sourceHash": "041fd1130d136ec6d537b90b1abba19377b4787cab793a57b6102d5495f8b062",
+      "message": "Serviço de cache- proxy: detectado (mapa do porto falhou)"
+    },
+    "status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937": {
+      "sourceHash": "4a492a3c00652a2371ff14ccb5f1826cd787ab843d53c87dabf9a31527c4316b",
+      "message": "Serviço de cache- proxy: detectado (mapa de porta de propriedade de uma apresentação)"
+    },
+    "status.cache_caching_proxy_service_not_detected_eeb2edfb": {
+      "sourceHash": "3c5f01fc80fd28bdac4729c8e8deb8b72135b3c25253081726f7d093dd888b55",
+      "message": "Serviço de cache- proxy: não detectado"
+    },
+    "status.cache_detected_b96da48a": {
+      "sourceHash": "5003b540fad3ed214ebc1659b62ca492781e932ccf3336fe279950ced1b53459",
+      "message": "detectado"
+    },
+    "status.caching_proxy_test_endpoint_unavailable_value1": {
+      "sourceHash": "1fc705673392f0b7764bf9ba4697f40186f045c2e329ca227ff22423aa46e8e7",
+      "message": "Endpoint do teste de cache-proxy não disponível: {value1}"
+    },
+    "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host": {
+      "sourceHash": "6e89f1b5ee71898753a9b10be158448166120ee692987ddb3676326b7305b7ce",
+      "message": "O teste de cache- proxy cronometrado (15 s) - não é acessível a partir desta máquina?"
+    },
+    "status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65": {
+      "sourceHash": "5a37e158231478f4a6e8f751a473d40571d9ada8154200cdad42f84a44126221",
+      "message": "O teste de cache-proxy cronometrado (15 s) — não é acessível a partir desta máquina?"
+    },
+    "status.commit": {
+      "sourceHash": "a57cb1a2cceb4d10a5581a4677fcd0e55e826ba0b0bb685d2429b5431d18e58c",
+      "message": "Enviar"
+    },
+    "status.config": {
+      "sourceHash": "4f693dfe96892467a7228bf08273365ed9743eaf5d83d637fc80d1e7b81b44ea",
+      "message": "Configuração"
+    },
+    "status.config_field_alwaysredownload": {
+      "sourceHash": "5585065471c2896c7ae85aabdb02856ef36c0ccbd917fd3b16d8f4fbcd68e5b5",
+      "message": "sempreRedownload"
+    },
+    "status.config_field_armwindowhours": {
+      "sourceHash": "47dfd350d40ed299f1fbbe5b48dea77f66c962d2fe60f47964b910ef10ac1446",
+      "message": "BraçoWindowHours"
+    },
+    "status.config_field_autorefreshafterstalls": {
+      "sourceHash": "27e878f22e3647c23b4b53d711dc5b6826e27177c57c4490e65198d795327c31",
+      "message": "AutoRefreshAfterStalls"
+    },
+    "status.config_field_autoremediation": {
+      "sourceHash": "6bb8e0c2e87ca41c03715f5a8759b3b43ba9ed339ec09f80bdd735cd560459cf",
+      "message": "AutoRemediação"
+    },
+    "status.config_field_autoseed": {
+      "sourceHash": "ae6d7055a34e6d281551ba367ba05d9d6ecb5104b9f208dedfeaf0ce5257b533",
+      "message": "AutoSeed"
+    },
+    "status.config_field_bootdelayseconds": {
+      "sourceHash": "8f341bcfd49a06a03c205bfdc5603392b00fa59bd75b14b7b65b3cbfd5938198",
+      "message": "bootDelaySeconds"
+    },
+    "status.config_field_cachingproxyip": {
+      "sourceHash": "9f368496ea69e4995c19f63918cc980d757cb4d897cee92ac2673f6787ed0431",
+      "message": "cachingProxyIp"
+    },
+    "status.config_field_chardelayms": {
+      "sourceHash": "6acee2c630e53a0d71187071d67bca23b37326dbcf6b5abeef80242cb17d1a64",
+      "message": "CharDelayMs"
+    },
+    "status.config_field_cleanupvmnameprefixes": {
+      "sourceHash": "afd97afac733f7d797558617b33b2679e0f087199cfbd017dd6f1fa94c84d74d",
+      "message": "limpezaVmNamePrefixes"
+    },
+    "status.config_field_configservice": {
+      "sourceHash": "5140b1b4409807f84d52889652830024647870dc2ab1f3e412bb9b4b930cd4a3",
+      "message": "configService"
+    },
+    "status.config_field_cycledelayseconds": {
+      "sourceHash": "21501cc1aa7962db454eca7f819aec448411007c9e9fb98cfdcc92bfe3526958",
+      "message": "cicloAtrasoSegundos"
+    },
+    "status.config_field_discoveryintervalseconds": {
+      "sourceHash": "f1871afa43ce14d8cb72e93a0154932ca0181b96645d9f8b694ccfb219e04886",
+      "message": "descobertaIntervalSegundos"
+    },
+    "status.config_field_downloadagentservice": {
+      "sourceHash": "24a7d7d8f92df2aa896d65b380b4d49f5085441ad9d8dd42ab83b89d5ad199fc",
+      "message": "baixarAgentService"
+    },
+    "status.config_field_enabled": {
+      "sourceHash": "b82b9ba5d53ff3ec013ca1be122dec6b0f333ff98d1c74f5c3fbb28289c5cf33",
+      "message": "habilitado"
+    },
+    "status.config_field_failuresbeforealert": {
+      "sourceHash": "6f31800217ab35c123f61fa704ae2b172222fafc7a110e301f37e8dd98289ee0",
+      "message": "FalhasAntes doAlert"
+    },
+    "status.config_field_failurestoquarantine": {
+      "sourceHash": "01de8843c29d7afa0c8c477d1d1a97a7bcf5b5c3dd07e1148bcc18db79d05f96",
+      "message": "FalhasParaQuarantina"
+    },
+    "status.config_field_frameworkurl": {
+      "sourceHash": "455343ccdf69f9498f794a44e4d0d87b29c336ab64de0d287f46ae2dd1c1ea65",
+      "message": "frameworkUrl"
+    },
+    "status.config_field_freshnessseconds": {
+      "sourceHash": "d156882e80d08f2210e48fb7ce062f47ed903e87f665549bd08812c2ee14ec5a",
+      "message": "frescuraSegundos"
+    },
+    "status.config_field_ghtoken": {
+      "sourceHash": "26b01be5f5e74377ec6029a589d5a0ab6c67f187c6d0628436edd80b8ef1c392",
+      "message": "ghToken"
+    },
+    "status.config_field_guestquarantine": {
+      "sourceHash": "8bfc93df3a60eb468b1579c6d2791cd582e8dbc540798d72c1aa630408fa1f54",
+      "message": "convidadoQuarantina"
+    },
+    "status.config_field_guestsequence": {
+      "sourceHash": "185de57bfcb3330617a0bfeb1da8bebe5f8b4d2f5a764994e8b8639a3396ca0e",
+      "message": "convidadoSequência"
+    },
+    "status.config_field_intentgiturl": {
+      "sourceHash": "d9ad5ee571acfcb0cc0085597b0c4263b0ec4ecb9207e482f2dcad295b520b92",
+      "message": "intençãoGitUrl"
+    },
+    "status.config_field_labhealth": {
+      "sourceHash": "a52c5da41f40b62bac7930d27a9e2f381f1455fd0e8d59c53cd5b32c8d2b1996",
+      "message": "labHealth"
+    },
+    "status.config_field_language": {
+      "sourceHash": "5a4a83ab8ba10b85521ec925589298c2c95c8f5de51c6705539ab9f72f88e1fb",
+      "message": "idioma"
+    },
+    "status.config_field_localclonepath": {
+      "sourceHash": "2497db4bb40b425e95e10e8147c8f223f1a41029b58178a99e1db9d7b4b3247e",
+      "message": "localClonePath"
+    },
+    "status.config_field_loglevel": {
+      "sourceHash": "b21c21ab98da257b7e80d1e2f9a6b1c522d011c5359868c368d4f02bf430a64c",
+      "message": "Nível de log"
+    },
+    "status.config_field_maxattempts": {
+      "sourceHash": "4ab59518bddb09ebd81fbd384c3c9028ddd9992478cc2bc4c3261d07f5fdb214",
+      "message": "maxAttentações"
+    },
+    "status.config_field_maxattemptspercycle": {
+      "sourceHash": "dd9c4633eb895ca6c5593e1e1be326d53dbf08292705ac054e17768822338ff8",
+      "message": "maxAttemptsPerCycle"
+    },
+    "status.config_field_maxholdattempts": {
+      "sourceHash": "6ca2c7b91abfc9e73417ef38ebe90725b2b01c3bd0786f23dddf3555cd6c36e4",
+      "message": "maxHoldAttentações"
+    },
+    "status.config_field_minintervalseconds": {
+      "sourceHash": "feaf84bbdbada8d219b898e937c730e61b99a8af9cd247915b23aec18fb8774a",
+      "message": "minIntervalSegundos"
+    },
+    "status.config_field_movelogstopoolstorage": {
+      "sourceHash": "2805d36094596fc948177af8f528c30b1112d6cc122a2b1902bb9885e6e681ed",
+      "message": "moveLogsToPoolStorage"
+    },
+    "status.config_field_networkstorage": {
+      "sourceHash": "7e4683a605484e419a67ea0eb0a4c5a89b5285ba8e86120bdc2e22d021167b0d",
+      "message": "networkStorage"
+    },
+    "status.config_field_notification": {
+      "sourceHash": "3843fb7b0d0579c75b32405f24e0dc4d6aee66a8658904bae002fb8c97cee0b3",
+      "message": "notificação"
+    },
+    "status.config_field_perflog": {
+      "sourceHash": "72b65ae2dec269eedba938e88bc16466e1f228360465f73f7c83e0ca8309c7bc",
+      "message": "perfLog"
+    },
+    "status.config_field_pollseconds": {
+      "sourceHash": "cd36b2ea4a71eaa87f2eebe1c49251fbe7f3b08c65d4f9c4f33f6bccd6cb3d94",
+      "message": "pollSeconds"
+    },
+    "status.config_field_pool": {
+      "sourceHash": "cbdbf59e8f985ff0526f2897035a5aeb388ff964ee9075f1930e8b759ba874b1",
+      "message": "piscina"
+    },
+    "status.config_field_poolstoragelocalpath": {
+      "sourceHash": "a1716307fc94063dd8e62be543be5d2e560f1bb87bc11b41b838c7c935eac612",
+      "message": "poolStorageLocalPath"
+    },
+    "status.config_field_poolstoragenetworkpath": {
+      "sourceHash": "ef228f0102c64709f44eadedd1b5e88a9ee3bcbbdba91dccad74961258dc886e",
+      "message": "poolStorageNetworkPath"
+    },
+    "status.config_field_poolstoragenetworkuser": {
+      "sourceHash": "3f6584851cb1d6ff783fa60cdec18910e1a5e82cd5b781d11b1e008a34595406",
+      "message": "poolStorageNetworkUser"
+    },
+    "status.config_field_port": {
+      "sourceHash": "0ec2603cb77e31a613e3178523aa053f030a6b30c61d0a3135d858b0466373b2",
+      "message": "porto"
+    },
+    "status.config_field_preambletimeoutseconds": {
+      "sourceHash": "d518fe0ab64e2bb34f86bbbe3278f169df86363cf3ba6bc8b799aec1f732036e",
+      "message": "preâmbuloTimeoutSeconds"
+    },
+    "status.config_field_prefetchleadseconds": {
+      "sourceHash": "b88a7afda978a685fd70c6c4e6e333324ba3ee4ee1b0abbc0502d64e5c410c26",
+      "message": "prefetchLeadSeconds"
+    },
+    "status.config_field_projecturl": {
+      "sourceHash": "7847e8f9fbf5b487ba716867463fa053140a141b0735a7d045c8cee47f3ad3dc",
+      "message": "projetoUrl"
+    },
+    "status.config_field_pulltimeoutseconds": {
+      "sourceHash": "9f387c9b8377dbe3ac003d723520dc51877a642c279c3f490fce3a6cb0cb5bc7",
+      "message": "puxTimeoutSeconds"
+    },
+    "status.config_field_recentdisplaycount": {
+      "sourceHash": "ee2caf88cc5f1a3e27c1cfe2b2e52b501845a66fcc5d5a4fe38fe457be57eb2b",
+      "message": "RecentDisplayCount"
+    },
+    "status.config_field_refreshseconds": {
+      "sourceHash": "3a3588381b99b9d304d9a4002c41d34b4d0b7401f5820647a1656b940f84ac84",
+      "message": "atualizarSegundos"
+    },
+    "status.config_field_repositories": {
+      "sourceHash": "bf3d9c6ec672258b8dd444271ee89dbb3e8000dbc46905907cb83cb2679a02c4",
+      "message": "repositórios"
+    },
+    "status.config_field_require": {
+      "sourceHash": "dee4c55a9769bf435ff011c665a19de3839cb735923836cdc56178bcfd2ea166",
+      "message": "exigir"
+    },
+    "status.config_field_scanintervalseconds": {
+      "sourceHash": "27f9850f4e18dccb0dbe82cab9eda718720abf8ae15cd11b45f6d8f2d30196cf",
+      "message": "escanearIntervalSegundos"
+    },
+    "status.config_field_screenhistorysize": {
+      "sourceHash": "899d734274d6740a1d1e683961b7eb3872573428f50c16ddb52f5b10337fa61e",
+      "message": "screenHistorySize"
+    },
+    "status.config_field_skipcycles": {
+      "sourceHash": "6ab2346bab878929ba8556aa52e834f853b7d40cc5bb32bb8e4a2972a650d6f2",
+      "message": "skipCycles"
+    },
+    "status.config_field_starttimeoutseconds": {
+      "sourceHash": "8073c20ce7d76cba2686abe21ff9531f3d9759ff8cceb39795bd0de909b33c75",
+      "message": "startTimeoutSeconds"
+    },
+    "status.config_field_stashstoragelocalpath": {
+      "sourceHash": "7e9e465a502e647097d1019362597c0b67c3772dcd98d668b4018734742aed34",
+      "message": "stashStorageLocalPath"
+    },
+    "status.config_field_stashstoragenetworkpath": {
+      "sourceHash": "36abca4e0668352d0005f6c70ab01e5ab716ad8b305beb5e6861e49758d45160",
+      "message": "stashStorageNetworkPath"
+    },
+    "status.config_field_stashstoragenetworkuser": {
+      "sourceHash": "5f53ea2dba9b2d8cd46b6dbbd12ff4c1683539b0314e895011a560b2c84d696c",
+      "message": "stashStorageNetworkUser"
+    },
+    "status.config_field_statusservice": {
+      "sourceHash": "5847fffd55d3317958346668860ef3418719fcd1ed42dac8eb6d8bf121c38cb2",
+      "message": "statusService"
+    },
+    "status.config_field_steptimeoutseconds": {
+      "sourceHash": "4cbc61ad5276c54220be96d1dfab36853bf4ec34929fdc16ab3af7a473886e7c",
+      "message": "stepTimeoutSeconds"
+    },
+    "status.config_field_stoponfailure": {
+      "sourceHash": "6b7fd31d8ac18f080dfd52348b95244e9aa24b59129c91e201c56c705fe66352",
+      "message": "stopOnFailure"
+    },
+    "status.config_field_successesbeforerearm": {
+      "sourceHash": "efb3032d575634590c835beda4b17947d22834772477f19f0c568fc362d4259f",
+      "message": "sucessosAntes deRearmar"
+    },
+    "status.config_field_testcycle": {
+      "sourceHash": "ff9eca19f13fe1bd86db1cd239c9082cfbe9fb68251b758e50fe5af3c96a8df2",
+      "message": "testCycle"
+    },
+    "status.config_field_testvmnameprefix": {
+      "sourceHash": "ed00b46d2b5f3dce4947e83f3c8b27c1d9b8cd77b6ef7fec049bbc64e647deb4",
+      "message": "testVmNamePrefix"
+    },
+    "status.config_field_timeoutseconds": {
+      "sourceHash": "854d79e1e04e259cf662f45b150229693897e89d17dd360cc0bd8e09707d424e",
+      "message": "timeoutSeconds"
+    },
+    "status.config_field_vmcommunication": {
+      "sourceHash": "c597da14d68109639636350d0c1bdc2f459835bc145c24a960c48517f69988ca",
+      "message": "vmCommunication"
+    },
+    "status.config_field_vmimage": {
+      "sourceHash": "a2f7fbc34756c8091ac7adbb0716c11a0c9fc533ecb5ade6ed54066d09a2b2bb",
+      "message": "vmImage"
+    },
+    "status.config_field_vmstart": {
+      "sourceHash": "4012cdb7647c1a4737dcca0c66dab1eac7076fac4748a018c21bf0ea565126fc",
+      "message": "vmStart"
+    },
+    "status.config_field_vncport": {
+      "sourceHash": "3d88dc263045a18e5812bda350f9b9eae5cc9290bef14e95e2a2de3dd2d73706",
+      "message": "vncPort"
+    },
+    "status.config_field_warmresume": {
+      "sourceHash": "57475ec81df1c407d7925c96e3ed7d71f5ee2b0d7fb722de859f7836cc7e9bcc",
+      "message": "quenteResumir"
+    },
+    "status.config_loading": {
+      "sourceHash": "4df7e8571f64378c3905af00e838c8bd012c6227c25fd3287aa90bbfcf25c982",
+      "message": "Carregando..."
+    },
+    "status.config_type_array": {
+      "sourceHash": "9c2fc2b60a3d62e3d70ee7c917f1340167aace1ba02c04f0ab2404f1c467c921",
+      "message": "array ({count})"
+    },
+    "status.config_type_boolean": {
+      "sourceHash": "380b4d0383c1173b571aa112719517eaac414b2e2d06095d584080e91de41227",
+      "message": "booleano ({count})"
+    },
+    "status.config_type_number": {
+      "sourceHash": "33c5f8ea9791c64b37dd058f1cb59631405c9ec7d98c1e35ae0c3bb4224b1d04",
+      "message": "número ({count})"
+    },
+    "status.config_type_object": {
+      "sourceHash": "a2cdd40fe9eadbe3c6a194f2afd59cadb46f75e0b32bb3a3ee176ec31bf27353",
+      "message": "objeto ({count})"
+    },
+    "status.config_type_string": {
+      "sourceHash": "027ec07265234994a23ea7917ad34224c92ba15598b47c7f5d1c04b2a05dcf20",
+      "message": "string ({count})"
+    },
+    "status.control_host_token_missing": {
+      "sourceHash": "833ac232619bca6ec8cee4677274d137587d7433d33b8c6d88e3fd51fcf5d61e",
+      "message": "Este hospedeiro ainda não tem ficha de laboratório."
+    },
+    "status.control_instructions": {
+      "sourceHash": "e7de24780be991e1f083826f2e55174cac676ea56b7a848c0f5b9bcb88cabc0f",
+      "message": "Esta máquina só aceita o controle a partir de um navegador na própria máquina ({address}), ou um aberto através do link do painel de máquinas Yuruna (que concede um token de curta duração). o painel; se este host nunca foi matriculado, execute {command} com o código do ladrilho de token Lab do painel."
+    },
+    "status.control_proof_expired": {
+      "sourceHash": "8d7dce508c18371637b1a6a75db30047f70bad4806fbeec429babe767b34a1a8",
+      "message": "O token de controle desta página expirou (duram 15 minutos)."
+    },
+    "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": {
+      "sourceHash": "0d197e08ba938ec94cfc0572a94847b17715659413a9c21f590d5856efc38f1f",
+      "message": "A prova de controle expirou -- reabrir esta máquina do link do painel antes de salvar. Suas edições são mantidas até que você o faça."
+    },
+    "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": {
+      "sourceHash": "54be80d122cc332be6e7ec0bbdcb4712879cbed2cc3ab56be1422922d47797d5",
+      "message": "A prova de controle expira em {value1}s -- salvar em breve, ou reabrir este host do link do painel para um novo."
+    },
+    "status.control_proof_invalid": {
+      "sourceHash": "1e75f93926ee04e48e8ee6c49cdb4a020177a07d7d61fc11a6ef54c741a270d9",
+      "message": "O token de controle desta página não verifica aqui – o token de laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza."
+    },
+    "status.control_proof_missing": {
+      "sourceHash": "ee80d08833c5ecb26090580f2a9823cb63017f871179c16d368cb547d1d9b303",
+      "message": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada."
+    },
+    "status.control_refused": {
+      "sourceHash": "b98b8caf73b0dbbc2153ecd87a6b6b369d664318736fe8d2b6cf0f87653f111a",
+      "message": "Controle recusado."
+    },
+    "status.control_routes": {
+      "sourceHash": "e0d892c0b185ed22b04ecf5ac3545f800a3baa16e82c1da31148a83aa7faaa69",
+      "message": "configuração da rota de controlo"
+    },
+    "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
+      "sourceHash": "58927d0180eda1f3fce575d2c78493282118da0c09668cafcbfcfc25f97d6d9d",
+      "message": "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como {address} na máquina, ou inscreva-a: {command} <code from the dashboard’s Lab token tile>. Veja {documentation}"
+    },
+    "status.control_verifier_unavailable": {
+      "sourceHash": "25ab697d01992ffcc393c0ea27744f1c68a2aa3181b970821211d5818052105b",
+      "message": "O serviço de status desta máquina não pôde carregar seu verificador de token (verifique teste/status/runtime/server.err na máquina)."
+    },
+    "status.could_not_check_the_cycle_folder_first": {
+      "sourceHash": "07c42721e9f5dc5cbb20492a0baf8359b869c8900c3eab291efe95017081d4b5",
+      "message": "Não foi possível verificar a pasta do ciclo primeiro."
+    },
+    "status.could_not_determine_runner_status_value1_save_and_start_cycle_any": {
+      "sourceHash": "967d3355265442d0341f3a5550bc8e549b66b7b62036aa6157ee1d5cb0679e4f",
+      "message": "Não foi possível determinar o estado de execução ({value1}). Gravar e iniciar o ciclo de qualquer forma? As VMs em andamento (se existirem) são removidas primeiro -- até ~ 30 segundos por VM em execução (macOS/UTM é a mais lenta), por isso o novo ciclo pode demorar um minutos ou dois para começar."
+    },
+    "status.could_not_load_aggregates_value1": {
+      "sourceHash": "608c2173d17e171d1b18150008e2ea4d9c17b115a8892d36d64fbc58dfb7d9bc",
+      "message": "Não foi possível carregar agregados: {value1}"
+    },
+    "status.could_not_load_config_value1": {
+      "sourceHash": "ff2faf0f8979b8e7831e213dc486f2685105dfe09135bda0ca1c5ccd663f2696",
+      "message": "Não foi possível carregar a configuração: {value1}"
+    },
+    "status.could_not_load_test_status_refresh_to_retry": {
+      "sourceHash": "9c55c223d14515588659639536e02115fbb30270747119eda8f8b2a9d10f4fc7",
+      "message": "Não foi possível carregar o estado do teste. Atualizar para tentar novamente."
+    },
+    "status.could_not_load_value1": {
+      "sourceHash": "7f258c36850f8f299c8da56d535fde5e3e1c8da69318e285cfa68f8cd4029381",
+      "message": "Não foi possível carregar: {value1}"
+    },
+    "status.could_not_serialize_value1": {
+      "sourceHash": "a189aa4a8031696efecfac70073730e17bd511b2ade9ea557148178278c4314e",
+      "message": "Não foi possível serializar: {value1}"
+    },
+    "status.cycle": {
+      "sourceHash": "ec916d4e3ee17b55f9574954f6749a914685d46887c5d897c90440a94564f7ac",
+      "message": "Ciclo"
+    },
+    "status.cycle_duration": {
+      "sourceHash": "503bc5d76241836291610f8139f8bc9535a1bda7920100c37d6ab9c1a7d1b023",
+      "message": "Duração: {elapsed}"
+    },
+    "status.cycle_paused": {
+      "sourceHash": "2e718d4e03a915ba41f37acd0383fdfc8db90840b248f85f8cbd7d2290239d3d",
+      "message": "Pausa, à espera do currículo."
+    },
+    "status.cycle_performance": {
+      "sourceHash": "528c50cae46e2154ce115d43e0236ce9c0c755ea5cd33c6df750eb28797628d3",
+      "message": "Desempenho do ciclo"
+    },
+    "status.cycle_resume_action": {
+      "sourceHash": "b9c75dac11d355f2c51777c38d161ef74cf67043478c57eea982476db032520f",
+      "message": "Continuar"
+    },
+    "status.cycle_resuming": {
+      "sourceHash": "76889a5357c4a962204071c9b8d0cfd0eececd3dbe0165019dd59c652df947f8",
+      "message": "Continuando..."
+    },
+    "status.cycle_running": {
+      "sourceHash": "390ce2192931e3a5af554684e83c8e0eae41359602705415a36cff3b0f60a1e6",
+      "message": "{cycle} (ainda em execução)"
+    },
+    "status.cycle_start_utc": {
+      "sourceHash": "a74594b8df47d2d7d4e87cc63cc0ffcfd1cb66fd3da921db645f5448591c3688",
+      "message": "Início do ciclo (UTC)"
+    },
+    "status.dashboards": {
+      "sourceHash": "590e0447b18ac1d0abb4ebed617ed11d3c837aa2098e524562454bb82a3fc908",
+      "message": "Painéis"
+    },
+    "status.delete_item_value1": {
+      "sourceHash": "5a8040ebc30c99c6de02f128b42a59dfa23344a79a8581a3af90fbf1679b5304",
+      "message": "Apagar o item {value1}"
+    },
+    "status.diagnostics": {
+      "sourceHash": "4958875f08bd009d55bb0f62894d9af85e6c53b7cc77b4befde6249f57cb5c38",
+      "message": "Diagnósticos"
+    },
+    "status.diagnostics_yuruna": {
+      "sourceHash": "fb17f1f0eb88bd4fd942654c6b40c4ab81693b726f0a104632bafbb46537458d",
+      "message": "Diagnósticos — Yuruna"
+    },
+    "status.directory_column_modified_utc": {
+      "sourceHash": "f37d441ca975e0e9363deeed97da4b01e73b55cc85fca46975c856e4923141f1",
+      "message": "Modificado (UTC)"
+    },
+    "status.directory_column_name": {
+      "sourceHash": "9c3d15263ad664fd8cbd155c4bd7a678e3b3c82b88c10e925a109a8a333312da",
+      "message": "Nome"
+    },
+    "status.directory_column_size": {
+      "sourceHash": "cc3dbfd0d4684034125f2ae43364ebc00ac4cd82b3915e54a7acfe51d4a1dcad",
+      "message": "Tamanho"
+    },
+    "status.directory_contents_caption": {
+      "sourceHash": "4d3b29e813a0502d5336c02e6c5949f41a9da3794d30c1c6b0825a1d738d1c61",
+      "message": "Conteúdo de {path}"
+    },
+    "status.directory_index_title": {
+      "sourceHash": "ab192220ceaabe23563e382a8c1efede64086a5407737649c5e9e4b3e3718bc1",
+      "message": "Índice de {path}"
+    },
+    "status.directory_parent": {
+      "sourceHash": "b13cfdc3d53159ea3c3883418d71917c97c4b25e948b8c0f67fc07b5ac63eb7a",
+      "message": "Pasta-mãe"
+    },
+    "status.discard": {
+      "sourceHash": "d703b206b774d92c03dfc75af82d91ff583be85f77b9a07d22e7a9ceebb84037",
+      "message": "Descartar"
+    },
+    "status.discard_unsaved_config_changes_and_return_to_status": {
+      "sourceHash": "d376a0c6d73169171cefe7971ec2447c37f9238c71eb59afce060368f900354d",
+      "message": "Descartar as alterações de configuração não salvas e voltar ao estado?"
+    },
+    "status.download_the_archive": {
+      "sourceHash": "578ab61a4b7be3b77fc0d761ff9b9b44ca59c3984a0a47493452007c10acb4f0",
+      "message": "Baixar o arquivo"
+    },
+    "status.download_value1": {
+      "sourceHash": "113e2de945c34bb4e7dff77f44a7c7022c7033dae4cb117bd7640c994d5f0e57",
+      "message": "Baixar {value1}"
+    },
+    "status.draft_emails_cannot_automatically_include_attachments_so_please_m": {
+      "sourceHash": "06f35f176539d39758f59fec976648c3cfb35294afd84ff0bb64a243386ae44d",
+      "message": "O rascunho de e- mails não pode incluir automaticamente anexos, por isso, por favor\nanexar manualmente o arquivo baixado antes de enviá-lo."
+    },
+    "status.duration": {
+      "sourceHash": "7049299f022ba3e80e9401b98ca00cdd3a97dac4913b854b440fd5c26bf98d97",
+      "message": "Duração"
+    },
+    "status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d": {
+      "sourceHash": "65951ae282e05fac2de5dc35ab8035af79ad0c3bc8b72ce112947da38b30ce48",
+      "message": "e.g. 192.168.1.42 (provado primeiro; vazio = recuo env-var, caso contrário descoberta local)"
+    },
+    "status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_": {
+      "sourceHash": "85a917c246f920bb2e29e52d6f911abba530edb6a5daf42a58b5f0f039c6cdc0",
+      "message": "Cada linha é uma invocação de sequência. As barras mostram o tempo decorrido; paira para os detalhes de trabalho e de repetição."
+    },
+    "status.elapsed_duration": {
+      "sourceHash": "7178b00a9f9253e6d4a5b533475f55464bf50012e8cb87d68ff784f4ad0faef2",
+      "message": "Duração: {duration}"
+    },
+    "status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st": {
+      "sourceHash": "6dc7d07328c9f092265fe5f9ab3154ceda32c851665133e952e1476b882e0647",
+      "message": "Intervalo decorrido: {value1}\nTrabalho de topo: {value2}\nEtapas de topo: {value3}\nFalha ao tentar novamente crianças: {value4}"
+    },
+    "status.empty_array": {
+      "sourceHash": "805c569eeb211b4c8deaf881802594bed152775fa7af5021edb044a3ceb54e73",
+      "message": "(array vazio)"
+    },
+    "status.empty_object": {
+      "sourceHash": "5a14246d77bd56acd4d60976e714991d2f944cc14e940a0dc98b0ca14b8a9e0d",
+      "message": "(objeto vazio)"
+    },
+    "status.empty_value": {
+      "sourceHash": "e1d4413acd095ab98b6de91ceef5e4e90ebd8e5c30f8545cdced47217a01a2a9",
+      "message": "(vazio)"
+    },
+    "status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi": {
+      "sourceHash": "bb43a760d0b6dfc547ba7e51ded7e78e774a58a11b080538f6c40b24697e59dd",
+      "message": "Digite um endereço IP válido para testar a conectividade caching-proxy-service da máquina."
+    },
+    "status.enum_invalid": {
+      "sourceHash": "02e2aeb68744274af302087b74404bb292f407c01a42dbc2eefa35607d525b70",
+      "message": "{value} (inválido — escolha um)"
+    },
+    "status.error_file_too_large": {
+      "sourceHash": "eb882db44ba0c8ccf3fcc9b2a966196e99cbf2657e633837b1d7cab792912918",
+      "message": "Arquivo muito grande"
+    },
+    "status.error_not_found": {
+      "sourceHash": "d986992f935069a0478130d19d0b27e456eb994a8fc808077451e4daa95048ac",
+      "message": "Não encontrado"
+    },
+    "status.every_guest_folder_under_this_host_is_already_in_the_list": {
+      "sourceHash": "894800b923f1c7825b5d63c0022c117541ed6b77246d916e1ea60531bcf6564c",
+      "message": "Cada pasta de convidados sob esta máquina já está na lista"
+    },
+    "status.external_detail": {
+      "sourceHash": "0e170252dc136b5efb624111cebf305a81efef1aa7ee125a239eb4a4490ca648",
+      "message": "A ferramenta reportada: {detail}"
+    },
+    "status.failure_sequence": {
+      "sourceHash": "e2b70d1583caf98eed8f00988a0315f59def45f21e21cf716e6a9df51690c5dd",
+      "message": "sequência: {sequence}"
+    },
+    "status.failure_sequence_step": {
+      "sourceHash": "9bf5ec3587b25dc2f5dc52b20585c8e59e4b7c24a3a7ff79050679bedfe558f4",
+      "message": "Sequência: {sequence} (passo {step})"
+    },
+    "status.failure_severity": {
+      "sourceHash": "6c07289a1fec2e0554767d7659a1ecfcc863ed7b3d47433e38786012aa8befbe",
+      "message": "gravidade: {severity}"
+    },
+    "status.false": {
+      "sourceHash": "a939eae9bfa6aec4ec9ad8e6fefd64d9352f6be894683e0d1e55c065d14ff3c1",
+      "message": "Falso"
+    },
+    "status.file_size_bytes": {
+      "sourceHash": "b46fe7fb367a1e6faa1350899108126a532c85b588147b71076a1a12addf44ea",
+      "message": "{size} B"
+    },
+    "status.file_size_gigabytes": {
+      "sourceHash": "73f672f056add1cbdde41e5f76a92644f7cd07771608a7e333adf086a453b518",
+      "message": "{size} GB"
+    },
+    "status.file_size_kilobytes": {
+      "sourceHash": "25addcc3fe876c3e228f8b06c5ce05c081b95d4d82fa0dc34f1553f62a43eae3",
+      "message": "{size} KB"
+    },
+    "status.file_size_megabytes": {
+      "sourceHash": "53b66a475f81fd195f7c24ca34e5315909212c074a55e45eeb840a9f0234b508",
+      "message": "{size} MB"
+    },
+    "status.guest_not_found": {
+      "sourceHash": "4bec206fac757a888a8cad6abee2e1121a004eebcbd516c7559d15002cf80fce",
+      "message": "{guest} (não está na pasta da máquina)"
+    },
+    "status.guest_sequence_fallback_note": {
+      "sourceHash": "d055ad2ccb65eb2d228343973dba552d9e15099432560ad18a634c932da88491",
+      "message": "Apenas em segundo plano. O conjunto de convidados vem do {file} no repositório do projecto; esta lista é lida apenas quando esse ficheiro não resolve nenhum plano."
+    },
+    "status.guest_sequence_last_plan": {
+      "sourceHash": "fd64b23c2382d85cb86b7f4941034e72d9515470f56b9bbd1d1a5bfc891bd37e",
+      "message": "Último ciclo executado: {plan}."
+    },
+    "status.guest_sequence_no_plan": {
+      "sourceHash": "27414be1c883e4886302c7118ffbbdd002106e685e285ad1d0396c0dcbdee8fb",
+      "message": "Nenhum plano resolvido é gravado para o último ciclo."
+    },
+    "status.guide": {
+      "sourceHash": "42a697807e871aa784bbaf4cf07a2545377c8da39a0a08e8c8410e8bce0278eb",
+      "message": "Guia"
+    },
+    "status.host": {
+      "sourceHash": "db40642583df1e103827bb7cfbfa62dc798e62cbe489fcd11f0414ac90696255",
+      "message": "Máquina"
+    },
+    "status.host_diagnostics": {
+      "sourceHash": "692a4250f2a1332b6fe5b688e201fac3ab64ec3f8c5a666495a10b85d42644af",
+      "message": "Diagnóstico da máquina"
+    },
+    "status.host_ip_addresses": {
+      "sourceHash": "9e76f3e55db10f0007a799aa6d969aad821e4830741d9079960f4841ecce0efa",
+      "message": "Endereços IP da máquina"
+    },
+    "status.host_online_count": {
+      "sourceHash": "178f5a3cbbb43587fef11f48baed0388d0e80e436f0b6301958119c3c91e7e4f",
+      "plural": {
+        "variants": {
+          "one": "Servidor {count} online.",
+          "other": "{count} hospeda online.",
+          "many": "{count} hospeda online."
+        }
+      }
+    },
+    "status.host_value1": {
+      "sourceHash": "e326622ecab09052f451a6732c375a8fc251a8114a555d22b8961853dd722e00",
+      "message": "Máquina: {value1}"
+    },
+    "status.http_value1": {
+      "sourceHash": "489de3fcfe904366f1d9a3d9fbbdd5d4d0015c8cb18ab8ef085c27bf0267a342",
+      "message": "HTTP {value1}"
+    },
+    "status.images_refresh": {
+      "sourceHash": "4cbffcd41dba7f8b65a306cca5c08d0369fff4b8c100d705530ea46a4d2a6885",
+      "message": "Actualizar as Imagens"
+    },
+    "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": {
+      "sourceHash": "644c81ddc9b4a3c382317c6ae9f52f2529d4aa03a04b77dad7158539bf3d3a7f",
+      "message": "Invocação inferida da ordem de passos legada; corridas simultâneas ou incompletas podem permanecer combinadas."
+    },
+    "status.ips": {
+      "sourceHash": "ba0f3987d02d1e969ff39176d013e66d57bbbb57c3c0e9ec5a6713c5b742c3b7",
+      "message": "IPs:"
+    },
+    "status.lab_hold": {
+      "sourceHash": "18c35e7c9f65b3af41db3e1ba7b11e4fc89305d53048f2bb83162df48b64e5ae",
+      "message": "Lab hold -- esperando pelo {areas}"
+    },
+    "status.lab_hold_unspecified": {
+      "sourceHash": "898c4a96167d6fb98c86d146fb7b1f22fc32fe4fec8eaaa371f923351ac8364c",
+      "message": "Lab hold -- esperando por um serviço de laboratório"
+    },
+    "status.latest_cycle": {
+      "sourceHash": "c33f561d6bdd662ea7f707d03853528726cd25bcb928b87fa16baea4f846738d",
+      "message": "Último Ciclo"
+    },
+    "status.latest_runs": {
+      "sourceHash": "d877079aa1d951402a7dcb1b34cbddced1f14212439d25474985c86e367a0ba4",
+      "plural": {
+        "variants": {
+          "one": "mais recente execução {shown} do {count}",
+          "other": "mais recentes operações {shown} de {count}",
+          "many": "mais recentes operações {shown} de {count}"
+        }
+      }
+    },
+    "status.latest_runs_failures": {
+      "sourceHash": "1f3dddafdd193fa0706e02b3647d14b804c3c3df543a23bb258735f27215250f",
+      "plural": {
+        "variants": {
+          "one": "mais recente {shown} de {count} execução · {failed} com falhas",
+          "other": "{shown} mais recente de {count} executa · {failed} com falhas",
+          "many": "{shown} mais recente de {count} executa · {failed} com falhas"
+        }
+      }
+    },
+    "status.leave_the_field_to_test_caching_proxy_service_from_host": {
+      "sourceHash": "c9652c23b05db13d574de2f35c1b51330c8db65abfcd721601ad2b0ecafa8061",
+      "message": "Deixe o campo para testar o serviço de cache-proxy do host."
+    },
+    "status.loaded": {
+      "sourceHash": "2c2201eabdeb6e65b1d943228b527fd107465892c7cac79c53ae4dab20fe7016",
+      "message": "Carregado:"
+    },
+    "status.loading": {
+      "sourceHash": "7bdbcf213412bf3e174e5943ecb31bf3ae5c8f4307bdec40cdcc6d7f33aa241c",
+      "message": "Carregando..."
+    },
+    "status.loading_47d2a515": {
+      "sourceHash": "8f78a028a3537778eb653f35701d8fc6b9128ed19a22032be675cd66828aa69e",
+      "message": "Carregando..."
+    },
+    "status.loading_perf_aggregates": {
+      "sourceHash": "f4ec53c979a3de1c97d503926b4bb29ca4e974929b0e647d349d7481a773cc29",
+      "message": "Carregando agregados perf..."
+    },
+    "status.log_level_debug": {
+      "sourceHash": "837f2a08967112d4219bf3c46f5560d5b71eb5b1089e64d78b329ebdb22456be",
+      "message": "Depurar"
+    },
+    "status.log_level_error": {
+      "sourceHash": "93e109e80f3d6d91e06950eede7aa517d9d4038a7af1a89ccc4e9d95274afe5d",
+      "message": "Erro"
+    },
+    "status.log_level_information": {
+      "sourceHash": "1a4ee5627c7991c930e61bc415e9748093de1f63979ba09a4f116ee81343c31d",
+      "message": "Informação"
+    },
+    "status.log_level_verbose": {
+      "sourceHash": "b2e8a56e7f8915af1b1463b3fb02cb428ce8a2b8d5da30b71b0b98e0a5c02d06",
+      "message": "Verbose"
+    },
+    "status.log_level_warning": {
+      "sourceHash": "ed587168cf4d4d94144a71ab0a6516900ed5973a56a7b60c9caa4e95629b21fd",
+      "message": "Atenção"
+    },
+    "status.menu": {
+      "sourceHash": "5abe63704eef5d72e27a9fa51b2d83894d6e11d39ceea547142072b43703b98b",
+      "message": "Menu"
+    },
+    "status.missing_step_timing": {
+      "sourceHash": "4b81e8075336e565219ba023aa3d488633add04e3c779edef452d6932199561a",
+      "plural": {
+        "variants": {
+          "one": "O ciclo {count} carece de tempo por passo — desenhado como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o tempo por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página.",
+          "other": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página.",
+          "many": "Os ciclos do {count} carecem de timing por passo — desenhados como uma única barra cinzenta. Isto normalmente significa que o processo de serviço de estado desvinculado precede o timing por passo no {endpoint}. Reinicie- o com: {command}, depois carregue novamente Esta página."
+        }
+      }
+    },
+    "status.never": {
+      "sourceHash": "41012214f9b203e2a8972a150eb836393856e2c90e9a64d70d55e2bc8c77139a",
+      "message": "nunca"
+    },
+    "status.no_aggregates_available": {
+      "sourceHash": "7c253c9b0205fe437f8d233fd7176e6bd42d178251267faf6b0a7f6f9547d7a8",
+      "message": "Não existem agregados disponíveis."
+    },
+    "status.no_control_proof_was_presented_reach_this_page_through_the_dashbo": {
+      "sourceHash": "60fa1efefe4b3c2fd93a33565e4595639f9b187987b774da5fae8cad173be8f4",
+      "message": "Nenhuma prova de controle foi apresentada. Alcance esta página através do link do painel ou use http://localhost:{value1}/ no próprio host."
+    },
+    "status.no_cycle_folder_recorded_for_this_cycle": {
+      "sourceHash": "d481cfa87d605a8c729e511115c5f9d6acf9bc433c2a7fc98d79292f0580f213",
+      "message": "Nenhuma pasta de ciclo gravada para este ciclo"
+    },
+    "status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y": {
+      "sourceHash": "dbec7e1a1b3bd14ea67ad6d2b41d39991f6e78b7e46b65b6756451994a642999",
+      "message": "Nenhum ciclo a partilhar. Abra esta página da linha do tempo do ciclo no painel de máquinas do Yuruna."
+    },
+    "status.no_dashboard_server": {
+      "sourceHash": "87bbba662433e14395fa2a9ce9e24fc8729f9d1eafdbcfa8aedde80fd1ee3abb",
+      "message": "Sem servidor de painel"
+    },
+    "status.no_data": {
+      "sourceHash": "4d4ddae66d4dbcc78089bfd9f85cad804b2e987d5c761cbef86ad481702d57ce",
+      "message": "(sem dados)"
+    },
+    "status.no_ip_set_nothing_to_test": {
+      "sourceHash": "72a0a8b77022224973a2915c1427cb96af3936b23480cfac0b9b3733827567fa",
+      "message": "Nenhum conjunto IP — nada a testar."
+    },
+    "status.no_output": {
+      "sourceHash": "f520e5df2ffe003ebfd64cc96eda791c4f7fd6be7fd1026c694a763565f09fd0",
+      "message": "(sem saída)"
+    },
+    "status.no_perf_data_yet_run_at_least_one_test_cycle": {
+      "sourceHash": "c0e0a5535b21fbb7bb6479f96e90d12628d999696f984a73b5d5c8a7746aeccb",
+      "message": "Ainda não existem dados perf — execute pelo menos um ciclo de ensaio."
+    },
+    "status.no_test_data_yet": {
+      "sourceHash": "2178f6c7aee65328565bded18ad6d39ed4ef982754ec2655af1e82a095974d02",
+      "message": "Nenhum dado de teste ainda"
+    },
+    "status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected": {
+      "sourceHash": "e468f45f45170c9db79581b12459c96f8f0dde3cbb29d364bee1ad9e8de7de9b",
+      "message": "Não é um endereço IPv4 ou IPv6. O salvamento será rejeitado."
+    },
+    "status.not_a_valid_ipv4_or_ipv6_address_test_skipped": {
+      "sourceHash": "eb1a1b694e4abba81e40eaafaa14b37abdd37a3914516aff5cfb6fecb9b973ed",
+      "message": "Não é um endereço IPv4 ou IPv6 válido — o teste foi ignorado."
+    },
+    "status.null": {
+      "sourceHash": "ed19e20093721f6d7ff276766c6e17988e4c4d28a48f47964084a940cbaa1211",
+      "message": "null"
+    },
+    "status.open_cycle_data_folder": {
+      "sourceHash": "2481153f6e53009375cf6ddb89cc9209a76e02425284f6ac8d6de65c4c653d65",
+      "message": "Abrir a pasta de dados do ciclo"
+    },
+    "status.open_the_email_draft": {
+      "sourceHash": "14ef70cfc377de1a66dce6bcfd6d5cce2e30da0f082f5a6fcf688ddd7ed3f0b6",
+      "message": "Abrir o rascunho de e- mail"
+    },
+    "status.pack_and_download_the_cycle_results": {
+      "sourceHash": "73a6c08287b1fd4037e381b62fc9df8a841d6aa54ef0c2c2dd195823ee43ed93",
+      "message": "Empacote e baixe os resultados do ciclo"
+    },
+    "status.packing_value1": {
+      "sourceHash": "bed95344d0d578870908dbefa24bc6504d6a2da3f5b52f8dc797c1175c45d4d9",
+      "message": "Embalagem {value1}..."
+    },
+    "status.pages": {
+      "sourceHash": "5bcd42ec532198b3cfadb3ad420950293063cfc60667bd027dde6655d56f53c2",
+      "message": "Páginas"
+    },
+    "status.pause": {
+      "sourceHash": "7446f89b513b523ea139f2df7407dcb5aded089c4f435075e5d01be21d51af59",
+      "message": "Pausa"
+    },
+    "status.pause_after_cycle": {
+      "sourceHash": "759794ccc5eb7d6ece38b1519a09cc434edf54549b90629b233d9c548c743a46",
+      "message": "Pausa após o ciclo"
+    },
+    "status.pause_after_step": {
+      "sourceHash": "5fe01e8dbe8ada202314e6950320189d36b394c94e6642b350d86e53a737d586",
+      "message": "Pausa após passo"
+    },
+    "status.paused": {
+      "sourceHash": "a3f3ca05b89f8894bd5a76c935b499a5ab34ad5ca15d5d4bd4962e3ba5af9450",
+      "message": "Teste em pausa"
+    },
+    "status.paused_age": {
+      "sourceHash": "1a7151cf5a3246942da9a7b7e43d29b31523f483d1faaaa84cbbb85deb92c0f2",
+      "message": "Teste pausado -- {age}"
+    },
+    "status.paused_age_guest": {
+      "sourceHash": "f7a621f2373f2f5dbe704fa81faeee1a1e826f70ec05cdf56c2a7c8b712aba38",
+      "message": "Teste pausado -- {age}, convidado {guest} em execução"
+    },
+    "status.paused_guest": {
+      "sourceHash": "77563974b1025080813bd5839c3920fb869ee370fac1bf23e7c52ba4442b97f9",
+      "message": "Teste pausado -- execução do {guest} convidado"
+    },
+    "status.pausing_after_cycle": {
+      "sourceHash": "24cac57fa0b1080bb168d054ff04d05a93a93f44e7602b37aeb29eb987483842",
+      "message": "Ensaio de pausa (após o ciclo)"
+    },
+    "status.pausing_after_step": {
+      "sourceHash": "b8ec5407562742c7d62dcb41641feb4d6b83ef03d10256c19f2f7fee7cd967ed",
+      "message": "Ensaio de pausa (após o passo)"
+    },
+    "status.perf_yuruna": {
+      "sourceHash": "e20fa5056824a8bfe2d927b2d68a2b154634a8fcd0ccdbb2d3bcc337e1f9ae1e",
+      "message": "Perf — Yuruna"
+    },
+    "status.performance": {
+      "sourceHash": "f266e05a05a528110aff0fbcb8d7ea6f36b109b0ed2ba46858e370abbcfd0c9b",
+      "message": "Desempenho"
+    },
+    "status.pill_new_vm_resource": {
+      "sourceHash": "fc0ff9ccda45cf8b47401b751916a236b4e6d157e3a17c08e84cbd9447a4452d",
+      "message": "Nova VM"
+    },
+    "status.pill_start_guestos": {
+      "sourceHash": "805a8608ce419272c17918885cea8f24df7907bdb2ccedfd5673b1ef731d15e8",
+      "message": "Iniciar o SO"
+    },
+    "status.pill_start_guestworkload": {
+      "sourceHash": "1329bb7f07f0852c34fbbd5bd4339330ef41ecd23df1506d74d772ccbb8718b0",
+      "message": "Carga de trabalho"
+    },
+    "status.process_environment_value_the_status_service_inherited_at_startup": {
+      "sourceHash": "350fb53633c2fb1b8d7318201dfbfdfafe757e747765498f6b12160bf4119644",
+      "message": "O valor do processo- ambiente do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio."
+    },
+    "status.quarantine_pinned": {
+      "sourceHash": "cbdd272181a458b0009ea754c0ae55d337ba8cb60cc8c249a1405d8510cc5ccb",
+      "message": "Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em {commit})"
+    },
+    "status.quarantine_reason": {
+      "sourceHash": "72696bc74a60a0209d7fc100f4304af6419571b0a425828e9e032c8f6d2ea2a7",
+      "message": "Quarentenado após falhas repetidas da mesma classe"
+    },
+    "status.quarantined": {
+      "sourceHash": "777d62fec9f8ee49572f182044b9432127fa8ad5962b4d58ebe91295492c79de",
+      "message": "quarentena"
+    },
+    "status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart": {
+      "sourceHash": "b272f02319abdb543db4953388e9af97a80002145c83bafee6d9c7f3273c35dd",
+      "message": "Re-scan test/status/perf/cycles/*.jsonl e atualizar todos os gráficos."
+    },
+    "status.recalculate": {
+      "sourceHash": "27841d6848b029e4aa8f6e3932318d04059a3dae4fccc8980edd741b9ba4b7fa",
+      "message": "Recalcular"
+    },
+    "status.recalculating": {
+      "sourceHash": "71092c0a661711297ef4389cf36ce6c2411ad73135fbf66491134b064e82980f",
+      "message": "Recalculando..."
+    },
+    "status.recalculating_perf_aggregates": {
+      "sourceHash": "ab0df096e433acac2b74359966ba7ee1713618e6db7eabd8c595679c3871b098",
+      "message": "Recalculando os agregados perf..."
+    },
+    "status.recent_cycles": {
+      "sourceHash": "dff430e202db83017c889038d53d24089f32c6088b4fe86d6f13ffe8975dc63a",
+      "message": "Ciclos Recentes"
+    },
+    "status.refresh": {
+      "sourceHash": "9a461146e7f37ddf30a75954da91d8d089e4901d8af2f9bb03d10efd970a2d2a",
+      "message": "Actualizar"
+    },
+    "status.results_folder": {
+      "sourceHash": "dc22d949d02c4e4e560d54d1df16615082378c26ed30daec1ef7878d76bf388a",
+      "message": "Abrir pasta de resultados para {name}"
+    },
+    "status.resume": {
+      "sourceHash": "4dea4801768bb9a423dcfae8ac57bcae74e2185ec9bbafd99e2d7c0ed4391f86",
+      "message": "Continuar"
+    },
+    "status.resume_in_place": {
+      "sourceHash": "1492a606eb89a3e4375d43b3f854119bd3786402434c9ed38353ebccb23a4d9f",
+      "message": "Retomar a sequência no lugar (sem restauração de instantâneo)"
+    },
+    "status.run_command1_to_start_a_test_cycle": {
+      "sourceHash": "c8749c3084fdeff344a07942e270650aeabbedce5bcfc99bbdf666babfe7d1db",
+      "message": "Execute {command1} para iniciar um ciclo de teste."
+    },
+    "status.run_start_testrunner_ps1_to_start_a_test_cycle": {
+      "sourceHash": "154e1047c15a6c496d0eccb27e5658616a9d0397fe4bbb000be8cdf7fa8f7dac",
+      "message": "Executar Start-TestRunner.ps1 para iniciar um ciclo de teste."
+    },
+    "status.save": {
+      "sourceHash": "e397dcaa7762faf99f6efc4289af6b24e6537928dcbdca416e18ea4a4b32c2cc",
+      "message": "Gravar"
+    },
+    "status.save_and_start_cycle": {
+      "sourceHash": "3a26eb518a1553f8871b9a3ad1428284c95e456d1566763582958928c41e3a7c",
+      "message": "Salvar e iniciar o ciclo"
+    },
+    "status.save_and_start_cycle_failed_value1": {
+      "sourceHash": "1bb59b3fc447c40606f7288515d24774f6e49a39c81898b279a460a57a602c8b",
+      "message": "Falha no ciclo de gravação e início: {value1}"
+    },
+    "status.save_failed_value1": {
+      "sourceHash": "719e5fdf428a9f7eb3ffd8c267e0fa0195d6f3461d849a7cd72a3a69d47d8090",
+      "message": "Falha ao salvar: {value1}"
+    },
+    "status.saved_returning_to_status": {
+      "sourceHash": "03b6ed4766b87352fc19fb00d9d9bbb93b9b2f5f583d77ad3ee675aa18dc4fed",
+      "message": "Gravado. A voltar ao estado..."
+    },
+    "status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_": {
+      "sourceHash": "b350ae7cdbd3bb70ec1c32886379bd3da548df758fba207a7e7191a861192b70",
+      "message": "Gravado. Parar as VMs em andamento (até ~ 30s cada) e iniciar um novo ciclo -- isto pode levar um minuto ou dois..."
+    },
+    "status.saving": {
+      "sourceHash": "45f7699607f2ee1c6442adf2115aa0aafa237d7c624ae92aa7468a42dfac0586",
+      "message": "A gravar..."
+    },
+    "status.saving_config": {
+      "sourceHash": "cff59401998ffb595a97a2541f4180f18a10d31bb140d17c549072a112e65699",
+      "message": "A gravar a configuração..."
+    },
+    "status.sequences": {
+      "sourceHash": "efa9faee220406bfc9beac625db151fadcc8d141a7c625e939cedae021502a22",
+      "message": "Sequências"
+    },
+    "status.server_reports_ip_not_valid_test_skipped": {
+      "sourceHash": "dbda1ebc61f397e0c3c7adf81209dde881e4c2b6ced083271092cbf0e31dc7f1",
+      "message": "Relatórios do servidor IP não válidos — teste ignorado."
+    },
+    "status.setup": {
+      "sourceHash": "d02635059d21d95b15469f06c89db2a28cd2427f1190bbb17752a9b875b61630",
+      "message": "(configuração)"
+    },
+    "status.share_body": {
+      "sourceHash": "4dbd829968209c3774e562d182251c02a355c0f93f86062e5f3421cfa872b7e7",
+      "message": "Os resultados do ciclo de Yuruna são anexados"
+    },
+    "status.share_cycle_results": {
+      "sourceHash": "9926d9740b0d970161e0de886ad434c29a90d3f9c73b71f33cfec9de1ac10b02",
+      "message": "Partilhar os resultados do ciclo"
+    },
+    "status.share_cycle_yuruna": {
+      "sourceHash": "f0cb1bbe109b81d20ec4bfba72ca2aa28772234823cc20f5ad6f60f787480acb",
+      "message": "Ciclo de partilha — Yuruna"
+    },
+    "status.share_download_manual": {
+      "sourceHash": "7592687842fa9b2ba0b40bd8db37007cac4f990c39b161d7b249cc85eea98185",
+      "message": "Baixe {file} com o primeiro link. Então abra o rascunho e anexe o arquivo antes de enviar."
+    },
+    "status.share_download_started": {
+      "sourceHash": "7ad5451a2d51eddcd7a306e5612fc7af69930acbddc76f6e1870c6264e731118",
+      "message": "Baixando o {file}. A máquina empacota toda a pasta antes do primeiro byte chegar, então dê-lhe um momento. Então abra o rascunho e anexe o arquivo antes de enviar."
+    },
+    "status.share_subject": {
+      "sourceHash": "352c7e8f849157a1402569af2ea65e3a21340dd348424464b0e6c9180c815c08",
+      "message": "Yuruna Host {host} em {time}"
+    },
+    "status.shared_value1_value2": {
+      "sourceHash": "f0d11f6811947ab7ca664a817434fb593bb43b515d8b04de942aec0696d5300f",
+      "message": "{value1} ({value2})."
+    },
+    "status.sharing_canceled": {
+      "sourceHash": "b04bfaeac03d9997ac492a6e5cfddeb77fb1ec1334a8b3bfd8465b54861ab502",
+      "message": "A partilha foi cancelada."
+    },
+    "status.show_only_the_first_8_characters": {
+      "sourceHash": "43620eb6a40e05b9f7d74b00fe5d3b7d7f7e2c051b8a3509700ad0e25dbb70e4",
+      "message": "Mostrar apenas os primeiros 8 caracteres"
+    },
+    "status.show_the_full_id": {
+      "sourceHash": "76b60060021cc39ef0bfb2beaeb273389ddb1489eb40ef3a22cab90e4f0d21e2",
+      "message": "Mostrar o ID completo"
+    },
+    "status.skip_suffix": {
+      "sourceHash": "67c968fc0c6a710862d63e0f1847a19b92929882f0a38e0f256a777bc848d3d6",
+      "message": "(skip)"
+    },
+    "status.snapshot_restore": {
+      "sourceHash": "d1c28b77f604a192d8dc21775ab43b94bc9ac9cd1e56ffddda8d07a187cd7957",
+      "message": "Restaurar snapshot id {snapshot}, reiniciar a VM e, em seguida, retomar a sequência"
+    },
+    "status.started": {
+      "sourceHash": "bba4438c6b12e48c59d830924b3378ca74925a3b7a41a3018f608a22d8f003b1",
+      "message": "Iniciado"
+    },
+    "status.started_utc": {
+      "sourceHash": "703b36c43ee3e1dc10eb51e80539dd8275f97d6c853cd1e7fcfa28872681bf6f",
+      "message": "Iniciado (UTC)"
+    },
+    "status.status": {
+      "sourceHash": "88f26477ede31e5802766ad8bac5a3e3d7ea9fcf24e0ec195f6cd3623cee6aac",
+      "message": "Estado"
+    },
+    "status.status_unavailable": {
+      "sourceHash": "4422361bd776c5f85e477d8258b069c45f89356e5007bb7ab5207dae9698bd10",
+      "message": "Estado indisponível"
+    },
+    "status.step_timing_unavailable": {
+      "sourceHash": "b3c1f896245de178abdece38029ae73b396712d0404df5959debb1c478b6277d",
+      "message": "Não foi registrado nenhum momento por etapa para este ciclo."
+    },
+    "status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va": {
+      "sourceHash": "bc94c773bb256e63ccc7f5f9c567c1baa84d1adef82d2ef33d2aae78596d86e0",
+      "message": "O serviço de cache-proxy de teste da máquina falhou ({value1} fail{value2}{value3})."
+    },
+    "status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2": {
+      "sourceHash": "4ab70c518126ff319fc09d216035490557a6a75c30eedb6b96b43d3c27e176ac",
+      "message": "Teste o serviço de cache-proxy da máquina com sucesso ({value1} pass{value2})."
+    },
+    "status.test_config_yml": {
+      "sourceHash": "d0da169165b67397007b3c0f1587f94b8899598ee6f3c000a9eb6fed046aab87",
+      "message": "test.config.yml"
+    },
+    "status.test_config_yml_yuruna": {
+      "sourceHash": "66f00240f965459156de7cb9fa514364deaca2a786cd731e44d8bd9c6774f229",
+      "message": "test.config.yml — Yuruna"
+    },
+    "status.test_sequences": {
+      "sourceHash": "321e2763c276f4471ac0d48b2c4aed5d56a464150377858d38fc251cc7598e53",
+      "message": "Sequências de ensaio"
+    },
+    "status.testing_caching_proxy_service_from_host": {
+      "sourceHash": "19d1f85c500e0cc6c7f354ed50a6ca56b670ece043d6f2aaae4ff42dc76fdbfc",
+      "message": "Testando o serviço de cache- proxy da máquina..."
+    },
+    "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": {
+      "sourceHash": "7b45b6acf92c9b2c9193db23bee052677ad7e5f4fa35f617c86ae80a38454790",
+      "message": "O arquivo é construído apenas a partir de registros do servidor e baixado para esta máquina. Nenhum dado desta sessão de navegação está incluído."
+    },
+    "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": {
+      "sourceHash": "d2a846c98b5c300227224c8cf8be670b351a4816d06e4d8edfb912e91116be80",
+      "message": "A prova de controlo expirou."
+    },
+    "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": {
+      "sourceHash": "d688961646f44e84b7b9389b5eab8bec98a6b22edcd87c98b0d65150748e1110",
+      "message": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os."
+    },
+    "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": {
+      "sourceHash": "aaa1a44999bf9f16cb012cace5db71c1438dd84227754648967732a66bd8b859",
+      "message": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registo do serviço de estado."
+    },
+    "status.the_share_sheet_expired_while_the_host_packed_the_folder": {
+      "sourceHash": "c1727c7be81460556c7d371ee0c1de36eccd9f6a856478d8a9ead5300be7b394",
+      "message": "A folha de partilha expirou enquanto a máquina embalava a pasta."
+    },
+    "status.this_browser_could_not_attach_the_file_to_a_message_itself": {
+      "sourceHash": "0b7fc0cb70725fdb9143bcb8ed93293bd93f2855bcef5e6ab215858a3f8322d6",
+      "message": "Este navegador não pôde anexar o ficheiro a uma mensagem propriamente dita."
+    },
+    "status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w": {
+      "sourceHash": "b03e6de6ecde9141322dfa6b5c8aecc2441a682bc22fb1dd950ab17847ca728d",
+      "message": "Este ciclo ainda está em execução. O arquivo irá manter o que foi escrito até agora."
+    },
+    "status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot": {
+      "sourceHash": "301424f56973819d580858e217b77a7d5aa5c6a1a2f47050f9ead45505848e4e",
+      "message": "Esta máquina não irá embalar {value1} (HTTP {value2}). O ciclo pode ter girado para fora do histórico de registros retido."
+    },
+    "status.timing_cycle_started": {
+      "sourceHash": "176b8fe6e87037ac209a12ef7b40a091ded2021cf922c2f08248dd19efa44f5e",
+      "message": "Ciclo: {value}"
+    },
+    "status.timing_diagnostic": {
+      "sourceHash": "6a06c99d83158ed996b70f0ada14fb295039eaf4d22d0853c6451fd157d58652",
+      "message": "Diagnóstico: {value}"
+    },
+    "status.timing_duration": {
+      "sourceHash": "c33e1aad930ad828cb45bc176d8983e7c3138200397f6085e230cc3459c11f08",
+      "message": "Duração: {value}"
+    },
+    "status.timing_evidence": {
+      "sourceHash": "9a7a43df23413f1e600c0700415ba9ec347a7656b5609c5a50719d40ec1db364",
+      "message": "Captura de provas dentro do passo: {value}"
+    },
+    "status.timing_incomplete_capture": {
+      "sourceHash": "5bda500a5fd79c259fff3b951c353af65f846ffbc74db3833485e77b7572ef64",
+      "plural": {
+        "variants": {
+          "one": "{count} captura incompleta(s)",
+          "other": "{count} captura incompleta(s)",
+          "many": "{count} captura incompleta(s)"
+        }
+      }
+    },
+    "status.timing_incomplete_record": {
+      "sourceHash": "98c86120874327c9561724470fee4870cc0d51aa7300edab7cad4d74bf840dea",
+      "message": "registo incompleto"
+    },
+    "status.timing_kind": {
+      "sourceHash": "ce46993a6c4a47ed5faee2e76d326f4c72946cf55951d3f517386e0b1b659878",
+      "message": "Tipo: {value}"
+    },
+    "status.timing_outcome": {
+      "sourceHash": "ac97aaeaf079e7b7beef819dd6049b05e482a75ea9f6626bb66f85134e58db98",
+      "message": "Resultado: {value}"
+    },
+    "status.timing_reused": {
+      "sourceHash": "1c670b1019a3ae249264ce8548e16bb6f61fe377ce26c87507bb9071a6d482b3",
+      "message": "Execução reutilizada: {value}"
+    },
+    "status.timing_summed_work": {
+      "sourceHash": "e2040c241ed2d4532612491e25f59d619b23765425fb3233ff1e5c5fca8ee297",
+      "message": "trabalho {duration}"
+    },
+    "status.timing_unavailable_value": {
+      "sourceHash": "603c7ea687d5cbb06d517486b9f31d2695dbe13ad2fda4489337afe38a80749c",
+      "message": "não disponível"
+    },
+    "status.timing_within": {
+      "sourceHash": "a3317ff5b166b8c5255f72e71d9cc59f40fa543490a27b9453686b991caee0cb",
+      "message": "Dentro: {value}"
+    },
+    "status.timing_within_attempt": {
+      "sourceHash": "925fdd0c1867a539d474657ff3914f497fb8558fb80d4074ec3d3a8ccb3ffe17",
+      "message": "No interior: {value} tentativa {attempt}"
+    },
+    "status.transcript_for": {
+      "sourceHash": "3e9caf239662e14bf8657e00142e4aafe4becc88060041029f771975b6e142ae",
+      "message": "Transcrição aberta para {name}"
+    },
+    "status.true": {
+      "sourceHash": "d09567aeb32da78aafe03598843da5e1aac6058901157dedc4531e7f5cdcff67",
+      "message": "Verdadeiro"
+    },
+    "status.unavailable": {
+      "sourceHash": "9306c83d4eae9c7a7b21922d956f640439436a5f41cc482a0a63056cb60ddab0",
+      "message": "(indisponível)"
+    },
+    "status.unknown": {
+      "sourceHash": "138ed7468849ec54e7c89b290e8441be5d79c25645d347cd56df8d1b4debb464",
+      "message": "(desconhecido)"
+    },
+    "status.unnamed": {
+      "sourceHash": "25b17c50ef52a55cdd615fb784c369d8f2923cd91d2fed8602da8192aed2dd6d",
+      "message": "(sem nome)"
+    },
+    "status.user_account": {
+      "sourceHash": "d17002715c14d00cef111bd17d4d22c2a17aba68c845c6dc449d0ae78a7a8e38",
+      "message": "Conta de usuário:"
+    },
+    "status.value1_returning_to_status_in_6_seconds": {
+      "sourceHash": "f83e69aa9670f31abf3a1b18a98f21a158aeda2f008cc6098876e0b8688d409e",
+      "message": "{value1}. A voltar ao estado em 6 segundos..."
+    },
+    "status.value1_work_value2": {
+      "sourceHash": "bf31a115d19762cedf0176d26fdb9afce501f7d3ac9947babd54f2505801cbdc",
+      "message": "{value1}\nTrabalho · {value2}"
+    },
+    "status.value1_yuruna_status": {
+      "sourceHash": "d69b309194b01cf0a6a8f264794e927faa3971ac23fba06ab0656aa40ae154b9",
+      "message": "{value1} — Estado da Yuruna"
+    },
+    "status.vm_name": {
+      "sourceHash": "7db9e62c640bcacad783f832164110fad4c5a720e2bcbb80cf17c7b90b537915",
+      "message": "VM: {name}"
+    },
+    "status.working": {
+      "sourceHash": "0d8a2960a2250440d55a09fdf70c425b7d18f5ce13fd9622b4b58a0c74c9254b",
+      "message": "A trabalhar..."
+    },
+    "status.yuruna_host_status": {
+      "sourceHash": "c83c8877c2170ed15aecb92b2bac42131bbf5aedb112a6a1afe0525e08183632",
+      "message": "Estado da máquina do Yuruna"
+    },
+    "status.yuruna_status": {
+      "sourceHash": "3f18d89f931e700c90035cedd6786c0fdcbade6a2ad9292c0efca8a1b6c60be4",
+      "message": "Estado do Yuruna"
+    }
+  }
+}

@@ -8,17 +8,12 @@
 // Edit here and re-run that tool; an edit made in a copy is overwritten and
 // the drift gate fails first.
 //
-// ES5 ONLY. The floor is Safari 9.0 / iOS 9.0, whose parser rejects a file
-// carrying one arrow function OUTRIGHT -- not the statement, the file. A page
-// whose runtime failed to parse still serves its static shell, so the failure
-// looks like an empty table rather than a broken page.
-//
 // Nothing here parses a message. The compiler already broke every message into
 // the pieces this walks, which is what lets a label be rendered per row without
-// the cost showing up on the page. Nothing here reads Intl either: the floor
-// has none, and the ICU behind a server runtime shifts between releases, so
-// separators and plural rules come from the compiled locale data and are the
-// same everywhere.
+// the cost showing up on the page. Nothing here reads Intl either: the ICU data
+// behind a runtime differs by engine and shifts between releases, so separators
+// and plural rules come from the compiled locale data and are the same
+// everywhere.
 (function (root) {
   'use strict';
 
@@ -43,9 +38,9 @@
   function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
 
   function freezeContext(value) {
-    // Object.freeze is ES5 and present at the Safari 9.0 floor. Keep the
-    // guard for deliberately capability-stripped test hosts: the context is
-    // still private there and callers receive no setter for its fields.
+    // The guard is for deliberately capability-stripped test hosts: the
+    // context is still private there and callers receive no setter for its
+    // fields.
     if (Object.freeze) { return Object.freeze(value); }
     return value;
   }
@@ -108,10 +103,11 @@
     }
   }
 
-  // Group a digit string from the right. toLocaleString is not usable at the
-  // floor -- it exists, but ignores its locale argument and answers in the
-  // browser's own, so a en-US page on a Brazilian phone would print Brazilian
-  // separators for half its numbers and not the other half.
+  // Group a digit string from the right. toLocaleString is not usable here:
+  // its separators come from the engine's own ICU data, which differs between
+  // browsers and between releases, so the same number would be written one way
+  // on the page and another by the PowerShell and Go sides that have to agree
+  // with it byte for byte.
   function groupDigits(digits, sep, size) {
     if (!sep || size <= 0 || digits.length <= size) { return digits; }
     var out = '';
@@ -279,11 +275,12 @@
   // A wall-clock stamp in the reader's own zone, in a shape that does not
   // change with the reader's device.
   //
-  // toLocaleString would be the obvious call and is the wrong one: at the floor
-  // it ignores the locale it is handed and answers in the browser's own, so a
-  // page served in one language shows half its values in another, and which
-  // half depends on whose phone it is. The shape here is fixed for everyone;
-  // only the zone is local, which is what makes a "last seen" readable.
+  // toLocaleString would be the obvious call and is the wrong one: the shape it
+  // produces comes from the engine's ICU data, so the same instant is written
+  // one way on one browser and another way on the next, and neither matches
+  // what the PowerShell and Go sides emit for it. The shape here is fixed for
+  // everyone; only the zone is local, which is what makes a "last seen"
+  // readable.
   function formatLocal(value) {
     var when = (value instanceof Date) ? value : new Date(value);
     if (isNaN(when.getTime())) { return ''; }

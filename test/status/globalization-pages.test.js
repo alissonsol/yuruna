@@ -34,10 +34,15 @@ function runtime(html, locale, resolver) {
       getElementById(id){return byId[id]||null;},createElement:element,createElementNS(_,name){return element(name);},createTextNode(text){return {nodeType:3,textContent:String(text)};},
       querySelector(selector){if(selector === '#t tbody'){return byId['request-rows'] || (byId['request-rows']=element('tbody'));}return null;},querySelectorAll(){return [];},addEventListener(name,fn){(listeners[name]||(listeners[name]=[])).push(fn);},removeEventListener(){}}
   };
-  box.XMLHttpRequest=function(){this.open=(_,url)=>{this.url=url;};this.setRequestHeader=()=>{};this.abort=()=>{};this.send=()=>{
-    const answer=resolver(this.url.split('?')[0]);if(answer.error){this.status=503;this.responseText='{"ok":false,"error":"Fixture refused"}';}else{this.status=200;this.responseText=typeof answer.body==='string'?answer.body:JSON.stringify(answer.body);}
-    this.statusText=this.status===200?'OK':'Unavailable';this.onload();
-  };};
+  // The genuine constructor rather than a stub: the pages that bound a request
+  // put its signal on the call and abort it when the bound expires.
+  box.AbortController=AbortController;
+  box.fetch=url=>{
+    const answer=resolver(String(url).split('?')[0]);
+    const body=answer.error?'{"ok":false,"error":"Fixture refused"}':(typeof answer.body==='string'?answer.body:JSON.stringify(answer.body));
+    return Promise.resolve({ok:!answer.error,status:answer.error?503:200,statusText:answer.error?'Unavailable':'OK',
+      text:()=>Promise.resolve(body),json:()=>new Promise(resolve=>resolve(JSON.parse(body)))});
+  };
   box.window=box;box.globalThis=box;vm.createContext(box);vm.runInContext('Intl=undefined;String.prototype.normalize=undefined;',box);
   return {box,byId,failures,boot(){box.document.readyState='complete';(listeners.DOMContentLoaded||[]).forEach(fn=>fn());}};
 }
@@ -68,7 +73,7 @@ async function checkStatus(){let checked=0;
     if(page==='index'&&state==='data')assert.ok(env.byId['sequence-list'].innerHTML.includes('project.smoke'));
     checked++;
   }
-  console.log('PASS: '+checked+' status page/locale/state renders with fetch, Intl and normalize unavailable');
+  console.log('PASS: '+checked+' status page/locale/state renders with Intl and normalize unavailable');
 }
 async function checkGenerated(){let checked=0;
  for(const domain of ['cache','parser']){

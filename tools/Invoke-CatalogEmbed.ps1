@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna globalization catalog browser embed es5
+.TAGS yuruna globalization catalog browser embed
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -124,18 +124,16 @@ $BrowserCatalogTargets = @(
 )
 
 # The two services whose pages are Go string literals and load no shared
-# runtime. Their application scripts call fetch, so without an adapter they
-# render their shell and then fill in nothing on a floor browser -- an empty
-# table that reads as a lab with no data rather than as a page that failed.
+# runtime. A bounded request and a timestamp shape that does not move with the
+# reader's device are the two things those pages still need, so they travel
+# with them as a generated file beside the page.
 #
 # It is copied rather than imported because one of these modules deliberately
 # depends on nothing: its guest build does not stage the SDK beside it, so a
 # module dependency would break the build it is supposed to protect.
-# Every page needs the stand-in. Only a page with no shared runtime needs its
-# own timeout, so the bounded helper is composed on for those two and left out
-# of the runtimes -- shipping it there would put bytes on every extension page
-# for code none of them call.
-$FetchShimSource = 'globalization/kernel/yuruna.fetch-shim.js'
+# Only a page with no shared runtime needs its own timeout, so the bounded
+# helper is composed on for those two and left out of the runtimes -- shipping
+# it there would put bytes on every extension page for code none of them call.
 $FirstUsableSource = 'globalization/kernel/yuruna.first-usable.js'
 $RawPageSource = 'globalization/kernel/yuruna.rawpage.js'
 $RequestAdapterTargets = @(
@@ -179,7 +177,7 @@ function Get-EmbeddedBlock {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Domains, [switch]$DomainsOnly, [switch]$OmitFetchShim)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Domains, [switch]$DomainsOnly)
 
     $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($ManifestPath))
     $default = [string]$manifest.default
@@ -253,14 +251,10 @@ function Get-EmbeddedBlock {
         [void]$sb.AppendLine(([IO.File]::ReadAllText($artifact)).TrimEnd())
     }
 
-    # The request adapter travels with the kernel so there is one copy of it
-    # across both browser runtimes and both raw Go pages. It installs itself
-    # only when the browser has no fetch, so a modern browser pays nothing.
+    # The kernel and the readiness marker travel with the locale tables so that
+    # every runtime carries one copy of each and no page spends a request on
+    # them.
     if (-not $DomainsOnly) {
-        if (-not $OmitFetchShim) {
-            [void]$sb.AppendLine('// The fetch stand-in, from ' + $FetchShimSource + ' -- see that file for why.')
-            [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FetchShimSource)))))
-        }
         [void]$sb.AppendLine(([IO.File]::ReadAllText($KernelPath)).TrimEnd())
         [void]$sb.AppendLine('// Explicit application readiness, from ' + $FirstUsableSource + '.')
         [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FirstUsableSource)))))
@@ -498,9 +492,7 @@ function Get-GoCatalogRegistry {
     }
     $lines.Add('}')
     $lines.Add('')
-    # Raw Go pages already carry the bounded request adapter and its fetch
-    # stand-in. Compose their locale runtime without downloading it twice.
-    $lines.Add('const BrowserKernel = ' + (ConvertTo-GoQuoted (Get-EmbeddedBlock -Domains $Target.Domains -OmitFetchShim)))
+    $lines.Add('const BrowserKernel = ' + (ConvertTo-GoQuoted (Get-EmbeddedBlock -Domains $Target.Domains)))
     return ($lines -join "`n") + "`n"
 }
 
@@ -595,16 +587,14 @@ foreach ($browserTarget in $BrowserCatalogTargets) {
 $localeDataChange = Set-GeneratedFile -Relative $SdkLocaleData -Text (Get-GoLocaleData)
 if ($localeDataChange) { $changed += $localeDataChange }
 
-$adapterParts = @()
-foreach ($part in @($FetchShimSource, $RawPageSource)) {
-    $partPath = Join-Path $RepoRoot $part
-    if (-not (Test-Path -LiteralPath $partPath -PathType Leaf)) {
-        throw "The request adapter source is missing: $part"
-    }
-    $adapterParts += ('// From ' + $part + ' -- see that file for why.')
-    $adapterParts += (Get-CodeAfterHeader -Text ([IO.File]::ReadAllText($partPath)))
+$rawPagePath = Join-Path $RepoRoot $RawPageSource
+if (-not (Test-Path -LiteralPath $rawPagePath -PathType Leaf)) {
+    throw "The request adapter source is missing: $RawPageSource"
 }
-$adapterJs = $adapterParts -join "`n"
+$adapterJs = (@(
+    ('// From ' + $RawPageSource + ' -- see that file for why.')
+    (Get-CodeAfterHeader -Text ([IO.File]::ReadAllText($rawPagePath)))
+) -join "`n")
 foreach ($adapterTarget in $RequestAdapterTargets) {
     $moduleDir = Join-Path $RepoRoot $adapterTarget.Module
     if (-not (Test-Path -LiteralPath (Join-Path $moduleDir 'go.mod') -PathType Leaf)) {
@@ -616,16 +606,16 @@ foreach ($adapterTarget in $RequestAdapterTargets) {
     # literal -- the adapter has none today, and this keeps that from becoming
     # a silent truncation if one is ever added.
     $quoted = $adapterJs.Replace('`', '` + "`" + `')
-    $adapterSourceLabel = "$FetchShimSource and $RawPageSource"
+    $adapterSourceLabel = $RawPageSource
     $goText = @"
 // Generated by tools/Invoke-CatalogEmbed.ps1 from $adapterSourceLabel.
-// Edit those sources and re-run the tool; changes made here are overwritten.
+// Edit that source and re-run the tool; changes made here are overwritten.
 
 package $($adapterTarget.Package)
 
-// requestAdapterScript is the ES5 stand-in this service's pages install before
-// their own script. These pages are string literals and load no shared runtime,
-// so the adapter every other page inherits has to travel with them.
+// requestAdapterScript is the bounded request helper this service's pages
+// install before their own script. These pages are string literals and load no
+// shared runtime, so what every other page inherits has to travel with them.
 const requestAdapterScript = ``$quoted``
 "@
     $goText = ($goText -replace "`r`n", "`n").TrimEnd() + "`n"

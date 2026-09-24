@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     actually needs:
 
       PowerShell  a data file holding one hashtable, loaded once per process
-      Browser     a classic ES5 asset that registers its domain on load
+      Browser     a classic script asset that registers its domain on load
       Go          a package with the same table as package-level data
 
     Messages are emitted PRE-TOKENIZED. A message with arguments becomes an
@@ -549,7 +549,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.18'
+        '.VERSION 2026.09.24'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -945,7 +945,7 @@ foreach ($entry in @($base | Sort-Object Domain)) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.18'
+    compilerVersion = '2026.09.24'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

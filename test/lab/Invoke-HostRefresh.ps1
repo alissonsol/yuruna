@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42f6a7b8-9c0d-4e1f-af2a-3b4c5d6e7f8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,8 @@
     reported as unavailable rather than attempted.
 .DESCRIPTION
     THIS IS A DELIBERATELY BOUNDED SLICE of the full contract in
-    dev-only/2026-09.host-refresh/2026-09.host-refresh.md, not the complete
-    implementation. What is real and tested:
+    dev-only/review.history/2026-09.host-refresh/2026-09.host-refresh.md,
+    not the complete implementation. What is real and tested:
 
       * -WhatIf: a genuinely read-only preview. No lock, no directory
         creation, no request write, no signal to anything. Reports the

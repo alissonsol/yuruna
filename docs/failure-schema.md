@@ -250,6 +250,18 @@ cannot run, so the outer synthesizes a schema-v2 record: `reason` =
 -- the SIGKILL destroyed the only structured step location -- not omitted,
 so the contract stays satisfied and a remediator stays null-safe.
 
+The same kill also reaches `status.json`. `Complete-Run` is what normally
+appends a cycle to `history[]`, and a killed inner never gets there, so the
+outer writes the row itself: `overallStatus` = `fail`, a `finishedAt` of its
+own (the cycle never recorded one), and `cycleFolderUrl` still carrying its
+`.incomplete/` suffix, because only the completion path renames that folder
+and the partial results are under the suffixed name. The row is keyed on
+`cycleStartUtc`, so the `fault` -> `paused` pair one kill produces writes one
+row, and a cycle that did reach `Complete-Run` keeps its own richer row. The
+record's `failureClass` is copied onto the live `lastFailure` when the inner
+left none, which is what stops a killed cycle from reaching the pool
+dashboard's class breakdown as `unknown`.
+
 <a id="42820e91-000c"></a>
 
 ## `degradation` event (non-failure observability)
@@ -738,6 +750,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.18
+Last review: 2026.09.24
 
 Back to [Yuruna](../README.md)

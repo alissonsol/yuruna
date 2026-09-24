@@ -187,9 +187,10 @@ func serviceLinks(ctx context.Context, client *pool.Client, linkBase string) map
 // broken page on exactly the machine whose job is to make the network
 // unnecessary.
 //
-// It is also held to the browser baseline in docs/definition.md: no flex gap,
-// no grid, no logical properties, no custom properties. The whole page is one
-// list and two headings, so none of those would buy anything worth the floor.
+// The rules themselves are deliberately plain and self-contained for the same
+// reason: the whole page is one list and two headings, served on an isolated
+// lab network, so a richer layout would buy nothing and every byte it needed
+// would have to travel with it.
 const landingStyle = `
   body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
          background: #111827; color: #e5e7eb; margin: 0; padding: 16px; }

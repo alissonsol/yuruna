@@ -15,7 +15,7 @@ stateDiagram-v2
     state "fault" as fault
     state "paused" as paused
     idle --> start: Dispatch cycle
-    idle --> fault: Recover prior crash
+    idle --> fault: Child failed before start
     start --> cycle: Spawn inner
     start --> fault: Preflight failure
     start --> paused: Pool pause
@@ -35,7 +35,7 @@ All six displayed names are the persisted enum in [Test.RunnerState.psm1](../../
 Operational branches are deliberately not invented enum states:
 
 - `pull-error`, `spawn-failed`, and `cycle-aborted` produce short interruptible retry holds. A configured pool pause repeatedly checks intent without spawning guest work.
-- Pool `drain` stops at a cycle boundary. Ctrl+C requests shutdown and the dispatcher stops the active process tree; neither means a successful cycle.
+- Pool `drain` stops at a cycle boundary. Ctrl+C requests shutdown and the dispatcher stops the active process tree; neither means a successful cycle, although a Ctrl+C-killed cycle is reported as exit zero, so `cycle-end` is still recorded.
 - A failed cycle enters a bounded failure pause. New framework/project commits, configuration changes, or `control.cycle-restart` can end that wait early. Eligible transient failures may use the configured auto-remediation retry budget; permanent failures retain the normal hold.
 - Startup recovery detects a prior run's stale state and records a fault/recovery transition. A successful cycle resets the auto-remediation budget.
 
@@ -67,9 +67,9 @@ stateDiagram-v2
     cleanup --> provision: Next guest permitted
 ```
 
-Seven states summarize `Invoke-GuestProvisionIteration` in [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1); they are execution stages, not the hypervisor's power-state enum. The resource stage polls VM readiness and waits the boot delay; screenshot capture precedes optional workload sequences. The planner may supply no preparation or workload sequences, so a skipped optional stage is not a failure. Guest selection and variable cascading come from [Test.SequencePlanner.psm1](../../test/modules/Test.SequencePlanner.psm1).
+Seven states summarize `Invoke-GuestProvisionIteration` in [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1); they are execution stages, not the hypervisor's power-state enum. The resource stage polls VM readiness and waits the boot delay; the optional `Screenshots` step, folded into that state, compares captures against trained references and fails the guest on mismatch before any workload sequences. The planner may supply no preparation or workload sequences, so a skipped optional stage is not a failure. Guest selection and variable cascading come from [Test.SequencePlanner.psm1](../../test/modules/Test.SequencePlanner.psm1).
 
-The iteration runs guests serially. It cleans stale test VMs before creation and releases the guest DHCP lease before normal force-stop/removal. After successful teardown it probes the VM, retries removal once if still running, and blocks the next guest if that VM remains running. Failure diagnostics are best-effort and preserve console/OCR, execution, and available SSH diagnostic artifacts before cleanup.
+The iteration runs guests serially. It cleans stale test VMs before creation and releases the guest DHCP lease before normal force-stop/removal. After a passing guest's teardown it probes the VM, retries removal once if still running, and blocks the next guest if that VM remains running. Failure diagnostics are best-effort and preserve console/OCR, execution, and available SSH diagnostic artifacts before cleanup.
 
 Warm resume is conditional: the failed workload must satisfy the configured transient-failure policy and attempt budget. A snapshot-backed replay rewinds to a suitable restore boundary; unsafe replay of guest work without a restore boundary is refused. Repeated equivalent guest failures can trigger quarantine, which skips that guest before provisioning until the configured cycle bound or a source change permits another attempt. Stop-on-failure can retain a failed VM for investigation instead of taking the diagnostics-to-cleanup edge, and prevents advancing to another guest.
 
@@ -90,11 +90,11 @@ stateDiagram-v2
     terminate --> disarmed: Kill attempted
 ```
 
-These five conceptual watchdog stages derive from [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1); they are not additional runner-state values. The watchdog runs in a separate PowerShell job, outside the thread blocked waiting for the inner process. It monitors `runner.stepHeartbeat`, not the background liveness heartbeat. `runner.phase` selects the tighter preamble bound until real step execution begins.
+These five conceptual watchdog stages derive from [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1); they are not additional runner-state values. The watchdog runs in a separate PowerShell job, outside the thread blocked waiting for the inner process. It monitors `runner.stepHeartbeat`, not the background liveness heartbeat. `runner.phase` selects the tighter preamble bound until the inner finishes its startup preamble and enters the cycle body.
 
 Before killing, the watchdog checks both PID and process start time. A transient identity-probe failure causes another poll, not a kill of an unproven process. When initial identity cannot be established, the job writes `runner.watchdog.lapsed` and exits without killing; the outer later reports that the cycle ran unguarded. Watchdog cleanup runs in the outer's `finally`.
 
-A forced process-tree kill cannot guarantee inner `finally` execution or VM removal. The outer handles the nonzero result, records missing failure context where possible, re-ensures the status service, and enters failure pause; a later guest iteration performs orphan cleanup. Cooperative `control.step-pause`, `control.cycle-pause`, and restart markers are handled at their respective boundaries by the [sequence engine](../../test/modules/Test.SequenceEngine.psm1) and inner runner, rather than being watchdog power states.
+A forced process-tree kill cannot guarantee inner `finally` execution or VM removal. The outer handles the nonzero result, records missing failure context where possible, re-ensures the status service, and enters failure pause; the next cycle's start sweep performs orphan cleanup. Cooperative `control.step-pause`, `control.cycle-pause`, and restart markers are handled at their respective boundaries by the [sequence engine](../../test/modules/Test.SequenceEngine.psm1) and inner runner, rather than being watchdog power states.
 
 ---
 

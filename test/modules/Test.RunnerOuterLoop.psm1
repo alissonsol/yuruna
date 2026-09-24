@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1258,6 +1258,95 @@ function Update-RunnerCrashGating {
 
 <#
 .SYNOPSIS
+Make New-CycleHistoryEntry resolvable before a fault-path history write.
+.DESCRIPTION
+Same reasoning as Initialize-RunnerStateWriter: the outer process may have
+loaded only this module, and the history row a killed cycle gets from the
+fault path is the only record of that cycle a reader will ever find --
+Complete-Run, which writes every other row, is precisely the code a killed
+inner never reaches.
+.OUTPUTS
+[bool] whether the history-row builder is available.
+#>
+function Initialize-RunnerHistoryWriter {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (Get-Command New-CycleHistoryEntry -ErrorAction SilentlyContinue) { return $true }
+    $statusModule = Join-Path $PSScriptRoot 'Test.Status.psm1'
+    if (Test-Path -LiteralPath $statusModule) { Import-Module $statusModule -Global -ErrorAction SilentlyContinue }
+    return [bool](Get-Command New-CycleHistoryEntry -ErrorAction SilentlyContinue)
+}
+
+<#
+.SYNOPSIS
+Classifies a cycle the outer runner ended, preferring the watchdog's own on-disk record.
+.DESCRIPTION
+An inner that was killed never runs the code that classifies a failure, so
+status.json's lastFailure stays null and every consumer that switches on
+failureClass reads 'unknown' -- including the pool dashboard's failure-class
+breakdown, where a killed cycle is exactly the kind an operator most wants
+named.
+
+The watchdog already writes a schema-v2 record for the kill it performed.
+That record is preferred here so a single event cannot end up carrying two
+different class names depending on which reader looks. The synthesized
+fallback covers the states that leave no record -- a failure pause entered
+behind an inner that exited on its own -- and reuses the two classes the
+crash-gating notification already uses for those same conditions.
+.PARAMETER FailureRecordPath
+Path to the cycle's last_failure.json. Ignored when absent or unparseable.
+.PARAMETER Reason
+The fault path's own description, used when no record supplies one.
+.PARAMETER StalledPhase
+Preamble phase the inner stalled in, or '' when it got past the preamble.
+.OUTPUTS
+[System.Collections.Specialized.OrderedDictionary] shaped like the lastFailure
+that Set-LastFailureSummary writes, so both reach consumers identically.
+#>
+function Get-RunnerFaultCause {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter()][AllowEmptyString()][string]$FailureRecordPath = '',
+        [Parameter()][AllowEmptyString()][string]$Reason = '',
+        [Parameter()][AllowEmptyString()][string]$StalledPhase = ''
+    )
+    $record = $null
+    if ($FailureRecordPath -and (Test-Path -LiteralPath $FailureRecordPath -PathType Leaf)) {
+        try {
+            $record = Get-Content -Raw -LiteralPath $FailureRecordPath -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+        } catch {
+            Write-Verbose "Get-RunnerFaultCause: could not parse $FailureRecordPath ($($_.Exception.Message))."
+        }
+    }
+    if ($record -isnot [System.Collections.IDictionary]) { $record = $null }
+
+    return [ordered]@{
+        failureClass = if ($record -and $record['failureClass']) { [string]$record['failureClass'] }
+                       elseif ($StalledPhase) { 'preamble_stall' }
+                       else { 'cycle_killed' }
+        severity     = if ($record -and $record['severity']) { [string]$record['severity'] } else { 'hard' }
+        stepNumber   = if ($record -and $record['stepNumber']) { [int]$record['stepNumber'] } else { 0 }
+        sequenceName = if ($record -and $record['sequenceName']) { [string]$record['sequenceName'] } else { '' }
+        guestKey     = if ($record -and $record['guestKey']) { [string]$record['guestKey'] } else { '' }
+        # The kill destroyed the runspace holding the step location, so the
+        # stalled phase is the most specific thing nameable here.
+        stepName     = if ($StalledPhase) { $StalledPhase }
+                       elseif ($record -and $record['action']) { [string]$record['action'] }
+                       else { 'watchdog' }
+        errorMessage = if ($record -and $record['description']) { [string]$record['description'] }
+                       elseif ($Reason) { $Reason }
+                       else { '' }
+        reproCommand = ''
+        relPath      = ''
+        vmName       = if ($record -and $record['vmName']) { [string]$record['vmName'] } else { '' }
+        recordedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    }
+}
+
+<#
+.SYNOPSIS
 Stamps the runner's own state into status.json so a host that is not running tests stops reporting the verdict of the last one that did.
 .DESCRIPTION
 status.json is written by the inner at the end of a cycle and describes that
@@ -1271,6 +1360,20 @@ the same vocabulary the state machine and the NDJSON stream already use.
 overallStatus moves to 'fail' because it is the field consumers already switch
 on and 'fail' is already in its value set: a cycle that was killed did not
 pass, and any consumer that understands a failed cycle understands this one.
+
+Correcting the live fields is not enough on its own, because they describe
+only the current moment: the next cycle resets overallStatus to 'running' and
+the killed cycle is gone. History is what outlives it, and Complete-Run --
+the only other writer of a history row -- is unreachable once the inner has
+been killed. So this path records the row itself, which is what keeps the
+host page's own account of a cycle from disagreeing with the pool
+dashboard's.
+.PARAMETER FailureRecordPath
+Overrides where the cycle's last_failure.json is read from. Defaults to the
+running cycle's log directory.
+.PARAMETER MaxHistoryRuns
+History depth, matching Complete-Run's own default so both writers trim the
+list identically.
 #>
 function Update-RunnerFaultStatus {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1279,7 +1382,9 @@ function Update-RunnerFaultStatus {
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter(Mandatory)][string]$RunnerState,
         [Parameter()][string]$Reason = '',
-        [Parameter()][string]$StalledPhase = ''
+        [Parameter()][string]$StalledPhase = '',
+        [Parameter()][AllowEmptyString()][string]$FailureRecordPath = '',
+        [Parameter()][int]$MaxHistoryRuns = 30
     )
     $statusFile = Join-Path $RuntimeDir 'status.json'
     if (-not (Test-Path -LiteralPath $statusFile)) { return $false }
@@ -1298,7 +1403,41 @@ function Update-RunnerFaultStatus {
     # Only a state that means "no cycle is producing a verdict" overrides the
     # verdict field. A transient state would otherwise repaint a genuinely
     # passing host on its way through.
-    if ($RunnerState -in @('fault', 'paused')) { $doc['overallStatus'] = 'fail' }
+    if ($RunnerState -in @('fault', 'paused')) {
+        $doc['overallStatus'] = 'fail'
+
+        $recordPath = $FailureRecordPath
+        if (-not $recordPath -and $env:YURUNA_LOG_DIR) {
+            $recordPath = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+        }
+        $cause = Get-RunnerFaultCause -FailureRecordPath $recordPath -Reason $Reason -StalledPhase $StalledPhase
+        # Only when the inner left none: a cycle that got far enough to
+        # classify its own failure has the better answer, and this one would
+        # overwrite a specific cause with a generic one.
+        if (-not $doc['lastFailure']) { $doc['lastFailure'] = $cause }
+
+        # Keyed on cycleStartUtc because this runs more than once for a single
+        # kill -- 'fault' when the inner is reaped, then 'paused' when the
+        # failure pause opens -- and because a cycle that did reach
+        # Complete-Run already carries its own, richer row.
+        $history = if ($doc['history']) { @($doc['history']) } else { @() }
+        $cycleKey = [string]$doc['cycleStartUtc']
+        $recorded = $false
+        foreach ($row in $history) {
+            if ($row -and [string]$row['cycleStartUtc'] -eq $cycleKey) { $recorded = $true; break }
+        }
+        if ($cycleKey -and -not $recorded -and (Initialize-RunnerHistoryWriter)) {
+            # The '.incomplete/' suffix is kept deliberately. Stop-LogFile
+            # renames the folder only on the completion path this cycle never
+            # reached, so the suffixed name is where its partial results are
+            # and a stripped row would link to nothing.
+            $entry = New-CycleHistoryEntry -Document $doc -OverallStatus 'fail' `
+                -CycleFolderUrl ([string]$doc['cycleFolderUrl']) `
+                -FinishedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) `
+                -LastFailure $cause
+            $doc['history'] = @(@($entry) + $history | Select-Object -First $MaxHistoryRuns)
+        }
+    }
     $null = Initialize-RunnerStateWriter
     try {
         $null = Write-YurunaStateFileJson -Path $statusFile -Depth 32 -Compress:$false -Confirm:$false -InputObject $doc
@@ -2590,6 +2729,6 @@ Export-ModuleMember -Function `
     Wait-OuterPushForwarder, Test-OuterPoolStorageSpaceReady, Invoke-OuterPoolStorageMove, `
     Write-PoolStorageSpaceFailureRecord, Send-PoolStorageSpaceNotification, `
     Clear-PoolStorageSpaceNotification, Write-PoolStorageSpaceFailure, `
-    Get-RunnerStalledPreamblePhase, Update-RunnerCrashGating, Update-RunnerFaultStatus, `
+    Get-RunnerStalledPreamblePhase, Update-RunnerCrashGating, Update-RunnerFaultStatus, Get-RunnerFaultCause, `
     Get-RunnerPreambleStallStreak, `
     Import-OuterPoolStorageModuleSet

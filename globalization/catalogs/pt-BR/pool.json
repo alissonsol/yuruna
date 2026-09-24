@@ -1,0 +1,1337 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "pool",
+  "locale": "pt-BR",
+  "messages": {
+    "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": {
+      "sourceHash": "9b726e7ca8447fe0bbef4a9b2307e65ed597882741f0cbdf4d32016fc2bda32f",
+      "message": "Um grupo de grupos hospeda sob um ID de piscina estável (GUID); uma máquina pertence no máximo a uma piscina. O status da piscina lê o que os membros estão fazendo agora — escolher um valor aplica-o a cada membro."
+    },
+    "pool.a_pool_s_members_are_meant_to_be_configured_alike_to_copy_one_pee": {
+      "sourceHash": "07ef6caa49bbb7fdfcd5fad600745ea9697fc371b2b5d087160cfd6ac387212a",
+      "message": "* Os membros de um pool devem ser configurados da mesma forma. Para copiar a configuração de um par para outra máquina, execute nessa máquina: {command1}"
+    },
+    "pool.a_scan_of_value1_is_already_running_following_that_one": {
+      "sourceHash": "0f6169c3deb90a4611e8c178d3275cd964ec7f6d873340dd004d2b64ee04716f",
+      "message": "Uma verificação do {value1} já está em execução; seguindo essa."
+    },
+    "pool.a_test_set_is_a_framework_project_repo_pair_gh_token_is_not_store": {
+      "sourceHash": "d2bb049e4ccbdc5d04b819e836db38e9dbf08855877d5089af2e64132f0686ca",
+      "message": "Um conjunto de teste é um par de repo framework + projeto. GH TOKEN não é armazenado aqui — ele permanece host-local no test.config.yml / vault de cada máquina."
+    },
+    "pool.actions": {
+      "sourceHash": "df8e786bc0b25329d4c3f3baaf2a4f90cd0ceec36b064d8a848fb58dec9f00df",
+      "message": "Acções"
+    },
+    "pool.add_host_failed_value1": {
+      "sourceHash": "6a9a445b78a750a6d54d53b33fb87864951e507364cca481a36e50feecd4f27a",
+      "message": "Falha ao adicionar a máquina: {value1}"
+    },
+    "pool.added_value1": {
+      "sourceHash": "59e8f59b76256ca27a22c1f03aef5404513b06ad1fdb5e3f422c2329d39d10c1",
+      "message": "Adicionado {value1}."
+    },
+    "pool.added_value1_to_value2": {
+      "sourceHash": "af54aa2f978b83511917a6596d6cd9e27f1594be7553bfd99a74a765c6b6c2b2",
+      "message": "Adicionado {value1} ao {value2}"
+    },
+    "pool.address": {
+      "sourceHash": "5be74b7472fa89db4677c3821f37f7117bc38b0e6bcd06a8ea5fdba787ab8590",
+      "message": "Endereço"
+    },
+    "pool.aggregator_unavailable_value1_control_state_is_unknown_moving_hos": {
+      "sourceHash": "5923db64b6474ad5c75a2d7783f98fdf941ebd9c22cec8908d71dd9282b030d9",
+      "message": "O agregador não está disponível ({value1}); o estado de controle é desconhecido. As máquinas em movimento ainda funcionam."
+    },
+    "pool.aggregator_url": {
+      "sourceHash": "e74eeb5bdc6c7676faa0cb8f93aca8a8cc872284aea3424e2f0c0678e96dca53",
+      "message": "URL do agregador"
+    },
+    "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": {
+      "sourceHash": "71bfe4773fa76bd740376dc81aeb51f27b74d417e1ba6d8e64c63527a29cf2f8",
+      "message": "Todos os controlos aprovados. pool-control-service {value1} ({value2}), recolhidos {value3}"
+    },
+    "pool.apply_value1_to_all_value2_host_s_in_pool_value3": {
+      "sourceHash": "f710a3d9212f96d6d5e7afdfd8460ac7064180f495164a232f7ac4c921d9ae7d",
+      "message": "Aplicar \"{value1}\" a todas as máquinas {value2} na piscina {value3}?"
+    },
+    "pool.asks_every_address_in_the_network_for_a_yuruna_host_status_servic": {
+      "sourceHash": "00ec6bbebc90d02f9fe56f8650303d97acd99c9f0274926ca4a5600346df0084",
+      "message": "Pede a todos os endereços da rede um serviço de estado da máquina Yuruna e adiciona os mesmos\nEssa resposta aos hospedeiros monitorizados — agrupados ou não, inscritos ou não.\nA digitalização não muda nada nos hospedeiros."
+    },
+    "pool.assign": {
+      "sourceHash": "e15fbd2b39b64817bcb783feb58a4fa1de4a0fd25d38e6abda181c5fb6e050b1",
+      "message": "Atribuir"
+    },
+    "pool.assign_failed_value1": {
+      "sourceHash": "f4cd6a27ca330a5f9df4395f242e4e662e036c6b37d1f3d57001a81892518390",
+      "message": "Falha na atribuição: {value1}"
+    },
+    "pool.assign_test_set": {
+      "sourceHash": "2a9081d4287419263729b3e5a6437ab376a774ddb3f1c74127995d189dbef387",
+      "message": "Atribuir o conjunto de testes?"
+    },
+    "pool.assign_test_set_50fb7bbc": {
+      "sourceHash": "b7edb96d8068d9428ed87a97646e25d17d0ccf0f0404f5327adc8924bd127d7d",
+      "message": "Atribuir o conjunto de testes"
+    },
+    "pool.assign_test_sets_to_pools": {
+      "sourceHash": "afd0be2245f4ec71b016d7b774249dd53b36f40bc613c459f36f227552d13e03",
+      "message": "Atribuir conjuntos de testes aos grupos"
+    },
+    "pool.assign_value1_to_value2": {
+      "sourceHash": "3195773e64425fca0ef292fe63ea9692d382f9ad4a408ee50bcccacdc5a75901",
+      "message": "Atribuir \"{value1}\" a {value2}?"
+    },
+    "pool.assign_yuruna_pool_control": {
+      "sourceHash": "955045e34d0ddb76234e50ddd14d90c8fd5078f0866f7e5d2bd0b21cf39d72a9",
+      "message": "Atribuir — Yuruna Pool Control"
+    },
+    "pool.assigned_value1_to_pool_value2": {
+      "sourceHash": "1e878c0f4ccf08e65049f79112cbaf54bd9ad53b3042a471b886580cfa492948",
+      "message": "Atribuído «{value1}» para agrupar «{value2}»."
+    },
+    "pool.board": {
+      "sourceHash": "3780e851a9e0840d1fbb36c3cd10e9a43b59a1457aa13bad56d2f8ee4395471b",
+      "message": "Placa"
+    },
+    "pool.board_yuruna_pool_control": {
+      "sourceHash": "0f4cc371f2f7fcf6b8a59fbaaa9fc9e9f0bc98a3c9b321eb40bb25cb42044da8",
+      "message": "Tabuleiro — Controle de piscinas Yuruna"
+    },
+    "pool.cancel": {
+      "sourceHash": "7cc0ad301c830f06a728f43def87c2d9b87be58537536627b3d0e7fc512da1ce",
+      "message": "Cancelar"
+    },
+    "pool.change_test_set": {
+      "sourceHash": "9b3f0ab1df062be42ecb9c708a3a7485d62ef797dc7d3f83243b20c58c8c2c4e",
+      "message": "Mudar o conjunto de testes..."
+    },
+    "pool.check": {
+      "sourceHash": "b2f60af8778d573ce720efc525d45db3e7dd120939790c223c27defa36911065",
+      "message": "Verificar"
+    },
+    "pool.choose_a_test_set": {
+      "sourceHash": "3f14bf55f12143d14d09b0fedf8f7a5cb6747c13c718b749d7380fc263983229",
+      "message": "(escolha um conjunto de testes)"
+    },
+    "pool.command1_scans_command2_through_command3_a_smaller_prefix_number_": {
+      "sourceHash": "0b776a24cb7630a730ce41342b90f45eee40f59d50e8657761efba6bfc9fbec1",
+      "message": "{command1} scans {command2} through {command3}; um número de prefixo menor cobre mais endereços ({command4} é 65,536), um maior menos ({command5} é uma máquina). Um endereço dentro da rede significa a mesma subrede: {command6} é igual a {command7}."
+    },
+    "pool.continue": {
+      "sourceHash": "7020ff96d70684c612d2fa5d1ccb414a9197579fc17152c3b7d097bc06f4f5e2",
+      "message": "Continuar"
+    },
+    "pool.control": {
+      "sourceHash": "44d90797e73144dc690dbe3fd1046ca9204e15270efb558f9e167c6022e92a19",
+      "message": "Controlo"
+    },
+    "pool.cores": {
+      "sourceHash": "44c16e884ae68944355e901d12e84e61abe801e87615721985c8a6082ed2c6e3",
+      "message": "Cores"
+    },
+    "pool.could_not_assign_value1": {
+      "sourceHash": "7bae810d24e76fc0108ef7ae4ef298e3e54f3155b4757a2d7d7f160022340c1d",
+      "message": "Não foi possível atribuir: {value1}"
+    },
+    "pool.could_not_collect_diagnostics_value1": {
+      "sourceHash": "dca18e3945ca88267c4eaf88deff9bd63651f20281ffa7bc2b602fe9acfd3966",
+      "message": "Não foi possível coletar diagnósticos: {value1}"
+    },
+    "pool.could_not_forget_that_host_value1": {
+      "sourceHash": "1fdb94fdfc9b891fd6b0421078e7cbacf8e09f703c68be125d4bbcf91a734e3a",
+      "message": "Não foi possível esquecer essa máquina: {value1}"
+    },
+    "pool.could_not_load_pool_intent_value1": {
+      "sourceHash": "93bc81b47e0e9ae7ead0d995531fea60e9186965ff937de3f35e783c242e3430",
+      "message": "Não foi possível carregar a intenção do conjunto: {value1}"
+    },
+    "pool.could_not_load_pools_value1": {
+      "sourceHash": "ad31a05fdc27a5451b4285f2a02f1952d8d32becc427b678fd2aa39b8b0b4886",
+      "message": "Não foi possível carregar conjuntos: {value1}"
+    },
+    "pool.could_not_load_test_sets_value1": {
+      "sourceHash": "c9678b1b31094053dbb6a27f076aba5bf9048d3b5d936090cf4f38f200d2c2f8",
+      "message": "Não foi possível carregar conjuntos de testes: {value1}"
+    },
+    "pool.could_not_load_the_board_value1_retrying_on_the_next_refresh": {
+      "sourceHash": "72ff04c8807151dff2e4373580761e5a41570ac955e6439e5909919dfd358637",
+      "message": "Não foi possível carregar o tabuleiro: {value1}. A tentar novamente na próxima actualização."
+    },
+    "pool.could_not_read_the_scan_status_value1": {
+      "sourceHash": "03930576010e76fb916f3256461645425ceb7220e93727f7b72adca9dfcb3300",
+      "message": "Não foi possível ler o estado da pesquisa: {value1}"
+    },
+    "pool.create_failed_value1": {
+      "sourceHash": "df13feb0699a8f750dc770d1938f013b759c36db6ecd8ad5ed83c2709f95b659",
+      "message": "Falha ao criar: {value1}"
+    },
+    "pool.create_pool": {
+      "sourceHash": "389e790e5896b61a44fd8f3ff4b5039907c933e22d75c0379799b95688aa59a4",
+      "message": "Criar um pool"
+    },
+    "pool.created_pool_value1": {
+      "sourceHash": "b94eed57a790c2b55952d9c09f4f3fe7773531db541bf68470c014f3ec4b01f2",
+      "message": "Criada a piscina '{value1}'."
+    },
+    "pool.cycles": {
+      "sourceHash": "a5f910167a6fa2f22f8389c03860e489740bf91ff1b8e31c0f58f13613c70467",
+      "message": "ciclos"
+    },
+    "pool.delete": {
+      "sourceHash": "100b6e138aa3dcd170dd0ab4cfb55e1d7ed47d019f7a863d3280d6bab874806d",
+      "message": "Apagar"
+    },
+    "pool.delete_failed_value1": {
+      "sourceHash": "76aad103e2df27e6a73c305d65c31a15081b1860683a38429c639c7011f339dd",
+      "message": "Falha na remoção: {value1}"
+    },
+    "pool.delete_pool": {
+      "sourceHash": "3544f5650c6347a635e006bdfbff664da58653dd9a13439eeb3a138d151e0a3e",
+      "message": "Apagar o pool"
+    },
+    "pool.delete_pool_value1": {
+      "sourceHash": "51de11d7d9ed3bac8ddf7f1f6a22d0d5abcecf278bf1b90c1d177312f51f4b1a",
+      "message": "Apagar o pool {value1}"
+    },
+    "pool.delete_pool_value1_this_cannot_be_undone": {
+      "sourceHash": "3c4ef0917c69440a9fb7eaba3b130d8fbb2c1a382c4cb6e6c9c006bfa18b4d16",
+      "message": "Apagar o pool '{value1}'? Isto não pode ser desfeito."
+    },
+    "pool.delete_test_set_value1": {
+      "sourceHash": "8351c5d971bb5bf3de677a24e4aab5a1d2c154fc33187a107c99649fc8fb4750",
+      "message": "Apagar o conjunto de testes {value1}"
+    },
+    "pool.delete_test_set_value1_this_cannot_be_undone": {
+      "sourceHash": "27620c0f6fad6fc91b589996631a54d31872d946f8e63179bbacb6bda6f190c7",
+      "message": "Apagar o conjunto de testes '{value1}'? Isto não pode ser desfeito."
+    },
+    "pool.deleted_pool_value1": {
+      "sourceHash": "a1c61d04b2513385fc5678b176f1e56545febafed9d77962f0003f968b9413b0",
+      "message": "Conjunto excluído '{value1}'."
+    },
+    "pool.deleted_value1": {
+      "sourceHash": "4f0c457b1978ed09c5973364ddb6a9acf717e3b71cb3bc08bcc703ccdeed07ab",
+      "message": "Excluído '{value1}'."
+    },
+    "pool.detail": {
+      "sourceHash": "13c67f165a99f51ea57d705a5ff9b9437a65ec20fc9890c3af14264787915db1",
+      "message": "Detalhe"
+    },
+    "pool.diagnostic_auto_enrollment_assignment": {
+      "sourceHash": "ca2eda7b9bc052d04fc82c400a511a2f4da5b3a9fceb1423b407207b39fe64b7",
+      "message": "Os anfitriões chegam aqui automaticamente e continuam a executar o seu próprio projecto."
+    },
+    "pool.diagnostic_configure_repo": {
+      "sourceHash": "97bc751f71b8574b0d777206867e91b35d94f74fdb6b61420943f2c73cfd6af0",
+      "message": "Passe --repo-dir apontando para a verificação do framework yuruna."
+    },
+    "pool.diagnostic_git_not_found": {
+      "sourceHash": "4886b285ff62e634e90e52387a6a209ba8ace97ed3f3251411477a47c82635d7",
+      "message": "não encontrado no PATH: {detail}"
+    },
+    "pool.diagnostic_install_git": {
+      "sourceHash": "92f44e66471affac573efea06f46582532a5220511340138e8e719d484bdf0c1",
+      "message": "O CLIs pool-admin clonar e empurrar intenção pool; instalar git no hóspede."
+    },
+    "pool.diagnostic_install_pwsh": {
+      "sourceHash": "d062b237b1fc48af7c4e59c7c94e1cc91be3ab2c0268609208f991667e39f9aa",
+      "message": "Instale PowerShell no guest. packages.microsoft.com não tem pacote powershell para esta versão do Ubuntu; use o tarball GitHub-release, em seguida, reinicie pool-control-service.service."
+    },
+    "pool.diagnostic_intent_absent": {
+      "sourceHash": "95ca29390ca0ab7e9bd6fc1d8b87807ace1b4c9785c814be86629ee322ba512e",
+      "message": "sem URL de intenção a verificar"
+    },
+    "pool.diagnostic_intent_configure": {
+      "sourceHash": "50bb78e1ba98f74e7e5aedd3daf98055045ea4666dbda6e106d9736f92d95944",
+      "message": "O guest bring-up cria uma loja de escrita no NAS da piscina quando um está ausente; um valor vazio aqui significa que o NAS não foi montado no bring-up. Defina POOL CONTROL INTENT GIT URL em /etc/yuruna/pool-control-service.env (re-read por requisição, não é necessário reiniciar), ou pool.intentGitUrl em test/test.config.yml antes de reconstruir."
+    },
+    "pool.diagnostic_intent_empty": {
+      "sourceHash": "c2875eb8299eaaa63f844d6853307f5517953908011bc516d0517f4300d7ba53",
+      "message": "vazio: nenhum armazenamento de intenção resolvido a partir da bandeira de lançamento ou do arquivo de configuração"
+    },
+    "pool.diagnostic_intent_initialize": {
+      "sourceHash": "03249b72e1b56216de120cc29033d573bf59bdb0edcfc89e4d67f7d26e055067",
+      "message": "O pool NAS store é criado pelo guest bring-up; se o NAS montado tarde, re-execute o script bring-up ou git init -- bare-lo."
+    },
+    "pool.diagnostic_intent_not_bare": {
+      "sourceHash": "3363d4a6c69bc67ea71ba747130b9c3b660cd81f290207d9bd967cce9ee23f0f",
+      "message": "{path}: não é um repo git ({detail})"
+    },
+    "pool.diagnostic_intent_not_writable": {
+      "sourceHash": "843d7c49a0492d1f5e7fbf6d6f3025cee7754c29f9a637a59252fe62f173e73b",
+      "message": "{path}: recurso nu presente, mas NÃO escrito: {detail}"
+    },
+    "pool.diagnostic_intent_override": {
+      "sourceHash": "e6974347fbb0f35150b75fed93ccd74eac7f1ff177cab85c358e71011d80921d",
+      "message": "(o ficheiro de configuração substitui a bandeira de lançamento {flag})"
+    },
+    "pool.diagnostic_intent_permission": {
+      "sourceHash": "d465794df7bf79106b54fee136497bd8f40e93ecf8ea403c0476b78db59e4fac",
+      "message": "As gravações falharão no push. Verifique o UID/gid da montagem do NAS da piscina contra o usuário do serviço."
+    },
+    "pool.diagnostic_intent_pull_only": {
+      "sourceHash": "b54f20c9051aa1a55bcc15b4781a812f689c4b57fdac6e5a5049f98c20f622cd",
+      "message": "Uma loja de intenção http(s) é somente para puxar, a menos que o servidor execute git-http-backend: as leituras funcionarão e cada gravação falhará no push. A loja gravável é o repositório nu no NAS da piscina."
+    },
+    "pool.diagnostic_intent_remote": {
+      "sourceHash": "0cde9ea7c5be2c5e292893a99f076e72d5a30671bf1dcbb6f064a55a19376046",
+      "message": "URL remoto; acessibilidade é coberta por leitura intencional"
+    },
+    "pool.diagnostic_intent_writable": {
+      "sourceHash": "9b2aaf2e31213268605c3626c6e9bd1e31fdea4eba3eb2dc835a0285becdd9dd",
+      "message": "{path}: repo nu, gravável"
+    },
+    "pool.diagnostic_no_output": {
+      "sourceHash": "49e33c9bc289586047e8a8c2d33e676c9cf48570890ca11356c25b0170335f0d",
+      "message": "sem saída"
+    },
+    "pool.diagnostic_not_configured": {
+      "sourceHash": "d0c8f0f699b3fbbb80a0ed77953a83f2f0169264417ee458983827d9476e5765",
+      "message": "não configurado"
+    },
+    "pool.diagnostic_persistence_configure": {
+      "sourceHash": "1dfc48abf8bd995f013789707d7dcc7ea5a05cc26a8a4db4158326770a12506f",
+      "message": "Passe Options.StateDir ao lado de Options.Store para que esta verificação possa sondar o caminho real."
+    },
+    "pool.diagnostic_persistence_disabled": {
+      "sourceHash": "0e9a162087b120d1de84301d5633795291cce14e6e32eeea3b8f8cb30f277f39",
+      "message": "persistência desactivada (nenhuma pasta de estado configurada)"
+    },
+    "pool.diagnostic_persistence_logs_missing": {
+      "sourceHash": "f2241d8cc33797fd9fa670993aec3673be0ccec5fb68dafcb61ebb48dfcc20a0",
+      "message": "O registro de auditoria e status.json não estão sendo escritos; o pool NAS mount é o que fornece esta dir."
+    },
+    "pool.diagnostic_persistence_nas_missing": {
+      "sourceHash": "1f350b503f1db670cef3490395123c07b1f9e6b096288c79435793d1910dfa65",
+      "message": "A montagem do pool NAS está ausente; o registro de auditoria não é durável."
+    },
+    "pool.diagnostic_persistence_permission": {
+      "sourceHash": "53654a8db21e20cccae6e1923f0ded450cfde2db7959bc2c8c7522aa86aff3b3",
+      "message": "Verifique as opções UID/gid da montagem contra o usuário do serviço."
+    },
+    "pool.diagnostic_persistence_unknown": {
+      "sourceHash": "73fcbc025317b63aad594a92612128799757f5f5fcb78745318a2b5fd08daf90",
+      "message": "o armazenamento está habilitado, mas nenhuma pasta de estado foi reportada ao servidor"
+    },
+    "pool.diagnostic_pwsh_execution": {
+      "sourceHash": "059959c267f77ffcdb063babaf2f2f22520fd948fd9c19d60cf69c288337319b",
+      "message": "pwsh existe no {path} mas não foi executado; verifique suas dependências de bibliotecas compartilhadas."
+    },
+    "pool.diagnostic_pwsh_not_found": {
+      "sourceHash": "9760d89da42fdf219f1ff1881d5ec07314b4370a3da523d035268ff37536293c",
+      "message": "não encontrado: {detail}"
+    },
+    "pool.diagnostic_raw_invocation": {
+      "sourceHash": "a06efed26c743d19aae6cc4c86b2c736e0f91ebcee32bd3b4fca54337acf2cf5",
+      "message": "Veja a invocação bruta abaixo para o próprio resultado do CLI; as verificações acima nomeiam qualquer dependência em falta."
+    },
+    "pool.diagnostic_repo_complete": {
+      "sourceHash": "829e5f010c225d91adbf4bd567caa93ade270e1252dddd0dedadbf2ce0134413",
+      "message": "{path}: todos {count} pool-admin CLIs presentes"
+    },
+    "pool.diagnostic_repo_missing": {
+      "sourceHash": "9017cdc11073c6e35ba300faedcab21f0bcae1068a8db74559894650217d63cf",
+      "message": "Falta a verificação do framework; execute novamente o script de introdução de convidados."
+    },
+    "pool.diagnostic_repo_missing_files": {
+      "sourceHash": "5d85290a421d8fb5f16c884c6b5309492ab550071de6a5051fdd9ed9a6cc2e1d",
+      "message": "{path}: faltando {files}"
+    },
+    "pool.diagnostic_repo_partial": {
+      "sourceHash": "10f8c44f84400dd21d3113cd73a96803d0962221130616306bcd166e5816e333",
+      "message": "O checkout é obsoleto ou parcial; re-fetch o arquivo de framework."
+    },
+    "pool.diagnostic_revision_archive": {
+      "sourceHash": "60ba63c3633d09f54182a37c12ff4d07bf31d7e7193b0c2034d1cdc99a21c5e9",
+      "message": "{revision} ({file}, checkout somente de arquivos)"
+    },
+    "pool.diagnostic_revision_conflict": {
+      "sourceHash": "13999500d9c315448e575b540c5969292f6b43df363ac9d0dbd6581e222c64a2",
+      "message": "git relata {git} mas {file} registra {sidecar}"
+    },
+    "pool.diagnostic_revision_corrupt": {
+      "sourceHash": "4e03168980e5d79e486bfb54cf19f133d61d77dd093a7822260aebf76e411af7",
+      "message": "O sidecar de revisão está corrompido, por isso o commit implantado é improvável. Re-fetch o arquivo de framework do serviço de status e reiniciar pool-control-service.service."
+    },
+    "pool.diagnostic_revision_git": {
+      "sourceHash": "074cd510e08d5e8d1bded2cb9ab9f4d1f9aa5e2b55d8669d194627a1e33207c9",
+      "message": "{revision} (Git checkout)"
+    },
+    "pool.diagnostic_revision_missing": {
+      "sourceHash": "d446044d03aab268eb62c397644925ac338d0267610891362731ac00e890e7e1",
+      "message": "Nada nos nomes de checkout de um commit, então esta implementação não pode ser vinculada ao código-fonte revisado. Re-fetch o arquivo de framework do serviço de status e reiniciar pool-control-service.service."
+    },
+    "pool.diagnostic_revision_mixed": {
+      "sourceHash": "4d8c13eceaabd4bf2b542fe88c894639fc1f0c884dd9e6add5a72008e97337f1",
+      "message": "O checkout e seu sidecar de revisão descrevem diferentes commits; a árvore é uma mistura de fontes. Re-fetch o arquivo de framework do serviço de status e reiniciar pool-control-service.service."
+    },
+    "pool.diagnostic_revision_no_source": {
+      "sourceHash": "54a70340e1f81ef735209e6886a9770bf817f1290cb7ae8c60e6a3ec6449e67e",
+      "message": "sem saída Git e sem {file}"
+    },
+    "pool.diagnostic_state_not_writable": {
+      "sourceHash": "e1de5b2cf5dd196927ab1640730cc8b597491cc0db0a4f5d26aec1e6efddc7c8",
+      "message": "{path}: não gravável: {detail}"
+    },
+    "pool.diagnostic_state_writable": {
+      "sourceHash": "ac6df303e32fb5b993615a60df1f61333e7242f8eca0d0eb789a2807decf1c4b",
+      "message": "{path}: gravável"
+    },
+    "pool.diagnostics": {
+      "sourceHash": "3a357057de982654b5405b434157a7b4d9f1a1ec67d68ac563b090e7c3b823fb",
+      "message": "Diagnósticos"
+    },
+    "pool.diagnostics_yuruna_pool_control": {
+      "sourceHash": "7c64226a674c81020860c812fdc57c369dbb59f51e7461edba746def62d980c2",
+      "message": "Diagnósticos — Controle de Yuruna Pool"
+    },
+    "pool.discovered": {
+      "sourceHash": "8d35fe050f0861ae3dd871bdc780465d4e0d06808ffc2a4c8cae792819c22538",
+      "message": "descoberto"
+    },
+    "pool.discovered_hosts_are_not_being_saved_value1": {
+      "sourceHash": "39b021ca12dfa9eb6ab3c3b0f445f0011efacdebfab6697e5081492ede26b1f7",
+      "message": "As máquinas descobertas não estão sendo salvas: {value1}"
+    },
+    "pool.display_name": {
+      "sourceHash": "13a568f994a5abcaff750becc01ae9156639401c24403c516e1d3c81e7ebf611",
+      "message": "Mostrar o nome"
+    },
+    "pool.duration": {
+      "sourceHash": "7ac1810e9dad6eb67ca570194a02cebc984c109ab9426762719f29c28f86ccc0",
+      "message": "duração"
+    },
+    "pool.each_of_the_four_numbers_must_be_0_to_255": {
+      "sourceHash": "858515d008120d8e7c21def83e9fac2ffe90faeca75da9a94bf4e2524e7cb0de",
+      "message": "Cada um dos quatro números deve ser de 0 a 255."
+    },
+    "pool.each_pool_tests_one_test_set_a_framework_project_repo_pair_gh_tok": {
+      "sourceHash": "7a269ad3359357e101b3937ec8c44cf0524f071a46891f26a006f0f78f9a660e",
+      "message": "Cada grupo testa um conjunto de testes (um framework + projeto repo par).\nGH TOKEN permanece host-local — nunca armazenado na intenção do pool."
+    },
+    "pool.edit": {
+      "sourceHash": "3672cb3db18f15074e109b1c7249860333dd2d0e808dedbeabc7f0870a86e394",
+      "message": "Editar"
+    },
+    "pool.empty": {
+      "sourceHash": "b97c86f0a878738294469c5f5260ad7d1eda7fbd1c0ae3946602586e0630786a",
+      "message": "(vazio)"
+    },
+    "pool.enrollment_target": {
+      "sourceHash": "165ba3e4b84aaf273238e3c5cd4472016e9a394e1adc1e0f8b1f3dccb0af6133",
+      "message": "{pool} -- alvo de inscrição automática"
+    },
+    "pool.enter_a_network_for_example_value1": {
+      "sourceHash": "c5db9ece38436c5629d6e0aca81589c322ec74edd4bd96b804adc6f86f4f73ad",
+      "message": "Digite uma rede, por exemplo {value1}."
+    },
+    "pool.enter_a_pool_id": {
+      "sourceHash": "6aaabc8ca72a0d8d8caae0dc102d531fed2261a258656eb4b1855286139f86b1",
+      "message": "Digite um id de piscina."
+    },
+    "pool.enter_the_lab_token": {
+      "sourceHash": "52b4e74049e5a33909ad6bbac521d21bdce6937a909775a199dd706f27915516",
+      "message": "Digite o item do laboratório"
+    },
+    "pool.every_dependency_a_ui_request_touches_probed_in_the_order_a_reque": {
+      "sourceHash": "0b62fd81b15e62faab75ef6eb7f40789c36868d4dbdfde11e51e3dd2810d64ca",
+      "message": "Cada dependência que uma solicitação de IU toca, sondada na ordem que uma solicitação toca. Um nome de verificação falhando o que corrigir no hóspede."
+    },
+    "pool.every_host_the_aggregator_knows_control_command1_this_lab_s_token": {
+      "sourceHash": "07d639c0e4dcdec0463b42b6db8ec5aff0d88868d8b84aa5b7ce299dfb2f1766",
+      "message": "Cada máquina que o agregador conhece. Controle: {command1} (o token deste laboratório, o relógio concorda — apenas estes auto- matrícula), {command2} (token diferente), {command3} (problema do relógio), {command4} (nunca se inscreveu). Escolha um pool move a máquina — uma máquina pertence, no máximo, a uma. Framework e Project são os repos dos relatórios da máquina, ligados à sua fonte; {command5} significa que ela não pode ler o configurado. Uma linha re- chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
+    },
+    "pool.exit_code": {
+      "sourceHash": "6d08dab961a582dd3604a490979613fc8d672f3fb5198ce8e0ee38c1aca71a69",
+      "message": "código de saída"
+    },
+    "pool.fail": {
+      "sourceHash": "8a0d1b9fb3b610143ccff45c0661b205747d0a3566ccdf2a27b0bf41d7250864",
+      "message": "FALHA"
+    },
+    "pool.failed": {
+      "sourceHash": "f06e7e3f6f1adaa73c2e022a2fd6cc7c02c7f8b61b1ce3d530c8201fb64f440f",
+      "message": "falhou"
+    },
+    "pool.first_seen": {
+      "sourceHash": "fd108f09f987147dd3344b00930d2e27adbb4915d26a26c7a962c40b3f8f0bff",
+      "message": "Primeiro visto"
+    },
+    "pool.forget": {
+      "sourceHash": "3f1d4a03d13a8fe6a95556ba0031a321039d46278b6c01d4021ac1769530ed11",
+      "message": "Esquece."
+    },
+    "pool.found": {
+      "sourceHash": "f123123898d6470b4021e839ce6499de8c117b71abfe8f4dc573aebbb2285c10",
+      "message": "Encontrado"
+    },
+    "pool.found_and_added": {
+      "sourceHash": "e43728f2f574de37ee6bcad38d67d9b7597f4d74e9dc67f5f0d192dbf5fc04b4",
+      "message": "Encontrado e adicionado"
+    },
+    "pool.found_by_a_network_scan_value1": {
+      "sourceHash": "fcd4aa74340ef71a3e26e86a13991c33ac533a99e39f96e4410659fa6f4f8ae3",
+      "message": "Encontrado por um scan de rede{value1}"
+    },
+    "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": {
+      "sourceHash": "f61008f97d624355dca49812c4ac6db876375d21c855b80c124c05c1bf62248f",
+      "message": "Encontrado digitalizando a rede; ele pertence a nenhum pool e não se registrou com o agregador."
+    },
+    "pool.framework": {
+      "sourceHash": "cb07919e9f43bf4b2c99a81941383ecfbc65cc9f2c9291c8273da560fc2e3946",
+      "message": "Quadro"
+    },
+    "pool.framework_project": {
+      "sourceHash": "3e7cde38e3d8a4c61d221ecdd2d5cf72aace8f57eda84493afdca641215185c7",
+      "message": "Framework / Projeto"
+    },
+    "pool.framework_revision": {
+      "sourceHash": "34bffa68b828b60e8569a93edfda73b478eb8127d5640509419fd812e2f53a36",
+      "message": "revisão do quadro"
+    },
+    "pool.framework_url": {
+      "sourceHash": "d89c21ae65eb26f841f79d134b6162632d2c06727bebf8a4db9350120ba20fd1",
+      "message": "URL do framework"
+    },
+    "pool.framework_version": {
+      "sourceHash": "cbf8bf126a471552d80265ed551e1c7ac35cec4bd4a9d0dc0cf5718c4b0223a2",
+      "message": "versão do framework"
+    },
+    "pool.free_storage": {
+      "sourceHash": "78457c65e40005d44715634421d97419031785c5d2405e0be284d20c26361bf8",
+      "message": "Armazenamento Livre"
+    },
+    "pool.go": {
+      "sourceHash": "977a7ed38614f607331e7fc68e63e24e72d964fe95bfb86588bcfb588ce7ec49",
+      "message": "Vai."
+    },
+    "pool.guide": {
+      "sourceHash": "3eaa103407975468976041d819dd7f14545878986ffb2f2be535c9ee3e6198d0",
+      "message": "Guia"
+    },
+    "pool.hand_over": {
+      "sourceHash": "98844acb1103698e9a9b1d8c38691e00e159b06e075947814376777c22da49ce",
+      "message": "Entrega"
+    },
+    "pool.hand_over_failed_value1": {
+      "sourceHash": "cc0c87b9011a59cfb2307aed6ea45a86af15ca578788137f9f409b29cdb5c365",
+      "message": "Falha na entrega: {value1}"
+    },
+    "pool.holds_a_different_token_re_enroll_against_this_proxy": {
+      "sourceHash": "483f68f1d2c5202ad87a22697b02fbfcf22cd3483d32d8d62cc78aecdbe8e1e5",
+      "message": "Mantém um token DIFERENTE -- re- inroll contra este proxy."
+    },
+    "pool.holds_this_lab_s_token_clock_agrees": {
+      "sourceHash": "3454f7c7ee9d1c3bb8d3b449baa5a572eef4c3951a37b3315f28da2449f57a28",
+      "message": "O relógio concorda."
+    },
+    "pool.home": {
+      "sourceHash": "34b3d25e4e4afa1c3c74e576be47b2e67fb92f77a20f1705988854c635643548",
+      "message": "HOME"
+    },
+    "pool.host": {
+      "sourceHash": "129b51663833d9f31fadd4fa5ceb0f84594aaae1987f55c67cbae067b250e230",
+      "message": "+ máquina"
+    },
+    "pool.host_id": {
+      "sourceHash": "eb8d1548c30de26e831c7c05ea83bc7f3e1f382f4fed84978c27dfc5edcc3f08",
+      "message": "ID da máquina"
+    },
+    "pool.host_id_7b624c8f": {
+      "sourceHash": "b73337db44df3879ea7b27fde8a3026388c95e2a7081be02351541ae0166141b",
+      "message": "ID da máquina"
+    },
+    "pool.host_id_to_add_to_pool_value1": {
+      "sourceHash": "b88caae59fe459ca0fa5cec752d9cd6efae3f0d29a2354dec91ed4550f7e72a3",
+      "message": "ID da máquina a adicionar ao pool {value1}"
+    },
+    "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": {
+      "sourceHash": "0aadd1cb3933da52bb5feab74b271ea3cf988dd5c5511541e8e87b3b0a7f4069",
+      "message": "Host {value1} não responde mais em {value2}; {value3} responde.\n\nMudar a associação para o ID e esquecer este?"
+    },
+    "pool.hostid_42_30hex": {
+      "sourceHash": "cd1c3d62b8ba8c1260ca771e906be1dc055665884acc41da6c4f0a123697e040",
+      "message": "hostId (42+30hex)"
+    },
+    "pool.hostname": {
+      "sourceHash": "3a2eb44c521b75a348e793de1184d5ef6040ff4d7736bf4db9f4b95000b499b6",
+      "message": "Nome da máquina"
+    },
+    "pool.hosts": {
+      "sourceHash": "38c649611d940cbd832a8f4754c1490e55c5869be066d001f3080120d9914389",
+      "message": "Máquinas"
+    },
+    "pool.hosts_project_denied": {
+      "sourceHash": "92a4452049275757339ba41be24a516ba70c109ec6468291343dd48046ca11a9",
+      "plural": {
+        "variants": {
+          "one": "A máquina {count} não pode ler o projeto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente.",
+          "other": "As máquinas {count} não podem ler o projecto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente.",
+          "many": "As máquinas {count} não podem ler o projecto atribuído. Conceda o acesso ao seu token ou atribua um conjunto de testes diferente."
+        }
+      }
+    },
+    "pool.hosts_reporting": {
+      "sourceHash": "c4e8bf0ac6104efb5de184bc72ab2c092706f64e930f36615588a195276da7dd",
+      "plural": {
+        "variants": {
+          "one": "Host {count} - Relatório {reporting}",
+          "other": "Servidores {count} - Relatório {reporting}",
+          "many": "Servidores {count} - Relatório {reporting}"
+        }
+      }
+    },
+    "pool.hosts_switch_assigned": {
+      "sourceHash": "e71a469a67616d4d126c56f9cae30159260f5b824f7e50967e51eb479592e07a",
+      "plural": {
+        "variants": {
+          "one": "A máquina {count} irá mudar para o projeto atribuído em seu próximo ciclo.",
+          "other": "Os hosts {count} mudarão para o projeto atribuído em seu próximo ciclo.",
+          "many": "Os hosts {count} mudarão para o projeto atribuído em seu próximo ciclo."
+        }
+      }
+    },
+    "pool.hosts_switch_project": {
+      "sourceHash": "a633caa797a5854cf7a7c61ca5c301e87c608dec585a10d2439ad1ab2211b846",
+      "plural": {
+        "variants": {
+          "one": "{count} host irá mudar para {project} em seu próximo ciclo.",
+          "other": "Os hosts {count} mudarão para {project} em seu próximo ciclo.",
+          "many": "Os hosts {count} mudarão para {project} em seu próximo ciclo."
+        }
+      }
+    },
+    "pool.hosts_yuruna_pool_control": {
+      "sourceHash": "b09466d692c3e0f31733950585a359f1722d9586a3a4c4a9061482fe73d12233",
+      "message": "Hospedeiras — Controle de Piscinas Yuruna"
+    },
+    "pool.intent_git_url": {
+      "sourceHash": "0fa52f9d903ac22af8fac4d99d76596223acb23a341b47d31e0a70aadfef80da",
+      "message": "URL do git de intenção"
+    },
+    "pool.intent_read_raw_invocation": {
+      "sourceHash": "321e3cb182d713bf20453187d236f49202d56622956a0187a93a3ee8e94dd124",
+      "message": "Leitura da intenção — invocação em bruto"
+    },
+    "pool.ips": {
+      "sourceHash": "671a7495c4f0ffa81ee3ef6e10e190063b3052b213024a5345fb718c161991d7",
+      "message": "IPs:"
+    },
+    "pool.it_will_also_be_excluded_from_auto_enrollment_so_the_sweep_will_n": {
+      "sourceHash": "8fc86c99a9efca76071192f0367fe0f1224e5d0abc419d501c677187886453f9",
+      "message": "\n\nEle também será excluído do auto-inscrição, então a varredura não irá adicioná-lo de volta."
+    },
+    "pool.lab_token": {
+      "sourceHash": "03f0e13274393f5b6fa14e64ebb436a4515a01515918599ed125ae86b399f191",
+      "message": "Token de laboratório"
+    },
+    "pool.label_1h": {
+      "sourceHash": "0ad73be809f3f69ccfc344c50093ac7c0d9f26b31b8a086e7698faa6fd66b03a",
+      "message": "1h"
+    },
+    "pool.label_24h": {
+      "sourceHash": "dd4e983db08cad67bbde12ded7c99047bdfbd154dab8294f72b19d4e570cde4a",
+      "message": "24h"
+    },
+    "pool.label_30d": {
+      "sourceHash": "6ef80fb1daa0148d7255697c534e13939cbc07512f163ac42c55726e1b6d27f2",
+      "message": "30d"
+    },
+    "pool.label_7d": {
+      "sourceHash": "659f51a9da169c9538eb5aaabd91289088f44f2a17efba39f272b54854b34c62",
+      "message": "7d"
+    },
+    "pool.last_seen": {
+      "sourceHash": "1c56d62cba3e07da9c36ecce55f683e503d6459b8a45247367762a85f4b0b582",
+      "message": "Visto pela última vez"
+    },
+    "pool.last_seen_value1": {
+      "sourceHash": "04c3850de133d8187fa764058ff6015bde6c14b56725eb5381ad2d98412b191e",
+      "message": ", visto pela última vez em {value1}"
+    },
+    "pool.listen_addr": {
+      "sourceHash": "368982d52e005915cbee2741fed1ca614296e790a664133fa960e5e12fb74af0",
+      "message": "ouvir addr"
+    },
+    "pool.live_numbers_unavailable_value1_assigning_still_works": {
+      "sourceHash": "d9c7902188a26ba4292db8340e143260356e1daeee2a361a2d3a760bb20fdcd9",
+      "message": "Números vivos indisponível ({value1}). A atribuição ainda funciona."
+    },
+    "pool.loaded": {
+      "sourceHash": "741f300c96ce9a027fe06b7d0207c323e7de41497d524a18d62a6dbd9f4a6a2a",
+      "message": "Carregado:"
+    },
+    "pool.loading_hosts": {
+      "sourceHash": "c7eb4ba6dee4ca3068f36157179148b1192bf12f8609b5a09c24b4129ff0661c",
+      "message": "Carregando máquinas..."
+    },
+    "pool.loading_pools": {
+      "sourceHash": "b4dcd367224a4c93a4c5c3497f496dc85c91433e00447884d0cb41854833dba8",
+      "message": "Carregando piscinas..."
+    },
+    "pool.loading_test_sets": {
+      "sourceHash": "cbf9b3513420fdfe0b98454b09bc12b85548cd77585896a32285764116963979",
+      "message": "Carregando conjuntos de testes..."
+    },
+    "pool.lowercase_dns_safe": {
+      "sourceHash": "d61a70f34c481a7e37aa68fa18f2c2fe15c3ad824bf4f32db323cdd83f2076cc",
+      "message": "minúsculas, dns-safe"
+    },
+    "pool.members": {
+      "sourceHash": "1d722f1a14476d67c3058af7988784dec721b2f173841a7a96510bc6d9e4e4cf",
+      "message": "Membros"
+    },
+    "pool.members_1044a4c0": {
+      "sourceHash": "7dc484ec1fade183035cc135fed1ded910e8365e40f1d86d34780bd2d8313b50",
+      "message": "Membros"
+    },
+    "pool.memory": {
+      "sourceHash": "b309a1485459692b020ce6f25a0ddc1c5087d311b7ff7c46a7eb4cba5d92e16b",
+      "message": "Memória"
+    },
+    "pool.menu": {
+      "sourceHash": "ed8e9b56423a8714eca27698457d969b8b700711197d9b2266a93d2d4209f20b",
+      "message": "Menu"
+    },
+    "pool.mixed": {
+      "sourceHash": "da1c0bb35f95b9115427d241358d488b3c96b7d0f86c1b94dc895d83c3641e7f",
+      "message": "Misturado"
+    },
+    "pool.monitored_by_discovery": {
+      "sourceHash": "0813c0308a44ed9439bd1ea91926015c4bd93085e9b8e8e90c1f13767f469030",
+      "message": "Monitorado pela descoberta"
+    },
+    "pool.move_failed_value1": {
+      "sourceHash": "220267b8f458feedf06a0cd0ef7b7022c7840b158acdde2be8c6284f48a66b32",
+      "message": "Falha na movimentação: {value1}"
+    },
+    "pool.move_host_value1_to_value2_value3": {
+      "sourceHash": "6df1def461e0e0bd2fb0a1099bef06035fa94207038b2ba5b88e595653453da7",
+      "message": "Mover a máquina {value1} para {value2}?{value3}"
+    },
+    "pool.move_this_host_s_pool_membership_to_value1_the_id_that_answers_at": {
+      "sourceHash": "58f6b853538bcf2b6db9305e560fb4ac6d83e77f4cd1e55fd4959cba22f6a675",
+      "message": "Mova a associação deste host para {value1}, o id que responde neste endereço, e pare de mostrar este."
+    },
+    "pool.moved_to_value1": {
+      "sourceHash": "283ecc9aacaebd7429727ee7c83b2ef211e86593a68b032bd70ae904bafe3980",
+      "message": "Transferido para {value1}."
+    },
+    "pool.moves": {
+      "sourceHash": "fa3282269858ffd48a0415109df4e3cdbfbb617938ea2f4a9ac288e3f336d7eb",
+      "message": "movimentos"
+    },
+    "pool.name": {
+      "sourceHash": "91a4bf5b48d31c1f930cf46e643d7d9a120e2a9e35937409b30a810329b7c1ad",
+      "message": "Nome"
+    },
+    "pool.name_frameworkurl_and_projecturl_are_all_required": {
+      "sourceHash": "43177ae91e3e2d6321416c314a33e29e21ee5a732d1fd2a4a23b1f1db4cb7c87",
+      "message": "nome, frameworkUrl e projectUrl são todos necessários."
+    },
+    "pool.network": {
+      "sourceHash": "4c594028823790e9b918cf77c1d57c63dc116767aa9e9131f9a2c82529f8383c",
+      "message": "Rede"
+    },
+    "pool.never_enrolled_a_lab_token_run_set_labtoken_ps1_on_the_host": {
+      "sourceHash": "20b6516b971ee6622d9acdd2c351874cbb92d8ca343b8ca1d2c3df93a76a1dc8",
+      "message": "Nunca matriculou um token de laboratório -- execute o Set-LabToken.ps1 no host."
+    },
+    "pool.no_hosts_discovered_yet": {
+      "sourceHash": "fa833b4087538ab45cb020eb06b30b51811b13f0c1df88e8414f62c2a75a071e",
+      "message": "Ainda não foram descobertos hospedeiros."
+    },
+    "pool.no_id_reported": {
+      "sourceHash": "179baf566de4f6fd7d3ca07ec3b278114941e9bd033fb2911404948c7b062844",
+      "message": "(sem id comunicado)"
+    },
+    "pool.no_pools_defined_create_one_on_the_pools_page": {
+      "sourceHash": "996eec3a439889f81546b932975af9096f46491b456fb18637b5f28c24ee917a",
+      "message": "Nenhum pool definido. Crie um na página Pools."
+    },
+    "pool.no_pools_yet": {
+      "sourceHash": "63d036ecce9b950adb5fcc71be8883865a3e3b7612a08144e9151dd42063adea",
+      "message": "Ainda não há piscinas."
+    },
+    "pool.no_pools_yet_create_one_from_menu_pools": {
+      "sourceHash": "1e890b870c421dd0974460e43d154f1b9c7b19e4b19b692a26a7115a9c1e31c1",
+      "message": "Sem piscinas ainda. Crie uma a partir do Menu → Piscinas."
+    },
+    "pool.no_scan_has_run_yet": {
+      "sourceHash": "db2d5f2d704ce44fb9b82b028f5f86001e60257e4b932fd5afd1dc10db5c8964",
+      "message": "Ainda não foi feita nenhuma análise."
+    },
+    "pool.no_test_sets_yet": {
+      "sourceHash": "fd0939b7535ed6984fa25f6d98631e253324d57744438963fbab544ca03503d1",
+      "message": "Ainda não há testes."
+    },
+    "pool.none": {
+      "sourceHash": "2484b0bc0cb9df9e3106ef9226610bfc42f6a4ac3c85b7d546abf85a249a7d42",
+      "message": "(Nenhuma)"
+    },
+    "pool.not": {
+      "sourceHash": "0737b59dee75bab046bb480fca77900c63df5b68a39429fa07cd523c62d359cd",
+      "message": "não"
+    },
+    "pool.not_answered_yet_or_the_proxy_holds_no_token_of_its_own": {
+      "sourceHash": "9f0408906203ad78e6cc146222d3fe075d1d426b8ce441d64c07ea849817ded5",
+      "message": "Ainda não respondeu, ou o proxy não possui nenhum símbolo próprio."
+    },
+    "pool.not_cidr_notation_write_an_address_a_slash_and_a_prefix_length_19": {
+      "sourceHash": "59ab09635c10033c5024548c9317fce3a0d4ef0035ef4724c7d0254c642fbcd8",
+      "message": "Não notação CIDR. Escreva um endereço, uma barra e um comprimento de prefixo: 192.168.7.0/24."
+    },
+    "pool.nothing_new_every_yuruna_host_in_that_range_was_already_monitored": {
+      "sourceHash": "70431221d28616e4077140bdfc9539b4ba31fb72fe73594c940d0166b4552a39",
+      "message": "Todos os anfitriões da Yuruna já tinham sido monitorados."
+    },
+    "pool.nothing_to_move_the_live_id_already_has_the_pool_it_should": {
+      "sourceHash": "bc55882f733afd3e6f163471c9b5b5dcff2c7949e4d0517906faba83d117abda",
+      "message": "Nada para se mover: o id ao vivo já tem a piscina que deveria."
+    },
+    "pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor": {
+      "sourceHash": "1b0a91804737f8f8933cfcbb9f7ffefca476988122353d3fc4d52932a64b192c",
+      "message": "Apenas as máquinas que esta verificação adicionou. Uma máquina Yuruna que já foi monitorada é contada acima, não listada novamente."
+    },
+    "pool.open_this_host_s_own_status_page_at_value1_found_by_a_network_sca": {
+      "sourceHash": "910b40f9227d3c9e424aa686375dbbd3807c2cf5899d60d70d023b9f2fddaceb",
+      "message": "Abra a própria página de status desta máquina no {value1} (encontrado por uma rede de varredura{value2})"
+    },
+    "pool.optional": {
+      "sourceHash": "223eb67a7e1ea87bdfb95d8e321f7512f172f2b2042c8239b16ca0fa738cd8b1",
+      "message": "opcional"
+    },
+    "pool.own_network": {
+      "sourceHash": "e69f1bfd5071a58fc8b3ddc841b6bc33664082ff8273f7a32bfa6cb68d36f319",
+      "message": "rede própria deste serviço"
+    },
+    "pool.pages": {
+      "sourceHash": "79a09fd2aa8179ab67207fe9c97a816f89dc957265dff4cd7952fd34a946e849",
+      "message": "Páginas"
+    },
+    "pool.pass": {
+      "sourceHash": "5a716fa9054fc50ce9d1071cf669d7bb0f644c44a9c84771c7dc51dce9c97428",
+      "message": "PASS"
+    },
+    "pool.path": {
+      "sourceHash": "40e364dd5c9b2cdba980a7692f4e0fd93bb71648a125589f2cbcaab9d5a10038",
+      "message": "PATH"
+    },
+    "pool.pause": {
+      "sourceHash": "f3b74a0815b0ffbe432be7b50d637898f27b08df3bd481cbf6903f589d00c643",
+      "message": "Pausa"
+    },
+    "pool.pause_after_cycle": {
+      "sourceHash": "6262a06eb2cc6a4e075621ef4c77d33f7800db707c19633bc800208e6950b823",
+      "message": "Pausa após o ciclo"
+    },
+    "pool.pause_after_step": {
+      "sourceHash": "e8e003984903b2c6dd0c6bf9ff3508d7fdfc91067126a636fc1e9a4d58670944",
+      "message": "Pausa após passo"
+    },
+    "pool.paused_after_cycle_and_step": {
+      "sourceHash": "57f5992a58a31fb67d4bf8673445f2badcb17c706d7f469eda282e5efdbcf488",
+      "message": "Pausa após ciclo e passo"
+    },
+    "pool.persisted_health": {
+      "sourceHash": "49fdc13b112d4957cd0297b44fe61b6c5d855401d44f8a51147b1b67aa19f897",
+      "message": "Saúde persistente"
+    },
+    "pool.persistence_disabled": {
+      "sourceHash": "6e3bed85388a4bde1cd5005cfa2e9b6f36c317b94776ccb09348addbc6e383a0",
+      "message": "(persistência deficiente)"
+    },
+    "pool.pick_a_test_set_first_define_one_on_the_test_sets_page": {
+      "sourceHash": "93390951d55f5c1596d0fc499ccccc46a5ae133f9ce80672e9f9dfbc8052f464",
+      "message": "Escolha primeiro um conjunto de testes (definir um na página de conjuntos de testes)."
+    },
+    "pool.pid": {
+      "sourceHash": "ce4c4b549ff007f6da94d64f26a7e5e000a5fee36f08b65c4ccba54bb014ac42",
+      "message": "pid"
+    },
+    "pool.platform": {
+      "sourceHash": "ed74f0b2f3bc8e239d62812a9c5b7d13d109faa4b0304459b2413e3d0adaa3b1",
+      "message": "plataforma"
+    },
+    "pool.pool": {
+      "sourceHash": "2fb039ac815e0a063482ddbd33dd0ae2a42953dd4672649726cc1efc8b522f80",
+      "message": "Piscina"
+    },
+    "pool.pool_for_host_value1": {
+      "sourceHash": "2babd5b528cc76fb263094014878052e0d5119db3960f9ddaea40b10b1e0a22f",
+      "message": "Pool para a máquina {value1}"
+    },
+    "pool.pool_id": {
+      "sourceHash": "6acbea34a9dc928695c78876236eb51d19bf5bb71328ad7054ff62f091c228b6",
+      "message": "ID do grupo"
+    },
+    "pool.pool_id_66d3d3f3": {
+      "sourceHash": "9c715b3b6aae8389d99ac97d0cab22fe28c5af13e24af4f463dbf0731425201a",
+      "message": "ID do conjunto"
+    },
+    "pool.pool_membership_moved_to_value1": {
+      "sourceHash": "9f68e0c868954e6dba76cda27688188cd33ae5a6b1ef75b3647eb7f7f2da649e",
+      "message": "Os membros do grupo mudaram-se para {value1}."
+    },
+    "pool.pool_project_denied": {
+      "sourceHash": "fa0ee58c2daee62d3bd561602b2a6e5682520703933c1f33402d398fe691e5da",
+      "message": "O pool atribuiu a esta máquina um projecto que a sua credencial git não consegue ler. Conceda o seu acesso ao repositório, ou reatribua o pool a cada membro que possa ler. Os seus ciclos falham até então, e nenhuma repetição poderá corrigi- lo."
+    },
+    "pool.pool_project_unreachable": {
+      "sourceHash": "4397cd638219e5f0db5d6c5e7d60c818ca205b32f22b56451aa73e891c6b2513",
+      "message": "O projecto que esta máquina atribuiu não respondeu. Esta é a rede, não a permissão, e o clone volta a tentar através do backoff normal."
+    },
+    "pool.pool_status": {
+      "sourceHash": "0129ef870a2572023a0f34024e862cfece633c11695e364eee6d5da8a561b721",
+      "message": "Estado do Grupo"
+    },
+    "pool.pool_status_change_failed_value1": {
+      "sourceHash": "1d7bb46117e4a640ae49b2bb83e38997bb2a2b5aba584ff239eb4b0edaedf006",
+      "message": "Falha na alteração do estado da piscina: {value1}"
+    },
+    "pool.pool_status_for_value1": {
+      "sourceHash": "6f2b808008a7ade393d2db18543e9e7697f8ceebee0ecbb7e190fa9c8d4d31d9",
+      "message": "Estado da piscina para {value1}"
+    },
+    "pool.pool_value1_has_members_remove_them_first": {
+      "sourceHash": "94f601a6bd348906ae2850ffbd17a758f57ea719e394f9318e69604f026a1bd8",
+      "message": "Pool '{value1}' tem membros; remova-os primeiro."
+    },
+    "pool.pool_value1_has_no_members_nothing_to_drive": {
+      "sourceHash": "fdb9559a3b6536dd9440ababc5f91afeb51bcc560ac1ebef27cc95c97fa7b8f9",
+      "message": "Pool '{value1}' não tem membros; nada para dirigir."
+    },
+    "pool.pools": {
+      "sourceHash": "855d17ef692e10bbf3f0f31ca6411715a06c5e8db256bb41d9a8f0c73954f7c9",
+      "message": "Piscinas"
+    },
+    "pool.pools_yuruna_pool_control": {
+      "sourceHash": "30566421301773a8045b90e9361afa9cbe3d53f26e87a4f99021b012b828b0a2",
+      "message": "Pools — Controle de piscinas Yuruna"
+    },
+    "pool.process": {
+      "sourceHash": "184b66ad22b17c6cb62cee7ffcac7bcbbbfd5916e864bf1ca6d6cc8c26d69256",
+      "message": "Processo"
+    },
+    "pool.progress": {
+      "sourceHash": "a601088529d431b93f9b79cdf0ffd35f0882b3dac8a6022e057c1b74d9d4fb28",
+      "message": "Progresso"
+    },
+    "pool.project": {
+      "sourceHash": "0c25fefe857ca8bafe0ee96bc845b49a11ad31559169d01d384422168ccb214c",
+      "message": "Projeto"
+    },
+    "pool.project_url": {
+      "sourceHash": "1cddd1bd15820a418037fb88cb4900a6d73ebc1de085a425992e9c5058b9386d",
+      "message": "URL do projeto"
+    },
+    "pool.pwsh_pwsh_flag": {
+      "sourceHash": "d65d18e4ca8c17672ae90c49e7f0959a0f62b1734463436ce10afdc7031aa92b",
+      "message": "pwsh (-- pwsh flag)"
+    },
+    "pool.pwsh_resolved": {
+      "sourceHash": "a2bf1cf7f945884996f8dd3461ff7f466e9c1b32501166bbf03e2efc12c048f5",
+      "message": "pwsh (resolvido)"
+    },
+    "pool.re_keyed": {
+      "sourceHash": "c16ce9cba1ec390aa3bd320069e42d6a168cfe12aec593ee8ad8687e0a3ea14d",
+      "message": "re- chaveado"
+    },
+    "pool.re_run_checks": {
+      "sourceHash": "1b66147f5f2e34569922363492d185fc60e2c2cf5596d8af45cadc8b3bccf600",
+      "message": "Controlos de repetição"
+    },
+    "pool.refresh": {
+      "sourceHash": "cd80f38da7505cc652047c32767c1dde545c64ecddf1b15d84d317d11b24aa24",
+      "message": "Actualizar"
+    },
+    "pool.remove_failed_value1": {
+      "sourceHash": "52adb446ba2c391916dfdb2062fd64580bc7d7cd5b17959ffc955b14e8a94b45",
+      "message": "A remoção falhou: {value1}"
+    },
+    "pool.remove_host_failed_value1": {
+      "sourceHash": "4a66987250c66636f4ae071a63ef261f3e690cc40633fc6c6e062a3a58c9ae66",
+      "message": "Falha ao remover a máquina: {value1}"
+    },
+    "pool.remove_host_value1_from_pool_value2": {
+      "sourceHash": "874a5115f8e8453eba0e790b9602e2f7e6b635c7df1a4ee5ec9293c085587686",
+      "message": "Remover a máquina {value1} da piscina {value2}"
+    },
+    "pool.remove_host_value1_from_pool_value2_this_cannot_be_undone": {
+      "sourceHash": "32393e607d5ec6abfa934a1af872d0b9c3daa7b2e41093c6bf54f657e8de74e0",
+      "message": "Remover a máquina {value1} da piscina {value2}? Isto não pode ser desfeito."
+    },
+    "pool.repo_denied_detail": {
+      "sourceHash": "832c94e93ee3310b6efc21fc8d3e6101e82b2e94796bf4a47f7f85ac58d6fd75",
+      "select": {
+        "variants": {
+          "framework": "Esta máquina não consegue ler o repositório de framework com o qual está configurado. Verifique a sua credencial git e o url no test.config.yml.",
+          "project": "Esta máquina não consegue ler o repositório do projecto com o qual está configurado. Verifique a sua credencial git e o URL no test.config.yml.",
+          "other": "Esta máquina não consegue ler o repositório com o qual está configurado. Verifique a sua credencial git e o URL no test.config.yml."
+        }
+      }
+    },
+    "pool.repo_dir": {
+      "sourceHash": "c7bcb9be9d262310f2bd7d2bdbca80af5974c053812c224cbbbd8863570391a5",
+      "message": "repo dir"
+    },
+    "pool.repo_held_detail": {
+      "sourceHash": "8d1ad4e97407c40a6ca1397ae0f1aad7a9f82c2dceec0a56fcc2b4f1bb9e6940",
+      "select": {
+        "variants": {
+          "framework": "O repositório de framework que esta máquina mantém.",
+          "project": "O repositório de projetos que esta máquina mantém.",
+          "other": "O repositório que esta máquina mantém."
+        }
+      }
+    },
+    "pool.repo_no_access": {
+      "sourceHash": "fcb9692150dc3ab8964ffa52f732592fb6f25900009317d3c38644b0b1e84bf6",
+      "message": "Sem acesso"
+    },
+    "pool.repo_unconfigured_detail": {
+      "sourceHash": "b89fbb6076a62dca937d3149901a8da77d469c4991993bf9d79c6ad6a160c647",
+      "select": {
+        "variants": {
+          "framework": "Esta máquina não tem nenhum repositório de framework e nenhum configurado, ou ainda não respondeu.",
+          "project": "Esta máquina não tem nenhum repositório de projeto e nenhum configurado, ou ainda não respondeu.",
+          "other": "Esta máquina não tem nenhum repositório e nenhum configurado, ou ainda não respondeu."
+        }
+      }
+    },
+    "pool.result": {
+      "sourceHash": "eae6c1389dcbba0f48b9ba9404d3f44b58b41e95924b33f059dd5f3f9da5948b",
+      "message": "Resultado"
+    },
+    "pool.row_number": {
+      "sourceHash": "747043f9d8290b6421156da494b17ded7e8ce05a68116d282da0639358a31aa0",
+      "message": "Número da linha"
+    },
+    "pool.run": {
+      "sourceHash": "19d62be6918c768c5240188dddad7dedbd83038a9fdd7ca97cd4645839ff27a2",
+      "message": "executar"
+    },
+    "pool.running": {
+      "sourceHash": "5068f0a28be3a1e5a56a948a9a9fc9231b71fa9173cbf8590164eb0523bf18da",
+      "message": "Em execução:"
+    },
+    "pool.running_checks": {
+      "sourceHash": "e7e05a560e68fddd7f67778dcd1ee0081d956f6aeb18f0fdc6bf0db546c4f0c4",
+      "message": "A verificar..."
+    },
+    "pool.runtime_environment": {
+      "sourceHash": "4b22ea6a86273205a91cc9d080de5e3396ce2bb1453f89f7e73c72c12a58dbb7",
+      "message": "Ambiente de execução"
+    },
+    "pool.save_failed_value1": {
+      "sourceHash": "845906241a225d931239c43cb2a71c3dfaaad85b21cb6f68118f67e277d86e9f",
+      "message": "Falha ao salvar: {value1}"
+    },
+    "pool.save_test_set": {
+      "sourceHash": "b5a3083e05848cf8891052513456f1a193c1ecaaa669b288cd93f3e03b710597",
+      "message": "Gravar o conjunto de testes"
+    },
+    "pool.saved_test_set_value1": {
+      "sourceHash": "a6127439fc900936ef5ea5febc17a1d010bb2a1946e9631c6eb3720b843c3439",
+      "message": "Conjunto de teste salvo '{value1}'."
+    },
+    "pool.scan": {
+      "sourceHash": "5814b584af7fbd322b0e5dcde9ebfcc4b068bb1d984d4cd15cf715fc1fa399df",
+      "message": "Digitalizar"
+    },
+    "pool.scan_a_network_for_yuruna_hosts": {
+      "sourceHash": "3af1ac90bfae6e9e26522c571e2caffd61f979e029b98cd14103bb9ca12f84a5",
+      "message": "Analisar uma rede para as máquinas do Yuruna"
+    },
+    "pool.scan_count": {
+      "sourceHash": "9cd70826429dd3c308bf27c8bb74b17794a5128f77577a2e0b64bdb894142477",
+      "plural": {
+        "variants": {
+          "one": "Verifica o endereço {count}.",
+          "other": "Verifica endereços {count}.",
+          "many": "Verifica endereços {count}."
+        }
+      }
+    },
+    "pool.scan_finished": {
+      "sourceHash": "a1c0cb06a7352911d3564d97cf21b3cc1f5bfdec15a28a8f11234ab49bb23bc5",
+      "plural": {
+        "variants": {
+          "one": "{kind} de {network} terminado {time}: {done} de endereços {total} sondado, {count} adicionado, {monitored} já monitorado. {detail}",
+          "other": "{kind} de {network} terminado {time}: {done} de endereços {total} sondado, {count} adicionado, {monitored} já monitorado. {detail}",
+          "many": "{kind} de {network} terminado {time}: {done} de endereços {total} sondado, {count} adicionado, {monitored} já monitorado. {detail}"
+        }
+      }
+    },
+    "pool.scan_label": {
+      "sourceHash": "2bb3dfa0087adb2e3ba1f9a4c840529d0a27f657a9381cfe26e9f2dad5899bcf",
+      "message": "Digitalizar"
+    },
+    "pool.scan_limit": {
+      "sourceHash": "4ad9cb96f70a31531bf52fcf8120577c2cefaa770e2b7ea4e4b1a3061a64420d",
+      "message": "/{prefix} cobre endereços {count}; este serviço verifica no máximo {limit}. Use uma rede mais estreita (um comprimento de prefixo maior)."
+    },
+    "pool.scan_refused_value1": {
+      "sourceHash": "0d8d8fe46ea769bae3677e8dd192eee0780575263f0e821e7ae4681d468be024",
+      "message": "Digitalização recusada: {value1}"
+    },
+    "pool.scan_yuruna_pool_control": {
+      "sourceHash": "6ba0d4ad82818ce26edf798c25dbe0ac954d162f5b35cbe35008321d3536209d",
+      "message": "Controle de piscinas de Yuruna"
+    },
+    "pool.service_diagnostics": {
+      "sourceHash": "25119c67b33b43aef151db44410dca4b1125c9b2567f3e5b2612c2f9e51d0b6b",
+      "message": "Diagnóstico de serviço"
+    },
+    "pool.service_user": {
+      "sourceHash": "278b030a9d4424850b6af6f0e4eae9077179904ef1e36601899982552660f196",
+      "message": "usuário de serviço"
+    },
+    "pool.show_hostnames": {
+      "sourceHash": "2c19e331974e958049e0919185d5f3caaea25076d2cae25f10ca192ee28befcc",
+      "message": "Mostrar os nomes das máquinas"
+    },
+    "pool.started_at": {
+      "sourceHash": "3320efb45678a1e143255f63e327684f562c954e13eae6deb8b37e05358164bd",
+      "message": "iniciado em"
+    },
+    "pool.state": {
+      "sourceHash": "c8bd428abae2c84c3c4c29497190b51021217447aa40495006bcab1467437969",
+      "message": "Estado"
+    },
+    "pool.state_dir": {
+      "sourceHash": "e65093e1bbb2bf9fc84227adc8c9d48f53cdd80c3eea9134a0326ef0a39e9020",
+      "message": "pasta de estado"
+    },
+    "pool.state_fail": {
+      "sourceHash": "51eaf9c03217d212a0c4dd63b22253c8f483df9c43cde24708ba96d6b33547ad",
+      "message": "falha"
+    },
+    "pool.state_idle": {
+      "sourceHash": "241fc69ce1cbbd5b947f277fe3f79aa24b90ef2c2275cd3294a75f9f7aebedec",
+      "message": "ocioso"
+    },
+    "pool.state_mismatch": {
+      "sourceHash": "a0fe262be797b708471fa7bf09209adf2a31e7e2af6008a5f34812c9e80e6268",
+      "message": "desfasamento"
+    },
+    "pool.state_none": {
+      "sourceHash": "261b495525deba39371fbfb75acd1feba1125ce4cf0102978ba5d9e7e2e9a9d0",
+      "message": "nenhum"
+    },
+    "pool.state_pass": {
+      "sourceHash": "e5b7d7c1b1852e71069860f86b0ec4220723bb3b9bd3f0701d9a7a7d48b2ffe5",
+      "message": "passar"
+    },
+    "pool.state_paused": {
+      "sourceHash": "8164af41bd2e4925bfdd27977400025f91daebcef2f0f4ce3bc9b90da07f1106",
+      "message": "pausado"
+    },
+    "pool.state_ready": {
+      "sourceHash": "eba89feb44e9de662cef395c4a7fafa240e33c8ebd63188e4d450ee284af803a",
+      "message": "pronto"
+    },
+    "pool.state_running": {
+      "sourceHash": "aaa58ba6a26dd1f52038840738e2eb693ffb582b37715d7c90c9029602ae6a86",
+      "message": "em execução"
+    },
+    "pool.state_skew": {
+      "sourceHash": "0b0798ec06e75d9d5a1e5c90653a6cc20a6eb41eb327fde9dc3a409c14b8ccb4",
+      "message": "skew"
+    },
+    "pool.state_stopped": {
+      "sourceHash": "bc58d073b626f3bcd05f1b4b8a19dbe03fc5bd63108a43c38ec67b429b5b8e0d",
+      "message": "parado"
+    },
+    "pool.state_unknown": {
+      "sourceHash": "b6d9971f4ef7ff56774372722dc56efd75dca554a5f1413ba2e980580b43c234",
+      "message": "desconhecido"
+    },
+    "pool.stdout": {
+      "sourceHash": "aeb09f6dee0acc712dc361b230ef63578b1e620b45431f1862040af58d357511",
+      "message": "stdout"
+    },
+    "pool.stop_monitoring_value1_the_next_scan_of_that_network_will_find_it": {
+      "sourceHash": "b2436942c5bfa587995c2a9038172512267be3075a1d5cb29fa7daf95f018659",
+      "message": "Parar de monitorar {value1}?\n\nO próximo scan dessa rede irá encontrá-lo novamente se ainda estiver lá."
+    },
+    "pool.success": {
+      "sourceHash": "840c41b3c7ea6d0ae733e1f622947b8ab9fc2c7dd6701b37d7c0302798b45638",
+      "message": "sucesso"
+    },
+    "pool.sweep_label": {
+      "sourceHash": "cc23684a7735f73cb0e398b793a705bf1f1d4ffd8231ba3e8d7627e2918cbf90",
+      "message": "Varredura periódica"
+    },
+    "pool.sweep_minutes": {
+      "sourceHash": "e7a5bc354574ee206147514f436bb5ebdc337055968649521f990cae9784740b",
+      "plural": {
+        "variants": {
+          "one": "Uma varredura de {network} roda por conta própria a cada minuto {count}, pedindo porta {port}.",
+          "other": "Uma varredura de {network} roda por conta própria a cada minutos {count}, perguntando porta {port}.",
+          "many": "Uma varredura de {network} roda por conta própria a cada minutos {count}, perguntando porta {port}."
+        }
+      }
+    },
+    "pool.sweep_seconds": {
+      "sourceHash": "e33467121b50b592aa62998b4b73136b46c5f9148043d1cb070658b728f6d4b5",
+      "plural": {
+        "variants": {
+          "one": "Uma varredura de {network} roda por conta própria a cada {count} segundo, pedindo porta {port}.",
+          "other": "Uma varredura de {network} roda por conta própria a cada {count} segundos, perguntando porta {port}.",
+          "many": "Uma varredura de {network} roda por conta própria a cada {count} segundos, perguntando porta {port}."
+        }
+      }
+    },
+    "pool.test_set_for_pool_value1": {
+      "sourceHash": "da8c175fe56f96720e3ea8656265610639205a808158640de742bb0a75ff6d83",
+      "message": "Conjunto de teste para o conjunto {value1}"
+    },
+    "pool.test_set_label": {
+      "sourceHash": "bbbe7b9dae0605e0d113e34fa693c7ff1376a225e0c06946e873ec22a4b3a4e8",
+      "message": "Conjunto de testes para {name}"
+    },
+    "pool.test_sets": {
+      "sourceHash": "73174d7def560e5fc764a58d942c0a1ba44549f58dafc07d71c64e50090e1a31",
+      "message": "Conjuntos de ensaios"
+    },
+    "pool.test_sets_yuruna_pool_control": {
+      "sourceHash": "a0164e02d14f4ca30a40ee2c1b105dadbbe7b2408ceb53550ab30761ed91ffb6",
+      "message": "Conjuntos de ensaio — Controlo da piscina de Yuruna"
+    },
+    "pool.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "sourceHash": "94afc11b01b999bdbf39b2d47abba0ddf7374f3023282b5093975a0bb9f7f028",
+      "message": "O código de 6 caracteres no painel de bordo do Yuruna. Um código que você acabou de ler permanece válido por cerca de três minutos, então não há necessidade de apressar."
+    },
+    "pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo": {
+      "sourceHash": "4377ed0cb26dca9131c39f9a2ed5ef1f124dd78a318f2dd1d918c88dc3cc37fe",
+      "message": "O comando exato, seu código de saída e ambos os fluxos verbatim. O pool-admin CLIs reporta falhas como JSON no stdout, então stdout é geralmente onde a mensagem real está."
+    },
+    "pool.the_hosts_own_projects": {
+      "sourceHash": "dacbfe8fafdbc45dd4ddb8d09e62f68ea8ed7a0b5bddcd9f93b8ad3f2d7bcb81",
+      "message": "projetos próprios dos anfitriões"
+    },
+    "pool.the_id_that_answers_at_this_address_now": {
+      "sourceHash": "39ddf5292968240fc18984fecf03056a21e5b42baca0e8b8d136fa8be5bfd9db",
+      "message": "O ID que responde neste endereço agora."
+    },
+    "pool.the_periodic_sweep_is_off_this_page_is_the_only_way_a_scan_runs": {
+      "sourceHash": "abcad6124deb80fd079daf74d456ce67c88aaffa41ab25b91797861b620eccf9",
+      "message": "A varredura periódica está desligada; esta página é a única forma de uma varredura ser executada."
+    },
+    "pool.the_prefix_length_must_be_0_to_32": {
+      "sourceHash": "50726e0944e4658bb58f6e482d8611f580243f9d99af7a5f06c8fbb92c64baf4",
+      "message": "O comprimento do prefixo deve ser de 0 a 32."
+    },
+    "pool.the_same_document_command1_serves_from_the_state_dir_on_the_pool_": {
+      "sourceHash": "e6d85b3d60efb36641963e60bc48b765a212356f361b56ecf3018ed160be8c6a",
+      "message": "O mesmo documento {command1} serve, a partir da dir estado no NAS piscina."
+    },
+    "pool.this_host_answered_but_its_registration_record_could_not_be_read": {
+      "sourceHash": "04427cecf9f0cff8657dec2b2a361674d1a0b49596d61f09f0ad9c0bf9a2ad5d",
+      "message": "Este anfitrião respondeu, mas seu registro não pôde ser lido."
+    },
+    "pool.this_host_has_not_reported_a_name": {
+      "sourceHash": "07aed744f8cab1f7586e6ed5296abbdeacd86a47dd1535b156018b04a307e248",
+      "message": "Esta máquina não relatou um nome."
+    },
+    "pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po": {
+      "sourceHash": "9a65a4d79a2e93a482df9544b5ddcc892c58b2b435e43bfb3dd2e4a2de168996",
+      "message": "Esta máquina não relatou um id, por isso ainda não pode ser atribuída a um pool."
+    },
+    "pool.this_host_has_not_reported_hardware_facts": {
+      "sourceHash": "edd65da56d1607c12001dabd9dbdacd404638797f64303657f0d6ad364dc9d77",
+      "message": "Esta máquina não relatou os factos de hardware."
+    },
+    "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": {
+      "sourceHash": "10bb186a741f973b4e143d12147c6bca23f6a33e5455ae5f71190bea916931a6",
+      "message": "Este ID não responde mais neste endereço; o ID ao lado dele responde. Uma máquina, dois IDs -- foi reimaged ou re-cloned. Qualquer membro do pool ainda é gravado contra este ID, de modo que a máquina ao vivo está fazendo o trabalho fora A piscina."
+    },
+    "pool.time_period": {
+      "sourceHash": "28965dd41c1e2c7308c2ccfad9757b0fa1436c2a2783ec4c79193fb8d3640a17",
+      "message": "Período"
+    },
+    "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": {
+      "sourceHash": "857bfdfc334cccfea6903afd81a91286b089f0175499bd54f79609025c7b28f1",
+      "message": "O Token está certo, mas o relógio está desligado. Conserte o relógio do anfitrião."
+    },
+    "pool.total_storage": {
+      "sourceHash": "1e2e33bb65b80c4c29d67c4d336dbc9d432c484159c82c975eb4399d990ece4b",
+      "message": "Armazenamento Total"
+    },
+    "pool.type": {
+      "sourceHash": "7bd81245a0e7202425dffdd098245e4c06c3498dd993968a12c6341584ec145f",
+      "message": "Tipo"
+    },
+    "pool.unlock": {
+      "sourceHash": "1e42f1eb99f48dff0de3dcca65fdba82e9ed7996b4104912920c6111670a9902",
+      "message": "Desbloquear"
+    },
+    "pool.unlock_with_the_lab_token_to_see_hostnames": {
+      "sourceHash": "e7ffb63a7a9d36570f21b09a8960dabe3a65f1acc18f7ca3832e352d600ce9a9",
+      "message": "Desbloqueie com o token do laboratório para ver os nomes das máquinas."
+    },
+    "pool.unsupported_range": {
+      "sourceHash": "9e1cbff7f3310dfeef98efc01104e3858db3cfa54f443912ddc283d34cfd814e",
+      "message": "intervalo não suportado; use 1h, 24h, 7d ou 30d"
+    },
+    "pool.uptime": {
+      "sourceHash": "41e5a1d85fa323980eb7d9e25f409667a7e87bfa4048aa9418525994fa4449a4",
+      "message": "tempo de execução"
+    },
+    "pool.use_this_network": {
+      "sourceHash": "059e7c40aff2d1f1eb413f6d2bbdeed3e8c039b345200c8d5d61f6edb9f79d0f",
+      "message": "Usar esta rede"
+    },
+    "pool.value1_applied_to_value2_host_s_in_pool_value3": {
+      "sourceHash": "553f252c2297e0617799141ced473dfc4c0e86013089774dd539fbd8c31925cc",
+      "message": "{value1}: aplicado à(s) máquina(s) {value2} na piscina '{value3}'."
+    },
+    "pool.value1_host_s": {
+      "sourceHash": "0bd6adfdf5cd52d91aa7acee8160cb14d3cf5f5d99a39b9faafc31e6d2e36d48",
+      "message": "Máquina( s) {value1}"
+    },
+    "pool.value1_of_value2_checks_failing_pool_control_service_value3_value": {
+      "sourceHash": "4a9fc9001d9dc6a45d1c8714d893d52d6c137292846786e1efe306bdcfcea972",
+      "message": "{value1} de {value2} verificações falhando. pool-control-service {value3} ({value4}), coletado {value5}"
+    },
+    "pool.value1_of_value2_value3_of_value4_addresses": {
+      "sourceHash": "9181cdc46d438a5cae8f510cde5a19d5310d48c382f56b5620631a59c32000bd",
+      "message": "{value1} de {value2}: {value3} de endereços {value4}."
+    },
+    "pool.value1_value2_applied_value3_failed_value4": {
+      "sourceHash": "7df8b31708fca57dc58f5e6ab4b7617ba6995f0afa7eac2c7c0b3b9209727330",
+      "message": "{value1}: {value2} aplicado, {value3} falhou -- {value4}"
+    },
+    "pool.version": {
+      "sourceHash": "ee89fc027fafd653aa0d0b78acd15b2b6eddb1b192d55b7496632a07e9c9b02f",
+      "message": "versão"
+    },
+    "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": {
+      "sourceHash": "99b6f3aa7b93cf7f2aa31bd4f1bbb44ed7b8339960d3e6088ae6a6d442e0a8aa",
+      "message": "O que o daemon foi lançado com, eo ambiente seus processos pwsh filho herdar."
+    },
+    "pool.what_to_do": {
+      "sourceHash": "c1cea97f41be8cc7425b6eff16e3275d2b850526adf0a4e02d3390d0b12566c6",
+      "message": "O que fazer"
+    },
+    "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": {
+      "sourceHash": "26820c16413883660cd780a550c5f1a3fc66e1541d17f36c8820d7085bd153d4",
+      "message": "Que construção está realmente em execução, e por quanto tempo — estabelece se uma correção foi implementada em tudo."
+    },
+    "pool.which_network_cidr_notation": {
+      "sourceHash": "8a781af5262631df6ac12a65ef5734210dc795fe80589041164a311fedb65ee6",
+      "message": "Que rede? (Notação do CIDR)"
+    },
+    "pool.x": {
+      "sourceHash": "7ce1b61731165776d178c32da67f290aa8bee1fbdb227c876162284f5e02af5d",
+      "message": "x"
+    },
+    "pool.yuruna_pool_control": {
+      "sourceHash": "3ce444e94389458f031101ae0bde100d3b959b679d87f20e1496fa7251b25820",
+      "message": "Controle de Piscinas Yuruna"
+    }
+  }
+}

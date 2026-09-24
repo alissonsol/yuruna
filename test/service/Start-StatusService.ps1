@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3638,7 +3638,7 @@ try {
                 # the inner attribute quotes) and at deployed-parse
                 # time. `$titleEnc` is the only dynamic part, so a
                 # plain `+` keeps the rest literal.
-                [void]`$sb.AppendLine('<!doctype html><html lang="' + `$listingTagEnc + '" dir="' + `$listingDirectionEnc + '" data-yuruna-requested-language="' + `$listingRequestedEnc + '" data-yuruna-locale-source="' + `$listingSourceEnc + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}h1,caption{overflow-wrap:anywhere}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom: 1px solid #e5e7eb; border-bottom:1px solid var(--border);font-family: ui-monospace, Menlo, Consolas, monospace; font-family:var(--font-mono);text-align:left}th{background: #f3f4f6; background:var(--bg-hover)}caption{text-align:left;padding:0.2em 1em 0.6em;font-family: ui-monospace, Menlo, Consolas, monospace; font-family:var(--font-mono)}.scroller{overflow-x:auto}</style></head><body>')
+                [void]`$sb.AppendLine('<!doctype html><html lang="' + `$listingTagEnc + '" dir="' + `$listingDirectionEnc + '" data-yuruna-requested-language="' + `$listingRequestedEnc + '" data-yuruna-locale-source="' + `$listingSourceEnc + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}h1,caption{overflow-wrap:anywhere}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}caption{text-align:left;padding:0.2em 1em 0.6em;font-family:var(--font-mono)}.scroller{overflow-x:auto}</style></head><body>')
                 [void]`$sb.AppendLine('<main>')
                 [void]`$sb.AppendLine("<h1>`$titleEnc</h1>")
                 # The table IS the page here. Without a caption and column scopes

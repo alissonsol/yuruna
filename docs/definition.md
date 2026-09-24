@@ -1149,86 +1149,67 @@ This baseline governs **every Yuruna web UI**: the status pages
 page mounted under `test/status/`) AND the browser UI of every
 extension service under `test/extension/*/server/internal/httpsrv/web/`
 -- pool-control, stash, download-agent, and any service added later.
-All of them are written so they render correctly on **Safari iOS 9.0 /
-Safari 9.0** -- the whole iOS 9.x line -- as well as current browsers.
+All of them are written so they render correctly on **Safari 16 /
+Safari iOS 16** -- the macOS Ventura contemporaries -- and on Chrome
+and Firefox 105 or later.
 
-Every color token is a CSS custom property (`var(--...)`), and custom
-properties do not ship until iOS 9.3 / Safari 9.1. They are still used,
-because the floor is held by generation rather than by avoidance: a
-declaration whose value contains `var()` is invalid on an engine without
-custom properties, so that engine DROPS it and keeps the declaration
-before it. `tools/Invoke-CssVarFallback.ps1` writes that preceding
-declaration -- the same property with the reference resolved to its
-literal light-palette value:
+Every color token is a CSS custom property (`var(--...)`). Each
+property is defined once, in a `:root` block, and its only
+redefinition sits behind `@media (prefers-color-scheme: dark)`, so a
+token carries exactly one value per theme and the palette can be read
+out of the stylesheet without tracing a cascade.
 
-```
-background: #f9fafb; background: var(--bg-primary);
-```
+ES2022 syntax and APIs run natively: arrow functions, template
+literals, `async`/`await`, destructuring, optional chaining, nullish
+coalescing, default parameters, spread/rest, `for-of`, classes with
+private fields, `Object.hasOwn` and `Array.prototype.at` all parse and
+run with no transform step in front of them. Wrap each page's code in
+an IIFE all the same -- that rule is scope hygiene, keeping helpers
+off the global object where two pages sharing a runtime would collide,
+and it has nothing to do with which syntax parses.
 
-An old engine keeps `#f9fafb`; a current one parses both and the later
-declaration wins. Resolution is single-valued because every custom
-property is defined in a `:root` block and the only redefinition sits
-behind `@media (prefers-color-scheme: dark)` -- a query far newer than
-custom properties, so an engine that cannot read `var()` can never match
-it either. Those generated literals are not hand-edited; the generator
-rewrites them when a palette value changes, and
-`test/modules/Test.BrowserPaletteFloor.Tests.ps1` fails when one is
-missing or stale.
+The CSS and DOM these pages reach for need no guard either. CSS Grid,
+flex and grid `gap`, the `inset` shorthand, logical properties such as
+`margin-inline`, `aspect-ratio`, `:focus-visible`, `accent-color`,
+`env()` / `max()` safe-area insets, `<dialog>`, `fetch` with
+`AbortController`, `PointerEvent`, `Element.closest` and
+`KeyboardEvent.key` are all present across the floor.
 
-The JavaScript is authored to the stricter ES5-only bar (that bar
-predates any of these baselines and costs nothing to keep), so the code
-avoids:
+A short list sits above the floor and ships behind `@supports` or a
+feature test, with the plain path complete on its own: CSS nesting
+(Safari 17.2), `:has()` (Firefox 121), container queries (Firefox
+110), `text-wrap: balance` (Chrome 114), the dynamic viewport units
+`dvh` / `svh` (Chrome 108) -- written after a plain `vh` declaration
+of the same property, so the engine that cannot parse the second keeps
+the first -- and class static initialization blocks (Safari 16.4).
+Each is bounded by the ONE engine that shipped it last, and those
+versions move: check current support data before adding to this list
+or dropping a guard from it.
 
-- **JavaScript:** ES2015+ syntax (arrow functions, template literals,
-  `async`/`await`, destructuring, optional chaining, nullish
-  coalescing, default params, spread/rest, `for-of` with `const`).
-  Wrap each page's code in an IIFE to keep helpers off the global
-  object.
-- **CSS:** the `inset` shorthand (iOS 14.5+), flex `gap` (iOS 14.5+),
-  grid `gap` (iOS 10.3+), and CSS Grid (iOS 10.3+). Use margins,
-  explicit `top/right/bottom/left`, and flex-wrap instead; a Grid rule
-  is allowed behind `@supports (display: grid)` once a block or flex
-  layout already stands without it. CSS custom properties (iOS 9.3+)
-  ARE used, behind the generated literal fallbacks described above.
-  `env()` / `max()` safe-area insets (iOS 11.2+) are a progressive
-  enhancement: every rule that uses them declares a plain-value
-  `padding` fallback first, so iOS 9.0-11.1 keeps its gutter and only
-  loses the notch inset.
-- **DOM API:** `KeyboardEvent.key` landed in iOS 10.3 -- read `.key`,
-  fall through to `.keyCode` (`27 == Escape`) and `.which`. Use the
-  bracket form `['catch'](...)` on promises because older iOS
-  strict-mode parsers still treat `catch` as reserved in member
-  position.
+The extension service UIs load one shared browser runtime,
+[`test/extension/extension-sdk/webui/assets/yuruna.core.js`](../test/extension/extension-sdk/webui/assets/yuruna.core.js),
+before their own scripts -- the page chrome, the JSON client and the
+table furniture, written once rather than once per service. It
+exposes `Y.key(ev)`, a thin normalizer that returns `''` when there is
+no event or no key on it, so the six keyboard handlers that call it
+compare against a string instead of each guarding the call.
 
-`fetch` is shimmed inside
-[`test/status/yuruna.common.js`](../test/status/yuruna.common.js) for
-browsers that lack it; native fetch on every other browser is left
-untouched. The extension service UIs get the same shim, plus a
-`KeyboardEvent.key` fallback and an `Element.closest` polyfill, from
-[`test/extension/extension-sdk/webui/assets/yuruna.core.js`](../test/extension/extension-sdk/webui/assets/yuruna.core.js)
--- the shared browser runtime every one of their pages loads before its
-own scripts.
+**How the floor is held.** The floor is an engine anyone can run: a
+Mac on Ventura or later opens these pages in Safari 16, and Chrome and
+Firefox 105 are several years behind what a current desktop carries.
+A page that breaks at the floor breaks in front of whoever changed it,
+so checking a change means opening the page.
 
-**How the floor is held.** The failure mode is silent and total: an iOS
-9 parser rejects a file carrying one arrow function OUTRIGHT, so nothing
-in that file runs -- not the offending statement, the whole file. The
-page still serves its static shell, so a table whose rows are built in
-script renders empty and a menu whose panel is revealed in script never
-opens, and neither looks like an error. Nothing a modern browser can be
-pointed at will reproduce it.
+Two rules in this section are deliberate choices rather than engine
+limits:
 
-So the floor is held by a lexer rather than by testing:
-[`tools/Invoke-Es5Check.ps1`](../tools/Invoke-Es5Check.ps1) reports
-ES2015+ syntax and APIs found in code (not in comments, strings or
-regex literals) across every shipped asset, and
-`test/modules/Test.BrowserBaseline.Tests.ps1` runs it, checks the
-stylesheets for the CSS features listed above, and feeds the checker
-known-bad input so a lint that has stopped matching cannot report a
-clean run. Run the script directly while changing a page:
-
-```
-pwsh -NoProfile -File tools/Invoke-Es5Check.ps1
-```
+- A feature newer than the floor is a progressive enhancement. It
+  goes behind `@supports` or a feature test, and the page is complete
+  without it.
+- One runtime per surface. A service asks the shared `webui` package
+  for an asset instead of keeping its own copy, so a fix to the
+  chrome or the JSON client reaches every service UI at once, and a
+  page cannot drift onto its own private runtime unnoticed.
 
 <a id="42fa6f45-0019"></a>
 
@@ -1649,8 +1630,8 @@ Page-specific behavior:
   uses `mousedown` (not `click`) so the pick fires BEFORE the wrap
   blurs and our blur handler closes the menu underneath the click.
   Keyboard navigation (arrow keys, Enter, Escape, Space) runs through
-  a `keyOf(e)` shim that falls through to `e.keyCode` because iOS 9
-  lacks `e.key`.
+  a `keyOf(e)` normalizer, so every handler compares one string and an
+  event carrying no key reads as no match rather than as `undefined`.
 - **`guestSequence` array editor.** Already-selected guest folders
   filter out of the add-item dropdown so each guest appears at most
   once. A stale value (folder no longer present under the current
@@ -2400,6 +2381,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.18
+Last review: 2026.09.24
 
 Back to [Yuruna](../README.md)

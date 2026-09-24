@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,9 +72,29 @@ function New-ProjectMapSandbox {
     $root = Join-Path $script:Sandbox $Name
     New-Item -ItemType Directory -Path (Join-Path $root 'test') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $root 'globalization') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'test/test.runner.yml') -Destination (Join-Path $root 'test/test.runner.yml')
-    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'globalization/project-locale-source-hashes.json') `
-        -Destination (Join-Path $root 'globalization/project-locale-source-hashes.json')
+    $staged = 'test/test.runner.yml'
+    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot $staged) -Destination (Join-Path $root $staged)
+    # The sandbox stages one project file; the shipped sidecar covers every file
+    # the project translates. Copied whole it carries rows for paths this
+    # sandbox never created, which the reader rightly reports as maps that are
+    # missing. Keeping only the staged file's rows leaves the fixture consistent
+    # however many files the project goes on to translate.
+    $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
+            (Join-Path $script:ProjectRoot 'globalization/project-locale-source-hashes.json')))
+    $sidecar.entries = @($sidecar.entries | Where-Object { [string]$_.path -ceq $staged })
+    # The shipped ledger also records how far the project's own review has come.
+    # A fixture that inherits that measures the ledger rather than the gate:
+    # where every row already reads reviewed, a test that an acceptance promotes
+    # one row and leaves its neighbor alone has nothing left to observe. Rows are
+    # staged unreviewed, which the schema requires to carry no reviewer or date.
+    foreach ($entry in $sidecar.entries) {
+        $entry.reviewStatus = 'unreviewed'
+        foreach ($property in 'reviewer', 'reviewedAt') {
+            if ($entry.PSObject.Properties[$property]) { $entry.PSObject.Properties.Remove($property) }
+        }
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'globalization/project-locale-source-hashes.json'),
+        (ConvertTo-Json -InputObject $sidecar -Depth 20), [Text.UTF8Encoding]::new($false))
     return $root
 }
 
@@ -378,7 +398,14 @@ Describe 'the project publisher validates maps and source hashes' {
         }
         $run = Invoke-MapGate -Root $script:ProjectRoot
         Assert-Equal -Expected 0 -Actual $run.ExitCode "the shipped project map contract is not publishable: $($run.Output)"
-        Assert-Match -Pattern '2 map\(s\), 2 translation\(s\), 0 finding' -Actual $run.Output 'the expected official fixture was not inventoried'
+        # The census grows with every accepted translation, so a fixed count is
+        # not the contract. What has to hold is that every inventoried map has
+        # its translation and nothing is left outstanding.
+        $census = [regex]::Match($run.Output, '(\d+) map\(s\), (\d+) translation\(s\), 0 finding')
+        Assert-True $census.Success 'the shipped project maps were not inventoried'
+        Assert-True ([int]$census.Groups[1].Value -gt 0) 'no project map was inventoried'
+        Assert-StringEqual -Expected $census.Groups[1].Value -Actual $census.Groups[2].Value `
+            'every inventoried map needs its own translation'
     }
 
     It 'applies map bounds to NFC Unicode scalars rather than UTF-16 code units' {

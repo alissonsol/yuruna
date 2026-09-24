@@ -57,8 +57,8 @@ const indexHTML = `<!doctype html>
   th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1f2937;
            vertical-align: top; }
   th { color: #9ca3af; font-weight: 600; width: 26ch; }
-  tbody tr:nth-child(odd) { background: #111827; background: var(--band-odd); }
-  tbody tr:nth-child(even) { background: #0b1220; background: var(--band-even); }
+  tbody tr:nth-child(odd) { background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok    { color: #10b981; }
   .warn  { color: #fbbf24; }

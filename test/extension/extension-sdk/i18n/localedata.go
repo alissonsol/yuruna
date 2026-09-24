@@ -17,6 +17,7 @@ var generatedLocaleData = map[string]LocaleData{
 // whose catalog is not reviewed is not in it, however complete its data looks.
 var generatedSupported = []string{
 	"en-US",
+	"pt-BR",
 }
 
 // generatedPseudo is the locales that exist only to make a translation
@@ -40,5 +41,5 @@ const generatedDefault = "en-US"
 const generatedMaxTagLength = 35
 const generatedMaxHeaderLength = 512
 
-const generatedCatalogVersion = "2026.09.18"
-const generatedCatalogHash = "f58ea322317a63eb2192f670380452c7a4292933df42aac75b2085ea725ea78c"
+const generatedCatalogVersion = "2026.09.24"
+const generatedCatalogHash = "b5129266d8f754b79f320dc4e156671167bc01a0819d516857ac69dfea263083"

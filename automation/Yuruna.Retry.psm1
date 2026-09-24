@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,7 @@ $script:RetryDefaults = @{
 # answered with neither a record nor a clean NXDOMAIN. It is transient for the
 # same reason "no such host" beside it is: a resolver that is coming back
 # answers on a later attempt.
-$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|could not resolve host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
 <#
 .SYNOPSIS

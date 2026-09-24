@@ -116,14 +116,12 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 body {
   margin: 0;
   padding: 0;
-  background: #f9fafb;
   background: var(--bg-primary);
-  color: #111827;
   color: var(--fg-primary);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-a { color: #0366d6; color: var(--link); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* ===========================================================================
@@ -140,8 +138,7 @@ a:hover { text-decoration: underline; }
    Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
    =========================================================================== */
 header.app {
-  background: #111827;
-  background: var(--chrome-bg); color: #f9fafb; color: var(--chrome-fg);
+  background: var(--chrome-bg); color: var(--chrome-fg);
   display: flex; align-items: center; flex-wrap: nowrap;
   /* Fold the iPhone safe-area-inset into the horizontal padding so the
      full-bleed bar stays readable under the notch (every page sets
@@ -156,20 +153,20 @@ header.app > * + * { margin-left: 1rem; }
 header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
 header.app .brand a { color: inherit; text-decoration: none; }
-header.app .version { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
 header.app .spacer { flex: 1; }
 /* The host id is the header's one variable-width item, so it is the one that
    gives: it truncates rather than pushing the menu button off a phone. */
-header.app .machine { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A plain header action sits on the black bar and cannot inherit the page's
    light button styling. :not(.primary) leaves the accent-filled ones alone --
    they already read on black. Scoped to .btn, never to bare `button`: a
    `header.app button` selector would outrank .menu-button's own rules below and
    flatten its open state. */
 header.app .btn:not(.primary) {
-  background: transparent; color: #f9fafb; color: var(--chrome-fg); border-color: #374151; border-color: var(--chrome-line);
+  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
 }
-header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chrome-raised); }
+header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 
 /* Right-hand page menu. Every service carries the same control in the same
    corner, so moving between pages does not change from one Yuruna UI to the
@@ -180,20 +177,16 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 2rem; padding: .3rem .6rem;
   font: inherit; font-size: .85rem; line-height: 1;
-  color: #f9fafb;
   color: var(--chrome-fg); background: transparent;
-  border: 1px solid #374151;
   border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
 }
-.menu-button:hover, .menu-button[aria-expanded="true"] { background: #1f2937; background: var(--chrome-raised); }
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
 .menu-button .menu-icon { font-size: 1rem; line-height: 1; }
 .menu-button .menu-icon + .menu-label { margin-left: .4rem; }
 .menu-panel {
   position: absolute; top: calc(100% + .45rem); right: 0;
   min-width: 12rem; padding: .3rem;
-  background: #1f2937;
-  background: var(--chrome-raised); color: #f9fafb; color: var(--chrome-fg);
-  border: 1px solid #374151;
+  background: var(--chrome-raised); color: var(--chrome-fg);
   border: 1px solid var(--chrome-line); border-radius: 8px;
   box-shadow: 0 10px 28px rgba(0,0,0,.45);
   /* Above the fixed footer bar (3), any sticky page furniture (1) and the
@@ -203,14 +196,13 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
 }
 .menu-panel a {
   display: block; padding: .5rem .6rem; border-radius: 6px;
-  color: #f9fafb;
   color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
 }
-.menu-panel a:hover, .menu-panel a:focus { background: #374151; background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
 .menu-panel a[aria-current="page"] { font-weight: 600; }
 .menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
 /* The trailing link leaves the service; the rule says so before it is followed. */
-.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid #374151; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
 
 /* Footer bar (server IPs - loaded - refresh countdown), the same surface as the
    header above -- fixed at the bottom, with a readonly mono textarea for the
@@ -219,8 +211,7 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
    carries this id on a <footer class="app"> that centers its flow content. */
 #footer-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: #111827;
-  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
+  background: var(--chrome-bg); color: var(--chrome-muted);
   margin-top: 0; text-align: left;
   /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
      the iPhone home indicator and the landscape notch. */
@@ -236,16 +227,14 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
   z-index: 3;
 }
 #footer-bar > * + * { margin-left: .75rem; }
-#footer-bar a { color: #9ca3af; color: var(--chrome-muted); }
+#footer-bar a { color: var(--chrome-muted); }
 #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
 #footer-ips > * + * { margin-left: .5rem; }
 #footer-ips .label { flex-shrink: 0; }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--mono); font-size: .6875rem;
-  color: #9ca3af;
-  color: var(--chrome-muted); background: #0b1220; background: var(--chrome-input-bg); border: 1px solid #8b93a1; border: 1px solid var(--chrome-control-edge);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -261,8 +250,7 @@ body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env
    page that ends early ends on a bar of identical height and color instead of
    trailing off into the page background. */
 footer.app {
-  background: #111827;
-  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
+  background: var(--chrome-bg); color: var(--chrome-muted);
   /* Deliberately NOT a flex container: this variant holds a run of inline text
      around its link, and flex would promote each text run to its own anonymous
      item and eat the spaces at their edges. The taller padding centers that one
@@ -273,12 +261,12 @@ footer.app {
   /* Same floor as the fixed bar above -- these are one bar in two placements. */
   min-height: 2.25rem;
 }
-footer.app a { color: #9ca3af; color: var(--chrome-muted); }
+footer.app a { color: var(--chrome-muted); }
 
 /* Phone: the menu is how you leave a page, so it keeps a full touch target
    while its label drops -- the glyph alone survives a 320px viewport. */
 @media (max-width: 600px) {
-  .menu-button { min-height: 2.75rem; min-height: var(--touch-min); min-width: 2.75rem; min-width: var(--touch-min); font-size: 16px; }
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
   .menu-button .menu-label { display: none; }
   .menu-panel a { padding: .65rem .6rem; }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
@@ -301,10 +289,10 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
 #footer-bar .linkish {
   appearance: none; -webkit-appearance: none;
   background: none; border: 0; padding: 0; margin: 0;
-  font: inherit; color: #9ca3af; color: var(--chrome-muted);
+  font: inherit; color: var(--chrome-muted);
   text-decoration: underline; cursor: pointer;
 }
-#footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
@@ -356,9 +344,7 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
 .blocking-box {
   display: flex; align-items: center;
   padding: .9rem 1.2rem; border-radius: 10px;
-  background: #ffffff;
-  background: var(--bg-elevated); color: #111827; color: var(--fg-primary);
-  border: 1px solid #e5e7eb;
+  background: var(--bg-elevated); color: var(--fg-primary);
   border: 1px solid var(--border);
   box-shadow: 0 10px 28px rgba(0,0,0,.35);
   /* Hidden rather than absent, so the panel's size is settled before it is
@@ -372,8 +358,7 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
    message beside it competes for the row. */
 .spinner {
   width: 1.5rem; height: 1.5rem; flex-shrink: 0;
-  border: 3px solid #e5e7eb;
-  border: 3px solid var(--border); border-top-color: #0366d6; border-top-color: var(--link);
+  border: 3px solid var(--border); border-top-color: var(--link);
   border-radius: 50%;
   animation: yuruna-spin .9s linear infinite;
 }
@@ -398,14 +383,10 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 .toolbar > * + * { margin-left: 0.5rem; }
 .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select {
   padding: 0.5rem 0.6rem;
-  border: 1px solid #6b7280;
   border: 1px solid var(--border-input);
   border-radius: 6px;
-  background: #ffffff;
   background: var(--bg-elevated);
-  color: #111827;
   color: var(--fg-primary);
-  min-height: 2.75rem;
   min-height: var(--touch-min);
 }
 .toolbar input[type="search"] { flex: 1; min-width: 12rem; }
@@ -414,24 +395,20 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
   min-height: var(--touch-min);
   padding: 0.5rem 0.9rem;
   border-radius: 6px;
-  border: 1px solid #6b7280;
   border: 1px solid var(--border-input);
-  background: #ffffff;
   background: var(--bg-elevated);
-  color: #111827;
   color: var(--fg-primary);
   cursor: pointer;
   font-size: 0.95rem;
 }
-.btn:hover { background: #f3f4f6; background: var(--bg-hover); }
-.btn.primary { background: #2563eb; background: var(--primary-bg); color: #ffffff; color: var(--primary-fg); border-color: #1d4ed8; border-color: var(--primary-hover-bg); }
-.btn.primary:hover { background: #1d4ed8; background: var(--primary-hover-bg); }
-.btn.destructive { background: #c2410c; background: var(--destructive-bg); color: #ffffff; color: var(--destructive-fg); border-color: #9a3412; border-color: var(--destructive-hover-bg); }
-.btn.destructive:hover { background: #9a3412; background: var(--destructive-hover-bg); }
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
+.btn.primary:hover { background: var(--primary-hover-bg); }
+.btn.destructive { background: var(--destructive-bg); color: var(--destructive-fg); border-color: var(--destructive-hover-bg); }
+.btn.destructive:hover { background: var(--destructive-hover-bg); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* For a button living inside a table row, where the --touch-min height of a
    standalone .btn would nearly double the height of every row. */
@@ -455,11 +432,17 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 }
 
 /* Horizontal-scroll container: the columns overflow narrow phone viewports,
-   and without a wrapper the whole page scrolls sideways. */
-.table-wrap { overflow-x: auto; }
-table.stashes { width: 100%; border-collapse: collapse; background: #ffffff; background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #e5e7eb; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-table.stashes th { color: #6b7280; color: var(--fg-muted); font-weight: 600; }
+   and without a wrapper the whole page scrolls sideways. Positioned, because
+   overflow only clips what the box contains: the table's .sr-only caption is
+   absolutely positioned, so it takes the nearest POSITIONED ancestor as its
+   containing block and a static wrapper never clips it. Its 1px box is then
+   laid out at its static x inside the wide table, and once translated text
+   pushes that past the viewport the page scrolls sideways after all -- the
+   exact thing this wrapper exists to prevent. */
+.table-wrap { position: relative; overflow-x: auto; }
+table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+table.stashes th { color: var(--fg-muted); font-weight: 600; }
 /* Banded rows. A stash row is a run of near-identical mono text across eight
    columns, and the alternating background is what keeps the eye on one row
    from the name to the size. The pair is a token, and the same two values in
@@ -469,10 +452,10 @@ table.stashes th { color: #6b7280; color: var(--fg-muted); font-weight: 600; }
    Scoped to tbody: a header row is not part of the alternation. The hover rule
    below still shows through, because it paints the td and a td's background
    paints over its tr's. */
-tbody tr:nth-child(odd) { background: #f6f8fa; background: var(--band-odd); }
-tbody tr:nth-child(even) { background: #ffffff; background: var(--band-even); }
-table.stashes tr:hover td { background: #f3f4f6; background: var(--bg-hover); cursor: pointer; }
-table.stashes .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); }
+tbody tr:nth-child(odd) { background: var(--band-odd); }
+tbody tr:nth-child(even) { background: var(--band-even); }
+table.stashes tr:hover td { background: var(--bg-hover); cursor: pointer; }
+table.stashes .mono { font-family: var(--mono); }
 table.stashes .num { text-align: right; white-space: nowrap; }
 /* Selection and per-row action columns: as narrow as their content, and never
    the column that wraps when the table is squeezed. */
@@ -507,82 +490,79 @@ table.stashes th button.sort {
 /* The caret is spaced with its own margin rather than the button's `gap`: flex
    gap needs Safari 14.5, and below it the arrow would sit against the label. */
 table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; margin-left: 0.3rem; }
-table.stashes th button.sort:hover { color: #111827; color: var(--fg-primary); }
+table.stashes th button.sort:hover { color: var(--fg-primary); }
 table.stashes th button.sort:hover::after { opacity: 0.7; }
-table.stashes th button.sort:focus-visible { outline: 2px solid #0366d6; outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+table.stashes th button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 table.stashes th[aria-sort="ascending"] button.sort,
-table.stashes th[aria-sort="descending"] button.sort { color: #111827; color: var(--fg-primary); }
+table.stashes th[aria-sort="descending"] button.sort { color: var(--fg-primary); }
 table.stashes th[aria-sort="ascending"] button.sort::after { content: '\25B2'; opacity: 1; }
 table.stashes th[aria-sort="descending"] button.sort::after { content: '\25BC'; opacity: 1; }
 
-.badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); }
-.badge.complete { background: #dcfce7; background: var(--pass-bg); color: #15803d; color: var(--pass-fg); }
-.badge.pending { background: #fef3c7; background: var(--pending-bg); color: #854d0e; color: var(--pending-fg); }
-.badge.partial, .badge.truncated { background: #fef3c7; background: var(--warn-bg); color: #b45309; color: var(--warn-fg); }
-.badge.host { background: #dbeafe; background: var(--running-bg); color: #1d4ed8; color: var(--running-fg); }
-.badge.local { background: #dcfce7; background: var(--pass-bg); color: #15803d; color: var(--pass-fg); }
+.badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--mono); }
+.badge.complete { background: var(--pass-bg); color: var(--pass-fg); }
+.badge.pending { background: var(--pending-bg); color: var(--pending-fg); }
+.badge.partial, .badge.truncated { background: var(--warn-bg); color: var(--warn-fg); }
+.badge.host { background: var(--running-bg); color: var(--running-fg); }
+.badge.local { background: var(--pass-bg); color: var(--pass-fg); }
 
-.card { background: #ffffff; background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
 /* The stash metadata list. Two aligned columns where CSS Grid is available
    (Safari 10.1+), and the browser baseline gets the same pairs stacked -- a
    label over its value, which is what a <dl> reads as with no layout at all.
    The fallback is the base rule so nothing below the floor inherits a
    half-applied grid. */
 .kv { font-size: 0.9rem; }
-.kv dt { color: #6b7280; color: var(--fg-muted); }
-.kv dd { margin: 0 0 0.5rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); word-break: break-all; }
+.kv dt { color: var(--fg-muted); }
+.kv dd { margin: 0 0 0.5rem; font-family: var(--mono); word-break: break-all; }
 @supports (display: grid) {
   .kv { display: grid; grid-template-columns: max-content 1fr; grid-gap: 0.25rem 1rem; gap: 0.25rem 1rem; }
   .kv dd { margin: 0; }
 }
 
-pre.viewer { background: #f3f4f6; background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: 0.85rem; white-space: pre; }
+pre.viewer { background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: var(--mono); font-size: 0.85rem; white-space: pre; }
 pre.viewer.wrap { white-space: pre-wrap; word-break: break-word; }
-.viewer-img { max-width: 100%; height: auto; border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: 6px; background: #f3f4f6; background: var(--bg-code); }
-.viewer-frame { width: 100%; height: 75vh; border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: 6px; }
+.viewer-img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-code); }
+.viewer-frame { width: 100%; height: 75vh; border: 1px solid var(--border); border-radius: 6px; }
 audio.viewer-av, video.viewer-av { width: 100%; }
 
-form.create label { display: block; margin: 0.75rem 0 0.25rem; color: #6b7280; color: var(--fg-muted); font-size: 0.9rem; }
+form.create label { display: block; margin: 0.75rem 0 0.25rem; color: var(--fg-muted); font-size: 0.9rem; }
 form.create input[type="text"], form.create textarea, form.create input[type="file"] {
   width: 100%;
   padding: 0.5rem 0.6rem;
-  border: 1px solid #6b7280;
   border: 1px solid var(--border-input);
   border-radius: 6px;
-  background: #ffffff;
   background: var(--bg-elevated);
-  color: #111827;
   color: var(--fg-primary);
   font-family: inherit;
 }
-form.create textarea { min-height: 16rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: 0.85rem; }
+form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0.85rem; }
 
 .tabs { display: flex; margin-bottom: 0.5rem; }
 .tabs > * + * { margin-left: 0.5rem; }
 /* .tab is a <button>, so it needs the UA button styling reset: font: inherit
    stops it rendering at the browser's own smaller default, and appearance: none
    removes the native chrome that would fight the border below. */
-.tab { padding: 0.4rem 0.8rem; border: 1px solid #6b7280; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: #ffffff; background: var(--bg-elevated); font: inherit; color: inherit; appearance: none; -webkit-appearance: none; }
-.tab.active { background: #2563eb; background: var(--primary-bg); color: #ffffff; color: var(--primary-fg); border-color: #1d4ed8; border-color: var(--primary-hover-bg); }
+.tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); font: inherit; color: inherit; appearance: none; -webkit-appearance: none; }
+.tab.active { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
 
 /* The lab-token prompt. Framed rather than inline: it is the one part of these
    pages that asks the operator for something, and it appears above content that
    renders whether or not it is answered. */
-.login { border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; margin-bottom: 1rem; background: #ffffff; background: var(--bg-elevated); }
+.login { border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; margin-bottom: 1rem; background: var(--bg-elevated); }
 /* Margins, not `gap`: flex gap needs Safari 14.5, and below it the field and
    its button would touch. */
 .login .row { display: flex; flex-wrap: wrap; align-items: center; }
 .login .row > * { margin: 0.25rem 0.5rem 0.25rem 0; }
 .login .row > *:last-child { margin-right: 0; }
 .login p { margin: 0.6rem 0 0; font-size: 0.85rem; }
-.login input { min-height: 2.75rem; min-height: var(--touch-min); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid #6b7280; border: 1px solid var(--border-input); background: #ffffff; background: var(--bg-elevated); color: #111827; color: var(--fg-primary); }
+.login input { min-height: var(--touch-min); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-input); background: var(--bg-elevated); color: var(--fg-primary); }
 
 .notice { padding: 0.6rem 0.8rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
-.notice.info { background: #dbeafe; background: var(--running-bg); color: #1d4ed8; color: var(--running-fg); }
-.notice.warn { background: #fef3c7; background: var(--warn-bg); color: #b45309; color: var(--warn-fg); }
-.notice.error { background: #fee2e2; background: var(--fail-bg); color: #b91c1c; color: var(--fail-fg); }
+.notice.info { background: var(--running-bg); color: var(--running-fg); }
+.notice.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.notice.error { background: var(--fail-bg); color: var(--fail-fg); }
 
-.muted { color: #6b7280; color: var(--fg-muted); }
+.muted { color: var(--fg-muted); }
 .right { text-align: right; }
 .actions { display: flex; flex-wrap: wrap; margin: 1rem 0; }
 .actions > * + * { margin-left: 0.5rem; }
@@ -596,5 +576,5 @@ form.create textarea { min-height: 16rem; font-family: ui-monospace, Menlo, Cons
   form.create input[type="text"], form.create textarea { font-size: 16px; }
   /* The tab switcher is a <button>, so it picks up the shared --touch-min rule
      above; this keeps its own flex centering at the phone breakpoint. */
-  .tab { min-height: 2.75rem; min-height: var(--touch-min); display: flex; align-items: center; }
+  .tab { min-height: var(--touch-min); display: flex; align-items: center; }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,18 +56,6 @@
     the checks that need live rows are the reason -Url exists.
 .PARAMETER Url
     Measure these already-running pages instead of serving the working tree.
-.PARAMETER StripCustomProperties
-    Serve every stylesheet and inline <style> with custom properties removed:
-    each `--name:` definition and each declaration whose value contains var()
-    is deleted, which is what a browser without custom properties does to
-    them. What renders is then what the documented floor renders. Paired with
-    -PaletteSnapshot it turns "the floor still paints" into a comparison
-    rather than a judgment.
-.PARAMETER PaletteSnapshot
-    Write the computed background and text color of a fixed set of elements,
-    per page and width, as JSON. Two runs -- one plain, one
-    -StripCustomProperties -- produce identical files when every var() has a
-    correct literal in front of it, and differ exactly where one is missing.
 .PARAMETER Serve
     Directories to serve and measure. Defaults to the four service web roots
     and the host status pages.
@@ -130,8 +118,6 @@ param(
     [ValidateSet('ltr', 'rtl')]
     [string]$ExpectedDirection,
     [switch]$CheckFocusTargets,
-    [switch]$StripCustomProperties,
-    [string]$PaletteSnapshot,
     [switch]$Quiet
 )
 
@@ -324,15 +310,39 @@ $probe = @'
     // already scrolls it -- a 733px table inside a working overflow-x:auto
     // wrapper is the design, not the defect, and naming it sends the reader to
     // the one place that is already correct.
+    // An ancestor's overflow only clips what its box contains. An absolutely
+    // positioned box is contained by its nearest POSITIONED ancestor, so a
+    // scroll wrapper left at position:static scrolls the table and lets the
+    // absolute box out -- which is how a 1px visually-hidden span can add a
+    // second scroll direction to the page while every visible box fits.
+    function containsAbsolute(n) {
+      var cs = getComputedStyle(n);
+      if (cs.position !== 'static') { return true; }
+      if (cs.transform !== 'none' || cs.perspective !== 'none' || cs.filter !== 'none') { return true; }
+      return (cs.contain || '').indexOf('paint') >= 0 || (cs.contain || '').indexOf('layout') >= 0;
+    }
     function clipped(e) {
+      var position = getComputedStyle(e).position;
+      if (position === 'fixed') { return false; }
+      var absolute = position === 'absolute';
       for (var n = e.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+        if (absolute && !containsAbsolute(n)) { continue; }
         var ox = getComputedStyle(n).overflowX;
         if (ox === 'auto' || ox === 'scroll' || ox === 'hidden') { return true; }
       }
       return false;
     }
     var widest = null;
-    Array.prototype.forEach.call(document.querySelectorAll('body *'), function (e) {
+    // body included: when the overflow is the body box itself, scanning only
+    // its descendants names nothing and the reader gets a measurement with no
+    // subject. An escaped absolutely positioned descendant is the other way to
+    // reach here -- clipped() reports its ancestors' overflow, but an absolute
+    // box takes its containing block from the nearest POSITIONED ancestor, so
+    // an unpositioned scroll wrapper never clips it however its overflow reads.
+    var scanned = [document.body].concat(
+      Array.prototype.slice.call(document.querySelectorAll('body *')));
+    scanned.forEach(function (e) {
+      if (!e) { return; }
       var r = e.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) { return; }
       if (r.right <= window.innerWidth + 1) { return; }
@@ -464,27 +474,6 @@ $probe = @'
           ' = ' + r2.toFixed(2) + ':1, under ' + floor + ':1 (' + px + 'px/' + weight + ')');
     }
   }
-  // A fixed sample of the surfaces a palette is responsible for. Recorded
-  // rather than judged: the same list rendered with and without custom
-  // properties has to produce the same colors, and any element where it does
-  // not is one whose literal fallback is missing or wrong. Bounded and
-  // ordered so two runs line up entry for entry.
-  out.palette = [];
-  var wanted = ['body', 'header.app', 'footer.app', '#banner', '#footer-bar',
-                'main', 'table', 'th', 'td', 'button', 'a', 'input',
-                '.badge', '.card', '.menu-panel', 'code'];
-  for (var w = 0; w < wanted.length; w++) {
-    var node = document.querySelector(wanted[w]);
-    if (!node) { continue; }
-    var pcs = getComputedStyle(node);
-    out.palette.push({
-      sel: wanted[w],
-      bg: pcs.backgroundColor,
-      fg: pcs.color,
-      bc: pcs.borderTopColor,
-      ff: pcs.fontFamily
-    });
-  }
   return JSON.stringify(out);
 })()
 '@
@@ -514,24 +503,7 @@ if ($roots.Count -gt 0) {
     $listener.Start()
 
     $serve = {
-        param($listener, $rootPort, $strip)
-
-        # What a browser without custom properties is left with: a definition
-        # it cannot store, and a declaration it cannot resolve, are both
-        # invalid, and an invalid declaration is dropped while the rest of the
-        # rule stands. Deleting them here reproduces that exactly, without
-        # needing the engine that does it.
-        function Get-CssWithoutCustomProperty {
-            param([string]$Css)
-            $out = [Text.StringBuilder]::new()
-            foreach ($chunk in ($Css -split '(?<=[;{}])')) {
-                $decl = $chunk -replace '(?s)/\*.*?\*/', ''
-                if ($decl -match '^\s*--[A-Za-z0-9_-]+\s*:') { continue }
-                if ($decl -match ':[^;{}]*\bvar\s*\(') { continue }
-                [void]$out.Append($chunk)
-            }
-            return $out.ToString()
-        }
+        param($listener, $rootPort)
 
         $mime = @{
             '.html' = 'text/html; charset=utf-8'; '.css' = 'text/css; charset=utf-8'
@@ -566,21 +538,6 @@ if ($roots.Count -gt 0) {
                 if ($file) {
                     $bytes = [IO.File]::ReadAllBytes($file)
                     $ext = [IO.Path]::GetExtension($file).ToLowerInvariant()
-                    if ($strip -and ($ext -eq '.css' -or $ext -eq '.html')) {
-                        $text = [Text.UTF8Encoding]::new($false).GetString($bytes)
-                        if ($ext -eq '.css') {
-                            $text = Get-CssWithoutCustomProperty -Css $text
-                        } else {
-                            # Inline styles are part of the same cascade and
-                            # fail the same way, so a page whose palette lives
-                            # in its own <style> has to be transformed too.
-                            $text = [regex]::Replace($text, '(?is)(<style[^>]*>)(.*?)(</style>)', {
-                                param($m)
-                                $m.Groups[1].Value + (Get-CssWithoutCustomProperty -Css $m.Groups[2].Value) + $m.Groups[3].Value
-                            })
-                        }
-                        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
-                    }
                     $ctx.Response.ContentType = if ($mime.ContainsKey($ext)) { $mime[$ext] } else { 'application/octet-stream' }
                     $ctx.Response.ContentLength64 = $bytes.Length
                     $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
@@ -591,7 +548,7 @@ if ($roots.Count -gt 0) {
         }
     }
     $ps = [PowerShell]::Create()
-    $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort).AddArgument([bool]$StripCustomProperties)
+    $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort)
     $null = $ps.BeginInvoke()
     $serverRunspace = $ps
 }
@@ -604,7 +561,6 @@ $profileDir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-a11y-" + [Guid]::New
 $chromeLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-chrome.log'
 $nextId = 0
 $findings = [Collections.Generic.List[string]]::new()
-$paletteRow = [Collections.Generic.List[object]]::new()
 $measured = 0
 $browserReady = $false
 $browserPrerequisiteFailure = $null
@@ -719,22 +675,19 @@ window.addEventListener('securitypolicyviolation', function (event) {
                     $data = $res.result.value | ConvertFrom-Json
                     $measured++
                     $tag = "$($page.Label) [$($w)px $sch]"
-                    if ($PaletteSnapshot -and $data.palette) {
-                        foreach ($entry in $data.palette) {
-                            $paletteRow.Add([ordered]@{
-                                page = $page.Label; width = $w; scheme = $sch
-                                selector = $entry.sel; background = $entry.bg
-                                color = $entry.fg; border = $entry.bc; font = $entry.ff
-                            })
-                        }
-                    }
                     if ($data.findings.Count -eq 0) {
                         if (-not $Quiet) { Write-Line "ok   $tag" }
                     } else {
-                        if (-not $Quiet) { Write-Line "FAIL $tag" }
+                        # Printed even when quiet. -Quiet silences the passing
+                        # page-views, which are noise; a finding is the entire
+                        # reason this ran, and every caller that passes -Quiet
+                        # is the one whose operator has only this log to read.
+                        # Reporting the count alone sends them to reproduce the
+                        # run by hand to learn what it already knew.
+                        Write-Line "FAIL $tag"
                         foreach ($f in $data.findings) {
                             $line = "  {0,-22} {1}" -f $f.kind, $f.detail
-                            if (-not $Quiet) { Write-Line $line }
+                            Write-Line $line
                             $findings.Add("${tag}: $($f.kind): $($f.detail)")
                         }
                     }
@@ -744,14 +697,6 @@ window.addEventListener('securitypolicyviolation', function (event) {
                 }
             }
         }
-    }
-    if ($PaletteSnapshot) {
-        # Sorted, so two runs are comparable byte for byte rather than in the
-        # order Chrome happened to finish the pages.
-        $ordered = @($paletteRow | Sort-Object { $_.page }, { $_.width }, { $_.scheme }, { $_.selector })
-        $json = ($ordered | ConvertTo-Json -Depth 6).Replace("`r`n", "`n").TrimEnd() + "`n"
-        [IO.File]::WriteAllText($PaletteSnapshot, $json, [Text.UTF8Encoding]::new($false))
-        if (-not $Quiet) { Write-Line ("palette snapshot: {0} row(s) -> {1}" -f $ordered.Count, $PaletteSnapshot) }
     }
 } catch {
     if (-not $browserReady) {

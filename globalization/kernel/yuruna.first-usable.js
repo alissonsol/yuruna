@@ -1,6 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// ES5. Embedded in existing runtimes: no extra request or polling work.
+// Embedded in existing runtimes: no extra request or polling work.
 // Only application renderers know when primary content is usable. A parsed
 // document, a timer, or a completed request alone cannot establish readiness.
 (function (window) {

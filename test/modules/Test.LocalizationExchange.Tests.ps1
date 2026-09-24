@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42e05a94-3c17-4d6b-81f9-7ab2c6d035e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,7 +94,7 @@ function New-ExchangeFixture {
         [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
         [IO.File]::Copy((Join-Path $script:RepoRoot $relative), $target)
     }
-    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.18`n"
+    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.24`n"
     Write-FixtureJson -Path (Join-Path $root 'globalization/locale-manifest.json') -Value ([ordered]@{
             schema = 'yuruna.locale-manifest/v1'
             default = 'en-US'
@@ -778,7 +778,8 @@ Describe 'production exchange acceptance' {
         foreach ($format in @('Json', 'Csv', 'Xliff')) {
             $fixture = New-ExchangeFixture (Join-Path $TestDrive ('codec-' + $format))
             $yamlPath = Join-Path $fixture.ProjectRoot 'test/test.runner.yml'
-            Write-FixtureText $yamlPath "testSets:`n  - name: smoke`n    displayName: Quick smoke test`n    description: A comma, a quote `" and Unicode $([char]0x03a9)`n"
+            $header = "# LICENSEURI https://example.invalid/license`n# Copyright (c) 2026 by the fixture author`n"
+            Write-FixtureText $yamlPath ($header + "`n# The runner reads this at cycle start.`ntestSets:`n  - name: smoke`n    displayName: Quick smoke test`n    # The fastest signal.`n    description: A comma, a quote `" and Unicode $([char]0x03a9)`n")
             $mapPath = Join-Path $fixture.ProjectRoot 'globalization/project-locale-source-hashes.json'
             $map = ConvertFrom-Json ([IO.File]::ReadAllText($mapPath))
             $map.entries += [pscustomobject]@{ path = 'test/test.runner.yml'; fieldPath = '/testSets/name=smoke/description'; locale = $script:Tag; sourceHash = ('f' * 64); reviewStatus = 'unreviewed' }
@@ -789,7 +790,11 @@ Describe 'production exchange acceptance' {
             $run = Invoke-FixtureImport $fixture -Extra @('-RequireComplete')
             $run.Code | Should -Be 0 -Because $run.Output
             Assert-LocalizationYamlCodec
-            $yaml = ConvertFrom-Yaml ([IO.File]::ReadAllText($yamlPath)) -Ordered
+            $written = [IO.File]::ReadAllText($yamlPath)
+            $written.StartsWith($header, [StringComparison]::Ordinal) | Should -BeTrue -Because 'the import dropped the license header the file came with'
+            $written.Contains("`n# The runner reads this at cycle start.`n") | Should -BeTrue -Because 'the import dropped a comment above the data'
+            $written.Contains("`n    # The fastest signal.`n") | Should -BeTrue -Because 'the import dropped a comment between two keys'
+            $yaml = ConvertFrom-Yaml $written -Ordered
             $yaml.testSets[0].displayNameLocalized[$script:Tag] | Should -BeExactly 'XX Quick smoke test'
             $yaml.testSets[0].descriptionLocalized[$script:Tag] | Should -BeExactly ('XX A comma, a quote " and Unicode ' + [char]0x03a9)
             (Invoke-FixtureExport $fixture).Code | Should -Be 0
@@ -1008,5 +1013,99 @@ Describe 'first exchange preserves existing reviewed text' {
         $request = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $bundle 'request.json')))
         @($request.rows | Where-Object id -CEQ 'document:yuruna:README.md')[0].state | Should -BeExactly new
         [IO.File]::ReadAllText((Join-Path $bundle 'documents/yuruna/README.md')) | Should -BeExactly 'Existing fixture translation: yuruna'
+    }
+}
+
+Describe 'a translation lands without touching the rest of its file' {
+    BeforeAll {
+        Assert-LocalizationYamlCodec
+        $script:Notice = "# LICENSEURI https://example.invalid/license`n# Copyright (c) 2026 by the fixture author`n"
+        $script:Source = $script:Notice + @'
+
+# The runner reads this at cycle start.
+sequences:
+  - one   # the only sequence
+testSets:
+  - name: smoke
+    displayName: Quick smoke test
+    displayNameLocalized:
+      qq-QQ: Already here  # vendor-reviewed; do not machine-translate
+    # The fastest signal.
+    description: A comma, a quote " and a backslash \ here
+    sequences: [one, two]
+  - name: guest
+    displayName: 'Guest: quoted'
+    description: Plain
+'@
+        function New-SpliceFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Writes only inside a disposable fixture tree under TestDrive.')]
+            param([string]$Name, [string]$Text)
+            $path = Join-Path $TestDrive ($Name + '.yml')
+            Write-FixtureText -Path $path -Text $Text
+            return $path
+        }
+        $script:Edits = @(
+            @{ Pointer = '/testSets/name=smoke/displayName'; Locale = 'xx-XX'; Text = 'XX smoke' }
+            @{ Pointer = '/testSets/name=smoke/displayName'; Locale = 'qq-QQ'; Text = 'Replaced' }
+            @{ Pointer = '/testSets/name=smoke/description'; Locale = 'xx-XX'; Text = 'XX a quote " a backslash \ a tab ' + "`t" + ' and Unicode ' + [char]0x03a9 }
+            @{ Pointer = '/testSets/name=guest/displayName'; Locale = 'xx-XX'; Text = 'XX guest' }
+        )
+    }
+
+    It 'keeps every notice and note and every line it did not translate' {
+        $path = New-SpliceFile -Name 'keeps' -Text $script:Source
+        Set-LocalizationYamlLocaleText -Path $path -Edit $script:Edits
+        $after = [IO.File]::ReadAllText($path)
+        $after.StartsWith($script:Notice, [StringComparison]::Ordinal) | Should -BeTrue -Because 'the notice at the top of the file was lost'
+        # Every original line that was not the one replaced is still there, in
+        # order: the edit is insertions plus one replacement, nothing else.
+        $kept = [Collections.Generic.List[string]]::new()
+        foreach ($line in $script:Source.Split("`n")) { if ($line -cne '      qq-QQ: Already here  # vendor-reviewed; do not machine-translate') { [void]$kept.Add($line) } }
+        $cursor = 0
+        foreach ($line in $after.Split("`n")) { if ($cursor -lt $kept.Count -and $line -ceq $kept[$cursor]) { $cursor++ } }
+        $cursor | Should -Be $kept.Count -Because ('line ' + $cursor + ' of the original is missing or moved: ' + $kept[[Math]::Min($cursor, $kept.Count - 1)])
+        $after.Split("`n").Count | Should -Be ($script:Source.Split("`n").Count + 5) -Because 'two new maps of two lines and one new entry were expected, nothing more'
+        # The one line the edit rewrites is the only place a note can be lost
+        # without the document changing, so the kept-line sweep above cannot see it.
+        $after | Should -BeLike '*      qq-QQ: "Replaced"  # vendor-reviewed; do not machine-translate*'
+    }
+
+    It 'parses into the document the serializing path would have produced' {
+        $path = New-SpliceFile -Name 'parses' -Text $script:Source
+        Set-LocalizationYamlLocaleText -Path $path -Edit $script:Edits
+        $yaml = ConvertFrom-Yaml ([IO.File]::ReadAllText($path)) -Ordered
+        $yaml.testSets[0].displayNameLocalized['xx-XX'] | Should -BeExactly 'XX smoke'
+        $yaml.testSets[0].displayNameLocalized['qq-QQ'] | Should -BeExactly 'Replaced'
+        $yaml.testSets[0].descriptionLocalized['xx-XX'] | Should -BeExactly $script:Edits[2].Text
+        $yaml.testSets[1].displayNameLocalized['xx-XX'] | Should -BeExactly 'XX guest'
+        $yaml.testSets[0].description | Should -BeExactly 'A comma, a quote " and a backslash \ here'
+        @($yaml.testSets[0].sequences) | Should -Be @('one', 'two')
+    }
+
+    It 'writes the same bytes when asked for what is already there' {
+        # The staged apply compares the tree before and after by hash; a second
+        # pass over an applied translation has to leave the file exactly as it is.
+        $path = New-SpliceFile -Name 'again' -Text $script:Source
+        Set-LocalizationYamlLocaleText -Path $path -Edit $script:Edits
+        $once = [IO.File]::ReadAllText($path)
+        Set-LocalizationYamlLocaleText -Path $path -Edit $script:Edits
+        [IO.File]::ReadAllText($path) | Should -BeExactly $once
+    }
+
+    It 'refuses a shape it cannot splice rather than guessing' {
+        $inline = New-SpliceFile -Name 'inline' -Text "testSets: [{name: smoke, displayName: Quick}]`n"
+        Assert-Throw { Set-LocalizationYamlLocaleText -Path $inline -Edit @(@{ Pointer = '/testSets/name=smoke/displayName'; Locale = 'xx-XX'; Text = 'XX' }) } 'written inline' 'a flow mapping has no line to splice under'
+        $folded = New-SpliceFile -Name 'folded' -Text "testSets:`n  - name: smoke`n    displayName: >-`n      Quick`n      smoke`n"
+        Assert-Throw { Set-LocalizationYamlLocaleText -Path $folded -Edit @(@{ Pointer = '/testSets/name=smoke/displayName'; Locale = 'xx-XX'; Text = 'XX' }) } 'spans lines' 'a block scalar spans lines'
+        $missing = New-SpliceFile -Name 'missing' -Text $script:Source
+        Assert-Throw { Set-LocalizationYamlLocaleText -Path $missing -Edit @(@{ Pointer = '/testSets/name=nowhere/displayName'; Locale = 'xx-XX'; Text = 'XX' }) } 'project pointer' 'a pointer to nothing must not write anywhere'
+        $crlf = New-SpliceFile -Name 'crlf' -Text ($script:Source.Replace("`n", "`r`n"))
+        Assert-Throw { Set-LocalizationYamlLocaleText -Path $crlf -Edit $script:Edits } 'carriage returns' 'line marks are counted on LF files'
+        $split = New-SpliceFile -Name 'split' -Text "testSets:`n  - name: smoke`n    displayName: Quick`n    displayNameLocalized:`n      qq-QQ:`n        # who reviewed this`n        Already here`n"
+        Assert-Throw { Set-LocalizationYamlLocaleText -Path $split -Edit @(@{ Pointer = '/testSets/name=smoke/displayName'; Locale = 'qq-QQ'; Text = 'XX' }) } 'across lines' 'collapsing the lines between a key and its value would eat what sits between them'
+        foreach ($name in 'inline', 'folded', 'missing', 'split') {
+            [IO.File]::ReadAllText((Join-Path $TestDrive ($name + '.yml'))).Contains('xx-XX') | Should -BeFalse -Because "a refused edit still wrote into $name.yml"
+        }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42b7e04d-95c1-4a2f-8d63-70e1c9a4b528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,15 +265,15 @@ Describe 'the runner records a state, and the reader is shown it in their langua
         Assert-StringEqual -Expected 'True' -Actual $out['content'] 'sanitization removed ordinary external text'
     }
 
-    It 'renders the slice with the floor capabilities taken away' {
-        # The same rendering with Intl, normalize and native fetch gone, which
-        # is what the floor browser offers. A slice that works only on a modern
-        # engine proves nothing about the readers this project targets.
+    It 'renders the slice with the engine formatters taken away' {
+        # The same rendering with Intl and normalize gone and toLocaleString
+        # made to throw, so a surface that quietly asked the engine to format
+        # for it fails loudly here. The shared formatters are the point: a
+        # number on the page and the same number in a transcript have to read
+        # alike, and engine ICU data differs between browsers.
         $out = Invoke-SlicePage -Name 'capability-off' -Preamble @'
   try { delete window.Intl; } catch (e) { window.Intl = undefined; }
   try { delete String.prototype.normalize; } catch (e) {}
-  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
   Number.prototype.toLocaleString = function () { throw new Error('locale-blind'); };
   Date.prototype.toLocaleString = function () { throw new Error('locale-blind'); };
 '@ -Body ($script:PersistedEvent + @'
@@ -284,10 +284,12 @@ Describe 'the runner records a state, and the reader is shown it in their langua
     say('intl', typeof window.Intl);
 '@)
         Assert-StringEqual -Expected '[2/11] workload.guest.example Paused, waiting for resume.' `
-            -Actual $out['text'] 'the slice does not render at the floor'
-        Assert-StringEqual -Expected 'Duration: 1h 30m' -Actual $out['duration'] 'the duration is wrong at the floor'
-        Assert-StringEqual -Expected '1,234 hosts online.' -Actual $out['count'] 'the count is wrong at the floor'
-        Assert-StringEqual -Expected 'undefined' -Actual $out['intl'] 'the floor was not actually emulated'
+            -Actual $out['text'] 'the slice does not render without the engine formatters'
+        Assert-StringEqual -Expected 'Duration: 1h 30m' -Actual $out['duration'] `
+            'the duration is wrong without the engine formatters'
+        Assert-StringEqual -Expected '1,234 hosts online.' -Actual $out['count'] `
+            'the count is wrong without the engine formatters'
+        Assert-StringEqual -Expected 'undefined' -Actual $out['intl'] 'Intl was not actually taken away'
     }
 }
 

@@ -1,0 +1,65 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "parser",
+  "locale": "pt-BR",
+  "messages": {
+    "parser.bytes": {
+      "sourceHash": "602360335040223001d9d60373622a9759fe5d112512c592e53cd2e6a31da9a9",
+      "message": "bytes"
+    },
+    "parser.client": {
+      "sourceHash": "d443af95e7716c6659a43464c23a4c4aea1b7ae33e4b1de6d139a497238d31a6",
+      "message": "cliente"
+    },
+    "parser.method": {
+      "sourceHash": "8d656bf79d83bcb857eb8b42f0a7479ad0124bd01f8314a7295cab57b2c94f2f",
+      "message": "método"
+    },
+    "parser.pause_auto_refresh": {
+      "sourceHash": "59c89b11cfccc1197d725c2c513bd94ccb23cf1802f92c260ca3938dab5ad345",
+      "message": "Pausar a actualização automática"
+    },
+    "parser.refresh_failed": {
+      "sourceHash": "1bdc19c1444818ef78b4f46cf32ba1404c3abd9d7e2e7f52b8df65b897b8241e",
+      "message": "(refresh falhou)"
+    },
+    "parser.refresh_failed_the_rows_below_are_from_the_last_successful_read": {
+      "sourceHash": "a60675e85796b0af59817e6131eb219a58ef9bf2f0afc97c115184216a4c769b",
+      "message": "A atualização falhou. As linhas abaixo são da última leitura bem- sucedida."
+    },
+    "parser.refreshed_rows": {
+      "sourceHash": "f920be0ce57ff1958816bf7089bbbedd027324679c31e9012ffa0ee82af3f33e",
+      "plural": {
+        "variants": {
+          "one": "( linha {count}, atualizada {time})",
+          "other": "({count} linhas, atualizado {time})",
+          "many": "({count} linhas, atualizado {time})"
+        }
+      }
+    },
+    "parser.resume_auto_refresh": {
+      "sourceHash": "b61e5381c6fffdd2e987fb47519f7d6b6c8bfc084a4eabac287d1b3de4c29864",
+      "message": "Continuar a atualização automática"
+    },
+    "parser.squid_cache_recent_100_requests": {
+      "sourceHash": "68cddfadccb6584ac91f84dd2ed41fd90c143913083afbe6efd963b41a3f0d50",
+      "message": "Cache de lulas -- 100 pedidos recentes"
+    },
+    "parser.status": {
+      "sourceHash": "f55d5cf4401c78a003a28c2fa175ce559847f30baf24279b31630f75854f1730",
+      "message": "status"
+    },
+    "parser.time": {
+      "sourceHash": "a3631d2ae0cfdda0e58c92208edb424dbb5f0544bbe001de097936db1f2edd0c",
+      "message": "tempo"
+    },
+    "parser.url": {
+      "sourceHash": "d641e747dac3dd90627ec78561f45c607909808eb4ab8392ffd672be25f5f408",
+      "message": "url"
+    },
+    "parser.user_agent": {
+      "sourceHash": "6a203fe4d39ae7a7b6fe4c18c51ea33b8ac63899d8d53c34c8f356b2fd3500ce",
+      "message": "utilizador- agente"
+    }
+  }
+}

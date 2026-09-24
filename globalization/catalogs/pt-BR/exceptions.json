@@ -1,0 +1,579 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "exceptions",
+  "locale": "pt-BR",
+  "messages": {
+    "exceptions.host_1568d9e12a12e190": {
+      "sourceHash": "9cc77f3c54a394b1b7a763daa4814966a64bef4ceac1d12fe95e915728bba559",
+      "message": "Esta é a variante Ubuntu KVM; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma."
+    },
+    "exceptions.host_1c714189825ec0e2": {
+      "sourceHash": "01e28a898344e8b19777b2650c099fbc63195c3eb0e77d7f65de11ff7391d5d7",
+      "message": "Hiper- V\\ Remove- VM falhou para '{vMName}': {message}\nEstado de hiper- V vivo:\n{diag}"
+    },
+    "exceptions.host_29df6c21ee80406c": {
+      "sourceHash": "48e7179d992250366b3858a5c9d80896237ea4e5f2428f3392b63f4568a1f430",
+      "message": "download não escreveu nenhum arquivo para {tmp}"
+    },
+    "exceptions.host_29ec111859986081": {
+      "sourceHash": "53717496f135010e4ff7a954b2875a47ef594f240452ae5dacaae6c08d76483c",
+      "message": "A gravação do '{leasePath}' falhou (saída do {exitCode}): {trim}"
+    },
+    "exceptions.host_3229f8d0887eda42": {
+      "sourceHash": "aa1295c3ab84f1f0d5ebb59a372fdb9a0fbaccc29abb9a751294bf42d532ac84",
+      "message": "O Fido não devolveu uma URL de download."
+    },
+    "exceptions.host_34a5ef05cab6ab38": {
+      "sourceHash": "ad16b311722383dfbe5ca7e844fd3705bd4c726c9c79d82e69e30bfa1dfbf1db",
+      "message": "O 'sourceDir' não foi encontrado: {sourceDir}"
+    },
+    "exceptions.host_35a1dbbdd2006dae": {
+      "sourceHash": "6acc39e10a0f23afa03759087b0091011ceb04e51f76e18fada16cbb86d61a17",
+      "message": "sysadminctl - screenLock {target} falhou: {output}"
+    },
+    "exceptions.host_37d35a4c65c7d70a": {
+      "sourceHash": "8655486be69efd84eb847b04343d35d49ac3a95ab33916dc077e5d4a53fe9911",
+      "message": "Falha na gravação automática: {output}"
+    },
+    "exceptions.host_3fa13d65fc1bcf6d": {
+      "sourceHash": "91f6d5ff80e41d4ef7f6d89a9757ccf186f9edc4f517b5063fcd986f3c0ab80d",
+      "message": "HTTP {statusCode} {reasonPhrase} para {uri}"
+    },
+    "exceptions.host_4e1b665678bb8be4": {
+      "sourceHash": "de5778d6b7437a53922b0216a5a80bb7b6adaedf8e937a4e7c39c82c00bff96c",
+      "message": "os padrões de escrita {dLabel} falharam (saída {lASTEXITCODE})"
+    },
+    "exceptions.host_4ff2b596d293bb78": {
+      "sourceHash": "7ed8335dcd48565115cb661b9989d9df479ddff8d7008d8e51ea236e22a16c08",
+      "message": "systemsetup - set usingnetworktime {onOff} falhou: {output}"
+    },
+    "exceptions.host_56dd0a83b1740c20": {
+      "sourceHash": "972b7943130f10d82ca775d62edef184fd9d38e9d52b1c3eb1970ef00138a3a6",
+      "message": "Desactivar-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
+    },
+    "exceptions.host_5e82d7a32d22a269": {
+      "sourceHash": "b5b9f51b2447d4bfce7e9c3432b413bd8ae208c30b2b913c7016787334290c04",
+      "message": "HTTP {status} {reasonPhrase} para {uri}"
+    },
+    "exceptions.host_5fbd4e8bd8efc5cc": {
+      "sourceHash": "f7b1ac893d8b8cfc29dd03c0abf6d54b00de2f9aebedd2f01dec04608b624c4f",
+      "message": "Arquitetura não suportada para a imagem base do serviço de extensão: {osArch}. Um host Hyper-V deve ser AMD64 ou ARM64."
+    },
+    "exceptions.host_607d7ff275d56f40": {
+      "sourceHash": "79621f4c2952927527cd4ca67b40b7ef25164c1f2f95a59afa36decd6f196b8e",
+      "message": "Get-Image.ps1 para guest.macos.26 só é executado no macOS (necessário virtualização da maçã)."
+    },
+    "exceptions.host_634b857addaa8df5": {
+      "sourceHash": "d60611de009556822d7774ade495a533a24164233cd707fa7f3de44332a53773",
+      "message": "Hyper-V\\Remove-VM retornou o sucesso para '{vMName}' mas Get-VM ainda o encontra; abortando antes da recriação."
+    },
+    "exceptions.host_674dd7c6c0448e92": {
+      "sourceHash": "ba18e9178ab79d7096a160c87338336822e1470987d97bb4eb3acde509f947fe",
+      "message": "o sudo - v falhou -- não é possível obter o root para o networksetup. Verifique a sua configuração do sudo."
+    },
+    "exceptions.host_6a438f8f59faef03": {
+      "sourceHash": "fa645130ebe786f57d29f08b06d124920986ba5bc8c6beeda1f3982a631e40c7",
+      "message": "A pasta VHDX padrão do Hyper- V não existe: {dir}"
+    },
+    "exceptions.host_6ac6dfe19b3c2194": {
+      "sourceHash": "56e4b8c27c0cc2a8847b1082f7c81b9ad842f0de564c270afb20ff0aa2a6b830",
+      "message": "Inválido -ExposiçãoVirtualizaçãoExtensões '{exposeVirtualizationExtensions}': esperado 'verdadeiro' ou 'falso'."
+    },
+    "exceptions.host_6ce33651bd210b55": {
+      "sourceHash": "98dc905fafbd9214dde90a66634c38eb07a6fecb2e5a74843072e1aa0711434c",
+      "message": "Get-VMName: virsh não encontrado no PATH; não é possível enumerar domínios libvirt."
+    },
+    "exceptions.host_74d716391a86a463": {
+      "sourceHash": "ca38fc560d7191f820841e44847c60e9d1c32363bee56722f0c7c654a247031e",
+      "message": "New-VM.ps1 para guest.macos.26 só é executado no macOS (necessário virtualização da maçã)."
+    },
+    "exceptions.host_75249e3feb95694e": {
+      "sourceHash": "3bf1a72ab8f0ea73bd1cc546cfe29fd1f6acce9c62045b159374c8364e94b4f5",
+      "message": "Esta é a variante MacOS UTM; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma."
+    },
+    "exceptions.host_76bccb579d55bc73": {
+      "sourceHash": "53e68d546347b95037221ef81d48de0db051a0341041a6f3496052d8c845e49c",
+      "message": "Get-VMName: utmctl não respondeu -- UTM.app não está respondendo aos Eventos da Apple. Pare e relance UTM.app (ou reinicie appleeventsd) e tente novamente; nada aqui pode ser enumerado até que ele responda."
+    },
+    "exceptions.host_78d93fd740dd1ed5": {
+      "sourceHash": "a17599899aac14070f9c2f1140b5eb8ef6a395f987965b9d9d6cf771b3cc84a0",
+      "message": "Falha na transferência: {message}"
+    },
+    "exceptions.host_7c4b552da601ab61": {
+      "sourceHash": "48f080500e8c91db4f75f01d556d91c37eedf32ed953ed21dc66359ce6ebb9df",
+      "message": "Get-VMName: utmctl não conseguiu alcançar o UTM. Execute a partir de uma sessão de Terminal com acesso Automation para pwsh, depois que o UTM.app é lançado e um usuário é logado graficamente. Saída:\n{text}"
+    },
+    "exceptions.host_7e0c1c27f76157e5": {
+      "sourceHash": "f26098f09b08971ed7bac6c16f3a37433f726ede742df97f3aa80ed7aee69346",
+      "message": "Esta é a variante do Windows Hyper-V; execute host/<type>/Sync-HostConfiguration.ps1 para esta plataforma."
+    },
+    "exceptions.host_81fb05f8b6924bce": {
+      "sourceHash": "4895180ff20f8ae926cc94258dea6388d652a1c78ea6434dd780ebe12994fdff",
+      "message": "Get-VMName: utmctl não encontrado no PATH; não é possível enumerar VMs UTM."
+    },
+    "exceptions.host_870df3a8573355af": {
+      "sourceHash": "1498fd52e40f3ec72bac544bc1dd435496948e9cff9d359d092d1d225ef2d3f2",
+      "message": "A transferência falhou: o ficheiro não foi encontrado."
+    },
+    "exceptions.host_8829c3d9ffaef2dd": {
+      "sourceHash": "dcdcb050491e6a15aa8b6ff613735697e9d05b12320d14fc70d34f7719f1af8a",
+      "message": "Active-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
+    },
+    "exceptions.host_88d0b2dc03ee17c2": {
+      "sourceHash": "dad9bd673ce16db1d387242f79a1b7bb8289dd466cf8c1cb9c6f9f8a9b65aff0",
+      "message": "O download do virtio-win.iso falhou após {attempts}/{maxAttempts} tentativa(s) [lastExit={lastExit}]: {detail}\nsaída da última tentativa:\n{tail}\nlog completo por tentativa: {dlLog}"
+    },
+    "exceptions.host_88e5a12c10f16189": {
+      "sourceHash": "04d850c148b0307eb3b542ff2fc047dedbf145df509a50b9c72dc065353c50f3",
+      "message": "O ficheiro transferido é suspeitomente pequeno (< 1 GB). Pode não ser uma ISO válida."
+    },
+    "exceptions.host_8c0479442a041d98": {
+      "sourceHash": "5248a43530cb75b174acad5341a03ef15702b5ef9905f8ff93f55c386c955ea8",
+      "message": "Desactivar-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows."
+    },
+    "exceptions.host_8d770e16b147abe9": {
+      "sourceHash": "9680a39856b3baa5c5e36a6631a5147cdc8516322b4f6f539d1599e129375485",
+      "message": "gsettings não está presente nesta máquina"
+    },
+    "exceptions.host_8fa181c2fe215cd1": {
+      "sourceHash": "0c15d249796360ada14267ede4b33a9342551ebc8da20bc884caad37d74a6c94",
+      "message": "Língua configurada inválida '{languageRaw}'."
+    },
+    "exceptions.host_9174df31c5ee6350": {
+      "sourceHash": "784a8578ebddf12e99c932438724d8cfad15b7921b4045039237cc40610bb44c",
+      "message": "virsh destroy + indefined left '{vMName}' definido; abortando antes da recriação.\ndominfo:\n{dominfo}"
+    },
+    "exceptions.host_9a18fc9562c73b34": {
+      "sourceHash": "ad7d446656e8698f9bd0c29a99780f177be2b3aa51baad92db446600e585ca1b",
+      "message": "Não foi possível detectar automaticamente o serviço de rede macOS ativo. Passe -NetworkService 'Wi-Fi' (ou o nome do seu serviço ativo)."
+    },
+    "exceptions.host_9a7684fc14fabdb7": {
+      "sourceHash": "56beaf89cd48c43bb6ad9d0ce20e7fa7717dc13065dbfc1383c9e559c34590a6",
+      "message": "pmset {flag} {key} {v} falhou (saída {exitCode}): {output}"
+    },
+    "exceptions.host_9aec44ead873e6bc": {
+      "sourceHash": "70d27ba43b4ed5a558ad8b0d85b62962f13cdcab0acabbb323be45b4b452824e",
+      "message": "genisoimage (autounattend) falhou (saída do {lASTEXITCODE})"
+    },
+    "exceptions.host_9bbc5dc302229fc3": {
+      "sourceHash": "a686980d8d4018739ed34d289bc10b7d40be3716788bbd73862f95b658f60e81",
+      "message": "A verificação da soma de verificação de imagem falhou para o {isoFileName} (ver banner acima): erro de correspondência ou download inverificável. Apagou o download e abortou; execute novamente uma vez que a soma de verificação do editor é alcançável."
+    },
+    "exceptions.host_9e5168a03fb971f1": {
+      "sourceHash": "69f8008dc40f0d1cc54b3b252b4227bc0392658d6359fbf1f3f4bdcbe62381d8",
+      "message": "pmset - a {key} {absentValue} falhou (saída {exitCode}): {output}"
+    },
+    "exceptions.host_9e776665909b3868": {
+      "sourceHash": "95cf873f3e4775e0297e0914a24b75b182f32d256dc36192071ec44cbc45fe12",
+      "message": "Não foi possível ler o Hyper- V VirtualHardDiskPath: O Get- VMHost falhou. O Hyper- V pode não estar instalado ou esta sessão não está elevada."
+    },
+    "exceptions.host_a64eb0bfe41b92f6": {
+      "sourceHash": "474b2d67a09497fd6f8d85a138cd3633ea7f5bb545b0b8994be0c79b1d2d57b2",
+      "message": "o serviço Tempo do Windows não está presente neste host"
+    },
+    "exceptions.host_a6a18006853361cb": {
+      "sourceHash": "6f1a1ae9b0a1ba6a37e9aac5b964cc56ae4a103132651e0d9d65226bead56825",
+      "message": "Get- VMName: o virsh não conseguiu enumerar os domínios (a libvirtd está em execução e esta shell no grupo libvirt?): {join}"
+    },
+    "exceptions.host_a937232a82280ebc": {
+      "sourceHash": "a6e38d4160ab17900569d11252aa0ddc0ff1466831dec46a8c9a91e5f8f0797a",
+      "message": "o download produziu um arquivo vazio no {tmp}"
+    },
+    "exceptions.host_b0946878b754a138": {
+      "sourceHash": "c280ba93439b69d062d55954ffea9751a0b0d2f9fd97ed77f5826314cba3b9a1",
+      "message": "A assinatura SHA256SUMS GPG inválida para {checksumUrl}"
+    },
+    "exceptions.host_b1cc462acbad03b8": {
+      "sourceHash": "010b5a0684e827480c75a070c48144c49b01a8b4d26b5e3f172ed891abd85aa7",
+      "message": "timedatectl set-ntp {onOff} falhou: {output}"
+    },
+    "exceptions.host_b719fe2e9aee1899": {
+      "sourceHash": "2acbac1c28ad9b6c3ce8d716cbde63729c39e08df889c340a9f62698428351cb",
+      "message": "sysadminctl - telaLock {target} precisa da senha da conta: {output}. Execute-a manualmente: {target2}"
+    },
+    "exceptions.host_ba52b7b4134e8e12": {
+      "sourceHash": "78523365cca2a38ce6ea64982177a44e3c058717e55e618fd66d2382d4a52a62",
+      "message": "Oscdimg.exe não foi encontrado no caminho: {oscdimgPath}. Instale o recurso 'Ferramentas de implantação' ADK do Windows (winget install --id Microsoft.WindowsADK), então re-run. Se o ADK estiver instalado em outro lugar, aponte $script:OscdimgToolsRoot in host\\windows.hyper-v\\modules\\Yuruna.Host.psm1 em seu diretório 'Ferramentas de implantação'."
+    },
+    "exceptions.host_bf69280290368131": {
+      "sourceHash": "445df8edb37cd0411a60ba3a5fda9a9d0bd5e860e7b0c903df69c59fe0d6b03d",
+      "message": "Desactivar- TesteAutomation.ps1 (host/macos.utm) só é executado no macOS."
+    },
+    "exceptions.host_c3577106b0f799eb": {
+      "sourceHash": "7ec81f093fcf97ebb3cb110a32f882e1565a603fde41b0325a368b20a895cee4",
+      "message": "pmset - a {key} {v} falhou (saída {exitCode}): {output}"
+    },
+    "exceptions.host_c499e6600386ccd3": {
+      "sourceHash": "c798fd763a69430194fe1067f8be0ce8c5f4b285d7ea172caa5343f1fab2fa8a",
+      "message": "o estado capturado '{text}' não nomeia um intervalo para restaurar"
+    },
+    "exceptions.host_ce186b06237fbe4d": {
+      "sourceHash": "131ef527b49c778c2e6103bd6759deafb1e69380cbb034bd636be8fcfec87c02",
+      "message": "networksetup precisa de root e esta execução não pode pedir uma senha. Execute 'sudo -v' no terminal que possui esta execução antes de iniciar, ou conceda a esta conta uma regra sem senha para /usr/sbin/networksetup em /etc/sudoers.d."
+    },
+    "exceptions.host_d35eaa0aac5124a8": {
+      "sourceHash": "10d673909c618241ca4ff75b605784cbc1e47fb90cef6137ab6bf6b0dff80287",
+      "message": "O ficheiro transferido é demasiado pequeno (bytes {spiceSize}). Pode não ser uma ISO válida."
+    },
+    "exceptions.host_d43d0cab95add9be": {
+      "sourceHash": "2591189b53e2330c8bb14fef4dcd18c7bdaa75a0e1888970157d644bfdd59172",
+      "message": "Não foi possível verificar a remoção do '{vMName}': a lista de virsh falhou: {join}"
+    },
+    "exceptions.host_dd6d74db4a58cc9d": {
+      "sourceHash": "6abcfec211648a1869e7a2d51448357284d6a8a19aa1580f170e3ff9efa1df27",
+      "message": "Fido.ps1 hash mismatch (v1.70 marcado): esperado {fidoSha256}, obteve {fidoActual}"
+    },
+    "exceptions.host_de8cc2205b118bfb": {
+      "sourceHash": "8ecf9e8eb267a1c7a4ee79d92538e7659d39ceaefc70c4eb9d413e9ad8405df6",
+      "message": "Get-VMName: não foi possível enumerar VMs Hyper-V (esta sessão é elevada e o serviço Hyper-V em execução?): {message}"
+    },
+    "exceptions.host_df96b1b9a83640ad": {
+      "sourceHash": "a1061e834213a3a09a6c96d7c42842e75b161ec69489597072fa1f21b1f80966",
+      "message": "Erro de verificação da imagem para {destPath} (expectativa {expected}, obteve {actual})"
+    },
+    "exceptions.host_e9ae1d4da44d99f5": {
+      "sourceHash": "26bbcc1ff408e9556084d266b7266b82e92524d4fa382732aba8f62ef0a817d9",
+      "message": "systemctl desabilitar -- agora {unit} falhou: {output}"
+    },
+    "exceptions.host_ede3d2a333ea0452": {
+      "sourceHash": "f3057a817b0371ac5530cdfd237bccf4fd9ef3f54e8957914974d4dab6cc1d8b",
+      "message": "Test- UtmVMRegistered: o estado de registro para '{vMName}' não pôde ser determinado (cliente ausente, sonda negada, tempo limite ou resposta não reconhecida). Chame Get- UtmVMRegistrationState diretamente para lidar com 'Desconhecido' explicitamente em vez de ler isso como ausência."
+    },
+    "exceptions.host_ee375a40b48f886b": {
+      "sourceHash": "548d40acf1dd7c2f167b357ad6dd9c92a34530bfb2220f30c65578d3b1d101cb",
+      "message": "o conjunto de gsettings {schema} {key} '{v}' falhou (saída {lASTEXITCODE})"
+    },
+    "exceptions.host_fec98f88ac3a6a73": {
+      "sourceHash": "9895cbadd5a8556c6c9dd15b5d753ecf18b8f4425875bd4723f6b10e2e9fd909",
+      "message": "Arquitetura não suportada para a imagem base de extensão-serviço: {machine}"
+    },
+    "exceptions.runner_037f5a478339db90": {
+      "sourceHash": "150b664d5f14413a1774dcb975231657fa5baa8ec73971750df17445ae4b45ea",
+      "message": "A configuração do executor não tem entradas 'sequências': {path}"
+    },
+    "exceptions.runner_054c6e454d434969": {
+      "sourceHash": "253cac377f8427d5b20a8876ff66a063582d6adb889315427f43531783990c66",
+      "message": "Os caminhos da fonte de instantâneos devem ser caminhos não vazios em relação à verificação do framework."
+    },
+    "exceptions.runner_073ccaf1b0a8e98d": {
+      "sourceHash": "38522f4b4715df76fb8cfb6b44aeeda69387e1c6a57a5d40cd3a4442767d4e5d",
+      "message": "O modo Tesseract TSV falhou com o código de saída {exitCode}.\n{errMsg}"
+    },
+    "exceptions.runner_0ace35c12511a385": {
+      "sourceHash": "93c588dd4bd0a52db67728d3be4a45c7c3e40a3cfbb4c198b023862791669d66",
+      "message": "New-YurunaConfigServerCertificate: -WhatIf declined cutting and no server leaf existe ainda."
+    },
+    "exceptions.runner_0c36e11e9915d052": {
+      "sourceHash": "056d975f8fbc16e55fbffbb3ff078434e76ae52948a601e142f8e564200fda83",
+      "message": "No macOS, a senha de armazenamento '{name}' pode não começar com '-' (sysadminctl iria analisá-la como uma opção). Alterá-la no cofre de laboratório e executá-la novamente."
+    },
+    "exceptions.runner_0d9384b17d6408a3": {
+      "sourceHash": "ae693b7ea04740cb513339cf7e928d042bbd57f60a22ed8107a60d1cfb730994",
+      "message": "O OCR de visão falhou: {errMsg}"
+    },
+    "exceptions.runner_0f52ca7e110a77a5": {
+      "sourceHash": "737b12361e0d5e5749c029cdfe5158974e9f7765c368a72627cccee989f886a3",
+      "message": "Não foi possível assegurar a chave privada SSH '{sshKeyPath}': chmod saiu {lASTEXITCODE} ({join})"
+    },
+    "exceptions.runner_1365372513779503": {
+      "sourceHash": "031181dfdb75d1662f7ad56ad4604e934cc18649d6d573a04ef9269f9d50d0e8",
+      "message": "Get-YurunaConfigCaDir: não é possível resolver o diretório de tempo de execução (configurar $env:{setting} ou importar Test.YurunaDir)."
+    },
+    "exceptions.runner_140e410616042231": {
+      "sourceHash": "523bea10e70bca6986de401a9ec7e5e3927bdd4e92b289ccf86df8b1fc11d53b",
+      "message": "Write- YurunaStateFileJson retornou false para {currentActionFile}"
+    },
+    "exceptions.runner_171dd62b87249d01": {
+      "sourceHash": "204f101fe2a375673c884581b1267c69b50639e43284926b14bf77d1caaf0826",
+      "message": "Não foi possível gravar o apelido do ficheiro '{n}' (sudo pwsh terminado {exitCode}): {output}\nSe isso nomear um tempo de execução .NET em falta, o PowerShell desta máquina é a compilação de fórmulas Homebrew e não pode começar com um ambiente despojado. Corrija-o uma vez, em toda a máquina:\n{command}\nentão re-execute este script -- é idempotente e irá convergir."
+    },
+    "exceptions.runner_187b34999bcb56f2": {
+      "sourceHash": "3d08607029b31ec293b7bcf773f2e46295d96cd5d8e198c8aa099f962329c925",
+      "message": "Invoke-TestRunnerInnerLoop.ps1 não encontrado em {innerScript}"
+    },
+    "exceptions.runner_192d44cf22fa5b5c": {
+      "sourceHash": "293bd1625ee774bee590d7dd89bd85353e7e900bc606cff1eaf2b9e2744e2ea8",
+      "message": "A raiz de configuração não é um mapeamento: {resolved}"
+    },
+    "exceptions.runner_21cd8bca74cb4370": {
+      "sourceHash": "1417f08c7d67173a9e71e9ecf4f23897cfbaa9553878fc27321bac642d8a7f7f",
+      "message": "snippet '{key}' no {p} não é uma lista de passos."
+    },
+    "exceptions.runner_2316b2b4214772a1": {
+      "sourceHash": "2b3883f396beaa53f8cc09e50d2aad57354e5cc0b752bbdbc34896633aa61f41",
+      "message": "Get-GuestRunWrapperCommand: o supervisor de execução está faltando em '{runSupervisorPath}'."
+    },
+    "exceptions.runner_23c851299b3a4f8f": {
+      "sourceHash": "ba2de21097dfa74c3cf276d4309115bcde0df3d63849e214561b71b90d298528",
+      "message": "a ACL resultante não tem regra de acesso"
+    },
+    "exceptions.runner_249290e3cb220e63": {
+      "sourceHash": "55520451cb862f9c79893657b739fa4b3c2b85730c705060f497e89411abc049",
+      "message": "o proprietário resultante SID é {ownerValue}, esperado {value}"
+    },
+    "exceptions.runner_2736bc206a47f22d": {
+      "sourceHash": "020cab219eb445316297e3b453c3559abcf01c34d98d34ad0d1bd26955897c8b",
+      "message": "git fetch falhou (saída {exitCode}) após {attempt} tentativa(s) / {elapsed}s (cap {maxTotalSeconds}s)."
+    },
+    "exceptions.runner_2751aa86523ed820": {
+      "sourceHash": "25976232e86cd090ec5ddb2b16f9766d1b31e5099c4fc3de50621d1a9368e80a",
+      "message": "Não foi possível remover a linha de base mal gerida."
+    },
+    "exceptions.runner_28b94cd32cbaf4b1": {
+      "sourceHash": "7403a8e35f987e018527d5bdd37b2e83e566908a8238b36a5458f702cb86f1ee",
+      "message": "Arquivo de configuração não encontrado: {path}"
+    },
+    "exceptions.runner_2b1a4abe77bcd371": {
+      "sourceHash": "32d79d49771543287b76e2cc24666562585c119f801baf0d42a2a2e1e53236e4",
+      "message": "caching-proxy-service retornado status={statusCode} length={rawContentLength}"
+    },
+    "exceptions.runner_2e7c522081d7df58": {
+      "sourceHash": "3ffeee774b05ab9dbd6358cc79307e7f7725ec6695bda01e6e18ca57aab023fa",
+      "message": "A ação I/O do host '{action}' não está disponível em '{hostType}' (ações disponíveis: {known})."
+    },
+    "exceptions.runner_30370fb77a74bcc8": {
+      "sourceHash": "abc37b39faedc48b9b3f7e8e0a95f7c2c79f6a7be41595434050235595392967",
+      "message": "O provedor de OCR '{name}' não está registrado."
+    },
+    "exceptions.runner_3045e8dd4d3523e0": {
+      "sourceHash": "54c0da73bbe7fc64fc07ecddac37be32d4d5882c90c1774ed811b5f9003c52d4",
+      "message": "Módulo de extensão não encontrado para a área '{area}', nome '{n}': {path}"
+    },
+    "exceptions.runner_31cfbd18727596c9": {
+      "sourceHash": "ecb5bd22eda706e880658b5d8eba542eacbf441c9c0767da522dc04f49585780",
+      "message": "A linha de verificação de comandos GUI excede o orçamento de caracteres digitados."
+    },
+    "exceptions.runner_3f7582b4c254198f": {
+      "sourceHash": "06bdedff1eb773d98c246e6d8ca464951df503ae3b75a8d2602efff5237ed0e3",
+      "message": "Sistema operacional não suportado. Novo-LocalLabStorage suporta Windows, macOS e Ubuntu."
+    },
+    "exceptions.runner_3f7ce7bf346e3755": {
+      "sourceHash": "9817709c3a81641770834fe374c0a398c721755f55dedd4983e5f1890f8cc00c",
+      "message": "o helper mount.cifs não está instalado, então 'mount -t cifs' não pode funcionar neste host (ele falha com o tipo de sistema de arquivos 'cifs' desconhecido). Instale-o: {command}"
+    },
+    "exceptions.runner_40552def8b1fec50": {
+      "sourceHash": "dd61022c988f6415c0b8f3eaefd9fac315d4e248a38ca20cc8d75887d72a4b01",
+      "message": "Legacy 'baseline:' não é mais suportado -- renomeie-o para 'resource:'. Veja docs/test-sequences.md (resource/component/workload)."
+    },
+    "exceptions.runner_44419ed3590574a4": {
+      "sourceHash": "bc54bb95f7e44633317074d15e6b126fc4adeec7117fd41db8fc55ab69da103a",
+      "message": "Sequência ação '{name}' não tem scriptblock Handler registrado."
+    },
+    "exceptions.runner_4600bf42e8f5c6cb": {
+      "sourceHash": "f71563b29cc606981ecd0f89265cd366c91d86a8277c659a9dbc7e7dbdbc43f2",
+      "message": "Módulo de extensão não carregado para a área '{area}' (procurado para {modPath} em Get-Module)."
+    },
+    "exceptions.runner_486dd5400df4805b": {
+      "sourceHash": "dd34570e1dca18c4a5a3d3febe65cae99d5fd47721ef6994f3960a887129869c",
+      "message": "hereditariedade de regras de acesso ainda está habilitada"
+    },
+    "exceptions.runner_4a5aa2a294fb3299": {
+      "sourceHash": "6fa16302348b727c5ba12af117a6d2e1aa401273b6e1be8f4b6bddf00a1567da",
+      "message": "regra de acesso inesperada para SID {value}"
+    },
+    "exceptions.runner_4ebab78c20241f2d": {
+      "sourceHash": "add4b222fb8b04f21b414b8ec2385d714a1efca682a8882e3afc2d7926e03275",
+      "message": "powershell- yaml é necessário para ler arquivos de sequência. Instalar com: {command}"
+    },
+    "exceptions.runner_4fc4598b71d43c23": {
+      "sourceHash": "6b2119ac4069754dfdf84652e56376a54fff621b4446b3870ed899ce7a7cb287",
+      "message": "Não foi possível garantir a chave privada SSH '{path}': {message}"
+    },
+    "exceptions.runner_511c60ef5e84a2bf": {
+      "sourceHash": "6888197d20e0da43bb5bc4c3c574e3e6da6999642c99af4d1b280cc901c2f698",
+      "message": "Samba rejeitou a configuração gerada; os compartilhamentos NÃO foram ativados: {output}"
+    },
+    "exceptions.runner_58320111b08e6feb": {
+      "sourceHash": "7b58b7475a3db852a3347e19865adfffe9c966d25ca7e7312ea59aeaebcd060b",
+      "message": "Inicialize-YurunaConfigCA: -WhatIf recusou a cunhagem e ainda não existe CA."
+    },
+    "exceptions.runner_62eaa799b46f377c": {
+      "sourceHash": "cc279e97d445af6e2881649f0282175ef7ec7cce0dc1c8113dfb7cec27e43a18",
+      "message": "Yuruna.Host.psm1 não foi encontrado para {hostType} (olhado para {modulePath}). Não foi possível enviar as operações da máquina."
+    },
+    "exceptions.runner_6305b986d1a90039": {
+      "sourceHash": "72cfac759097ebb6daf5916c14de3d6ec9a12cd3bb9def257b819ea87ca5cdda",
+      "message": "caching-proxy-service CA não é um PEM X509 válido"
+    },
+    "exceptions.runner_636858bd74711c9e": {
+      "sourceHash": "eb5c999dd262022f15597f8768c4e0f0e0aee7adb8cef7b6a5a83d0bd85c5a33",
+      "message": "Chave recém- gerada não é carregável com frase- senha vazia. ssh- keygen output: {string}"
+    },
+    "exceptions.runner_6b875a73f815e66a": {
+      "sourceHash": "1f4191f977b7989f2b3d89e42e3e982965647cbd4d5f87d54298aa29493d0bcc",
+      "message": "a conta atual do Windows não tem SID"
+    },
+    "exceptions.runner_6c293b52d562e7c0": {
+      "sourceHash": "c4de0340ddc3442830d1dacb0b597ab879afca7e75884ac3c51b3de5dd8f2210",
+      "message": "Arquivo de sequência não encontrado: {sequenceName}\nPesquisado (sem correspondência):\n{list}"
+    },
+    "exceptions.runner_6f99aa1ba9ef5572": {
+      "sourceHash": "2d61a9753fde7d018fca6b41a1921eb6d1c7af415423e7c4b9872fbac061d789",
+      "message": "callExtension: 'método' deve ser 'área.método' (tem '{methodFqn}')."
+    },
+    "exceptions.runner_7387b2930b7001c9": {
+      "sourceHash": "cdffac6b896e0e056b9fbea77d4d621d051db243180368047ce3159e4af42e39",
+      "message": "chmod 600 no ficheiro de credenciais falhou (rc={lASTEXITCODE})"
+    },
+    "exceptions.runner_7b768110a092cc93": {
+      "sourceHash": "41cd05a94d79183d8cef20ede8cccbf5592a4ce27d7ee207a26e9f3ae401ce8d",
+      "message": "Arquivos de sequência de projeto {count} chamados '{fileName}' encontrados sob testes/ pastas planas:\n{list}\nMantenha apenas um para que o planejador possa resolver um único arquivo de sequência."
+    },
+    "exceptions.runner_7f5f244997a1c718": {
+      "sourceHash": "f98e1d5cce36aee476ca3a5ac08722975cbccca2b6cefabf19b28228c17b86d6",
+      "message": "Get-GuestRunWrapperCommand: Token '{token}' deve corresponder ^[A-Za-z0-9. -]+$ -- é interpolado em uma linha de comando shell."
+    },
+    "exceptions.runner_86e81d4c81406275": {
+      "sourceHash": "1feaf26bdf9e1b5d6f1d35995dd3edff97fa804e0a6cf45c78d705ebccc124b5",
+      "message": "mount smbfs rc={exitCode}{stdErr}"
+    },
+    "exceptions.runner_870490a8a4454890": {
+      "sourceHash": "7a4f3f984c83a456f4fc44b4b5a19f713b9a3751fd55be3a1adede149defeacc",
+      "message": "Ciclo de recorte detectado em '{name}' (referenciado em {seqPath})."
+    },
+    "exceptions.runner_88fa927a70dd9984": {
+      "sourceHash": "598b8ee8f446c58ed9ed91fa776d375bbaf5dda2332f09bc806c72383e7ddc5c",
+      "message": "sudo mount - t cifs rc={exitCode}{hint}{detail}"
+    },
+    "exceptions.runner_8ab33e8dd3c14ea8": {
+      "sourceHash": "e10547defdc7e90adbcf8116c2758a6f3cb86e0787d9f0c8f09055a7efd0a42b",
+      "message": "WinRT OCR não leu nenhum texto e relatou: {errText}"
+    },
+    "exceptions.runner_92362a2623a29d74": {
+      "sourceHash": "28937743cf5b77e06309dbda95a87d76ac0fde57b834f4356742b7e7abba5299",
+      "message": "O ssh- keygen não foi encontrado no PATH. Instale o cliente OpenSSH."
+    },
+    "exceptions.runner_956bc257626cca2e": {
+      "sourceHash": "3d132b748ce3fb5dff74a3154287aaa2ceca7aaa206caac7cf602b9bcc59cf58",
+      "message": "a regra de acesso para SID {value} não concede FullControl"
+    },
+    "exceptions.runner_9b97bf35e35de969": {
+      "sourceHash": "b8826301c35792557767a87aa885511713a4cb8eec8bd3691016b32637468b34",
+      "message": "Snapshot maxAgeHours deve ser finito e positivo."
+    },
+    "exceptions.runner_9d8762f2b5ff27c7": {
+      "sourceHash": "635162ed412a639844943cf46d0f20621020b64ca2c8bc6d8f64c86747c719aa",
+      "message": "O New-SmbMapping expirou após {poolStorageMountTimeoutSeconds}s"
+    },
+    "exceptions.runner_9d91512a828389cf": {
+      "sourceHash": "5ed5ab47cf43e37d71b0e0b3c05f0f62f19f376c30f558b79d346b75f6e20e6d",
+      "message": "Um compartilhamento SMB chamado '{shareName}' já existe nesta máquina e aponta para '{path}', e não '{folderPath}'. Remova ou renomeie-o, e então reexecute."
+    },
+    "exceptions.runner_9fe3c4a46ba0668d": {
+      "sourceHash": "e999b5db76cd6de7df2a28c754a693bc90b60221c54efb6675583d2b2c38c0f2",
+      "message": "git pull --ff-somente falhou (saída {exitCode}): {output}"
+    },
+    "exceptions.runner_a01e6215c9b21e74": {
+      "sourceHash": "2b065d287ed03608a81f29c19e59f5f3c7a4cd79dc450a60dd791f87e5a028ba",
+      "message": "O trecho '{name}' referenciado por {seqPath} não foi encontrado. Os trechos disponíveis: {available}."
+    },
+    "exceptions.runner_a038a1eea843a737": {
+      "sourceHash": "f21ce6667af5340913f2924c36d16445aede1bc11b3e74def4f4e46a592ea787",
+      "message": "A política de instantâneo requer pelo menos um arquivo fonte."
+    },
+    "exceptions.runner_a36f9aee4f868c72": {
+      "sourceHash": "31b32682d68fba539bf1e83923028b0210a668511d87c37e12745f9c220c60c0",
+      "message": "O directório da área de extensão não foi encontrado: {dir}"
+    },
+    "exceptions.runner_a4fb11bebe1b1114": {
+      "sourceHash": "06c10548af1f9c0ff807f13fcda3bd01003b06f50d79fc1828f9b14d1320d1b7",
+      "message": "O push de semeadura para '{path}' falhou (sair do {lASTEXITCODE})."
+    },
+    "exceptions.runner_a6e757fc71fd4874": {
+      "sourceHash": "33ae066c2eae00aa07f504d7d8e94b896ea05a7fc5ea101af59fcd0b69d8c4de",
+      "message": "O Tesseract falhou com o código de saída {exitCode}.\n{errMsg}"
+    },
+    "exceptions.runner_ae41cdc2535f423f": {
+      "sourceHash": "05fa03dbf7d1a6227ffe5568477c2bf5ae0f1b5849c927281f8bf9efa960a662",
+      "message": "Uma sequência de convidados não deve usar 'steps:' -- dividir suas ações em 'componente:' e 'workload:'. Veja docs/test-sequences.md."
+    },
+    "exceptions.runner_aebd04afebf25aaf": {
+      "sourceHash": "8e2b6eb8fccb2620fc8f9b71848620c5223212dc7e9ee06f26549f0dbdae1d9c",
+      "message": "O WinRT OCR falhou (sair do {exitCode}): {detail}"
+    },
+    "exceptions.runner_b6abddc95da1d271": {
+      "sourceHash": "b49d924ad7e8de9115a45a6994fb069156273ff9f667baf2e692270923e1ef18",
+      "message": "A configuração do executor não foi encontrada: {path} (set test.config.yml's repositórios.projectUrl, ou coloque o arquivo sob <repo>/project/test/)"
+    },
+    "exceptions.runner_b8accd7ac3900ef3": {
+      "sourceHash": "ce537a8b87a896bca9fae49f7e4571be33333f0b3e98ead86775cc98bacb17a5",
+      "message": "Não foi possível habilitar o servidor MacOS SMB. Ativar o Compartilhamento de Arquivos em Configurações do Sistema > Geral > Compartilhamento e re- execução. (ativar launchctl: {output}; iniciar: {output2})"
+    },
+    "exceptions.runner_bcfafa04e60d24c8": {
+      "sourceHash": "016c7c322496c4a01ca482207d536d246ff0bccc42033582f4374ee5a0095da3",
+      "message": "A área '{area}' requer exatamente uma extensão ativa; {area}.config.yml lista {count}: {join}."
+    },
+    "exceptions.runner_c8d3447d823adc70": {
+      "sourceHash": "ade287a6a0528db372dfab55aa1824cdb1b24a43bd8fea0808eaed17934e628e",
+      "message": "O valor {setting} é inválido '{envVal}'. Apenas 'Or' e 'And' são permitidos."
+    },
+    "exceptions.runner_c959d88998b87c80": {
+      "sourceHash": "64e134362efc67ce04eab35f151e6ca65295c076276ad926986668050da0745d",
+      "message": "powershell- yaml é necessário para expandir trechos de sequência. Instalar com: {command}"
+    },
+    "exceptions.runner_d0e5e81b3dcaf9c7": {
+      "sourceHash": "17b4bc262c1a21a0105547a39cc8e15018c2b40932c31f90a9e1482b03e27440",
+      "message": "O ssh- keygen falhou ao criar a chave no {sshKeyPath}"
+    },
+    "exceptions.runner_d3b174912efd30ac": {
+      "sourceHash": "bc43a01ccaef13027db2296e656f07a925669f6c837491f4cbdc62930ddbbd53",
+      "message": "git init -- bare falhou para '{path}' (saída {lASTEXITCODE})."
+    },
+    "exceptions.runner_d4288d81f5c5acb3": {
+      "sourceHash": "f7bb33aa4ac75c76cf05c1eee0686c70b0bcb0f14c32200bd6422eff795648eb",
+      "message": "A ação de sequência '{name}' não está registrada."
+    },
+    "exceptions.runner_d65c529aa94bc884": {
+      "sourceHash": "bc5db335625d9d55613ac838fb00ba82c83f66a3d4c2e714bf6915501926c406",
+      "message": "A extensão '{extensionName}' (carregada de {modPath}) não exporta '{method}' (também tentou '{hyphenated}')."
+    },
+    "exceptions.runner_d661d09f953abb27": {
+      "sourceHash": "a8fa088a458900728b721d53fb1af1519113248919e82673c534e7895c880e93",
+      "message": "Erro de processamento YAML no {path}: {message}"
+    },
+    "exceptions.runner_d6c2daddc3ec9502": {
+      "sourceHash": "6f5a566d2dea93e3b13adec1366c7d671b4dbff2b4865fa5a03ed412c3bb7ce8",
+      "message": "Expansão de trechos excedeu a profundidade 25 em {seqPath} (aninhamento cíclico ou patológico)."
+    },
+    "exceptions.runner_d72dd7b3536de5e5": {
+      "sourceHash": "71c7d813948499374c7c84e11c688c3b964dc66e39074b0874c54e50d5512cb0",
+      "message": "Falta a sequência '{topName}'{sourceLabel}\nPesquisado (sem correspondência):\n{list}"
+    },
+    "exceptions.runner_e5734bccf5e0076c": {
+      "sourceHash": "a44c535734c52c0d250007d5f9c77b7f469361c05ab3cc8ba174aaacfd4bf9e4",
+      "message": "sudo {join} saiu {exitCode}: {output}"
+    },
+    "exceptions.runner_e80a19e94ca9be85": {
+      "sourceHash": "af6d840384e68f4a4da9ed07cfd9273fc934ac0f622115788512dfa55c95dbad",
+      "message": "Nome VM composto '{vmName}' tem caracteres fora [A-Za-z0-9. -]; corrigir vmStart.testVmNamePrefix ('{prefix}') -- Os nomes VM devem ser seguros."
+    },
+    "exceptions.runner_ea88e75707522b67": {
+      "sourceHash": "f0a39d2849ee3f352c581be720e7732fccbbabb523293f697b322149e9fadbce",
+      "message": "Não foi possível criar o ponto de montagem '{localPath}' (sudo -n mkdir rc={exitCode}; um pai de ponto de montagem de propriedade da raiz, como o /mnt, precisa de sudo sem senha para o mkdir, bem como para o monte){stdErr}"
+    },
+    "exceptions.runner_f1bde95b1f050137": {
+      "sourceHash": "def62edfb7c2d0d80c3d8eaa1d6de798db83e9e4144dd977b6a29a8bf1334964",
+      "message": "sequência prereq não encontrada: {sequenceName} (referenciado por uma entrada em projeto/teste/teste.runner.yml)\nPesquisado (sem correspondência):\n{list}"
+    },
+    "exceptions.runner_f3da34207d2a8685": {
+      "sourceHash": "9cecd8704084dd3fa2a6cb0d9f09ad35c0915e9d49c9e72855fda17e686b2357",
+      "message": "O padrão de origem do instantâneo não correspondeu a nenhum arquivo: {pattern}"
+    },
+    "exceptions.runner_f4ad79f944023fe8": {
+      "sourceHash": "5afd0aec918d82d66d4a1d9509016aa3023993fa365e6bc7c38ca1c798a499c2",
+      "message": "O serviço Servidor (LanmanServer) não está presente nesta máquina; o compartilhamento SMB não pode ser ativado."
+    },
+    "exceptions.runner_f68eed0750b170ae": {
+      "sourceHash": "5f3e72adb60a0442d2f85aeb9bb2d5274816d93441e84ae8fa6dcca3a1b782ae",
+      "message": "snippet '{key}' é definido em duas bibliotecas de projeto:\n{file}\n{p}\nMantenha apenas um para que a referência resolva sem ambiguidades."
+    },
+    "exceptions.runner_fc123b0e72bddd90": {
+      "sourceHash": "0fda865fa2f88851502be12277d8e5e9876b3b97f5b71609f0c69f374cb9bed4",
+      "message": "snippet '{key}' no {f} não é uma lista de passos."
+    },
+    "exceptions.runner_fc93013c47f0dff2": {
+      "sourceHash": "8a2e0ccd858f0f497767b60716c2fa690917e68bedadaf47659a7fa2767bc8b5",
+      "message": "Erro de análise YAML no {path} na linha {line}:{col}: {message}"
+    }
+  }
+}

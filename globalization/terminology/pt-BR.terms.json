@@ -6,7 +6,7 @@
     "definitions": {
       "path": "docs/definition.md",
       "hashAlgorithm": "sha256-file-bytes-v1",
-      "sha256": "dbd5e79492a999088b0e818fb3dafb617c2dfe2a85dc41fb37910d9c57cd5258"
+      "sha256": "c9901aacefe9fca329711851ed373df1f5dc9909bca3dc218683f2551766e441"
     },
     "retiredNames": {
       "path": "tools/githooks/pre-commit",
@@ -21,24 +21,24 @@
     "translator": {
       "status": "approved",
       "approvedBy": "Alisson Sol",
-      "approvedAt": "2026-09-14",
+      "approvedAt": "2026-09-24",
       "evidence": {
-        "releaseVersion": "2026.09.18",
+        "releaseVersion": "2026.09.24",
         "approvedContent": {
           "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "28e493fbd77aeac316458510dbce7681fd9f4de4608e3c704caed525f51423cb"
+          "sha256": "b456c6bc5836e46ba56a6d2773743b1f6afec6a58fcadaae1dc7d756b99e9b82"
         }
       }
     },
     "independentReviewer": {
       "status": "approved",
       "approvedBy": "Denise Sol",
-      "approvedAt": "2026-09-14",
+      "approvedAt": "2026-09-24",
       "evidence": {
-        "releaseVersion": "2026.09.18",
+        "releaseVersion": "2026.09.24",
         "approvedContent": {
           "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "28e493fbd77aeac316458510dbce7681fd9f4de4608e3c704caed525f51423cb"
+          "sha256": "b456c6bc5836e46ba56a6d2773743b1f6afec6a58fcadaae1dc7d756b99e9b82"
         }
       }
     }
@@ -131,8 +131,7 @@
         "Defining the VM memory policy"
       ],
       "ptBRDecision": {
-        "status": "translated",
-        "targetTerm": "stash"
+        "status": "retained"
       }
     },
     {

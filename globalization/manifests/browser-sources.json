@@ -1,6 +1,6 @@
 {
   "schema": "yuruna.browser-sources/v1",
-  "description": "Every browser source the project ships, in one place. The floor checks, the byte budget and the asset gates all read this: a directory that appears in one tool's private list and not another's is a file that passes the check nobody pointed at it, and that is how a source drops out of a sweep. Adding a shipped asset means adding it here, once.",
+  "description": "Every browser source the project ships, in one place. The byte budget reads roots, pages and excludeSuffixes; the accessibility gate reads pageRoots; the page exporter reads provisionedPageProducers; the measurement tools read pages together with additionalMeasurementPages. A directory that appears in one tool's private list and not another's is a file that passes the check nobody pointed at it, and that is how a source drops out of a sweep. Adding a shipped asset means adding it here, once.",
   "roots": [
     {
       "path": "test/status",
@@ -28,18 +28,18 @@
     {
       "path": "globalization/generated/browser",
       "surface": "generated locale assets",
-      "why": "Generated files are shipped browser sources like any other, and a generator that started emitting newer syntax would break the floor exactly as a hand edit would."
+      "why": "Generated files are shipped browser sources like any other, and what a generator emits is weighed and measured exactly as a hand-written asset is."
     },
     {
       "path": "globalization/kernel",
       "surface": "shared browser kernels",
-      "why": "Copied verbatim into the shipped runtimes and into the raw Go pages, so a break here reaches every one of them at once. Checked at the source rather than only after it has been copied."
+      "why": "Copied verbatim into the shipped runtimes and into the raw Go pages, so a break here reaches every one of them at once. Measured at the source rather than only after it has been copied."
     }
   ],
   "excludeSuffixes": [
     ".test.js"
   ],
-  "excludeReason": "*.test.js runs under node and no page loads one, so the browser floor does not reach it.",
+  "excludeReason": "*.test.js runs under node and no page loads one, so it is not a shipped asset and carries no byte budget.",
   "pages": [
     {
       "path": "test/status/index.html",
@@ -55,7 +55,9 @@
     },
     {
       "path": "test/status/diagnostics.html",
-      "surface": "host status diagnostics"
+      "surface": "host status diagnostics",
+      "timed": false,
+      "timedNote": "The page displays a host diagnostic minted for a caller on the loopback interface or one holding a short-lived control proof. A browser on the evidence machine holds neither, so it reaches the shell and never the payload, and a timing taken there would describe a refusal. The page stays registered: it ships, and its bytes and accessibility are measured with every other page."
     },
     {
       "path": "test/status/share-cycle.html",
@@ -110,6 +112,7 @@
       "surface": "stash item"
     }
   ],
+  "pagesTimedNote": "A registered page is timed by the browser floor unless its row sets timed to false. Byte and accessibility coverage read every row; only the measurement plan, its template and the capture import read the timed subset.",
   "cssProducers": [
     {
       "path": "test/status/yuruna.common.css",
@@ -199,7 +202,7 @@
       "why": "The page is a Go string literal that defines and uses its own palette in the same constant."
     }
   ],
-  "cssProducersNote": "Every file that produces CSS a browser will apply, whether it is a stylesheet, an HTML page with an inline block, a Go string literal or a PowerShell here-string. 'palette' names the file whose custom-property values a producer's var() calls resolve against, which is not always itself: a fallback written from the wrong file's values is still a wrong color. A search that globbed *.css would report a clean floor over a third of this surface.",
+  "cssProducersNote": "Every file that produces CSS a browser will apply, whether it is a stylesheet, an HTML page with an inline block, a Go string literal or a PowerShell here-string. 'palette' names the file that defines the custom properties a producer's var() calls resolve against, which is not always itself: retuning a token changes every producer pointed at that palette, and a producer pointed at the wrong one is a page nobody re-renders when the color moves. A search that globbed *.css would report a clean floor over a third of this surface.",
   "inlineScriptProducers": [
     {
       "path": "test/extension/download-agent-service/server/internal/httpsrv/web/index.html"
@@ -214,7 +217,7 @@
       "path": "test/extension/caching-proxy-parser-service/parse.go"
     }
   ],
-  "inlineScriptProducersNote": "Files that carry browser JavaScript inside something that is not a .js file: an HTML page with a script block, or a Go string literal holding a whole page. A sweep that looked for *.js would report a clean floor over every one of them, which is the same as not checking them at all. The floor check extracts each block and applies the same rules it applies to a file.",
+  "inlineScriptProducersNote": "Files that carry browser JavaScript inside something that is not a .js file: an HTML page with a script block, or a Go string literal holding a whole page. A sweep that looked for *.js would report a clean floor over every one of them, which is the same as not checking them at all. Declaring the file is what keeps each block reviewable as the shipped JavaScript it is rather than as text inside a file of another kind.",
   "pageRoots": [
     {
       "path": "test/status",
@@ -242,7 +245,7 @@
       "why": "A whole HTML document written into a guest by a cloud-init write_files block. Every other producer in this registry is reached by extension -- .html, .go, .ps1, .css -- and a provisioning seed is none of those, so a sweep by extension never opens the file that carries the page."
     }
   ],
-  "provisionedPageProducersNote": "Pages a host provisions into a guest rather than serves from this tree. They are read by a person at the worst possible moment -- a fetch just failed -- and they are the pages least likely to be looked at again after they are written, because nothing in a normal cycle renders them. The exporter materializes each one from its seed so the accessibility and floor gates measure the document the guest will serve, with the server's own interpolation macros filled in.",
+  "provisionedPageProducersNote": "Pages a host provisions into a guest rather than serves from this tree. They are read by a person at the worst possible moment -- a fetch just failed -- and they are the pages least likely to be looked at again after they are written, because nothing in a normal cycle renders them. The exporter materializes each one from its seed so the accessibility gate measures the document the guest will serve, with the server's own interpolation macros filled in.",
   "pageRootsNote": "Directories the accessibility gate serves and walks. Separate from 'roots', which names where the scripts and stylesheets live: a page root holds the documents, and one service can have both. A service added to the tree and not added here is a UI nobody ever renders for contrast, focus order or reflow, and the gate reports a clean run over it.",
   "additionalMeasurementPages": [
     {

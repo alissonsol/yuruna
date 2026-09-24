@@ -27,12 +27,15 @@ flowchart TB
     operator-host -->|HTTP dashboards| caching-proxy-service
     operator-host -->|HTTP interfaces| service-vms
     runner-host -->|HTTP image acquisition| service-vms
-    caching-proxy-service -->|Status polling| runner-host
+    caching-proxy-service -->|Status polling and credentials| runner-host
+    runner-host -->|Presence and event push| caching-proxy-service
     guest -->|HTTP OCI downloads| caching-proxy-service
     guest -->|Deployment APIs| deployment-targets
     runner-host -->|SMB cycle archives| yuruna-pool
     service-vms -->|SMB service data| yuruna-pool
-    service-vms -->|Presence announcements| caching-proxy-service
+    caching-proxy-service -->|SMB intent and replicas| yuruna-pool
+    service-vms -->|Announcements and downloads| caching-proxy-service
+    service-vms -->|Archives and host control| runner-host
 ```
 
 Seven empty subgraphs are intentionally aggregate network boxes. `Extension service VMs` comprises the pool-control, download-agent, and stash VMs; `Shared storage` comprises independently configured pool and stash shares. `Application targets` comprises Kubernetes, its supporting cloud resources, and registries. The following views expand these aggregates without exceeding seven visible boxes, including group boundaries.
@@ -60,7 +63,7 @@ flowchart LR
     guest -->|Archives and uploads| start-status-service
 ```
 
-Six visible boxes represent three network groupings and three host processes/modules. The status server reads local status/artifact files and serves committed repository archives to guests; the runner is a file producer, not an HTTP client for each status update. Console capture/OCR runs on the host. Sequence SSH actions use [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) directly, with provider discovery available for the guest address. See [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1), [Test.Status.psm1](../../test/modules/Test.Status.psm1), and [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1).
+Six visible boxes represent three network groupings and three host processes/modules. The status server reads local status/artifact files and serves committed repository archives to guests; the runner is a file producer, not an HTTP client for each status update. Console capture/OCR runs on the host. Sequence SSH actions use [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) directly, with provider discovery available for the guest address. See [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1), [Test.Status.psm1](../../test/modules/Test.Status.psm1), and [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1). The host also runs the [config service](../../test/service/Start-ConfigService.ps1), an mTLS endpoint (default port 8443) from which the caching VM fetches pool-share credentials, and a Hyper-V host exposes a [host-metrics exporter](../../test/modules/Test.HostMetricsExporter.psm1) on port 9182 for the caching VM's Prometheus; neither is drawn as a separate box.
 
 The real providers are [windows.hyper-v](../../host/windows.hyper-v/), [ubuntu.kvm](../../host/ubuntu.kvm/), and [macos.utm](../../host/macos.utm/). Their supported guest/provider combinations differ; this box does not assert a complete cross-product. Hyper-V/KVM networking and UTM bridged/shared networking select guest-reachable addresses. Shared/NAT paths can require host forwarding; [Start-CachingProxyServiceForwarder.ps1](../../host/macos.utm/Start-CachingProxyServiceForwarder.ps1) is the UTM implementation, and the status launcher reconciles platform-specific forwarding. Fixed example IP addresses are not part of this topology.
 
@@ -84,7 +87,7 @@ flowchart TB
     end
 ```
 
-The group plus six children is seven visible boxes. `Monitoring stack` aggregates Grafana, Prometheus, Loki, log shipping, and exporters configured in the [caching VM seed](../../host/vmconfig/caching-proxy-service.base.user-data). Grafana defaults to port 3000; Prometheus and Loki are configured as local backends. Apache serves bootstrap material, the service landing route, and the configured pool-intent Git read path. These are distinct from Squid HTTP caching and zot OCI caching.
+The group plus six children is seven visible boxes. `Monitoring stack` aggregates Grafana, Prometheus, Loki, log shipping, exporters, and the [caching-proxy-parser service](../../test/extension/caching-proxy-parser-service/) on port 9302, configured in the [caching VM seed](../../host/vmconfig/caching-proxy-service.base.user-data). Grafana defaults to port 3000; Prometheus and Loki are configured as local backends. Apache serves bootstrap material, the service landing route, and the configured pool-intent Git read path. These are distinct from Squid HTTP caching and zot OCI caching.
 
 The [proxy daemon](../../test/extension/caching-proxy-service/main.go) supplies management and landing behavior. The [pool aggregator](../../test/extension/pool-aggregator-service/main.go) discovers/polls host status services, receives extension announcements, publishes pool metrics, and forwards events to Loki. Its port can accept configured TLS alongside plain HTTP; do not infer universal TLS from the presence of a proxy CA. Management mutations have their own token/proof gates; a trusted-LAN read route does not authorize a write.
 

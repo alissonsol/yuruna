@@ -27,17 +27,15 @@
 .periods {
   display: flex; padding: 0.75rem 1rem;
   position: sticky; top: 0; z-index: 1;
-  background: #fff;
   background: var(--bg, #fff);
 }
 .periods button {
   flex: 1 1 0; min-height: 44px; border-radius: 10px;
-  border: 1px solid #e5e7eb;
   border: 1px solid var(--line, #d0d7de); background: transparent;
   font-size: 1rem; cursor: pointer;
 }
 .periods button + button { margin-left: 0.5rem; }
-.periods button.on { background: #2563eb; background: var(--accent-fill, #1d4ed8); color: #ffffff; color: var(--accent-fill-fg, #fff); border-color: #2563eb; border-color: var(--accent-fill, #1d4ed8); font-weight: 700; }
+.periods button.on { background: var(--accent-fill, #1d4ed8); color: var(--accent-fill-fg, #fff); border-color: var(--accent-fill, #1d4ed8); font-weight: 700; }
 
 .stats-banner {
   margin: 0 1rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px;
@@ -47,7 +45,6 @@
 /* One card per pool. */
 .card {
   margin: 0 1rem 1rem; padding: 1rem;
-  border: 1px solid #e5e7eb;
   border: 1px solid var(--line, #d0d7de); border-radius: 14px;
 }
 .card h2 { margin: 0; font-size: 1.15rem; }
@@ -73,8 +70,7 @@
 
 .card select {
   width: 100%; min-height: 44px; font-size: 1rem; padding: 0 0.6rem;
-  border-radius: 10px; border: 1px solid #6b7280; border: 1px solid var(--control-edge, #6b7280);
-  background: #fff;
+  border-radius: 10px; border: 1px solid var(--control-edge, #6b7280);
   background: var(--bg, #fff); color: inherit;
 }
 .card .locked { font-size: 0.9rem; opacity: 0.7; margin: 0; }
@@ -88,13 +84,13 @@
    which is why style.css carries the `!important` [hidden] guard: without it
    this full-viewport overlay renders on load and swallows every tap. */
 .sheet { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
-.sheet-box { width: 100%; background: #fff; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+.sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
 .sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
 .sheet-box p { margin: 0 0 1.1rem; line-height: 1.45; }
 .sheet-actions { display: flex; }
 .sheet-actions button { flex: 1 1 0; min-height: 46px; font-size: 1rem; border-radius: 10px; cursor: pointer; }
 .sheet-actions button + button { margin-left: 0.75rem; }
-.sheet-actions .ghost { background: transparent; border: 1px solid #e5e7eb; border: 1px solid var(--line, #d0d7de); color: inherit; }
+.sheet-actions .ghost { background: transparent; border: 1px solid var(--line, #d0d7de); color: inherit; }
 
 @media (min-width: 46rem) {
   .sheet { align-items: center; justify-content: center; }

@@ -86,7 +86,7 @@ code, catalogs, and manifests together; it must not mix artifacts from versions.
 ## Checking a change
 
 Run the catalog, UTF-8, terminology, document translation, project locale-map,
-ES5, accessibility, and performance gates, then the full paired test gate.
+accessibility, and performance gates, then the full paired test gate.
 Use expanded and mirrored locales, keyboard-only navigation, zoom, narrow
 layouts, Unicode input, and the supported browser floor. Measured browser and
 runtime budgets need real samples; unit fixtures do not replace native browser

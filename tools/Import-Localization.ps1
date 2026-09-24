@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42a9f7d0-38c1-4e56-b7a4-1d2e05c9b8f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -368,6 +368,7 @@ function Set-ProjectScalarReview {
     }
     $written = 0
     $yaml = @{}
+    $edits = @{}
     Assert-LocalizationYamlCodec
     foreach ($entry in @($record.entries)) {
         if ([string]$entry.locale -cne $Locale) { continue }
@@ -379,16 +380,22 @@ function Set-ProjectScalarReview {
         if (-not $yaml.ContainsKey($yamlPath)) { $yaml[$yamlPath] = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($yamlPath)) -Ordered }
         $english = Get-YamlPointerValue -Document $yaml[$yamlPath] -Pointer ([string]$entry.fieldPath)
         if (-not $english) { throw "Missing project source scalar: $id" }
-        Set-LocalizationYamlValue -Document $yaml[$yamlPath] -Pointer ([string]$entry.fieldPath) -Locale $Locale -Text ([string]$Answer[$id])
+        if (-not $edits.ContainsKey($yamlPath)) { $edits[$yamlPath] = [Collections.Generic.List[object]]::new() }
+        $edits[$yamlPath].Add(@{ Pointer = [string]$entry.fieldPath; Locale = $Locale
+                Text = ([string]$Answer[$id]).Normalize([Text.NormalizationForm]::FormC) })
         $entry.sourceHash = Get-TextSha256 -Text $english.Normalize([Text.NormalizationForm]::FormC)
         $entry.reviewStatus = 'reviewed'
         $entry | Add-Member -NotePropertyName reviewer -NotePropertyValue ([string]$Attestation.independentReviewer.approvedBy) -Force
         $entry | Add-Member -NotePropertyName reviewedAt -NotePropertyValue ([string]$Attestation.independentReviewer.approvedAt) -Force
         $written++
     }
-    foreach ($yamlPath in $yaml.Keys) {
-        $text = ConvertTo-Yaml -Data $yaml[$yamlPath]
-        [IO.File]::WriteAllText($yamlPath, $text.Replace("`r`n", "`n").TrimEnd() + "`n", [Text.UTF8Encoding]::new($false))
+    # The document above resolved the pointers and proved the scalars are there.
+    # Writing it back would mean serializing it, and a serializer emits data: a
+    # license notice is not data, so it would not come back. The file is spliced
+    # instead, and the result has to parse into the document the serializing
+    # path would have produced or nothing is written at all.
+    foreach ($yamlPath in $edits.Keys) {
+        Set-LocalizationYamlLocaleText -Path $yamlPath -Edit $edits[$yamlPath]
     }
     if ($written -gt 0) { Write-Utf8Json -Path $path -Value $record }
     return $written
@@ -434,16 +441,39 @@ function New-ApprovalRecord {
 }
 
 
+function Get-ExchangeIgnoredPath {
+    param([string]$Directory)
+    # What the repository ignores is not source: it is build output, caches and
+    # the live state of whatever happens to be running. Hashing it says nothing
+    # about what an import changed, copying it into the staging tree costs more
+    # than the tree itself, and a service holding one of its files open fails
+    # the import for a reason that has nothing to do with the translation.
+    $ignored = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $output = & git -C $Directory ls-files --others --ignored --exclude-standard --directory 2>$null
+    # A set is enumerable, and returning one lets PowerShell unroll it: an empty
+    # set arrives at the caller as nothing at all. The comma keeps the set whole,
+    # which matters most in the case that produces an empty one -- a directory
+    # that is not a repository, which is what every staging tree starts as.
+    if ($LASTEXITCODE -ne 0) { return , $ignored }
+    foreach ($line in @($output)) {
+        $entry = [string]$line
+        if ($entry) { [void]$ignored.Add($entry.TrimEnd('/')) }
+    }
+    return , $ignored
+}
+
 function Get-ExchangeSnapshot {
     param([string]$Directory)
     $snapshot = @{}
+    $ignored = Get-ExchangeIgnoredPath -Directory $Directory
     $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($Directory)
     while ($pending.Count) {
         foreach ($item in @(Get-ChildItem -LiteralPath $pending.Pop() -Force)) {
             if ($item.Name -in @('.git', '.agents', '.codex', 'node_modules', 'localization-input', 'localization-output')) { continue }
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked source path: $($item.FullName)" }
-            if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
             $relative = [IO.Path]::GetRelativePath($Directory, $item.FullName).Replace('\', '/')
+            if ($ignored.Contains($relative)) { continue }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
             $snapshot[$relative] = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
         }
     }
@@ -541,6 +571,15 @@ try {
             [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
             [IO.File]::Copy((Join-Path $pair.original $relative), $target)
         }
+        # Tools that run against this tree enumerate source the way the rest of
+        # the repository does, by asking Git, so a copy with no repository at
+        # all cannot answer them. An empty repository answers identically here:
+        # every staged file is untracked, .gitignore travels with the copy
+        # because it is itself source, and tracked-plus-unignored over the
+        # original is the same set as unignored over the copy. Nothing is
+        # committed; the index exists only so the question can be asked.
+        $null = & git -C $pair.stage init --quiet 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Could not prepare the staged $($pair.name) tree for source enumeration." }
     }
     $release = ([IO.File]::ReadAllText((Join-Path $Root 'VERSION'))).Trim()
     foreach ($bundle in $bundles) {

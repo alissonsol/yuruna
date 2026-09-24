@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Render the pool repository-access reference slice through its shipped page,
-    floor request adapter, and generated pseudo catalogs.
+    shared request adapter, and generated pseudo catalogs.
 #>
 
 BeforeAll {
@@ -122,43 +122,43 @@ function Invoke-PoolPseudoPage {
         [switch]$FullDocument
     )
 
+    # Intl and normalize are taken away so the page is forced through the
+    # embedded formatters, and toLocaleString is made locale-blind so a
+    # formatter that delegated to the engine would show it. The transport is
+    # answered in the page so the slice renders from fixed bytes and nothing
+    # leaves the browser.
     $transport = @'
 <script>
 (function () {
-  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
   try { delete window.Intl; } catch (e) { window.Intl = undefined; }
   try { delete String.prototype.normalize; } catch (e) {}
-  try { delete Object.assign; } catch (e) {}
-  try { delete Number.isFinite; } catch (e) {}
   Number.prototype.toLocaleString = function () { return String(this); };
-  window.XMLHttpRequest = function () {
-    var self = this;
-    this.open = function (method, url) { self.url = url; };
-    this.setRequestHeader = function () {};
-    this.abort = function () { if (self.onabort) { self.onabort(); } };
-    this.send = function () {
-      var data;
-      if (self.url === '/api/hosts') {
-        data = { ok: true, pools: ['lab'], targetPoolId: '', hostnamesVisible: false,
-          statusError: 'aggregate \u2069\u202E spoof',
-          hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] };
-      } else if (self.url === '/api/hosts/facts') {
-        data = { ok: true, hosts: { '42cc': { ok: true,
-          frameworkAccess: 'repo \u2069\u202E spoof', frameworkAccessState: 'readable',
-          frameworkUrl: 'https://example.test/framework/\u2069\u202E/spoof',
-          projectAccess: 'No access', projectAccessState: 'denied',
-          projectUrl: 'https://example.test/project/\u2069\u202E/spoof' } } };
-      } else if (self.url === '/api/hostinfo') {
-        data = { ok: true, goBaseUrl: '' };
-      } else {
-        data = { ok: false, error: 'unexpected request ' + self.url };
-      }
-      self.status = data.ok === false ? 500 : 200;
-      self.statusText = data.ok === false ? 'Error' : 'OK';
-      self.responseText = JSON.stringify(data);
-      window.setTimeout(function () { if (self.onload) { self.onload(); } }, 0);
-    };
+  window.fetch = function (url) {
+    var data;
+    if (url === '/api/hosts') {
+      data = { ok: true, pools: ['lab'], targetPoolId: '', hostnamesVisible: false,
+        statusError: 'aggregate \u2069\u202E spoof',
+        hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] };
+    } else if (url === '/api/hosts/facts') {
+      data = { ok: true, hosts: { '42cc': { ok: true,
+        frameworkAccess: 'repo \u2069\u202E spoof', frameworkAccessState: 'readable',
+        frameworkUrl: 'https://example.test/framework/\u2069\u202E/spoof',
+        projectAccess: 'No access', projectAccessState: 'denied',
+        projectUrl: 'https://example.test/project/\u2069\u202E/spoof' } } };
+    } else if (url === '/api/hostinfo') {
+      data = { ok: true, goBaseUrl: '' };
+    } else {
+      data = { ok: false, error: 'unexpected request ' + url };
+    }
+    return new Promise(function (resolve) {
+      window.setTimeout(function () {
+        resolve({
+          ok: data.ok !== false,
+          status: data.ok === false ? 500 : 200,
+          json: function () { return Promise.resolve(data); }
+        });
+      }, 0);
+    });
   };
 }());
 </script>
@@ -209,29 +209,26 @@ function Invoke-PoolBoardPage {
     $transport = @"
 <script>
 (function () {
-  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
   try { delete window.Intl; } catch (e) { window.Intl = undefined; }
   try { delete String.prototype.normalize; } catch (e) {}
-  window.XMLHttpRequest = function () {
-    var self = this;
-    this.open = function (method, url) { self.url = url; };
-    this.setRequestHeader = function () {};
-    this.abort = function () { if (self.onabort) { self.onabort(); } };
-    this.send = function () {
-      var data;
-      if (self.url.indexOf('/api/board?') === 0) {
-        data = $boardReply;
-      } else if (self.url === '/api/hostinfo') {
-        data = { ok: true, goBaseUrl: '' };
-      } else {
-        data = { ok: false, error: 'unexpected request ' + self.url };
-      }
-      self.status = data.ok === false ? 500 : 200;
-      self.statusText = data.ok === false ? 'Error' : 'OK';
-      self.responseText = JSON.stringify(data);
-      window.setTimeout(function () { if (self.onload) { self.onload(); } }, 0);
-    };
+  window.fetch = function (url) {
+    var data;
+    if (url.indexOf('/api/board?') === 0) {
+      data = $boardReply;
+    } else if (url === '/api/hostinfo') {
+      data = { ok: true, goBaseUrl: '' };
+    } else {
+      data = { ok: false, error: 'unexpected request ' + url };
+    }
+    return new Promise(function (resolve) {
+      window.setTimeout(function () {
+        resolve({
+          ok: data.ok !== false,
+          status: data.ok === false ? 500 : 200,
+          json: function () { return Promise.resolve(data); }
+        });
+      }, 0);
+    });
   };
 }());
 </script>
@@ -302,7 +299,7 @@ if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
 
 Describe 'the pool repository-access slice renders through shipped pseudo assets' {
 
-    It 'renders the stable denied state in expanded and mirrored pseudo at the browser floor' {
+    It 'renders the stable denied state in expanded and mirrored pseudo' {
         if (-not $script:Chrome) {
             Set-ItResult -Skipped -Because 'no Chrome or Chromium on this host to render with'
             return

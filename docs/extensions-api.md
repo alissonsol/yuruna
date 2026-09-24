@@ -138,9 +138,9 @@ today that is the runtime in `yuruna.core.js`, while each service still
 carries its own stylesheet. A service embeds its own pages and page scripts
 and asks this package only for the names it does not have, so there is one
 copy of the shared runtime rather than one per service: these assets carry a
-browser baseline ([Safari iOS 9.0](definition.md)), and a service with its own
-copy is a service that can fall off that baseline on its own without anyone
-noticing. `//go:embed` cannot reach outside its own module, which is why the
+browser baseline ([Safari 16 / iOS 16](definition.md)), and a service with
+its own copy is a service that can fall off that baseline on its own without
+anyone noticing. `//go:embed` cannot reach outside its own module, which is why the
 shared files are embedded inside `webui` and handed over through Go rather
 than referenced in place across the module boundary.
 

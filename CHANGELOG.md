@@ -4,6 +4,15 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.24
+
+- **Globalization.** Release with pt-BR localization.
+
+- **Browser support.** The status pages and the extension service UIs
+  require Safari 16, Safari iOS 16, Chrome 105, or Firefox 105, or a later
+  version of any of them. Older browsers, including the iOS 9 line, are
+  outside support and are not tested.
+
 ## 2026.09.18
 
 - **Host refresh.** Host refresh functionality.
@@ -514,6 +523,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.18
+Last review: 2026.09.24
 
 Back to [Yuruna](README.md)

@@ -14,11 +14,11 @@
   script. Nothing short of executing the scripts against real page ids
   distinguishes that from a working page.
 
-  What this does NOT check is the browser baseline. node runs modern syntax
-  happily, so these pages would pass here whether or not Safari 9 could parse
-  them -- that half is tools/Invoke-Es5Check.ps1, which reads the files without
-  running them. The two are complements: the checker proves the scripts PARSE
-  on the floor, this proves they WORK. Neither alone says the page renders.
+  What this does NOT check is that a supported browser can parse these files.
+  node is its own engine with its own syntax support, so a page passing here
+  says the behavior is right, not that the engines the project supports accept
+  the source. Nothing in this repository proves that half; it is read off the
+  language level the assets are written to.
 
   So each page is asserted to:
     - load all three scripts without throwing, and without leaving a rejected
@@ -242,7 +242,7 @@ function runPage(page, locale, capabilityOff, state) {
   const scripts = scriptsIn(html);
   assert.ok(scripts.length >= 2, `${page.service}/${page.file}: expected the runtime and at least one page script`);
   assert.strictEqual(scripts[0], 'yuruna.core.js',
-    `${page.service}/${page.file}: the shared runtime must load first; it defines Y and installs the baseline shims`);
+    `${page.service}/${page.file}: the shared runtime must load first; it defines Y, which every page script calls`);
 
   const byId = {};
   for (const id of idsIn(html)) { byId[id] = makeEl('div'); }
@@ -273,7 +273,10 @@ function runPage(page, locale, capabilityOff, state) {
     confirm: () => true,
     alert() {},
     FormData: function () {},
-    XMLHttpRequest: function () {},
+    // The genuine constructor rather than a stub: Y.api puts the signal on
+    // every request and aborts it when the bound expires, so a shape that only
+    // answers `new` would let a broken bound pass here.
+    AbortController,
     fetch(url) {
       if (state === 'error') return Promise.reject(new Error('Fixture transport refused'));
       const payload = bodyFor(url, state);
@@ -304,22 +307,24 @@ function runPage(page, locale, capabilityOff, state) {
   };
   box.window = box;
   box.globalThis = box;
+  // Capability off is the page with its optional text machinery withheld: no
+  // Intl, no String.prototype.normalize. Everything the pages print -- numbers,
+  // dates, plurals, sort keys, folded search text -- then has to come from the
+  // compiled formatting kernel, which is the only way PowerShell, Go and the
+  // browser produce the same bytes for the same value. A page that quietly fell
+  // back to the engine's own formatters would pass a render check here and
+  // disagree with the other two runtimes in the field.
+  //
+  // Transport is not part of this: fetch and AbortController are carried by
+  // every browser the UI supports and Y.api uses both on every call, so
+  // withholding them would model a browser that does not exist and would only
+  // measure the stub standing in for it.
   if (capabilityOff) {
-    box.fetch = undefined;
     box.Intl = undefined;
+    // Dropped rather than overwritten, so the context falls back to its own
+    // String intrinsic. Editing the one passed in here would reach through to
+    // this process and strip normalize from the test runner itself.
     delete box.String;
-    box.XMLHttpRequest = function () {
-      this.open = function (_, url) { this.url = url; };
-      this.setRequestHeader = function () {};
-      this.abort = function () { if (this.onabort) this.onabort(); };
-      this.send = function () {
-        if (state === 'error') { this.onerror(); return; }
-        this.status = 200;
-        this.statusText = 'OK';
-        this.responseText = JSON.stringify(bodyFor(this.url, state));
-        this.onload();
-      };
-    };
   }
   vm.createContext(box);
   if (capabilityOff) vm.runInContext('String.prototype.normalize = undefined;', box);
@@ -438,7 +443,7 @@ async function runMatrix() {
   assert.strictEqual(menusOpened, selectedPages.length * deliveredLocales.length * states.length, 'every locale must exercise every menu');
   assert.strictEqual(regionsFilled, selectedPages.filter(page => page.fills).length * deliveredLocales.length * 2, 'every locale must exercise every populated region');
 
-  console.log(`PASS: ${PAGES.length} pages in English, expanded and mirrored locales with fetch/Intl/normalization unavailable, data/empty/error/hostile states; ${menusOpened} menus, ${regionsFilled} populated regions`);
+  console.log(`PASS: ${PAGES.length} pages in English, expanded and mirrored locales with Intl and normalization unavailable, data/empty/error/hostile states; ${menusOpened} menus, ${regionsFilled} populated regions`);
 }
 module.exports = {makeEl, idsIn, runPage, fire};
 if (require.main === module) runMatrix().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

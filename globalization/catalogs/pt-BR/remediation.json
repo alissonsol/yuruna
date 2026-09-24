@@ -1,0 +1,651 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "remediation",
+  "locale": "pt-BR",
+  "messages": {
+    "remediation.operator_00fd2209b1a993b2": {
+      "sourceHash": "6e04423cbd684cc7a3aa658f13d8eaf85893fd08e3dba50c3963ef3dc4909de7",
+      "message": "inspecionar manualmente last  failure.json"
+    },
+    "remediation.operator_01b3c9512f168859": {
+      "sourceHash": "a629c0623846ddcc17661bc3f4e2bb3fccac5085282f7406767c0822845d6c64",
+      "message": "console blooded no {vmName}: o wait executou seu orçamento completo contra uma tela cujo conteúdo não havia mudado para {staticSecs}s -- uma parede de texto que rolou antes, não um console ainda preenchendo. Nada é um convidado à espera de algo, e um aviso impresso uma vez antes desta espera começar seria exatamente assim."
+    },
+    "remediation.operator_03c7dac9d2e3c13f": {
+      "sourceHash": "a6d847fa3f513448b5d99b86bf966b632051bfb15a20752cf5c9a2666f5cd872",
+      "message": "Se persistir, verifique se esta máquina publica seu endereço para o diretório do pool e que o hóspede pode chegar a esse diretório"
+    },
+    "remediation.operator_092d2a9134cdc6f6": {
+      "sourceHash": "2227ed7ecb82cd40a8003438c861c074c2b2b112bc6844a218bbf69cbec10d56",
+      "message": "lsof - sTCP: LISTEN retornou sem pids, mas lsof (qualquer estado) encontrado pid(s) {join}; tratando como titular"
+    },
+    "remediation.operator_0ddb7073d12e8400": {
+      "sourceHash": "b4e25299f70c8d1fa28f5106d28cfd6da997f0b0f313ea81da5bd2eeb4803daf",
+      "message": "ocr  timeout no {vmName}: a tela nunca atingiu o estado esperado. Na maioria das vezes, a carga de trabalho divergiu do caminho gravado; replay from a clean snapshot em vez de adivinhar como recuperar no local."
+    },
+    "remediation.operator_0e19ba1c8c8b7f7b": {
+      "sourceHash": "ab6140322643e75da2094e616f0be0d8a6bb8253b3d34368377d9490fcced8d5",
+      "message": "Confirmar a semente transportada o pino: rede-config na semente de cidada deve chegar ao hóspede, uma vez que um pino aplicado após a inicialização é uma locação muito tarde"
+    },
+    "remediation.operator_0f0d8db138f68e01": {
+      "sourceHash": "dcb9849679eaf07c8becbd117ac8277d8510511d930ffcfb2b0b7db5e19832ee",
+      "message": "Restaurar a vinculação dos pontos de veredito em -- Set-VMSwitch -Nome <switch> -NetAdapterName <nic> para um uplink perdido, ou -AllowManagementOS $true para uma gestão em falta vNIC -- conhecendo-a brevemente interrompe a própria rede da máquina"
+    },
+    "remediation.operator_126f4cf4415d01de": {
+      "sourceHash": "431db03931c5bc529b641b130491b78c920d6d95549fbcf75755aec9e2835469",
+      "message": "Verifique o que mais compartilha o volume: o pool de download de imagem de hóspedes em imagens / é geralmente o maior inquilino"
+    },
+    "remediation.operator_12710b3d54a09d23": {
+      "sourceHash": "b19c24b46fd1c7d9d1994b0b127e2c9d0a5fdd3d30e9c9b5b8b22f321af24125",
+      "message": "Se o pino está presente e o endereço ainda se move, o servidor não está digitando no cliente-id: dar a este hóspede uma reserva, ou encurtar a locação para que o lixo recicle"
+    },
+    "remediation.operator_12936401977348b5": {
+      "sourceHash": "45dcd7652a737ec620fc0e33ddc30e79b3270feca67fe3c6058a406f0d701a01",
+      "message": "Se ele para no mesmo URL a cada ciclo, tratá-lo como uma falha de espelho upstream em vez de uma falha convidado"
+    },
+    "remediation.operator_14bd8c7afa68b453": {
+      "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
+      "message": "Repetir a sequência do passo em falha"
+    },
+    "remediation.operator_14e6c2ed2ffe7e89": {
+      "sourceHash": "caf1b20af9b3193e211f65a2296b8bd812e990da65a19eb1229a2967f5400354",
+      "message": "Um serviço que se moveu em vez de morrer não precisa de nada aqui -- a descoberta pede de novo todas as tentativas, então o próximo ciclo encontra o novo endereço por conta própria"
+    },
+    "remediation.operator_16b7173fb133ad34": {
+      "sourceHash": "f4aeed77557e2332ebe046cc9e856272bfa3253577312d8eef7bf32947dbd78d",
+      "message": "Onde o log também mostra o backback do GitHub retornando 404: essa perna não pode servir um repositório privado sem um token, então o host é a única fonte de trabalho e sua acessibilidade é todo o problema"
+    },
+    "remediation.operator_17b1fce158581db3": {
+      "sourceHash": "30d2f66304d5750e47b3ca6d750d3ebc02be010ca71d63d10a193ade570f2a98",
+      "message": "O suporte é de propriedade de outro usuário (seu socket está escondido de lsof/netsh sem elevação)."
+    },
+    "remediation.operator_19c29f3d7af84089": {
+      "sourceHash": "fbfa37e09d21797817accc0155113f8facdd38a7f915f4a4d1d05087db8f567d",
+      "message": "Reinicie a senha do hóspede (ou rode a entrada do cofre) antes de tentar novamente"
+    },
+    "remediation.operator_1fcd1c46f3e49adb": {
+      "sourceHash": "8131e8982b9a019bd31ee4ee3369631e65b4e3e670cea9ab8c7bd83c89cb5f31",
+      "message": "wait  timeout no {vmName}: waitForSeconds transcorrido sem uma alteração observável. A espera é independente do estado convidado; uma repetição imediata é segura."
+    },
+    "remediation.operator_20e82ed313adaba2": {
+      "sourceHash": "70dad3a8bc1a5e1836fd1e319037b51e263aa2fa5d749695100526fa5d89f743",
+      "message": "mesmo um lsof de nível raiz não encontrou nenhum suporte que possa ser parado para esta porta"
+    },
+    "remediation.operator_229beccf1c8615fb": {
+      "sourceHash": "04af06c48df86edc8531d80534aaf98ddf980104da4b2449cdf91cefb49d782a",
+      "message": "Registar os manipuladores de recuperação incorporados"
+    },
+    "remediation.operator_25ef3aa3a8d0b7fb": {
+      "sourceHash": "905c38cd0ac9a2b5df7e0f871a5d38eab6a96b3195cd3dfcda9f049ffb8e15da",
+      "message": "Endereçar essa falha subjacente"
+    },
+    "remediation.operator_26c6f6da9a72b538": {
+      "sourceHash": "afed261e39a541d0d848a0172949e066aa27b302883012cf4e547ca0056f6ac8",
+      "message": "Revisão last failure.json + manifest.json + cycle.events.ndjson"
+    },
+    "remediation.operator_26e79b3ecf42c48e": {
+      "sourceHash": "7d365d328289cd82193e91b5d68f9c10ad7255077946d4a6371d038c680cf1fe",
+      "message": "Desconectar-VNC para a VM afetada"
+    },
+    "remediation.operator_2ad54514c8ca7909": {
+      "sourceHash": "1148d52540ccb10f80184d31c6bee952b3349f90e1473adf05b274743666ecf9",
+      "message": "Registo Test.Remediation"
+    },
+    "remediation.operator_2aed02135c2ad75f": {
+      "sourceHash": "8b6baba9eb4463de06cb3962794cd31dea8dcada1e195cd9a1307b6e757a5b34",
+      "message": "Verifique a seção de NETWORK do diagnóstico convidado para origem parada ou lenta pacote-mirror"
+    },
+    "remediation.operator_2b9a82d1d78b3138": {
+      "sourceHash": "c3adaf3f12b85124e2ad7a80986eb3273cd8dc79e98d466da51deb4824151a75",
+      "message": "project  access  negated no {vmName}: o pool atribuiu a esta máquina um projectoUrl a sua credencial git não consegue ler (repo privado, ou um token sem acesso). Nenhuma retry pode ter sucesso -- a credencial é host- local e a A atribuição foi feita em outro lugar -- então isso nunca entra no backoff. Distinct from bootstrap sync, where the host's Own project failed to clone: here the fix pertence a quem atribuiu o conjunto de testes do pool."
+    },
+    "remediation.operator_2be2a7b55fde9058": {
+      "sourceHash": "80bc475ab2eb232d1abde655975137964946e5b910e0d866fc6c3a6f01d61d31",
+      "message": "Reconcile o repo e, em seguida, volte a executar o ciclo"
+    },
+    "remediation.operator_2d28084c0bea1d81": {
+      "sourceHash": "e7c9209349836382ed74e0e2653470d2f655450982226674e82c741f6f91aa36",
+      "message": "Corrigir o script subjacente"
+    },
+    "remediation.operator_2e1e64b6924ab3ed": {
+      "sourceHash": "40a708c230fc45b6e49ec48bccf719151a35b680f56487941f567c5f88703649",
+      "message": "Confirmar que o instantâneo nomeado existe e é consistente"
+    },
+    "remediation.operator_2fa001ad26748ebc": {
+      "sourceHash": "f38d5cdd0dcdaaea22c90846dfe9ad30a432f37014c81b2c3fae5afcef0984d6",
+      "message": "Espere 5- 30 s com jitter (ver o atraso de execução)"
+    },
+    "remediation.operator_31b3d0d03fc33e59": {
+      "sourceHash": "58742480d4f3b389ad2515ac94cc4748aa56576e6a72905911e86420f3617d78",
+      "message": "o veredicto registado"
+    },
+    "remediation.operator_3264b63693a7f3a4": {
+      "sourceHash": "328c6e4fc744c4c61f60001d327da5ebf3af2f0bb99f3e5451579793e796c66a",
+      "message": "Leia a causaDetail.consoleFlood em last failure.json para a linha dominante e sua parte da tela"
+    },
+    "remediation.operator_328d54082fe46c95": {
+      "sourceHash": "4709a0207b2862571782779a4fd1f982319fc316e06bf8f7e256fb7adbc0a608",
+      "message": "ou cair para 'desconhecido' que atualmente não tem manipulador"
+    },
+    "remediation.operator_331d83be3f8e49ab": {
+      "sourceHash": "c3b75ef4ff4143c44311d117f83f98b0a5d784fc495f88909f01f9c8d4dc7109",
+      "message": "Parar o suporte pwsh órfão"
+    },
+    "remediation.operator_36573af397a13ade": {
+      "sourceHash": "e05476546d89c81315e0bf60ca2fe1f1c32229ce404577b5a16c1b283209b859",
+      "message": "Repair-ScreenshotRing restaura captura; uma repetição é idempotente"
+    },
+    "remediation.operator_377f2e3910815162": {
+      "sourceHash": "54d6607000ce35fe72dcb714c40e31a28e6be4bdceb97b9137d0201be213bc6c",
+      "message": "Conceda o acesso de leitura GH TOKEN desta máquina ao projeto atribuídoUrl"
+    },
+    "remediation.operator_38a152014944599f": {
+      "sourceHash": "f2ab689086d964546705e366b4a226a5d1eb72592856b8c7e884d2fbb7c33496",
+      "message": "Inspecionar teste/status/extensão/autenticação/vault.yml para o hóspede afetado"
+    },
+    "remediation.operator_3b44f5cc88984d87": {
+      "sourceHash": "c87c0cbf5e852ec9bf66bd3609dc832c694afa5bddfd824d24fdfa6eb965176f",
+      "message": "Invoke-Remediation: {lastFailurePath} não está presente; nada a fazer."
+    },
+    "remediation.operator_3d90ab28ad1f16f9": {
+      "sourceHash": "8f33a6e83de874a2bddde82ad73f248abdfe9453cceafb975d76e4ad1a95e0f7",
+      "message": "Se persistir, confirme que o convidado inicializado e seu NIC está ligado à rede esperada"
+    },
+    "remediation.operator_3f388f3f584a1034": {
+      "sourceHash": "0ec787cfbf80be1eef567e03f6f67eaa4bf84e24d9020efa0790f3bf41b9164f",
+      "message": "Invoke-Remediation: não YURUNA LOG DIR e não -LastFailurePath; nada a fazer."
+    },
+    "remediation.operator_3f8475af2fbbaf26": {
+      "sourceHash": "0099a73a0f570510c54d9f195caf0f63b8ba299c6dc2b7ee8d6a4ec97d0c1c43",
+      "message": "Aposentar hosts mortos com test/pool/Remove-PoolHost.ps1, que também remove sua raiz de arquivo (incluindo qualquer pré-unificação)"
+    },
+    "remediation.operator_4046c1f6949f7aad": {
+      "sourceHash": "70630cc8bbfc34df4dd4d2f487d2562c6a9ce5e188fe5d07add4f577d1d2ab10",
+      "message": "uma cabine de transporte, não uma resposta errada"
+    },
+    "remediation.operator_4155d913c9defc45": {
+      "sourceHash": "0f6b9fb72d5fb5d900eb993dcd56e5780463a090433d06396258855ff5e7e15c",
+      "message": "Leia a causaDetail.consoleStaticSeconds and consoleFlood in last failure.json -- uma longa execução estática com uma linha dominante repetida é um convidado estacionado, não um dilúvio ao vivo"
+    },
+    "remediation.operator_424dd8ef292c44da": {
+      "sourceHash": "1e8355d5a7d4a6f981285d2a666f9c8909dbb0a80de2980664814b15cfc4344d",
+      "message": "Resolver por UM de:\n- interromper o serviço de estatuto do outro proprietário (pode pertencer a outra conta de utilizador); ou\n- dê a este checkout sua própria porta em test/test.config.yml (statusService.port) e reexecute."
+    },
+    "remediation.operator_4398282a54e50a13": {
+      "sourceHash": "3d7caffa9dd2b1fd97f63685bb92e04470614e5057208b522d0b6340d3e501fc",
+      "message": "pool storage full: o pool share não tem espaço para os resultados do ciclo desta máquina, então a saída do ciclo não pôde ser arquivada. Nada que o corredor possa fazer muda que -- ele não tem arquivos próprios para excluir, e o O ciclo seguinte só produz mais para armazenar. No modo de movimento, o compartilhamento contém a cópia ÚNICA dos resultados de um ciclo, então o arquivamento não é opcional e os ciclos ficam em pausa até que haja espaço.{detail}"
+    },
+    "remediation.operator_442f164764fa5ba8": {
+      "sourceHash": "b8cb8d4da38a75911a0500450b6ed73bddd1a7f52b5d149a4c1d89f85dfbea10",
+      "message": "last  failure.json não pôde ser analisado: {message}"
+    },
+    "remediation.operator_443019dfa8dbce7c": {
+      "sourceHash": "a1c4e0e978982daa469b685f4754ccfffdb0cb685977f21082d6cea0e9c989f8",
+      "message": "Abra o último arquivo da pasta de ciclo"
+    },
+    "remediation.operator_4fccd2ceaaf44c3a": {
+      "sourceHash": "35c35df5c8a5602cd8b3a037411057db7bb82b38701acc94f2f7705d6a9e1334",
+      "message": "Inspecione projeto/teste/test.runner.yml para entradas duplicadas ou malformadas"
+    },
+    "remediation.operator_54b0e080b8e528c6": {
+      "sourceHash": "52b49bb375e6ca358c95d20cbb9afbd3adcb21949f2dcdc5bc53e19a366559ae",
+      "message": "plan  invalid no {vmName}: o plano de ciclo é ambíguo ou insatisfatório (sequência duplicada, uma infra- estrutura que falta à máquina ou uma pasta de host/<host>/<guest> em falta). Um erro de configuração, não auto- remediado."
+    },
+    "remediation.operator_5a4aff635afbeff4": {
+      "sourceHash": "9ab7de6ae4120922665b605f8d6d7f502bc11fdcb6d30016bfa88c921b71f41d",
+      "message": "Reiniciar teste/Start-TestRunner.ps1; seu portão de elevação de inicialização confirma o host antes do primeiro ciclo"
+    },
+    "remediation.operator_5c64242438df86ec": {
+      "sourceHash": "fe9b586f10d21f34834da87907cc0584438d8335072f5e9729a9fad0e89c5fdd",
+      "message": "Um serviço de status Yuruna já está respondendo no porto {port}{suffix} -- iniciado por outro checkout ou usuário."
+    },
+    "remediation.operator_5d3d876075d1100d": {
+      "sourceHash": "029d6d8cc4d7c51718b0cca66593fc536ff9d7d217ca8303bf01850040cadb35",
+      "message": "Um porão de operador de {heldSecs}s terminou pouco antes desta etapa: o convidado continuou correndo através dele, então qualquer coisa que ele imprimiu e não reimprimiu está fora da tela o passo então teve que ler."
+    },
+    "remediation.operator_5db26636a6ed4019": {
+      "sourceHash": "0d4ad90e596516a4c965faaf81558362726348d51f52d6a885e98339de40dff6",
+      "message": "lsof stderr: {trimErr}"
+    },
+    "remediation.operator_6097b95aeee20519": {
+      "sourceHash": "3d863de681c9de4c3cb430a233ea7fec6ae581f0e527cf5896469027cae2ba44",
+      "message": "No console da máquina, inspecione {switchText} ({verdictText}): Get-VMswitch, então Get-NetAdapter para a descrição que ele nomeia"
+    },
+    "remediation.operator_644fe260c47d5bf9": {
+      "sourceHash": "4591997ddb049b7a2131b8945701fb576d2a3043566900de3b974818f1a388c8",
+      "message": "wait timeout no {vmName}: o marcador de finalização fetchAndExecute nunca apareceu, então o script convidado ainda estava em execução (ou preso) no prazo -- muitas vezes bloqueado em um espelho de pacote lento ou parado. a tag de falha foi impressa, portanto este não é um erro relatado pelo script; um backoff comumente o limpa."
+    },
+    "remediation.operator_663bef65292f201c": {
+      "sourceHash": "d1908b199d6d24b2fa2f7fd26b086d24ba62e9c3bb561bcb2baa8fb2cb4649dc",
+      "message": "Iniciar o serviço nomeado onde ele pertence: test/service/Start-<Service>VM.ps1 em seu host, e confirmar /healthz respostas a partir daí"
+    },
+    "remediation.operator_676a299116f4813d": {
+      "sourceHash": "bdb21dbfaeb33a58cc6ff8c971dd621440b4ad16e7a8ff1b53b2f206e2bb1e26",
+      "message": "Nenhum manipulador registrado para falhaClass '{failureClass}' e nenhum recurso 'desconhecido' presente."
+    },
+    "remediation.operator_6856d456910a252e": {
+      "sourceHash": "afec8965e806ac421125813282488764ffc25d2a257a2b8bb01f03ce24c56151",
+      "message": "Parar porta {port} titular"
+    },
+    "remediation.operator_688a7e15ea7edf9c": {
+      "sourceHash": "98ab65617597e1908237eff3fd07ed572b09ad72c8f86a478ee5983e5f50037f",
+      "message": "Forçar o próximo Send-* a re-handshake"
+    },
+    "remediation.operator_6957eec58bdf4cad": {
+      "sourceHash": "3c45374b1efb16c6086074cfc2d09b967f8187745c85c2a2be85e705e7bb1873",
+      "message": "Moveu {prev} -> {cur}."
+    },
+    "remediation.operator_6a7069cdf541164d": {
+      "sourceHash": "039cd7365e42f68e6f8bc3f5d91475fcd2caac25fcdc5358d0f314cd49f3fbd3",
+      "message": "Repita o passo de espera."
+    },
+    "remediation.operator_6a9db7b61b4925ae": {
+      "sourceHash": "6c7a45c81f4191a664d5c8a13e680f932b137ccb88c353291e2737408ebe3f9b",
+      "message": "Onde o passo é um waitForAndEnter, blindAfterSeconds permite que ele responda que se alerta na próxima corrida"
+    },
+    "remediation.operator_6c024e2aae3f4e0b": {
+      "sourceHash": "1eac69d8192c205351e72b02de56d3d6281ba673c0dc33f234d22ee1e5f32b88",
+      "message": "Identificar a área de extensão em falta (autenticação, notificação, etc.)"
+    },
+    "remediation.operator_6cc507ac627ec13c": {
+      "sourceHash": "b2d725565cd4ca53b612a6ff533d0b2d747fb77ffa9fa5418f3181843cd5e9f5",
+      "message": "A aquisição elevada também foi experimentada e não a libertou: {detail}"
+    },
+    "remediation.operator_6cf224bfd1008ecc": {
+      "sourceHash": "5be0e81d5f92ef86662cc55ba64bd79a2c687ab65c5a35da1fe227784ca27598",
+      "message": "Verificar as credenciais / token git remotas ainda são válidas"
+    },
+    "remediation.operator_6ece8bcef4b26107": {
+      "sourceHash": "16aeba57735c1445fb92ce085330bc0c43c433334b0300f9f1178eec37483589",
+      "message": "Se voltar a esgotar-se, passar para operator intervention required"
+    },
+    "remediation.operator_6fd79eb4d8f46b60": {
+      "sourceHash": "ab9d6f187bbe1ef010e3e943763c60fb491e9216bd1f4fb0d6946609b58c8dbb",
+      "message": "Abra o último arquivo da pasta de ciclo e verifique onde ele para -- um registro sem código de saída '#:' trailer significa que o script nunca retornou"
+    },
+    "remediation.operator_70fab6da39ee36e1": {
+      "sourceHash": "ab3ced070f1d7289ef9271471a974beb5b9d328278a5053bb8cd283b169578fd",
+      "message": "Repair-VncConnection reconecta o console; reconectar duas vezes é inofensivo"
+    },
+    "remediation.operator_713fbd665e5da4bf": {
+      "sourceHash": "bf36dbf980f3c5b57e833abde325c3585dfd7fe6fedcdd9471eedc7ed4c45abe",
+      "message": "O painel de controle de piscina sinaliza o pool e lista os hosts bloqueados"
+    },
+    "remediation.operator_730dca21ad9eda73": {
+      "sourceHash": "fd0770fac26d9f21f648cef97a6687d80e3ac085a0e3669209ea08b5c0528f31",
+      "message": "Invoke-Remediation: não foi possível escrever last remediation.json: {message}"
+    },
+    "remediation.operator_787985aef3c53e0a": {
+      "sourceHash": "aedee9a95c5a1a5f1f74a0f3f139e3f78a4eaa5a376a8448650e9c6fb8898349",
+      "message": "o hóspede não tinha locação ainda; um ciclo posterior geralmente encontra um"
+    },
+    "remediation.operator_7933966c333f63c7": {
+      "sourceHash": "a246b04031cb5b435aed2815c0e575c2b2179e7222da0237030a22c0c2a9ecb8",
+      "message": "Valida-o com visudo - cf antes de confiar nele -- um drop-in inválido quebra o sudo para cada comando"
+    },
+    "remediation.operator_7a0e1aa474da9a62": {
+      "sourceHash": "211bdf5e83380a385e2a7116f37aa80a306632d64074241bab215228fa916bca",
+      "message": "payload  indisponível no {vmName}: o convidado executou a pasta de busca e nenhuma fonte serviu o script, então nada foi executado -- não há nenhum script aqui para depurar, e nenhum estado convidado para desconfiar. A causa usual é uma máquina que renumerou sob o DHCP enquanto este hóspede ainda tinha o endereço antigo; o convidado re-pergunta o diretório do pool e normalmente recupera em segundos."
+    },
+    "remediation.operator_7c1a5d17f86d77d0": {
+      "sourceHash": "ed83907392d149d62b870541bee91e22a3693c40bfa94f9274bd656b055fb2f2",
+      "message": "pattern matched failure no {vmName}: fetchAndExecute viu o erro- fim- etiqueta. O próprio script de wrapper relatou uma falha; o auto- retry iria apenas reactivá- lo."
+    },
+    "remediation.operator_7d87024301324c31": {
+      "sourceHash": "dd4f118e9018695cbd22333e48181ec16aa11a29f691b19d9939dbfc6f1268f8",
+      "message": "o titular está fora do alcance desta conta e elevação estava indisponível -- sudo não tem autorização ao vivo e esta execução não pode pedir uma (run 'sudo-v', então re-run)"
+    },
+    "remediation.operator_7db5a2977e4790b2": {
+      "sourceHash": "37ac907a2e4ae70d62cb0bbaabe50e4f55fc6b42f8cc9ab27f67e418c974361f",
+      "message": "Corrigir a extensão e repetir o ciclo"
+    },
+    "remediation.operator_7fb881306771c597": {
+      "sourceHash": "c47c2dea15f8ddca5fbf329692b8efb23bada210a0bfcccc9e49c70f456f764f",
+      "message": "Recusar o início: um segundo serviço de status não pode vincular a mesma porta e executar o\nciclo sem ninguém esconde o painel ao vivo / controles de ponto de interrupção (um estado difícil de depurar)."
+    },
+    "remediation.operator_807e58f44f8a5743": {
+      "sourceHash": "dca2ab68cd322252cc85d1935b5ec018d812885b1e0bc7ec7456f61c43eee720",
+      "message": "Tente novamente o passo de instrumentação falhando."
+    },
+    "remediation.operator_82a3c5762fc4648e": {
+      "sourceHash": "cd3dcb024124ad17a9bf13dc157f378960d5c6164dc4c6fe04dcedccaec2ee2c",
+      "message": "Diagnose o erro do script subjacente"
+    },
+    "remediation.operator_85eda07f90b4d887": {
+      "sourceHash": "b5df336024fe9ef26aa47ce0aa3e35da785d9399c1670607f041b7d4d434c8eb",
+      "message": "Corrigir o que está repetindo em vez de repetir a espera -- um tempo de espera mais longo não pode tornar uma superfície de auto-sobreposição legível"
+    },
+    "remediation.operator_86936d1d16cfffed": {
+      "sourceHash": "54a50a071a048dc31a5a13431ed770e6b51b351116d8496581ca6523658a6011",
+      "message": "Verifique a tabela de locação do servidor para o MAC deste hóspede -- dois locações ao vivo em um MAC significa que ele está digitando em um cliente-id o convidado ainda está variando"
+    },
+    "remediation.operator_88121b1e52c84006": {
+      "sourceHash": "66df2b443dd9fb52cda180c38c4eb714c4dffa979e88771714a7c838bfc0d05b",
+      "message": "Recusar-se a comandar um ouvinte que este arnês não possui."
+    },
+    "remediation.operator_892877bc74922cba": {
+      "sourceHash": "3dbb40608379ed2b981a5bfcf4e2c36554597b700d9b84b64cecfdb87d8578e6",
+      "message": "extension error no {vmName}: uma invocação de callExtension lançada. Auto-retry corre o risco de looping no mesmo erro de extensão ou a gravar credenciais."
+    },
+    "remediation.operator_8f308f9f27537f47": {
+      "sourceHash": "1ca97fcf1b945e33b14468531528d4a46e29969ca587be086b9bb53e8c0fa1a6",
+      "message": "Abra o console convidado e responda o que ele está esperando; um prompt que está fora da tela ainda está ao vivo e ainda lendo entrada"
+    },
+    "remediation.operator_8f9d21c7feb1fbde": {
+      "sourceHash": "7f138b749590b85c15dd5c329386a625bb11fcdcedd1f8c12d5be39cee4c06ec",
+      "message": "Continuar manualmente após a causa da raiz ser fixada"
+    },
+    "remediation.operator_90d007dd21de718a": {
+      "sourceHash": "12eab03cbf71d3a2bb5a794d5c1a397ac03f02edc10ed23344333b76343609a0",
+      "message": "lab dependency down: um serviço de laboratório que este host tinha alcançado parou de responder, e o ciclo já foi mantido para ele -- re-procurando em backoff por até dezesseis horas -- antes de gravar isso. Provavelmente foi tentado na única escala que poderia ter funcionado, e o ciclo seguinte passaria as mesmas horas para chegar à mesma resposta. O serviço também não precisa viver neste host: sob uma piscina é normalmente uma VM outra pessoa possui, e é por isso que isso não é uma falha host e não uma falha guest.{detail}"
+    },
+    "remediation.operator_9151cc4f3b057b44": {
+      "sourceHash": "3366f71669a5a56025a199b723d838f8ff427ea624d07a25456a508a45cde5b7",
+      "message": "console blooded no {vmName}: o wait executou seu orçamento completo contra um console que estava se sobrepondo com uma linha repetitiva, de modo que o padrão não podia ser lido se o convidado alguma vez imprimiu. Este não é um convidado que falhou ao atingir o estado esperado -- é uma tela que não pôde ser lida, e repetindo- a inunda a mesma tela novamente. O que está repetindo nomeia a causa: um link ou evento DHCP modelo de rede do instalador, um loop de reinício de serviço ou uma tempestade de mensagens do kernel."
+    },
+    "remediation.operator_97b6f714dbde379c": {
+      "sourceHash": "89508cbf13b6bbd7a480f45272212fd7fc972305edf53b7d4a02f4bbbfaf3211",
+      "message": "O hold não é o orçamento do ciclo: um operador que sabe que a queda é permanente termina-lo da página de status em vez de esperá-lo para fora"
+    },
+    "remediation.operator_992cf1faa91dc2f9": {
+      "sourceHash": "145a72406bbc76318253227427ed543ca8dd7b8c6ff68e51a6abcb736863d828",
+      "message": "suporte(s) parado(s) {join} com elevação, mas a porta ainda não é aglutinante"
+    },
+    "remediation.operator_9944c15ceb34ec02": {
+      "sourceHash": "1db7780beeb7b490331f7b3093855e57d215726f308ed8e13b4228fe54c4b9fc",
+      "message": "titular pode ser de propriedade de outro usuário; tente novamente com: sudo lsof -nP -iTCP:{port}"
+    },
+    "remediation.operator_9aa0dd33f9cd273a": {
+      "sourceHash": "6a3b780fb5c4a0303385a177291ef9d1fd01e53c8506bdc7f45ae796ed830810",
+      "message": "bootstrap  sync no {vmName}: um git fetch/ clone do framework ou repo do projeto falhou por uma razão não- rede (divergência, autenticação ou uma árvore de trabalho suja). Um blip de rede puro é classificado a montante como network timeout e retried; esta classe é o restante não transitório."
+    },
+    "remediation.operator_9ea01d9a6217232e": {
+      "sourceHash": "c01bba4f32f7da21612e7a2ac0845d955208f7458ff9469bb86fbbf47b441d9c",
+      "message": "O corredor verifica novamente antes de cada ciclo e retoma por conta própria uma vez que haja espaço; uma edição de configuração ou um novo commit termina imediatamente a pausa"
+    },
+    "remediation.operator_9f53aeb17d36bf0e": {
+      "sourceHash": "bcb6fe9d02181adfe81b333cc8eb7daed2b579508807a6a959ffe51b9ea73c58",
+      "message": "script  error no {vmName}: um comando baseado em SSH retornou não- zero. Auto- tentativa faria um loop no mesmo erro de script."
+    },
+    "remediation.operator_a3827909e7a01825": {
+      "sourceHash": "1a7e8c63cf984f1767ad580d73e37eef863bfab1b9686caf1bd3301f983cd505",
+      "message": "o hospedeiro perdeu seu próprio caminho; nada no ciclo pode corrigi-lo, e recupera"
+    },
+    "remediation.operator_ababc4b189a176eb": {
+      "sourceHash": "62cf25f4a79eba7c2a25492e75a69f0b0cb8b7f535170d23d0d2269ed1fdda6e",
+      "message": "lsof -nP -iTCP:{port} (qualquer estado) -> vazio"
+    },
+    "remediation.operator_abd632fb4ee5d5b1": {
+      "sourceHash": "c8b9c5c23123b250b1e9b37921f1e6313c56445c5d0eec2d07003d7817eb03c8",
+      "message": "host io bloqueado no {vmName}: Send-Key / Send-Text / Send-Click não pôde entregar ao hóspede. O cabo de transporte (soquete VNC, teclado Hyper-V CIM) provavelmente ficou velho."
+    },
+    "remediation.operator_ae1a107543e2b1da": {
+      "sourceHash": "5a5ff57ffec095197497dc8efb28fb5e47dd113851b50fd4fbedef4a715762e1",
+      "message": "registrar um manipulador via Register-RecoveryHandler"
+    },
+    "remediation.operator_b0efdbb198fceec5": {
+      "sourceHash": "4dadff69636744f5454b601b019c6b7056428b8205054c74035df21a476ca680",
+      "message": "Inspecione o default.psm1 + .contract.yml dessa área"
+    },
+    "remediation.operator_b4f9634c3488c4e9": {
+      "sourceHash": "8ccf6ae5147497abbeb01f79c7c52673d1fe8d6520c33f3a6a28031892441b94",
+      "message": "Classificar o modo de falha e considerar adicionar uma Classe de Falha ao verbo"
+    },
+    "remediation.operator_b51fc0ab27411fec": {
+      "sourceHash": "702260a6c1079a1a621f4cc5b7302768be8fe5240630ea6a4a2e05a1c2f36ebe",
+      "message": "dhcp identity unbounded on {vmName}: este hóspede foi reconstruído sob a identidade que deveria manter, e o servidor DHCP entregou-lhe um endereço DIFERENTE de qualquer forma.{move} Um hóspede cujo endereço não é uma função de sua identidade gasta um endereço por construção, e cada abandonado permanece alocado para todo o arrendamento -- então a piscina drena a uma taxa definida pelo tempo de locação em vez de por quantas máquinas existem, e convidados Finalmente arranque sem IPv4. Retentar não pode ajudar: a compilação seguinte faz a mesma pergunta e recebe outro novo endereço, para que isto nunca entre na lista de permissão de repetição transitória."
+    },
+    "remediation.operator_b8bc2c014057ea71": {
+      "sourceHash": "82bf4c66329543700bb01315e4c5f58047bd74c7c20cc9b50b3295bb482b38f0",
+      "message": "falha desconhecida no {vmName}: o verbo falhante não registrou uma Classe de Falha. Até a classificação chegar, um operador precisa de olhos nos artefatos do ciclo para decidir."
+    },
+    "remediation.operator_b9a49bf4b1c35603": {
+      "sourceHash": "01fa02006507d8ea61e96bb04a8c7a34d56a4a301ca611e2c92e071825d7a1a6",
+      "message": "credencial expirado no {vmName}: uma senha gerenciada por cofre não corresponde mais ao que o hóspede espera. O cofre certamente precisa ser atualizado antes que o próximo ciclo possa passar."
+    },
+    "remediation.operator_b9e5f8c44bec51fc": {
+      "sourceHash": "45c0e585c1172fe016e7f7c076faa7ab1727425942152c5462d0bade240107be",
+      "message": "uma etapa excedeu o seu orçamento; a próxima tentativa começa a partir de um ciclo limpo"
+    },
+    "remediation.operator_ba08eed1519e3ec9": {
+      "sourceHash": "e2f4336cb40a0e2dd29e5b50775071637b9153ec01d8d23dded6abc83800396d",
+      "message": "Porta de status-serviço {port} ainda é realizada após parar o(s) titular(es) pwsh órfão(s) ({join})."
+    },
+    "remediation.operator_bac6cb55b45e16b5": {
+      "sourceHash": "f9442fbad292e939f5ab4379877c27e7517a5287df682849f6a022201cd16dd2",
+      "message": "Inspeccionar a pasta de ciclo para o último-retch-and-execute.log ou sshExec stderr"
+    },
+    "remediation.operator_bb02ee25257cba0d": {
+      "sourceHash": "a6650293ed23f555ea6b4991cc4ff61b46b06bd83ecf82fa6180de941ce88772",
+      "message": "host network degraded no {vmName}: o caminho guest-network que o HOST oferece está quebrado, não este guest. Um objeto de switch virtual sobrevive à sua ligação uplink através de uma reinicialização da máquina, então o switch ainda existe e cada a verificação do host ainda passa enquanto nada anexado a ele adiante -- cada hóspede só pode relatar seu próprio sintoma. Tentando novamente, neste ciclo ou mais tarde, prende o próximo hóspede à mesma ponte sem portador, então esta classe nunca entra na lista de permissão de repetição transitória e não é contado para uma sequência de quarentena por pessoa."
+    },
+    "remediation.operator_bb25c210fa3519d6": {
+      "sourceHash": "7f09de1dcca473f557b8123d9c88d3967739525d548280b4afc9e82693891ead",
+      "message": "Tentar novamente a sonda de rede falhando / Wait-SshReady"
+    },
+    "remediation.operator_bb372789b3ee6502": {
+      "sourceHash": "bd9b7cee39232c9d23d637ded3b13c7d3950e097a210ae68734224912f4dbc4a",
+      "message": "Verifique o serviço de hipervisor host + disco livre para a loja VM"
+    },
+    "remediation.operator_bcb561ae0b2d1afd": {
+      "sourceHash": "b9e43f4d8f25db130bc8d6f036a2919a9672fa93b0641441b134a887f3c69231",
+      "message": "Somente então re- execute a sequência a partir do passo de falha"
+    },
+    "remediation.operator_be21fdfe4bad5cf0": {
+      "sourceHash": "bb04ec934cfdda77e0580d24a93b6af067c5eb84a02f70a76fc0a23b25217db7",
+      "message": "verificar {lastFailurePath} é válido JSON"
+    },
+    "remediation.operator_bf89860e09f2c5b1": {
+      "sourceHash": "16ff2031217914f2dc364765f8ee9974d03a400fa4b98d07d8ab3c3a7eab4fae",
+      "message": "Se faltar, tire um novo instantâneo de base e execute novamente a sequência"
+    },
+    "remediation.operator_c00ffc306428603b": {
+      "sourceHash": "4cc99833d0441044b5fdb1a52719798bfc560644bb87c24ed9ce666a44b72f91",
+      "message": "Tente novamente depois de um retrocesso curto -- a máquina é geralmente acessível novamente pela próxima tentativa"
+    },
+    "remediation.operator_c0a439f9f4207624": {
+      "sourceHash": "2fb109d942ed3eb06291701679f49c60947120400ef0b8dc54789a6435d2d9f2",
+      "message": "Confirmar que a máquina fornece todas as infra- estruturas que o plano requer e, em seguida, repetir"
+    },
+    "remediation.operator_c706cfbe26bfe98c": {
+      "sourceHash": "693cff029ecd05e90a90d3c8f944742be927393c4fb351f47ee616b851a3d9cf",
+      "message": "Handler para '{failureClass}' retornou um resultado não-hashtable."
+    },
+    "remediation.operator_cbaa17fc6a5150b0": {
+      "sourceHash": "ce4de8223efba7171b765a2e3e39d94d35fea3830bdf1ae3480348cc6fb26599",
+      "message": "Onde a inundação é churn de rede em fase de instalação, confirme que o hóspede está recebendo uma locação DHCP em tudo"
+    },
+    "remediation.operator_cc703ba747623c88": {
+      "sourceHash": "d3663dc8eeb8e48096be195a1f53d0b6eaa821a47d1aa71f8b7ed7e74b729d7e",
+      "message": "instrumentation  failure no {vmName}: takeScreenshot / saveSystemDiagnostic falhou de forma transitória. O estado observável do ciclo não é afetado; uma repetição imediata normalmente o limpa."
+    },
+    "remediation.operator_ce4ee5bda91552ae": {
+      "sourceHash": "efea2df66c318e41c4f6323d1d8e3a0e12e7a1275ffa61c6a2b721729a4396f9",
+      "message": "Inspecione o campo internoFailureClass em last failure.json pela causa mais profunda"
+    },
+    "remediation.operator_ce6ff8d514d5658f": {
+      "sourceHash": "d03cc47dad23bf0189d01138acf995a19068d9d9ce4077b0abf9d78af332b360",
+      "message": "o interruptor externo da máquina"
+    },
+    "remediation.operator_cf05b7bb4e5371b4": {
+      "sourceHash": "753d5304b2930b07c2e8432f62687c0d1c3f3173b9ec2ccd4614a21a52281b6d",
+      "message": "lsof não encontrado no PATH"
+    },
+    "remediation.operator_d009181b9af99707": {
+      "sourceHash": "5920568c6576bb11781060050d7e7c3662d783f5522aaae36d30ba0760a91366",
+      "message": "Limpar todos os manipuladores"
+    },
+    "remediation.operator_d16851977ec6a779": {
+      "sourceHash": "653e9c60ece3711d96e4bedc97b131cd5abddda63f7ba31f1208504183d63cfa",
+      "message": "provisioning failure no {vmName}: o hipervisor da máquina não pôde definir / boot / alcance-running da VM. Frequentemente transiente (recursos insuficientes logo após um rompimento anterior, KVP/IP tardio para povoar) e limpa no próximo ciclo após um recuo."
+    },
+    "remediation.operator_d1f78e9ab1185fe5": {
+      "sourceHash": "aa643c2819afd2fd13770da64e9a955685f9a7ee32f0bbb9fea7930ee3f3ebc1",
+      "message": "Tente novamente após um pequeno backoff -- o endereço geralmente aparece sem ação do operador"
+    },
+    "remediation.operator_d2a8de7e95317e4a": {
+      "sourceHash": "022db7c79360a67bf56cc8b00cd1ccd88871d1a3585344acc6a5b140fa918995",
+      "message": "A aquisição elevada foi experimentada primeiro e não a libertou: {detail}"
+    },
+    "remediation.operator_d58ebc3333e86c7f": {
+      "sourceHash": "ffe3190f8a72b5876c20113c81bc6f05c3499c057fd86299414084854f11414a",
+      "message": "retry exausted no {vmName}: o verbo retry já usou seu orçamento. Auto-retentar mais iria continuar falhando."
+    },
+    "remediation.operator_d7f954ed2c939cf9": {
+      "sourceHash": "13a08e98084197995ec030965db5fc00fc91f81c7dbbf81995e079ebc953d6e5",
+      "message": "Inspecione as árvores de trabalho do framework + projeto para divergências ou edições locais"
+    },
+    "remediation.operator_d9a4a3e89d4a670b": {
+      "sourceHash": "ea781c5089dc903138db5e6fa5d3d0e3298fdc0a3a49050a0da348dfe314a8f3",
+      "message": "Se a reconexão falhar duas vezes, caia para operator intervention required"
+    },
+    "remediation.operator_daf1c9bf1f1bad50": {
+      "sourceHash": "2cc0bb8e6c2371118a7be28503557d9cabcf685bb52b553e4049289683b812e1",
+      "message": "Excluir arquivos de ciclo antigo no compartilhamento sob hosts/<hostId>/test-cycles/ -- eles são pastas imutáveis, então remover as inteiras é seguro"
+    },
+    "remediation.operator_db0130b0bf3d4958": {
+      "sourceHash": "2a13e6beb91cac118e4fd8ef7f181ee12776811189c61e933278771a9ce8842d",
+      "message": "Para trás, então re-execute o passo de falha (os scripts de instalação convidado são idempotent)"
+    },
+    "remediation.operator_dcc4abf58182f0f3": {
+      "sourceHash": "71616b5e9bb319ebf76b5cb35480b769f4675e4084d41d7602f2cf628b89149f",
+      "message": "Manipulador lançado: {message}"
+    },
+    "remediation.operator_dd019d34b72feafc": {
+      "sourceHash": "adfaabe1690784f125010ec64a6e14d163384e89ffaf86f1bc531a5ed4bc61f0",
+      "message": "Tente novamente o ciclo; se ele se reproduzir deterministicamente, trate como operator intervention required"
+    },
+    "remediation.operator_e038808ca34827c4": {
+      "sourceHash": "11c8e00a28c217e80641748202be2ac308305d89eaa71566f1660a398d682aa1",
+      "message": "Repita a sequência após o cofre ser consistente."
+    },
+    "remediation.operator_e058d7d3febce5c7": {
+      "sourceHash": "6dda5c16f8eb091c90e47caaaa52b714c40ed416e9fb82f7af2ba8d72e292679",
+      "message": "Repita a sequência a partir do passo de falha apenas depois que o convidado está se movendo novamente"
+    },
+    "remediation.operator_e0d3c0a00e449780": {
+      "sourceHash": "e6e687662eb087574f1073925cc27f13f37644a0d376dd65725b7e6422de3cab",
+      "message": "last failure.json analisado para um não-objeto ({gotType}); esperado um objeto JSON."
+    },
+    "remediation.operator_e12111b50564c2b8": {
+      "sourceHash": "b510982f653511f9dd8de3ac209df18e234952ea845b981a58999e03280aae4b",
+      "message": "Porta de status-serviço {port} está em uso, mas nenhum PID próprio é visível para este usuário."
+    },
+    "remediation.operator_e15a652575a58f85": {
+      "sourceHash": "248091829b1ec3e3bcbdc874c88613f4729ccbd74d2d3b12b13efd8ea4c38fdb",
+      "message": "Listar os instantâneos da VM (Get-VMCheckpoint / virsh snapshot-list / utmctl)"
+    },
+    "remediation.operator_e24252c37930e352": {
+      "sourceHash": "829f99aed46e94faed196604ee5d79ad6aeb06560ea4ceb4ed8b6c4ba40e6a80",
+      "message": "Repetir o ciclo uma vez resolvida a causa raiz"
+    },
+    "remediation.operator_e344b12d616e0f0a": {
+      "sourceHash": "f901c821a6b7879c5afc934cb13ec97ff34a5fb94d4a429a30765429805b3ce2",
+      "message": "elevation required on {vmName}: um comando necessário sudo e nenhum operador estava presente para fornecer uma senha. sudo lê a senha de /dev/tty, então isso não pode ser respondido pelo corredor, por uma repetição, ou de um remoto sessão -- e um host nesse estado iria parar no meio do ciclo enquanto o painel ainda mostrava o último ciclo verde. Corrigindo-o precisa de acesso ao console, exatamente como uma falha de rede faz."
+    },
+    "remediation.operator_e54de45d1485fbb7": {
+      "sourceHash": "9c1a36c4d6dd8b6e9570481fecc578ac2294b17e872e80b80487ef553047642d",
+      "message": "ip not descoberto no {vmName}: nenhuma sonda do lado da máquina poderia nomear um endereço para o hóspede, de modo que o passo nunca chegou até ele. A descoberta do endereço depende de caches que envelhecem e daemons que publicam tarde, então a mesma chamada geralmente responde segundos depois. Distinct from network timeout, where an address WEA find and the path to it failed, and from host network degraded, what not clear on your own."
+    },
+    "remediation.operator_e54e017fda4a02ac": {
+      "sourceHash": "06839cd6be2af588db596da6ffb9b1a326ccdf5edfa3b42ce513a4c7f3883052",
+      "message": "o interruptor externo '{switchName}'"
+    },
+    "remediation.operator_e59c2d7e4aa9e176": {
+      "sourceHash": "902e31da1164987cdfdc589b66a46bc9c022120b27533a84e3e09004304ca9a3",
+      "message": "Abrir a pasta do ciclo para a execução em falha"
+    },
+    "remediation.operator_e893941980e9b648": {
+      "sourceHash": "513cc5a69767f637490da2416eb07cfa48c4a75f3640f39840cd771f889b95c5",
+      "message": "Até que seja restaurado, os hóspedes mantêm o provisionamento no interruptor de retrocesso NAT e chegam ao anfitrião apenas através de seus avançados"
+    },
+    "remediation.operator_ec70b244ad9d80d1": {
+      "sourceHash": "95e8689a4ac79d3c99831930838a0997e6f1755c18249147a28c67643355d1e1",
+      "message": "snapshot restore  failed no {vmName}: o subsistema snapshot em si está quebrado. A recuperação automática não pode prosseguir sem uma restauração de trabalho primitiva."
+    },
+    "remediation.operator_efc4491d25c27bc3": {
+      "sourceHash": "a45d5d145f05652caf76b37c19fe42f64fbe2af257b8d3f9a8a70df83259181c",
+      "message": "Recusando-se a iniciar para que o ciclo não funcione sem os controles do painel de status / ponto de interrupção.\nResolver parando esse processo (pode pertencer a outro usuário), ou definir um\nstatusService.port em test/test.config.yml e reexecução."
+    },
+    "remediation.operator_f0a29d5f6e38b4ec": {
+      "sourceHash": "4607a0042dd4ba4f40c2e63a785d7d0fb1c79d5099689d7d38280fe788573f50",
+      "message": "Para executar sem ele, acerte um endereço com $env:YURUNA EXTENSION HOST <AREA>, ou set testCycle.labHealth. habilitado a false para parar de segurar para qualquer serviço"
+    },
+    "remediation.operator_f0fd4b357ed63f38": {
+      "sourceHash": "b5e7f5d1d600a886f63d3833d0c62cef6580fdb9b65f2b22f1ba2ac001192be6",
+      "message": "Confirmar o ciclo anterior liberado CPU / memória da máquina (sem recursos de retenção de VM órfão)"
+    },
+    "remediation.operator_f170c655d3aa9ec7": {
+      "sourceHash": "bd08f3cb7b63682953fb534e7f5010e29754001c8903903f2d241a484cb56bf4",
+      "message": "Se a falha se repetir, capturar artefatos de tela+OCR sob a pasta de ciclo e pausar para inspeção"
+    },
+    "remediation.operator_f279084b2eb96f2c": {
+      "sourceHash": "542bb61b17215e86ff94ded1a0c369e3e7477e85e5d521fe0016bcbe3fd4b0db",
+      "message": "Ou reatribuir o pool para um conjunto de testes cujo projeto cada membro pode ler"
+    },
+    "remediation.operator_f4ded9a21116febc": {
+      "sourceHash": "adc0e309250690d734697751bf902e079a783f80899ddc0300ad63377f58aca0",
+      "message": "Confirmar a pasta host/<host>/<guest> existe para cada convidado planejado"
+    },
+    "remediation.operator_f65f2f5b0c183dc5": {
+      "sourceHash": "98b704e7897e528f00ea7d348a96bfeeb1b8ad53a8cc41c82d5f61df8ed495df",
+      "message": "Restaurar o último instantâneo conhecido para a VM"
+    },
+    "remediation.operator_f9f5cd6dabda9dc0": {
+      "sourceHash": "8793612cf8c6dcc3c1c772a2ee84aa0d11b141233d500e8d247e0db85f1b28dd",
+      "message": "Verifique o aluguer do lado do host / fonte do vizinho o motorista lê para uma entrada velha ou ausente"
+    },
+    "remediation.operator_fa9d85ead9be0ad7": {
+      "sourceHash": "b4af4b754678ca813a70f0421e113d962471d3244bc9a3e0000d0ef670ae3d0a",
+      "message": "nenhuma aquisição elevada no Windows -- execute a shell como Administrador, ou adicione um urlacl para esta porta"
+    },
+    "remediation.operator_fbf8a282c16fce06": {
+      "sourceHash": "ca89469d717fc3ea127c412cd4a976bf24fb50dbe866fe9fc6bea13651ba663b",
+      "message": "network timeout no {vmName}: SSH / probe nunca chegou pronto. Tipicamente transitório -- um breve backoff (5-30 s) o limpa sem ação do operador."
+    },
+    "remediation.operator_fc7632bc7d328be6": {
+      "sourceHash": "5490fa8bd4d840c7b8e88213061a576b507ab5ae4f88106504ac11a4756a1a58",
+      "message": "Porta de status-serviço {port} é GRÁTIS, mas este processo não pode reservar http://*:{port}/.\nEssa é uma reserva de URL HTTP.sys: fazer uma necessidade de elevação.\no porto -- este é um problema de privilégio, não um conflito de porto.\nRecusando- se a iniciar: o serviço de estado liga o mesmo prefixo de caracteres especiais (de modo que os hóspedes\npode alcançá-lo no LAN IP do host, não apenas localhost) e falharia de forma idêntica.\nResolver por UM de:\n- executar esta shell como Administrador; ou\n- reserve o URL uma vez, em seguida, reexecute unelevated:"
+    },
+    "remediation.operator_fe73e80924c46670": {
+      "sourceHash": "35e34a063dbee71f696956fba8cfec347cc898c413d9ab86b9eb51e6896d81fd",
+      "message": "No console, instale o drop-in do corredor: a mensagem de falha carrega a regra exata /etc/sudoers.d/yuruna-runner"
+    },
+    "remediation.operator_fe77fdc3a8c79bc8": {
+      "sourceHash": "08b7e8180c172b960a6755fe1098210c60d785fa65f63537f657674fc7be8239",
+      "message": "Continuar o ciclo uma vez que o script está correto"
+    },
+    "remediation.port_diagnostic": {
+      "sourceHash": "d20d16f1ce0b11f458454011088a82c4945de21cc2043059dbac68ddc2d16472",
+      "message": "Diagnóstico: {detail}"
+    },
+    "remediation.port_holder": {
+      "sourceHash": "c1a656010f9d58726b65f2e358ba42d3620428097757115ce58d0aed7b5df66b",
+      "message": "A porta de serviço de estado {port} é mantida pelo PID {pid} ({process})."
+    },
+    "remediation.port_holder_owned": {
+      "sourceHash": "ac81a203176142ae024772dc6b3ded76aac747947006a967b474da1b43ac620d",
+      "message": "O porto de Status-Service {port} é detido pelo PID {pid} ({process}) propriedade de '{owner}'."
+    },
+    "remediation.port_inspect_command": {
+      "sourceHash": "675f710fd10d2675b1ae7844e64c2092a1f338f582409bc1dea8a4491084944a",
+      "message": "{command} # nomeia o titular da raiz"
+    },
+    "remediation.port_netsh_empty": {
+      "sourceHash": "70e58d35f201ecc5314698961bf8592aedd0cfe83af5e36bd3d917dc710c30b3",
+      "message": "{command} retornou sem saída"
+    },
+    "remediation.port_root_listener": {
+      "sourceHash": "62daf76eb6f7b10205a1544b754083ac78ec1ec3b1a12fd933d8d347e62493ad",
+      "message": "Na maioria das vezes, este é um serviço de status deixado em execução como ROOT por um\nconfiguração ou programa de execução. Confirme e limpe- o com:"
+    },
+    "remediation.port_still_held_help": {
+      "sourceHash": "5280b2f3c1f40692e9c9615b9d9d53d9474ac45dcbc23d45c4bd91f8a2130d1e",
+      "message": "Recusando- se a iniciar. Inspecione com 'lsof - iTCP:{port} - sTCP: LISTEN' (ou 'netsh http show servicestate'),\nliberte a porta ou defina um statusService.port diferente em test/test.config.yml e reexecute."
+    },
+    "remediation.port_stop_command": {
+      "sourceHash": "c090c76e3af1f133e640e3045dd40d2873575320079ece6a660bd60acc7be1f5",
+      "message": "{command} # pára da forma como foi iniciado"
+    }
+  }
+}

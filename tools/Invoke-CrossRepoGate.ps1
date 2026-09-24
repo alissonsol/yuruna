@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,7 +193,7 @@ function Get-GateRemediation {
                 'and same repair as the framework row: rebuild from a clean work path and leave it ' +
                 'alone while the gate runs.' }
         @{ Gate = 'framework-gate-set'; Match = ''; Code = 'staged-tree-moved'
-            Action = 'Not a failure of its own: the eighteen framework gates and the five focused slices ' +
+            Action = 'Not a failure of its own: the seventeen framework gates and the five focused slices ' +
                 'were never executed because the supplied staged pair did not match the candidate ' +
                 'indexes. Fix the two staged-*-hash rows first; until then this run carries no ' +
                 'framework result at all, so do not read the absence of framework failures as a ' +
@@ -277,16 +277,6 @@ function Get-GateRemediation {
                 'never move it. Detail ''baseline approval is incomplete'': a native translator and a ' +
                 'different independent reviewer must each complete their approval record; no tool ' +
                 'can supply that.' }
-        @{ Gate = 'es5-floor'; Match = ''; Code = 'es5-floor'
-            Action = 'Run pwsh -NoProfile -File tools/Invoke-Es5Check.ps1 ; the detail names the file ' +
-                'and the construct that sits above the ES5 floor. Rewrite it in ES5 rather than ' +
-                'raising the floor. (A not-applicable row here means the project ships no browser ' +
-                'sources and needs nothing.)' }
-        @{ Gate = 'palette-fallback'; Match = ''; Code = 'palette-fallback'
-            Action = 'Run pwsh -NoProfile -File tools/Invoke-CssVarFallback.ps1 ; the detail names the ' +
-                'custom property that has no literal fallback. Add the build-time literal beside ' +
-                'it; a fallback written inside var() does not help the oldest supported Safari. (A ' +
-                'not-applicable row means the project ships no stylesheets.)' }
         @{ Gate = 'perf-baseline'; Match = ''; Code = 'perf-baseline'
             Action = 'Run pwsh -NoProfile -File tools/Invoke-PerfBaseline.ps1 ; the detail names the ' +
                 'measurement that regressed against the recorded baseline. Either fix the ' +
@@ -511,7 +501,7 @@ function Get-EngineeringOpenRow {
         'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
         'suite-baseline', 'config-locale-seed',
         'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
-        'globalization-authority', 'locale-support', 'terminology', 'es5-floor', 'palette-fallback',
+        'globalization-authority', 'locale-support', 'terminology',
         'perf-baseline', 'js-test', 'go-build', 'accessibility',
         'doc-reachability', 'code-registry-contract', 'reference-slice-matrix'
     )
@@ -652,8 +642,6 @@ $frameworkGates = @(
     @{ Name = 'globalization-authority'; Script = 'Test-GlobalizationAuthority.ps1'; Args = @('-Quiet') }
     @{ Name = 'locale-support'; Script = 'Test-LocaleSupport.ps1'; Args = $localeSupportArguments }
     @{ Name = 'terminology'; Script = 'Test-Terminology.ps1'; Args = @('-Quiet') }
-    @{ Name = 'es5-floor'; Script = 'Invoke-Es5Check.ps1'; Args = @('-Quiet') }
-    @{ Name = 'palette-fallback'; Script = 'Invoke-CssVarFallback.ps1'; Args = @('-Quiet') }
     @{ Name = 'perf-baseline'; Script = 'Invoke-PerfBaseline.ps1'; Args = @('-Quiet') }
     @{ Name = 'js-test'; Script = 'Invoke-JsTest.ps1'; Args = @('-Quiet') }
     @{ Name = 'go-build'; Script = 'Invoke-GoTest.ps1'; Args = @('-Quiet') }
@@ -872,13 +860,11 @@ if ($executeFramework) {
 
 # --- REGION: External validation limits
 foreach ($na in @(
-        @{ Gate = 'es5-floor';        Why = 'the project ships no browser sources; full/release mode separately checks the framework tree' }
-        @{ Gate = 'palette-fallback'; Why = 'the project ships no stylesheets; full/release mode separately checks the framework tree' }
         @{ Gate = 'catalog-compile';  Why = 'catalogs live in the framework; full/release mode separately checks the framework tree' }
         @{ Gate = 'perf-baseline';    Why = 'the project serves no page; full/release mode separately checks the framework tree' }
         @{ Gate = 'go-build';         Why = 'the project ships no Go' }
         )) {
-    if ($executeFramework -and $na.Gate -in @('es5-floor', 'palette-fallback', 'catalog-compile', 'perf-baseline', 'go-build')) { continue }
+    if ($executeFramework -and $na.Gate -in @('catalog-compile', 'perf-baseline', 'go-build')) { continue }
     Add-Row -Gate $na.Gate -State 'not-applicable' -Detail $na.Why
 }
 

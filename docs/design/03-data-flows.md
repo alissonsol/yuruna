@@ -35,7 +35,7 @@ sequenceDiagram
     set-workload-->>website-workload: Process exit code
 ```
 
-Seven participants aggregate OpenTofu's resources into the target cluster and its supporting infrastructure. Localhost reuses an existing Kubernetes context and creates its registry resource; the cloud templates can provision cluster infrastructure. Build/tag commands execute on the deploying machine, not the registry. This is the successful path: the shell caller stops on a nonzero exit. Sources: [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), and [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1).
+Seven participants aggregate OpenTofu's resources into the target cluster and its supporting infrastructure. Localhost reuses an existing Kubernetes context and verifies the registry container its caller already started; the cloud templates can provision cluster infrastructure. Build/tag commands execute on the deploying machine, not the registry. This is the successful path: the shell caller stops on a nonzero exit. Sources: [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), and [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1).
 
 Resource staging first restores a stranded `.old` directory when live is absent, copies the template into `.new`, and carries forward `.terraform`, `.terraform.lock.hcl`, and `tofu.planfile`. It then moves live to `.old` and `.new` to live; a failed second move restores `.old`. `.workfolder.complete` is written after the swap. Template copies use terminating errors. The resource list makes an initialization/plan pass before its apply/output pass; empty output is an error, not a usable dependency result.
 
@@ -147,20 +147,22 @@ sequenceDiagram
     participant upstream as Image origin
     get-image->>download-agent-service: Ensure requested image
     download-agent-service->>images: Check current pointer
-    opt Refresh required
+    opt No generation yet
         download-agent-service->>upstream: Resolve and download
         upstream-->>download-agent-service: Image bytes
         download-agent-service->>images: Commit verified generation
     end
     download-agent-service-->>get-image: Generation and digest
-    get-image->>download-agent-service: Fetch generation bytes
-    download-agent-service->>images: Open generation
-    images-->>download-agent-service: Generation bytes
-    download-agent-service-->>get-image: Stream image
-    get-image->>get-image: Verify staged digest
+    opt Host copy not current
+        get-image->>download-agent-service: Fetch generation bytes
+        download-agent-service->>images: Open generation
+        images-->>download-agent-service: Generation bytes
+        download-agent-service-->>get-image: Stream image
+        get-image->>get-image: Verify staged digest
+    end
 ```
 
-The agent streams pool content over HTTP, so this four-participant path needs no host SMB mount. Pending downloads are polled within a deadline. Unavailability permits origin fallback; corrupt served bytes are a failed acquisition. Origin verification and optional proxy-assisted byte transfer are separate operations. Sources: [Yuruna.DownloadAgent.psm1](../../host/modules/Yuruna.DownloadAgent.psm1), [agent routes](../../test/extension/download-agent-service/server/internal/httpsrv/handlers.go), and [image store](../../test/extension/download-agent-service/server/internal/imagestore/store.go).
+The agent streams pool content over HTTP, so this four-participant path needs no host SMB mount. Pending first downloads are polled within a deadline; a stale generation is served at once while any refresh runs in the background. Unavailability permits origin fallback; corrupt served bytes are discarded and also fall back. Origin verification and optional proxy-assisted byte transfer are separate operations. Sources: [Yuruna.DownloadAgent.psm1](../../host/modules/Yuruna.DownloadAgent.psm1), [agent routes](../../test/extension/download-agent-service/server/internal/httpsrv/handlers.go), and [image store](../../test/extension/download-agent-service/server/internal/imagestore/store.go).
 
 ## D. Stash ingest and retrieval
 
@@ -208,7 +210,7 @@ flowchart TB
     yuruna-pool -. "When co-located" .-> stash
 ```
 
-Seven boxes group host registry files, cycle archives, and optional service archives under `hosts/`. The stash edge denotes optional co-location, not shared configuration.
+Seven boxes group host registry files, cycle archives, and optional service archives under `hosts/`; the seven-box limit leaves the `notifications/` alert spool to the table. The stash edge denotes optional co-location, not shared configuration.
 
 | Relative path | Contents and producer |
 |---|---|
@@ -219,6 +221,7 @@ Seven boxes group host registry files, cycle archives, and optional service arch
 | `download-agent-service/` | `audit.jsonl` and `status.json` from [agent state](../../test/extension/download-agent-service/server/internal/state/state.go). |
 | `pool-control-service/` | `audit.jsonl` and `status.json` from [pool-control state](../../test/extension/pool-control-service/server/internal/state/state.go). |
 | `pool-intent.git` | Versioned pool definitions and assignments, seeded by [pool-control setup](../../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh). |
+| `notifications/` | Pool-alert spool (`outgoing/`, `sending/`, `delivered/`, `failed/`) written and drained by [Test.PoolNotifier.psm1](../../test/modules/Test.PoolNotifier.psm1) on the host whose notification transport subscribes to `pool.alert`. |
 | `<stash-mount>/stash/<hostId>/` | `hostkey/` and `files/`, configured independently by [stash setup](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh). |
 
 Replication is conditional on configuration. Copy mode runs detached and retains local cycles; `networkStorage.moveLogsToPoolStorage` enables bounded copy-verify-delete. A space refusal in move mode prevents starting a cycle or marks its completed result failed. Unverified archives do not authorize local evidence deletion. The [outer loop](../../test/modules/Test.RunnerOuterLoop.psm1) owns archive handoffs and surfaces drain failures.
@@ -252,7 +255,7 @@ sequenceDiagram
     end
 ```
 
-Five participants cover the one implemented rung: a probe, not a repair. [Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1) runs on the hypervisor host itself -- directly, or dispatched by [macos.utm.sh --refresh](../../install/macos.utm.sh) -- and calls the host contract's `Test-VirtualizationResponsive` ([Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1)) before touching any lock or record, so `-WhatIf` reports the same probe and rung ladder ([Get-VirtualizationRepairRung](../../test/modules/Test.HostRefresh.psm1)) as a live run without acquiring anything. Runner identity comes from [Get-RunnerInstanceState](../../test/modules/Test.SingleInstance.psm1). A live run takes the single lifetime lock ([Test.SingleFlightLock.psm1](../../test/modules/Test.SingleFlightLock.psm1)) and claims or resumes a durable request record ([Test.HostRefreshIntent.psm1](../../test/modules/Test.HostRefreshIntent.psm1)) before deciding an outcome. Only rung 0 (the probe) is acted on; a responsive hypervisor with a dead or absent runner, or an unresponsive/undetermined probe, is reported and completed as partial rather than repaired. This flow has no network hop: [pool-control-service](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) explicitly refuses a pool-wide `refresh` action, so no host is refreshed from another host today.
+Five participants cover the one implemented rung: a probe, not a repair. [Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1) runs on the hypervisor host itself -- directly, or dispatched by [macos.utm.sh --refresh](../../install/macos.utm.sh) -- and calls the host contract's `Test-VirtualizationResponsive` ([Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1)) before touching any lock or record, so `-WhatIf` reports the same probe and rung ladder ([Get-VirtualizationRepairRung](../../test/modules/Test.HostRefresh.psm1)) as a live run without acquiring anything. Only the Hyper-V and KVM drivers define that verb; the [macOS driver](../../host/macos.utm/modules/Yuruna.Host.psm1) lists it in its contract coverage check without defining it, so a macOS run, dispatched or direct, fails at the probe. Runner identity comes from [Get-RunnerInstanceState](../../test/modules/Test.SingleInstance.psm1). A live run takes the single lifetime lock ([Test.SingleFlightLock.psm1](../../test/modules/Test.SingleFlightLock.psm1)) and claims a durable request record ([Test.HostRefreshIntent.psm1](../../test/modules/Test.HostRefreshIntent.psm1)) before deciding an outcome. Only rung 0 (the probe) is acted on; a responsive hypervisor with a dead or absent runner, or an unresponsive/undetermined probe, is reported and completed as partial rather than repaired. This flow has no network hop: [pool-control-service](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) explicitly refuses a pool-wide `refresh` action, so no host is refreshed from another host today.
 
 ---
 

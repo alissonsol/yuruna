@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,11 +106,21 @@ Describe 'the inventory measures the tree it ships with' {
             'the reachable project YAML set changed without an inventory decision'
         Assert-Equal -Expected 105 -Actual $project.englishScalars `
             'the structured reader did not find the current English display fields'
-        Assert-Equal -Expected 2 -Actual $project.localizedMaps `
-            'the structured reader did not find both additive locale maps'
-        Assert-Equal -Expected 2 -Actual $project.localizedValues `
+        # How many scalars carry a translation is a census: it moves every time a
+        # locale is delivered, and pinning it turns each delivery into a test
+        # edit. What has to hold is the accounting. A map with no value in it is
+        # a container the generator can never fill, there is nowhere to attach a
+        # map but an English scalar, and the field total counts English scalars
+        # and map containers -- the values inside the maps are counted as
+        # wording, not as fields.
+        Assert-True ($project.localizedMaps -gt 0) `
+            'the structured reader found no additive locale maps at all'
+        Assert-True ($project.localizedValues -ge $project.localizedMaps) `
             'the structured reader did not enumerate the values inside the maps'
-        Assert-Equal -Expected 107 -Actual $doc.totals.yamlFields `
+        Assert-True ($project.localizedMaps -le $project.englishScalars) `
+            'more locale maps than English display scalars to attach them to'
+        Assert-Equal -Expected ($project.englishScalars + $project.localizedMaps) `
+            -Actual $doc.totals.yamlFields `
             'YAML field accounting is absent or still based on source-code literals'
 
         $named = @($project.inventoryFiles)

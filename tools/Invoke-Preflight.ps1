@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42e5c0b7-3a91-4d68-b2f4-8c07d15e9a36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ $Rows = @(
        Missing = 'the guest bring-up scripts go unchecked' }
     @{ Name = 'chrome'; Kind = 'anyCommand'; Any = @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')
        Required = $false
-       Gate = 'the accessibility, palette-floor, catalog-kernel and request-timeout suites'
+       Gate = 'the accessibility, catalog-kernel and request-timeout suites'
        Missing = 'nothing renders, so every floor claim rests on reading the source' }
 )
 

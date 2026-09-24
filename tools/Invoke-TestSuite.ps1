@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -327,12 +327,25 @@ if ($baseline -and $baseline.suites) {
 }
 $ordered = $suites | Sort-Object -Property @{ Expression = { if ($order.ContainsKey($_)) { -$order[$_] } else { [double]::NegativeInfinity } } }
 
+# The cap exists to catch a suite that has stopped making progress, and one
+# flat number cannot tell that apart from a suite whose honest work is simply
+# longer than average -- the recorded cost above already knows the difference.
+# Each suite therefore gets its own measured seconds plus the flat allowance,
+# so the allowance keeps one meaning (time beyond what this suite needs) for a
+# four-second suite and a four-minute one alike. A suite with no recorded cost
+# is new, and keeps the flat value.
+$timeoutFor = @{}
+foreach ($rel in $ordered) {
+    $recorded = if ($order.ContainsKey($rel)) { [math]::Max(0, [double]$order[$rel]) } else { 0 }
+    $timeoutFor[$rel] = [int]($TimeoutSeconds + [math]::Ceiling($recorded))
+}
+
 $null = New-Item -ItemType Directory -Force -Path $ResultsPath
 Get-ChildItem -LiteralPath $ResultsPath -Filter 'nunit-*.xml' -File -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
 if (-not $Quiet) {
-    Write-Information "Running $($ordered.Count) suite(s), throttle $ThrottleLimit, timeout ${TimeoutSeconds}s" -InformationAction Continue
+    Write-Information "Running $($ordered.Count) suite(s), throttle $ThrottleLimit, timeout ${TimeoutSeconds}s + each suite's recorded cost" -InformationAction Continue
 }
 
 # --- REGION: Run
@@ -342,7 +355,8 @@ $results = $ordered | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
     $root    = $using:RepoRoot
     $shim    = $using:Shim
     $outDir  = $using:ResultsPath
-    $timeout = $using:TimeoutSeconds
+    $caps    = $using:timeoutFor
+    $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
 
     $xml = Join-Path $outDir ('nunit-' + ($rel -replace '[\\/]', '_') + '.xml')
     $psi = [Diagnostics.ProcessStartInfo]::new()

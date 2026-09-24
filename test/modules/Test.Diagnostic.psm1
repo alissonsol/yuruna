@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,10 +151,24 @@ function Get-RemoteDiagnosticsCommand {
 # the pathological case where one section of Get-SystemDiagnostic
 # hangs and we still want to bail before the cycle timer fires.
 # Both budgets are enforced explicitly: any SSH call that returns
-# 'Timed out after Xs' surfaces a Write-Warning here, and any total
-# elapsed beyond $SaveGuestDiagnosticTotalTimeoutSeconds emits a
-# closing Write-Warning so the operator sees the cap was hit instead
-# of attributing the missing artifact to a connectivity issue.
+# 'Timed out after Xs' surfaces a Write-Warning here; the total is
+# re-checked between stages so a spent budget cannot buy another
+# unbounded wait; and Save-GuestDiagnostic measures the capture from
+# outside and records elapsedSeconds / budgetExceeded on the manifest,
+# so the operator sees the cap was hit instead of attributing the
+# missing artifact to a connectivity issue.
+#
+# What the total cap cannot do is interrupt a stage that has already
+# stopped returning. The host-driver and vault calls in the pre-flight
+# run in this runspace, and moving them to a worker is not available:
+# a worker starts from a clean session state, and re-importing a host
+# driver to rehydrate one tears down the live module state the console
+# keystroke path reads (feedback_module_script_state_reset_by_force_reimport
+# -- $script:HostTag empties and keystrokes silently type nothing). So
+# the cap bounds what the capture ENTERS, not what it is already inside.
+# A stage that never returns still reaches the cycle's step-heartbeat
+# watchdog, and budgetExceeded is what names the capture as the cause
+# when it does.
 $script:SaveGuestDiagnosticTotalTimeoutSeconds      = 300   # 5 min wall-clock cap on the whole capture
 $script:SaveGuestDiagnosticPerCommandTimeoutSeconds = 60    # 60 s cap on each individual ssh command
 
@@ -1353,13 +1367,28 @@ function Save-GuestDiagnostic {
     }
     $guestSample = Save-GuestPerformanceSnapshot -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder `
         -Id $Id -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
+    # Timed from out here because this is the only vantage point that sees every
+    # way the capture can return -- including the catch below and the stages
+    # that end it early. The caps inside the capture are per stage, so the cost
+    # of the whole capture is invisible to the capture itself: a capture that
+    # stops returning is otherwise only inferable from the gap between the
+    # snapshot file it did write and the manifest it never did.
+    $captureStart = Get-Date
     try {
         $manifest = Invoke-GuestDiagnosticCapture -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder -Id $Id
     } catch {
         $manifest = @{ success=$false; outPath=$null; mechanism='none'; attempted=@(); exitCode=-1; bytes=0L; skipped=$false; reason=$_.Exception.Message }
     }
+    $captureSeconds = [int]((Get-Date) - $captureStart).TotalSeconds
     try { $manifest.diagnosticOutcome = Get-GuestDiagnosticOutcome -Manifest $manifest }
     catch { $manifest.diagnosticOutcome = 'unavailable'; $manifest.reason = $_.Exception.Message }
+    # Recorded on the manifest so a stage that stopped returning and a guest
+    # that was merely slow stop looking identical to whoever reads the folder.
+    $manifest.elapsedSeconds  = $captureSeconds
+    $manifest.budgetExceeded  = ($captureSeconds -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+    if ($manifest.budgetExceeded) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22323c8e215f0677' -FormatValues ($captureSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName) -FormatBindings @{ elapsedSeconds = '0'; saveGuestDiagnosticTotalTimeoutSeconds = '1'; vMName = '2' })
+    }
     $manifest.hostSnapshot = $hostSample
     $manifest.guestSnapshot = $guestSample
     $manifest.stepInvocationId = $StepInvocationId
@@ -1476,6 +1505,25 @@ function Invoke-GuestDiagnosticCapture {
         }
     }
 
+    # Stage gate. Each rung below clamps its own timeout to what is left, but
+    # nothing stopped a stage from being ENTERED after the budget was already
+    # gone -- and the pre-flight stages reach into the host driver and the
+    # vault, neither of which promises to return. Checking between stages is
+    # what stops a spent budget from buying another unbounded wait.
+    #
+    # The wording is load-bearing: Get-GuestDiagnosticOutcome reads
+    # 'budget exhausted' out of the manifest reason to classify the capture as
+    # a timeout rather than as an unexplained absence.
+    function Get-DiagBudgetSpentManifest {
+        param([Parameter(Mandatory)][string]$Stage)
+        Write-Verbose ("Save-GuestDiagnostic: total {0}s budget exhausted before {1}; ending the capture." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds, $Stage)
+        return @{
+            success=$false; outPath=$null; mechanism='none'; attempted=$attempted
+            exitCode=0; bytes=0L; skipped=$true
+            reason="total $($script:SaveGuestDiagnosticTotalTimeoutSeconds)s budget exhausted before $Stage"
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $OutputFolder -PathType Container)) {
         try {
             New-Item -ItemType Directory -Path $OutputFolder -Force | Out-Null
@@ -1557,6 +1605,7 @@ function Invoke-GuestDiagnosticCapture {
         $sshReady = $false
     }
 
+    if ((Get-DiagBudgetRemaining) -le 0) { return (Get-DiagBudgetSpentManifest -Stage 'the credential lookup') }
     $sshpassPath = (Get-Command sshpass -ErrorAction SilentlyContinue)?.Source
     # @{ password; reason } -- preserve $reason so the password-SSH-skip
     # branch below can name the specific failure mode ("no-entry" is the
@@ -1576,6 +1625,7 @@ function Invoke-GuestDiagnosticCapture {
     # banner instead of real state. Soft-fail to $null if the endpoint
     # can't be resolved -- the rungs degrade to the bare `pwsh -File`
     # command and the console rung is still the final fallback.
+    if ((Get-DiagBudgetRemaining) -le 0) { return (Get-DiagBudgetSpentManifest -Stage 'the status-service endpoint lookup') }
     $bootstrapUrl = $null
     try {
         $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
@@ -1720,10 +1770,9 @@ function Invoke-GuestDiagnosticCapture {
         return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_bc30bb4fb49d53bf' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }
 
+    # The cap warning itself is raised by Save-GuestDiagnostic, which is the
+    # only vantage point that sees every path out of this function.
     $elapsedSeconds = [int]((Get-Date) - $diagStart).TotalSeconds
-    if ($elapsedSeconds -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22323c8e215f0677' -FormatValues ($elapsedSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName) -FormatBindings @{ elapsedSeconds = '0'; saveGuestDiagnosticTotalTimeoutSeconds = '1'; vMName = '2' })
-    }
     Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSeconds}s)"
     $writtenBytes = 0L
     try { if (Test-Path -LiteralPath $outPath) { $writtenBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }

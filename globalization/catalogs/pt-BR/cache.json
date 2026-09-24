@@ -1,0 +1,239 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "cache",
+  "locale": "pt-BR",
+  "messages": {
+    "cache.assign_hosts_to_pools_and_pools_to_test_sequences": {
+      "sourceHash": "2a74e2bd53d22ac4b02621764ff49b8aa6610f04e51c26b30e8523b15f14cb55",
+      "message": "Atribuir hosts a pools e pools para testar sequências"
+    },
+    "cache.cache_size_kb": {
+      "sourceHash": "5cea9afb444e667444249c3267d99cfea30422cf240e74e5825b7d1cdb522a94",
+      "message": "tamanho da 'cache' (KB)"
+    },
+    "cache.caching_proxy_service": {
+      "sourceHash": "b37bd6493292c2814dbe6f13a2b751449df074e2a641ea6caa44b4415b82c679",
+      "message": "Serviço de 'proxy' de cache"
+    },
+    "cache.caching_proxy_statistics": {
+      "sourceHash": "1435e4057b263a92352a76a9685c9bf20e343b40317e8bd5042eff0ce2b1629b",
+      "message": "Estatísticas de 'proxy' de cache"
+    },
+    "cache.canary": {
+      "sourceHash": "7f5b047ed682306c784ec5ba44532b4e3fb91b809d775d6360cdbe0873db7899",
+      "message": "canário"
+    },
+    "cache.canary_latency_s": {
+      "sourceHash": "d02d2820d58c9bd1ec7a792eb61b206382a73f8fbb15508e45f56c6fb78e05f4",
+      "message": "latência (s) do canário"
+    },
+    "cache.community_zot_statistics": {
+      "sourceHash": "20dbf91c8eb3766a6a82e067858e1c6ca0995b482693f19384e15f5498cdb5c8",
+      "message": "Estatísticas comunitárias do Zot"
+    },
+    "cache.dashboards_may_demand_a_compatible_browser": {
+      "sourceHash": "c53c0099567969f8fe4257f9126fe9908586bb4ed07374687a478cd7c3aad840",
+      "message": "Painel (pode exigir um navegador compatível)"
+    },
+    "cache.download_agent_control": {
+      "sourceHash": "4e6e6076d152dd7e10fc057fa4c86c1b72a1ac3deb2a7d04a0ecbf8f7d583524",
+      "message": "Transferir o controlo do agente"
+    },
+    "cache.download_agent_service": {
+      "sourceHash": "bee3e83ef03264fb9937978c6eeea5494dbc4ea65508fe0fbe3073761a369abb",
+      "message": "Serviço para baixar agentes"
+    },
+    "cache.error": {
+      "sourceHash": "0f9fa3d979bcac8a48800a8bc4ce6aed55665485b89d4ee03857ef52e86ec697",
+      "message": "erro"
+    },
+    "cache.everything_this_lab_serves_and_whether_it_is_reachable_right_now": {
+      "sourceHash": "6f322fff9fb046e4490b61c91590a81853c1a35282f7446e2a3aef047cd83a1b",
+      "message": "Tudo o que este laboratório serve, e se é acessível neste momento."
+    },
+    "cache.extension_hosts": {
+      "sourceHash": "caf4840f6364115444e9847418fea5d0f171c153c84b58326cca775c56a03411",
+      "message": "Máquinas de extensão"
+    },
+    "cache.file_descriptors": {
+      "sourceHash": "9b21968160987da52ea2e17af20e769f8b48cacac0f1c57c2d97c814b61c49ae",
+      "message": "descritores de arquivos"
+    },
+    "cache.flip_a_switch_post_api_switches_offline_on_true_with_the_internal": {
+      "sourceHash": "a39ef1d4512ff9a8c22b251c37c1389b1247347739ad20d1ea008a2970847b0a",
+      "message": "Flip a switch: POST /api/switches/offline {\"on\":true} com a chave de autenticação interna como portador."
+    },
+    "cache.hit_ratio_5min": {
+      "sourceHash": "8a5c8e1ff783bbadcee16d1ceb66ac7673da42e1199adb0234e9ed294399c8b7",
+      "message": "rácio de acertos (5min %)"
+    },
+    "cache.hosts_and_test_execution_progress": {
+      "sourceHash": "cbba7a07b727f9226f11b5e0757eb5f97640cacce91ef6ce5c3c63762162792d",
+      "message": "Hosts e progresso na execução de testes"
+    },
+    "cache.landing_caching_proxy_service": {
+      "sourceHash": "07c66844c2b0129107595341ad329b5d5baec164c51a57001c60cf65dbcf8803",
+      "message": "Serviço de cache-proxy"
+    },
+    "cache.landing_unavailable": {
+      "sourceHash": "dc89b88a520bff37fdea01c1e8ae0d54b80a7de8078dc4954bf0b98629b3f382",
+      "message": "{description} (indisponível)"
+    },
+    "cache.no": {
+      "sourceHash": "475f0a08838baf6dd8677ff7c775de61b85ecbcc1fb3231529a640750b2498d3",
+      "message": "não"
+    },
+    "cache.no_upstream": {
+      "sourceHash": "ee1a4fc48c4c1cb3c3735fb47f64b367bad4b480e22286893a7deafb61a2efb7",
+      "message": "sem montante"
+    },
+    "cache.no_upstream_explanation": {
+      "sourceHash": "5fbc3c835b1beac6ee195d3cc371bea3e7630e93dfa9962b8d7f956d22587be2",
+      "message": "Esta 'cache' está no modo não- upstream. O objeto abaixo não é armazenado localmente, e esta 'cache' não irá obtê- lo."
+    },
+    "cache.no_upstream_instruction": {
+      "sourceHash": "4ac9aa7faa848f3f16410382e57f5d0f41bf3cf56d92468cf5c8dd126a895ab3",
+      "message": "Para deixá-lo passar, execute {command} na VM caching-proxy, execute novamente a busca e ligue de novo."
+    },
+    "cache.not_ok": {
+      "sourceHash": "0c660c0067d64004ac223036112100ba599a90ca1d8399047c34232c2f98fe41",
+      "message": "não está bem"
+    },
+    "cache.note": {
+      "sourceHash": "e72007ad5e289b2003a29ffb040bdcabff23e48e3e0dc8b71f9eab8fa549e627",
+      "message": "nota"
+    },
+    "cache.off": {
+      "sourceHash": "1510fff09f73b4c03f606305ff6ad4de975463743273a49c074d993986d94035",
+      "message": "desligado"
+    },
+    "cache.offline_mode": {
+      "sourceHash": "b94e1f06fb063bc84920c73092fa148cacb050a5019f5c7a95f10a6feff5fdfa",
+      "message": "modo offline"
+    },
+    "cache.ok": {
+      "sourceHash": "0866127a7748a59c5038751f9bac18ad50407cd67e164f2d2125b2c7368a31a5",
+      "message": "Está bem."
+    },
+    "cache.on": {
+      "sourceHash": "8757bae3145a8860dfea331822fd0a4c0771634f122d20fe52a0fa68b9739abd",
+      "message": "ligado"
+    },
+    "cache.pause_auto_refresh": {
+      "sourceHash": "7a861c87ee5c14f9150632df83ed8c00ace0078c00a4086f71729136540c861b",
+      "message": "Pausar a actualização automática"
+    },
+    "cache.pool_control_service": {
+      "sourceHash": "3c818967c36187e2501a872dba0a1c5adabd02adae592f961e148e5dac00223e",
+      "message": "Serviço de controlo de piscinas"
+    },
+    "cache.prewarm_held": {
+      "sourceHash": "2395023ad7ef2e692bb4a917b3f69f4bb4c2778b0c76a550452985dc417f173b",
+      "message": "pré-aquecimento"
+    },
+    "cache.prewarm_last_run": {
+      "sourceHash": "a2233c682af974ed56ff70174d69ff8f3ee1c9b27d57d20997c41bc548fc5481",
+      "message": "pré- aquecimento última execução"
+    },
+    "cache.reachable": {
+      "sourceHash": "ced5610c44526099a955c8458cd6a2fe970c7954f8f2296166155fa100f26b66",
+      "message": "acessível"
+    },
+    "cache.read_from": {
+      "sourceHash": "3c8198bd4a56a1935372113e8fac4ba739a7351e335738d572cf0e48e31f37e4",
+      "message": "ler de"
+    },
+    "cache.read_only_json": {
+      "sourceHash": "eeb2ce423c355a4ed2b7da0513e2adfd3285f7e35a79df7eee2400dcad377e71",
+      "message": "Só para leitura."
+    },
+    "cache.refresh_failed": {
+      "sourceHash": "35827aed00e0311ccaf99bee807d4801e3869d8902263522bcc6efadae02d2d1",
+      "message": "(refresh falhou)"
+    },
+    "cache.refresh_failed_the_values_below_are_from_the_last_successful_read": {
+      "sourceHash": "cdce8912d786f2e93320fab81443b23819b799595023ac8bedcdfeb7be50c444",
+      "message": "A atualização falhou. Os valores abaixo são da última leitura bem- sucedida."
+    },
+    "cache.registry": {
+      "sourceHash": "8dde2b52c498c4ce8bfe9203f8b2f500ce0ae804051ae37d4e318c6d6abbb08b",
+      "message": "Registo"
+    },
+    "cache.registry_http": {
+      "sourceHash": "f8ef335bc99fb1d8d8dcba3c37a2c44dc939a903b8cb32371aa6b478c90e0542",
+      "message": "catálogo de registro: HTTP {status}"
+    },
+    "cache.registry_invalid_json": {
+      "sourceHash": "b925eaa3ee45af440bdf81f4eb2a82e55989698e9c0cf4091502fdf8dbacfcae",
+      "message": "catálogo de registro não é JSON: {detail}"
+    },
+    "cache.registry_unconfigured": {
+      "sourceHash": "9386f54a1f6d10e67543275f3bd8188d1abcf96661b713cc79b0331bb3a62ad7",
+      "message": "nenhum URL de registro configurado"
+    },
+    "cache.remote_mode_the_switches_are_readable_here_but_can_only_be_applie": {
+      "sourceHash": "9d3b62005aa4f619785309273d89855bf06afb40ad503ad18595afd4ce30abee",
+      "message": "Modo remoto: os interruptores são legíveis aqui, mas só podem ser aplicados pelo servidor na própria VM proxy."
+    },
+    "cache.repositories": {
+      "sourceHash": "ec3030a0e6a0d105caa6872c715bbca9209541e25c1055eb26f1ac363d63ef96",
+      "message": "repositórios"
+    },
+    "cache.requests": {
+      "sourceHash": "79f02d4f126cbf62527c1464a70f1dac943d5b9079b65a3cde98fb9cc0523cc0",
+      "message": "pedidos"
+    },
+    "cache.resume_auto_refresh": {
+      "sourceHash": "80a4fdebee2670ba0273dcb455243d0887b332dfbfb0d8dcd91ceafeba575e0e",
+      "message": "Continuar a atualização automática"
+    },
+    "cache.stash_inspection_and_creating": {
+      "sourceHash": "fc460871b24e49ec8b2b14fd0986635765b613d1a31f1acf6578ae904623081a",
+      "message": "Inspeção e criação de stash"
+    },
+    "cache.stash_service": {
+      "sourceHash": "544e6b8fd4d65e0ef0601a616e3c8194322d68d3bf582e553972a53e52579eb4",
+      "message": "Serviço Stash"
+    },
+    "cache.statistics_summary": {
+      "sourceHash": "15681bd9449c9f97942f4919408b5047ceefe3bf571db6bdc83c97bece15f321",
+      "message": "Resumo estatístico"
+    },
+    "cache.switches": {
+      "sourceHash": "8ccde8d4ee4a4dc5396df8ab0f769ab90da6f8396dcf3caac4e905657b16265c",
+      "message": "Comutadores"
+    },
+    "cache.upstream_fetch_refused": {
+      "sourceHash": "7498a1a7626f7e0711adf6daa59fb5b500c21591032847bea6638a6ad632c6a4",
+      "message": "Recolha a montante recusada"
+    },
+    "cache.uptime_s": {
+      "sourceHash": "893dcff46105d1b272cfa92ec257aee0c6fd4043c6a3e9311d259ae91351e02a",
+      "message": "tempo de trabalho (s)"
+    },
+    "cache.value1_mode_v_value2_refreshed_value3": {
+      "sourceHash": "02f4d3ab7fffe14bf75eae0589984445836b42bd1111933a11f6bafe94a9a4a2",
+      "message": "(Modo {value1}, v{value2}, atualizado {value3})"
+    },
+    "cache.version": {
+      "sourceHash": "98576d238874a9282384d865a579f22c709886f8c326210a7a2743e11463ffdf",
+      "message": "versão"
+    },
+    "cache.yes": {
+      "sourceHash": "8b98b639c6abd408e2a49f3efaa748671af74fd7b07e8666a5c3bbe9b15ab8cc",
+      "message": "sim"
+    },
+    "cache.yuruna_caching_proxy_service": {
+      "sourceHash": "884a2ec4e8691221a8874fcac851cef9550f7a9ab41be1e3c86915c5278012f3",
+      "message": "Serviço Yuruna caching-proxy"
+    },
+    "cache.yuruna_hosts": {
+      "sourceHash": "414963b4b2f3094343b2ca37b2eee00b65bb0b4528b16d693fcbdf864920303b",
+      "message": "Servidores Yuruna"
+    },
+    "cache.zot_official_grafana_id_20501": {
+      "sourceHash": "bf56ee20570c949095ac4b46ea8012b0270f34ff86cdcc6907b14580d7713baf",
+      "message": "Zot (oficial, Grafana ID 20501)"
+    }
+  }
+}

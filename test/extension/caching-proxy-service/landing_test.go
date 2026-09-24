@@ -306,16 +306,6 @@ func TestLandingCarriesNoScriptAtAll(t *testing.T) {
 	}
 }
 
-// The stylesheet is held to the same browser baseline the service UIs are, for
-// the same reason: this is the page an operator on an old tablet lands on.
-func TestLandingStyleStaysOnTheBrowserBaseline(t *testing.T) {
-	for _, banned := range []string{"display: grid", "display:grid", "gap:", "margin-inline", "padding-inline", "var(--"} {
-		if strings.Contains(landingStyle, banned) {
-			t.Errorf("the landing stylesheet uses %q, which the browser baseline does not carry", banned)
-		}
-	}
-}
-
 // The page is reached through Apache, and its route has to be the one the
 // Apache config proxies to.
 func TestLandingIsServedAtItsOwnRouteAndTheStatsPageKeepsRoot(t *testing.T) {

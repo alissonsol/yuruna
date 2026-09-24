@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42ec2071-1f84-4394-921b-5ee9b08141b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,6 +84,7 @@ Describe 'Transient classifier: the tokens already relied on keep matching' {
         @{ token = 'Error: INSTALLATION FAILED: failed to fetch https://example.invalid/index.yaml' }
         @{ token = 'dial tcp 10.0.0.1:443: i/o timeout' }
         @{ token = 'dial tcp: lookup example.invalid: no such host' }
+        @{ token = "fatal: unable to access 'https://example.invalid/r.git/': Could not resolve host: example.invalid" }
         @{ token = 'read: connection reset by peer' }
         @{ token = 'net/http: TLS handshake timeout' }
         @{ token = 'Temporary failure in name resolution' }

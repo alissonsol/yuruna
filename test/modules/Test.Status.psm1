@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -489,46 +489,90 @@ function Set-LastFailureSummary {
     Write-StatusJson
 }
 
+# Returns integer wall-clock seconds between two ISO-8601-Z
+# timestamps. Null/unparseable inputs and negative deltas (rare
+# clock-skew between Set-StepStatus writes) both yield 0 so the
+# serialized map never has missing or negative values that would
+# complicate downstream trend analysis. All step timestamps the
+# runner writes are Z-suffixed UTC, so a plain DateTime.Parse
+# diff is timezone-safe.
+function Get-StepDurationSeconds {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number cannot be read in the wrong unit (docs/design/naming.md).')]
+    param($StartedAt, $FinishedAt)
+    if (-not $StartedAt -or -not $FinishedAt) { return 0 }
+    try {
+        $s = [datetime]::Parse($StartedAt, [cultureinfo]::InvariantCulture)
+        $f = [datetime]::Parse($FinishedAt, [cultureinfo]::InvariantCulture)
+        $dt = ($f - $s).TotalSeconds
+        if ($dt -lt 0) { return 0 }
+        return [int][math]::Round($dt)
+    } catch { return 0 }
+}
+
 <#
 .SYNOPSIS
-    Marks the run as finished, appends to history, and flushes status.json.
-#>
-function Complete-Run {
-    param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
-    # Emergency-cleanup paths (e.g. a git-pull failure before
-    # Initialize-StatusDocument runs) can reach us with no doc. Silently
-    # no-op rather than crashing the catch block -- nothing to finalize.
-    if (-not $script:Doc) { return }
-    $script:Doc.finishedAt    = (Get-UtcTimestamp)
-    $script:Doc.overallStatus = $OverallStatus
+    Builds one history row from a cycle status document.
+.DESCRIPTION
+    The single definition of a history row's shape. Two paths record a
+    finished cycle and both have to produce the same row: the ordinary
+    end-of-cycle path (Complete-Run, holding the live in-memory
+    document), and the outer runner's watchdog path, which works from
+    the document re-read off disk after the inner was killed. Building
+    the row in only one of them leaves a killed cycle with no trace on
+    the host page at all.
 
-    # Returns integer wall-clock seconds between two ISO-8601-Z
-    # timestamps. Null/unparseable inputs and negative deltas (rare
-    # clock-skew between Set-StepStatus writes) both yield 0 so the
-    # serialized map never has missing or negative values that would
-    # complicate downstream trend analysis. All step timestamps the
-    # runner writes are Z-suffixed UTC, so a plain DateTime.Parse
-    # diff is timezone-safe.
-    function Get-StepDurationSeconds {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-            Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number cannot be read in the wrong unit (docs/design/naming.md).')]
-        param($StartedAt, $FinishedAt)
-        if (-not $StartedAt -or -not $FinishedAt) { return 0 }
-        try {
-            $s = [datetime]::Parse($StartedAt, [cultureinfo]::InvariantCulture)
-            $f = [datetime]::Parse($FinishedAt, [cultureinfo]::InvariantCulture)
-            $dt = ($f - $s).TotalSeconds
-            if ($dt -lt 0) { return 0 }
-            return [int][math]::Round($dt)
-        } catch { return 0 }
-    }
+    Document is anything shaped like what Initialize-StatusDocument
+    builds: the live ordered hashtable, or that same JSON parsed back
+    with -AsHashtable.
+.PARAMETER Document
+    The cycle status document to summarize.
+.PARAMETER OverallStatus
+    Verdict to record on the row.
+.PARAMETER CycleFolderUrl
+    Results folder the row links to. The caller decides, because the two
+    paths genuinely differ: a cycle that completes has its folder renamed
+    out of '.incomplete/' right afterwards, while a killed cycle's folder
+    keeps that suffix permanently -- nothing renames it -- so stripping it
+    there would point the row at a path that does not exist.
+.PARAMETER FinishedAt
+    Completion stamp for the row. Defaults to the document's own, which a
+    killed cycle never got to write.
+.PARAMETER LastFailure
+    Cause to freeze into the row, overriding the document's own. The
+    watchdog path supplies one because an inner that was killed never
+    reached the code that classifies a failure.
+.OUTPUTS
+    [System.Collections.Specialized.OrderedDictionary] -- one history row.
+#>
+function New-CycleHistoryEntry {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure builder: constructs and returns the history row; changes no system state.')]
+    param(
+        [Parameter(Mandatory)]$Document,
+        [Parameter(Mandatory)][string]$OverallStatus,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CycleFolderUrl,
+        [Parameter()][AllowEmptyString()][string]$FinishedAt = '',
+        [Parameter()][AllowNull()]$LastFailure
+    )
+    $finished = if ($FinishedAt) { $FinishedAt }
+                elseif ($Document.finishedAt) { [string]$Document.finishedAt }
+                else { '' }
+    # Tests for the parameter, not for a truthy value: an explicit $null is a
+    # caller stating this cycle has no classified cause, which must not fall
+    # back to whatever the document happens to carry.
+    $rowFailure = if ($PSBoundParameters.ContainsKey('LastFailure')) { $LastFailure }
+                  elseif ($Document.Contains('lastFailure') -and $Document.lastFailure) { $Document.lastFailure }
+                  else { $null }
 
     # [ordered]@{} preserves insertion order so guestSummary keys keep
     # guestSequence order in the JSON. Per-guest value shape (current
     # object form vs legacy bare-string form), stepDurationsSeconds contract,
     # and dashboard fallback: https://yuruna.link/42d38664
     $guestSummary = [ordered]@{}
-    foreach ($g in $script:Doc.guests) {
+    foreach ($g in $Document.guests) {
         $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }
         $stepDurationsSeconds = [ordered]@{}
         foreach ($s in $g.steps) {
@@ -544,35 +588,11 @@ function Complete-Run {
         # last_failure.json (additive; old rows simply lack these keys).
         $failStep = $g.steps | Where-Object { $_.status -eq 'fail' -and $_.errorMessage } | Select-Object -First 1
         if ($failStep) { $guestEntry.errorMessage = [string]$failStep.errorMessage }
-        if ($script:Doc.Contains('lastFailure') -and $script:Doc.lastFailure -and $script:Doc.lastFailure.guestKey -eq $g.guestKey) {
-            $guestEntry.failureClass = [string]$script:Doc.lastFailure.failureClass
+        if ($rowFailure -and $rowFailure.guestKey -eq $g.guestKey) {
+            $guestEntry.failureClass = [string]$rowFailure.failureClass
         }
         $guestSummary[$g.guestKey] = $guestEntry
     }
-
-    # History entries carry their OWN gitCommits snapshot so a row
-    # written months ago still links to the right framework + project
-    # commits even if the runner has since picked up a new repo URL or
-    # added/removed a project clone. The dashboard renders these as
-    # comma-separated linked SHAs (framework first, project second).
-    # cycleFolderUrl is snapshotted too so the history-row cycle-id
-    # link survives even after the live $Doc rolls to the next cycle.
-    # The live URL still carries the `.incomplete/` suffix at this
-    # point (Complete-Run runs before Stop-LogFile renames the folder
-    # to its bare base), so strip the lifecycle suffix to record the
-    # post-rename location -- the only location history rows are
-    # expected to resolve to.
-    # totalDurationSeconds is the cycle's wall-clock seconds; the dashboard
-    # already derives this from startedAt/finishedAt on the fly, so the
-    # field is additive -- its purpose is to let programmatic trend
-    # analysis (jq / Python) read a number directly without re-parsing
-    # ISO timestamps.
-    $totalDurationSeconds = (Get-StepDurationSeconds $script:Doc.startedAt $script:Doc.finishedAt)
-    $historyCycleFolderUrl = if ($script:Doc.cycleFolderUrl) {
-        $script:Doc.cycleFolderUrl `
-            -replace '\.incomplete(/?)$', '$1' `
-            -replace '\.aborted\.[^/]+(/?)$', '$1'
-    } else { '' }
 
     # Per-sequence rollup, parallel to guestSummary. The dashboard's Recent
     # Cycles table renders one button per sequence (the test.runner.yml
@@ -586,7 +606,7 @@ function Complete-Run {
     # links to the cycle folder so every guest subfolder stays reachable.
     $statusRank = @{ fail = 5; running = 4; pass = 3; skipped = 2; pending = 1 }
     $sequenceSummary = @(
-        foreach ($seq in $script:Doc.sequences) {
+        foreach ($seq in $Document.sequences) {
             $seqGuests  = @($seq.guests)
             $bestStatus = 'pending'
             $bestRank   = 0
@@ -596,7 +616,7 @@ function Complete-Run {
                 $r  = if ($statusRank.ContainsKey($st)) { [int]$statusRank[$st] } else { 0 }
                 if ($r -gt $bestRank) { $bestRank = $r; $bestStatus = $st }
             }
-            $folderUrl = $historyCycleFolderUrl
+            $folderUrl = $CycleFolderUrl
             if ($seqGuests.Count -eq 1) {
                 $only = $guestSummary[$seqGuests[0]]
                 if ($only -and $only.Contains('failureArtifacts') -and $only.failureArtifacts) {
@@ -607,22 +627,62 @@ function Complete-Run {
         }
     )
 
-    $entry = [ordered]@{
-        cycleStartUtc          = $script:Doc.cycleStartUtc
-        startedAt        = $script:Doc.startedAt
-        finishedAt       = $script:Doc.finishedAt
-        totalDurationSeconds = $totalDurationSeconds
+    # History entries carry their OWN gitCommits snapshot so a row
+    # written months ago still links to the right framework + project
+    # commits even if the runner has since picked up a new repo URL or
+    # added/removed a project clone. The dashboard renders these as
+    # comma-separated linked SHAs (framework first, project second).
+    # cycleFolderUrl is snapshotted too so the history-row cycle-id
+    # link survives even after the live $Doc rolls to the next cycle.
+    # totalDurationSeconds is the cycle's wall-clock seconds; the dashboard
+    # already derives this from startedAt/finishedAt on the fly, so the
+    # field is additive -- its purpose is to let programmatic trend
+    # analysis (jq / Python) read a number directly without re-parsing
+    # ISO timestamps.
+    return [ordered]@{
+        cycleStartUtc          = $Document.cycleStartUtc
+        startedAt        = $Document.startedAt
+        finishedAt       = $finished
+        totalDurationSeconds = (Get-StepDurationSeconds $Document.startedAt $finished)
         overallStatus    = $OverallStatus
-        gitCommits       = @($script:Doc.gitCommits)
-        host             = $script:Doc.host
-        hostname         = $script:Doc.hostname
-        cycleFolderUrl   = $historyCycleFolderUrl
+        gitCommits       = @($Document.gitCommits)
+        host             = $Document.host
+        hostname         = $Document.hostname
+        cycleFolderUrl   = $CycleFolderUrl
         guestSummary     = $guestSummary
         sequenceSummary  = @($sequenceSummary)
         # Freeze the cycle's classified cause into the row (like gitCommits /
         # cycleFolderUrl) so a history row is self-describing; null on a pass.
-        lastFailure      = if ($script:Doc.Contains('lastFailure') -and $script:Doc.lastFailure) { $script:Doc.lastFailure } else { $null }
+        lastFailure      = $rowFailure
     }
+}
+
+<#
+.SYNOPSIS
+    Marks the run as finished, appends to history, and flushes status.json.
+#>
+function Complete-Run {
+    param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
+    # Emergency-cleanup paths (e.g. a git-pull failure before
+    # Initialize-StatusDocument runs) can reach us with no doc. Silently
+    # no-op rather than crashing the catch block -- nothing to finalize.
+    if (-not $script:Doc) { return }
+    $script:Doc.finishedAt    = (Get-UtcTimestamp)
+    $script:Doc.overallStatus = $OverallStatus
+
+    # The live URL still carries the `.incomplete/` suffix at this
+    # point (Complete-Run runs before Stop-LogFile renames the folder
+    # to its bare base), so strip the lifecycle suffix to record the
+    # post-rename location -- the only location history rows are
+    # expected to resolve to.
+    $historyCycleFolderUrl = if ($script:Doc.cycleFolderUrl) {
+        $script:Doc.cycleFolderUrl `
+            -replace '\.incomplete(/?)$', '$1' `
+            -replace '\.aborted\.[^/]+(/?)$', '$1'
+    } else { '' }
+
+    $entry = New-CycleHistoryEntry -Document $script:Doc -OverallStatus $OverallStatus `
+        -CycleFolderUrl $historyCycleFolderUrl
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
     Write-StatusJson
 }
@@ -1233,4 +1293,4 @@ function Set-NestedRunStatus {
     } finally { Exit-StatusLock -Lock $lock }
 }
 
-Export-ModuleMember -Function Get-PauseFlagStamp, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus
+Export-ModuleMember -Function Get-PauseFlagStamp, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, New-CycleHistoryEntry, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus

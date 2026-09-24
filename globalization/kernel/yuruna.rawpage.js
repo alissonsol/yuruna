@@ -7,30 +7,16 @@
 // yuruna.common.js, so everything those runtimes provide is absent: a bounded
 // request, and a way to write a timestamp that does not change shape with the
 // reader's device. Both are here in the smallest form those pages can carry.
-//
-// Composed onto yuruna.fetch-shim.js by tools/Invoke-CatalogEmbed.ps1; the
-// request needs the stand-in's yurunaXhrOut handle when there is no native
-// fetch.
-//
-// ES5 ONLY. The floor is Safari 9.0 / iOS 9.0.
 (function (window) {
   'use strict';
 
-  //
   // The timer settles the caller's promise itself rather than waiting for the
-  // transport to fail. Between the two supported edges there is a browser with
-  // a native fetch and no AbortController: nothing there can cancel the
-  // request, and a timeout that could only abort would leave the caller
-  // waiting forever on a promise that never settles -- a hang wearing a
-  // timeout's clothes. Cancellation is still attempted where it is possible,
-  // so the socket is freed; the caller is answered on time either way.
+  // transport to fail, so the rejection carries a message that says what
+  // happened instead of whatever the aborted request eventually reports.
   window.yurunaRequest = function (url, timeoutMs) {
     var ms = timeoutMs > 0 ? timeoutMs : 10000;
-    var controller = (typeof window.AbortController !== 'undefined') ? new window.AbortController() : null;
-    var init = {};
-    var xhr = null;
-    if (controller) { init.signal = controller.signal; }
-    else { init.yurunaXhrOut = function (x) { xhr = x; }; }
+    var controller = new window.AbortController();
+    var init = { signal: controller.signal };
 
     return new Promise(function (resolve, reject) {
       var done = false;
@@ -42,8 +28,7 @@
         settle(value);
       };
       timer = window.setTimeout(function () {
-        if (controller) { controller.abort(); }
-        else if (xhr && xhr.abort) { try { xhr.abort(); } catch (e) { /* already done */ } }
+        controller.abort();
         finish(reject, new Error('The request took too long and was given up on.'));
       }, ms);
       window.fetch(url, init).then(function (r) {
@@ -59,10 +44,11 @@
 
   // The time alone, in a shape that does not change with the reader's device.
   //
-  // toLocaleTimeString is the obvious call and the wrong one: at the floor it
-  // ignores the locale it is handed and answers in the browser's own, so the
-  // refresh stamp on a page served in one language is written in another --
-  // and the page has no shared runtime to borrow a formatter from.
+  // toLocaleTimeString is the obvious call and the wrong one: its shape comes
+  // from the engine's own ICU data, which differs between browsers and moves
+  // between releases, so the refresh stamp would not match what the rest of
+  // the system writes for the same instant -- and the page has no shared
+  // runtime to borrow the agreed formatter from.
   window.yurunaLocalTime = function (value) {
     var when = (value instanceof Date) ? value : new Date(value);
     if (isNaN(when.getTime())) { return ''; }

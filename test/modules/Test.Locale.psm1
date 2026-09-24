@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 4263c64f-234d-45a4-b9c8-83aed05f27d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,10 +92,10 @@ function Get-LocaleManifest {
     foreach ($p in $raw.locales.PSObject.Properties) { $direction[$p.Name] = [string]$p.Value.direction }
 
     # Separators and plural rules are declared here rather than read from each
-    # runtime's own locale database. The browser floor has no Intl to read one
-    # from, and the ICU behind .NET shifts between releases, so a number that
-    # crossed from a transcript to a page would be grouped one way in one place
-    # and another way in the other. One table, three runtimes.
+    # runtime's own locale database. ICU data differs between engines and the
+    # ICU behind .NET shifts between releases, so a number that crossed from a
+    # transcript to a page would be grouped one way in one place and another
+    # way in the other. One table, three runtimes.
     $numberFormat = @{}
     $pluralRule = @{}
     foreach ($p in $raw.locales.PSObject.Properties) {

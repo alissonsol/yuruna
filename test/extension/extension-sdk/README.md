@@ -9,7 +9,7 @@ carries the browser runtime its UI is built on.
 | [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
 | [`pool`](pool/) | The read client for the pool-aggregator service: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, plus `Get`/`GetURL` for the routes it does not type. One TLS posture, one timeout policy, one snapshot cache, and `SanitizeBaseURL` applied to every URL-valued field a response carries. |
 | [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the internal authentication key as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
-| [`webui`](webui/) | The browser assets every service UI shares, embedded and handed over through `Asset(name)`. Today that is [`yuruna.core.js`](webui/assets/yuruna.core.js): the page chrome (header, menu, footer, countdown), the JSON client, the table furniture, and the shims the browser baseline needs. |
+| [`webui`](webui/) | The browser assets every service UI shares, embedded and handed over through `Asset(name)`. Today that is [`yuruna.core.js`](webui/assets/yuruna.core.js): the page chrome (header, menu, footer, countdown), the JSON client, and the table furniture. |
 
 Each package is self-contained: none imports another, and none imports anything
 outside the standard library.
@@ -29,13 +29,11 @@ shared, contentType, ok := webui.Asset("yuruna.core.js")
 ```
 
 That there is one copy is the point, and it is not only about duplication.
-These assets carry a browser baseline -- Safari iOS 9.3, see the [browser
+These assets carry a browser baseline -- Safari 16 / iOS 16, see the [browser
 baseline](../../../docs/definition.md#defining-the-status-page-browser-baseline)
 -- and a service holding its own copy of the runtime is a service that can fall
-off that baseline on its own. The failure is silent: an iOS 9 parser rejects a
-file carrying one arrow function outright, so the page serves its static shell
-and renders as merely empty. `tools/Invoke-Es5Check.ps1` is what holds the line;
-run it before shipping a change to anything under `webui/assets/`.
+off that baseline on its own, at whatever pace that copy is maintained. Open a
+page in an engine at the floor after changing anything under `webui/assets/`.
 
 ## Why the services stage it instead of vendoring it
 

@@ -250,12 +250,8 @@ function loadWithHash(hash) {
   assert.match(source, /Y\.stashApiURL = function[\s\S]*?tail === null \? null/, 'stashApiURL propagates pathTail null');
   assert.match(source, /Y\.session = function[\s\S]*?Y\.proofUnlock\.then/, 'session spends a carried proof BEFORE reading the gate, so an arriving operator is not prompted for a code they do not need');
   assert.match(coreSource, /if \(paused && paused\(\)\)[\s\S]*?return;[\s\S]*?countdown = Math\.max/, 'a paused page parks the countdown before it ticks down to a refresh');
-  assert.match(coreSource, /Y\.api = function[\s\S]*?AbortController/, 'api bounds the fetch, canceling it where the browser can');
+  assert.match(coreSource, /Y\.api = function[\s\S]*?AbortController/, 'api bounds the fetch and cancels it when the bound is reached');
   assert.match(coreSource, /Y\.humanSize = function[\s\S]*?Number\.isFinite\(v\)/, 'humanSize guards non-finite sizes');
-  // The runtime is the file the browser baseline lives or dies by, so the two
-  // constructs that would stop it parsing on Safari 9 are checked here too.
-  assert.ok(!/=>/.test(coreSource.replace(/\/\/[^\n]*/g, '')), 'the shared runtime carries no arrow function');
-  assert.ok(!/\bawait\s/.test(coreSource.replace(/\/\/[^\n]*/g, '')), 'the shared runtime carries no await');
 
   // (5) The control-proof handoff. A page reached from the Yuruna hosts
   // dashboard carries the proof in the fragment; it is spent once, at load, and

@@ -1,0 +1,595 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "stash",
+  "locale": "pt-BR",
+  "messages": {
+    "stash.all": {
+      "sourceHash": "7f9d971f7ebe45f4f0940367824fd37a526d7366a27bce94955f9663c8067625",
+      "message": "Tudo"
+    },
+    "stash.all_hosts": {
+      "sourceHash": "3598ce9b31297f2fe340d7a03f9b29f0bd4492e4d3c9295d30c330509f4bdad5",
+      "message": "Todas as máquinas"
+    },
+    "stash.all_types": {
+      "sourceHash": "f5bc79f9060763065b0cddb3871e4b6c2bea3a223eafb62a8ab7b04b071973cf",
+      "message": "Todos os tipos"
+    },
+    "stash.api_could_not_parse_form": {
+      "sourceHash": "b15605e9d1daf25606e85388ba0bb32b66477bf3db32418c323114880c1f41d5",
+      "message": "não foi possível processar a forma"
+    },
+    "stash.api_create_detail": {
+      "sourceHash": "11bf29c6749b924268d3f95ca50449a9565a56c24d32e4c73fd09d66b2668a61",
+      "message": "criar: {detail}"
+    },
+    "stash.api_detail": {
+      "sourceHash": "998309e9e4adad3b79a9519e4c01e5734b6c080e030b16df935415b7f54ff89a",
+      "message": "{detail}"
+    },
+    "stash.api_invalid_host": {
+      "sourceHash": "8666c31cf405efccba3b4ff6ad452bebff49c32075908f12b5bab462be317f0d",
+      "message": "máquina inválida"
+    },
+    "stash.api_invalid_json_body": {
+      "sourceHash": "dc80a0ace8b74e0166a0c001955ca33906744c6e98d99ba9dffe8264b0849806",
+      "message": "corpo JSON inválido"
+    },
+    "stash.api_invalid_stash_path": {
+      "sourceHash": "693015dfe0645c459f206a015c488b6fcf75b768245c4481586430aa5511517a",
+      "message": "caminho inválido do stash"
+    },
+    "stash.api_no_stashes_given": {
+      "sourceHash": "82bc2a5b599796fdc015d5168f9cb28e1e8d15058a5fe00d74704b224241dfcb",
+      "message": "nenhum stash fornecido"
+    },
+    "stash.api_not_an_archive": {
+      "sourceHash": "0be4c47ec4ac498c6d888996df56ff82f685e2448b2c6fb4229c5a8d22ca4ef5",
+      "message": "não é um arquivo"
+    },
+    "stash.api_not_found": {
+      "sourceHash": "f67c722ef9079ae2cc5d4e23a2cd9959fd36d69de4cb0ef6e4e069e53fd0adc8",
+      "message": "não encontrado"
+    },
+    "stash.api_nothing_to_store_provide_text_or_files": {
+      "sourceHash": "fa504579b41465646593af289d535651c36f2dd81015964af3b9fb36eaa6b1d3",
+      "message": "nada para armazenar: fornecer texto ou arquivos"
+    },
+    "stash.api_open_archive_detail": {
+      "sourceHash": "78169c2132248f9dbf5edaf2c8291d8094cea3cfa8a42d54164c9e20b133cbc2",
+      "message": "arquivo aberto: {detail}"
+    },
+    "stash.api_open_artifact": {
+      "sourceHash": "a40326db506f38070964a52f576c6c495b1e3cd2ef01cfc3bd66dcdc8b809e6f",
+      "message": "artefato aberto"
+    },
+    "stash.api_open_upload": {
+      "sourceHash": "8562da875c8998bb86e1151dada5fc3db1cf7d0c8d866c6586b22e7ce2cf980a",
+      "message": "abrir o envio"
+    },
+    "stash.api_open_uploads": {
+      "sourceHash": "2a2ef9a00daaf6c9c8960177fca27412ca1795a7c5cd236d2edd34c505a508d1",
+      "message": "abrir envios"
+    },
+    "stash.api_search_detail": {
+      "sourceHash": "f9388d6822494eb86b344580187b9de81563b671d3eab75ac18948b03a1f1ee1",
+      "message": "pesquisa: {detail}"
+    },
+    "stash.api_stash_not_found": {
+      "sourceHash": "e1bbd266b514f6af02d4008f45c9b70058845ccc9291895d50c7107e6791f1d3",
+      "message": "stash não encontrado"
+    },
+    "stash.api_stat_artifact": {
+      "sourceHash": "409f65e5f2a10505d17ff95252f4828f70ef2673db1833d8dfb7b22fcae94306",
+      "message": "stat artefact"
+    },
+    "stash.api_too_many_files_in_one_upload": {
+      "sourceHash": "a05d4343b036a8243f849adaaca3c93e64f1fbe30085227766a1a82de78428a4",
+      "message": "demasiados ficheiros num só envio"
+    },
+    "stash.api_too_many_stashes_in_one_request": {
+      "sourceHash": "1d9b1e0530054c24f61c9601213cdf2d9dce2e7eabbce14fc231ffbf67488b2a",
+      "message": "muitos stashes em um pedido"
+    },
+    "stash.archive": {
+      "sourceHash": "c49dd30efb98964df100b61a99f4da30b5f73e604e9c8c17353a1b9e732fdee8",
+      "message": "Arquivo"
+    },
+    "stash.archive_contents": {
+      "sourceHash": "78cc41115706005b033fd530536b0865ca71d8760001f484870185828a71daa4",
+      "message": "Conteúdo do arquivo"
+    },
+    "stash.archive_value1_contents": {
+      "sourceHash": "c1393dc41925d6bc29af5c1fe22a0a0f8ec56d128592869744276c1df03e4e20",
+      "message": "Arquivo ({value1}) -- conteúdo:"
+    },
+    "stash.audio": {
+      "sourceHash": "6270672d87173163b06c397be2d9388dfbbd09d9bebaf584e0e48db641393ab4",
+      "message": "Áudio"
+    },
+    "stash.author_optional": {
+      "sourceHash": "ffb3532e94bf8d810e6098e107285b8b62e91cb81d9f90fd38893ee0c2df6be3",
+      "message": "Autor (opcional)"
+    },
+    "stash.choose_at_least_one_file": {
+      "sourceHash": "7a7dc2b38720b185046ab6ab0e6c83e9e302b2a546e149ee7950bb83b539ff4b",
+      "message": "Escolha pelo menos um arquivo."
+    },
+    "stash.class": {
+      "sourceHash": "8054179886fdec7ddc2c0cdce2be91dd0611f68a7dcf9cdca6529e336256e8db",
+      "message": "classe"
+    },
+    "stash.content": {
+      "sourceHash": "424a402b1d92b4532f7ef1726f0e7902586b615169f99ccc77152e24cced77bc",
+      "message": "Conteúdo"
+    },
+    "stash.could_not_be_checked": {
+      "sourceHash": "9d4405b290345b7101f330785d245d5ccfcf3a05eab18486bf13cbdc13177e50",
+      "message": "não foi possível verificar"
+    },
+    "stash.could_not_list_archive_value1": {
+      "sourceHash": "2fb639a2e2f643f42b63dcc3b5b926bc38365c3f41867b6da8ef9404262e9753",
+      "message": "Não foi possível listar o arquivo: {value1}"
+    },
+    "stash.could_not_load_text_http_value1": {
+      "sourceHash": "b47d9b2be953bd1619bb812a06eda31c96c635b8c0481c7138c2acde7127c20d",
+      "message": "Não foi possível carregar o texto: HTTP {value1}"
+    },
+    "stash.could_not_load_text_value1": {
+      "sourceHash": "7b59e2a577d4ed41fc1fc6dd4b77e8cd19ab035b2aa6ae246436256d2fee7cfa",
+      "message": "Não foi possível carregar o texto: {value1}"
+    },
+    "stash.create_failed_value1": {
+      "sourceHash": "ed0ade09bc7179f460adea797452eeb79ea1845a66511c5ddf704416e609ae7e",
+      "message": "Falha ao criar: {value1}"
+    },
+    "stash.create_stash": {
+      "sourceHash": "a673c7c30adf1f34a88a890996f504a20a91a9f0d68c0aee2640ea96050dc811",
+      "message": "Criar stash"
+    },
+    "stash.created": {
+      "sourceHash": "61d03ffced07e4e9e711c2c113600ea27b3c798dbd57500c686a2d53143db8aa",
+      "message": "Criado"
+    },
+    "stash.delete": {
+      "sourceHash": "01a4b9c41bc974721ca78c8975fb1eef4c2c46a0a9888695958e2649e5ac3d8c",
+      "message": "Apagar"
+    },
+    "stash.delete_failed_for_value1_value2": {
+      "sourceHash": "44bbee792968d2c7566900e0cc699bfd6d95077b1cb961bef738d49c8d794ddb",
+      "message": "Falha na remoção do {value1}: {value2}"
+    },
+    "stash.delete_failed_value1": {
+      "sourceHash": "98390ca3dffbfc7145720c565c18738b950372fdf9109bead18eccf0c70e1f24",
+      "message": "Falha na remoção: {value1}"
+    },
+    "stash.delete_is_locked_unlock_actions_with_the_lab_token_above_or_open_": {
+      "sourceHash": "a9e3fa752d5fbbb54dae75abea36fcafc1c84ea5a2eeb9b9e530e00248901be1",
+      "message": "A exclusão está bloqueada. Desbloqueie as ações com o token do laboratório acima, ou abra esta página do painel de máquinas Yuruna, que o desbloqueia para você."
+    },
+    "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu": {
+      "sourceHash": "0c29d6450da293ddaa45952723504c6085b9f3e1bf9f4beb2e9bae5a1bddec67",
+      "message": "Excluir está indisponível: este serviço não tem agregador de piscina configurado, então nenhum token de laboratório ou link do painel pode ser verificado."
+    },
+    "stash.delete_is_unavailable_this_service_has_no_pool_aggregator_configu_9d79c432": {
+      "sourceHash": "e6dba5256f58e9265646ca8ece830d816bdf635068911259735954f046f7c012",
+      "message": "Excluir não está disponível: este serviço não tem nenhum agregador de pool configurado, então nenhum token do Lab pode ser selecionado."
+    },
+    "stash.delete_selected": {
+      "sourceHash": "6e8eb0ca1015f92d543e2d11272558511149c4ad9fcb16e4f931f534d9444250",
+      "message": "Apagar seleccionado"
+    },
+    "stash.delete_stash_value1": {
+      "sourceHash": "c11da36a14e93a5224969a00a68153f94732cd5af09b5fb9ea3c339698122da5",
+      "message": "Excluir stash {value1}"
+    },
+    "stash.delete_stash_value1_this_cannot_be_undone": {
+      "sourceHash": "02d3fe251993b7578481a649806cfde87066caf0b4d5030f84e25bb79df5bea6",
+      "message": "Excluir stash {value1}? Isto não pode ser desfeito."
+    },
+    "stash.delete_stash_value1_value2_value3_this_cannot_be_undone": {
+      "sourceHash": "43d6772ecaa9aee2f440b25112f45aa158664fe6a475a21c3680d464c9a2eacf",
+      "message": "Excluir stash {value1} ({value2}, {value3})? Isto não pode ser desfeito."
+    },
+    "stash.delete_value1_this_cannot_be_undone": {
+      "sourceHash": "b451d59d5146061634842a5e35a6d36e8d7ec3fe24cfeae93977a655389ca072",
+      "message": "Apagar o {value1}? Isto não pode ser desfeito."
+    },
+    "stash.deleting": {
+      "sourceHash": "7028c13632d51b0a8ce6442a6d247d31541e2f83d208cae55930e7a294daf92b",
+      "message": "A apagar..."
+    },
+    "stash.dir": {
+      "sourceHash": "dafcca48244dc72188fba6b180b9b50652d20f0009d1fe32682310bf94920057",
+      "message": "dir"
+    },
+    "stash.download": {
+      "sourceHash": "dd2a73078504e4ed2fb78a6f4d3f36abde23c9d96657c8d2be8a3c4ee6f5e31a",
+      "message": "Baixar"
+    },
+    "stash.error_value1": {
+      "sourceHash": "d580f5c44bc0fa8e1a8fe0805eeaad47c38d55c22eccf3d4ecda4bf73c1ead95",
+      "message": "Erro: {value1}"
+    },
+    "stash.file_s_multiple_files_are_grouped_into_one_zip": {
+      "sourceHash": "274c9c7536e4fc1dd4e25db251d261a9003a175e2debaf51abd5889e8ef9b481",
+      "message": "Arquivos -- vários arquivos são agrupados em um ZIP"
+    },
+    "stash.filter_by_content_type": {
+      "sourceHash": "e8d7457fa8245140cfe41d9a553c78716b86c6682ad40ec0f4ae96c7ff9c3f56",
+      "message": "Filtrar por tipo de conteúdo"
+    },
+    "stash.filter_by_host": {
+      "sourceHash": "d1822569b995fb73d1fbf4166850085d2f1d73701951f894951b80f11ba74d9b",
+      "message": "Filtro por máquina"
+    },
+    "stash.guide": {
+      "sourceHash": "58c4cd8350d02815bd538c315a8a482c2de1afda60bae004e352e4eec74db4d0",
+      "message": "Guia"
+    },
+    "stash.host": {
+      "sourceHash": "0428e36be9bf70f5b45cddd5791736b5061d44e615e1e6ea41734c37a9e508c0",
+      "message": "Máquina"
+    },
+    "stash.host_4740ae63": {
+      "sourceHash": "54de94cfda7d655b8d0982f1610e59df65b53b706b4836536fd3851e5d3d223f",
+      "message": "máquina"
+    },
+    "stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_": {
+      "sourceHash": "e80420191e397f8fa8cfcb41faec37d30015299c9610092b3aa106675ce1b83c",
+      "message": "Se desbloquear respostas que o código não pôde ser verificado, o código não é o problema -- o agregador de pool que verifica se ele é inacessível, e você não pode desbloquear até que ele esteja de volta."
+    },
+    "stash.image": {
+      "sourceHash": "5df9328a793f9919d7f5c754ea5910dc1d27b140e940a8f32d3c8f1187570d97",
+      "message": "Imagem"
+    },
+    "stash.incomplete_upload_partial_bytes_available_via_download": {
+      "sourceHash": "f89599dafc4a5d8c2c10a8f94b3766ec8df1a49321e90b5d72d79fa28fbabce1",
+      "message": "Envio incompleto -- bytes parciais disponíveis via Download."
+    },
+    "stash.ips": {
+      "sourceHash": "8530eabf89c18ce6748a2b148ad75a43690a843fcbdfaee9f0f2b756a6db9291",
+      "message": "IPs:"
+    },
+    "stash.lab_token": {
+      "sourceHash": "0df9f6938a1d27647283d8c3e52c8462c9ffbafd46d0657c04372d2b19f8098b",
+      "message": "Token de laboratório"
+    },
+    "stash.limit": {
+      "sourceHash": "883dff1d37d9a3a9ea370ae2ada5ca668b999a5e313307a793935d55694fc2b8",
+      "message": "limite"
+    },
+    "stash.listed_count": {
+      "sourceHash": "31419789686b12fc51ed89d6bcd5943a4e7e3c389efa0ae0c928ab68046a5087",
+      "plural": {
+        "variants": {
+          "one": "{count} stash (mostrando {shown})",
+          "other": "{count} stashes (mostrando {shown})",
+          "many": "{count} stashes (mostrando {shown})"
+        }
+      }
+    },
+    "stash.load_more": {
+      "sourceHash": "d860c7cf22bd40cf03ebb99355ede67caf7c1e5d44ad177732ea0b31a9195280",
+      "message": "Carregar mais"
+    },
+    "stash.loaded": {
+      "sourceHash": "74b4d6fc3be9eda62c19e2b980a58ff24b97e67a99c61c3f9bde69c87a536207",
+      "message": "Carregado:"
+    },
+    "stash.loading": {
+      "sourceHash": "3bff302e704e9030cf103a04cd85905abab2b67c9292999dd4e8486169b3432f",
+      "message": "Carregando..."
+    },
+    "stash.local_host_name": {
+      "sourceHash": "fe98849397e8a9b301193076e56ada5b9f646166a48ef98db1bc14555c665c51",
+      "message": "{host} (esta máquina)"
+    },
+    "stash.locked_unlock_actions_with_the_lab_token_above_or_open_this_page_": {
+      "sourceHash": "40ea601a0e37be5f33722fed32a74a2d3077520e8d2f43f23fea19b48e6290e1",
+      "message": "Bloqueado -- desbloqueie ações com o token do Lab acima, ou abra esta página do painel de máquinas Yuruna."
+    },
+    "stash.menu": {
+      "sourceHash": "ff42cd9744ac16518b2907639f6d8698d053c71891bbfb419f45017b44d014a2",
+      "message": "Menu"
+    },
+    "stash.name": {
+      "sourceHash": "e5b82c929f8598cf8d899c85cfaa213ec05a55e5f73630481304a39f81fdbc92",
+      "message": "Nome"
+    },
+    "stash.new_stash": {
+      "sourceHash": "13b49143cddc8c34d4f11ef66e488e9654820fe206d61e9d568a79ec9c0487c1",
+      "message": "Novo stash"
+    },
+    "stash.new_stash_yuruna_stash": {
+      "sourceHash": "fa7534389860d01c4c3e48047dcacaee41a1ff6878a1c374f08e6350ffca7c35",
+      "message": "Novo stash — Yuruna Stash"
+    },
+    "stash.no_inline_preview_for_this_type_download_to_view": {
+      "sourceHash": "0fa4969c2c09d11b31398496c6c1f3b779ffd08e91e28b3c5a25168122aa481c",
+      "message": "Nenhuma antevisão em linha para este tipo (download to view)."
+    },
+    "stash.no_pool_aggregator_is_configured_so_no_lab_token_can_be_checked_a": {
+      "sourceHash": "3ed5794d62fa996996dde880def5d0dfbeee6c2d244d284276ddae10941256fb",
+      "message": "Nenhum agregador de pool está configurado, então nenhum token do Lab pode ser selecionado e nada aqui pode ser excluído. Defina {command1} no servidor para habilitá- lo."
+    },
+    "stash.notes_txt": {
+      "sourceHash": "b12df6a12b650a19320ab8ca68cfe5035f10841bbbe731236c22e8abfbe65d41",
+      "message": "notes.txt"
+    },
+    "stash.nothing_to_store_paste_some_content_first": {
+      "sourceHash": "0cba7d80bf533f9da79e8b67981f782aed33e134edcda8ac0e064ef1cdfc63a9",
+      "message": "Nada para armazenar -- cole algum conteúdo primeiro."
+    },
+    "stash.offset": {
+      "sourceHash": "6d6a8e4265947a35327211cd441d863e526a7f5e445ebf4c326b7afda737a18b",
+      "message": "deslocamento"
+    },
+    "stash.open_on_that_host": {
+      "sourceHash": "8238d32e9d1cde7691df92f31cd94c49a0fb7dc11dc6ecbe92ad6afa38adab07",
+      "message": "abrir nessa máquina"
+    },
+    "stash.open_pdf": {
+      "sourceHash": "0f05419d43f01315e72401316e1298d94ea5be9b16c97a185fb8734c1a328276",
+      "message": "Abrir PDF"
+    },
+    "stash.other": {
+      "sourceHash": "e4107ceb378246dfd59c9ea32733f07559f52df19df0323b632d486a1af7dcc2",
+      "message": "Outros"
+    },
+    "stash.pages": {
+      "sourceHash": "74b7d3763269b241304a0c5c5c585ff4e620ea63dcfc03a1ce90cbdf92b2d839",
+      "message": "Páginas"
+    },
+    "stash.paste_content_here": {
+      "sourceHash": "4dbccffbdc9728a80cc0d4f149379fbd99db0dea0bfdce7ec6a086dfac8e1085",
+      "message": "Colar o conteúdo aqui..."
+    },
+    "stash.paste_text": {
+      "sourceHash": "1ddc102f4a193e0f73636b28f36d2bb68b6b9237f135b03f4cfbb6f03e5d752c",
+      "message": "Colar o texto"
+    },
+    "stash.pause": {
+      "sourceHash": "c6b4e48bdd975b29d3778c2978e93f9e5bf136cffc531a25bc203b5ed68a95e2",
+      "message": "Pausa"
+    },
+    "stash.pdf": {
+      "sourceHash": "c16c2ae3265a7348ab3e5d5131c9960f944828b0fae44d5c8f347933a1aa6bdc",
+      "message": "PDF"
+    },
+    "stash.permalink": {
+      "sourceHash": "003aa613fadefff2bfeaaa941bdb8c1b721d043ed62e0cdc6a07338a1fd72223",
+      "message": "Permalink"
+    },
+    "stash.preview_truncated_download_for_the_full_content": {
+      "sourceHash": "095c61c776f089f520563030591ff366351adf357b42696279618059a5c5df27",
+      "message": "Preview truncated -- Baixe para o conteúdo completo."
+    },
+    "stash.preview_unavailable_use_download_to_open_the_file": {
+      "sourceHash": "6013542c7340beb9246bceb6df66cf2d10a9cf536d1142311b9721331e3bf860",
+      "message": "Antevisão não disponível. Use Download para abrir o arquivo."
+    },
+    "stash.q": {
+      "sourceHash": "edac3baa985a66e601f80b9823cd905d2e7dab0a3f556405298abfacfe761991",
+      "message": "q"
+    },
+    "stash.received": {
+      "sourceHash": "4c90f8f17c7cb9ae91b021dbae505b511c90c2e46e13382ab793143d3ddf02e6",
+      "message": "Recebido"
+    },
+    "stash.received_by_host": {
+      "sourceHash": "b21b4da2d48c938fe3c1e64425106f6201b5b209b8cae836779f43caeb8fc9ba",
+      "message": "Recebido pela máquina"
+    },
+    "stash.received_host": {
+      "sourceHash": "f7b9aeb77a808e8590f08ecae0008b03850fa0f7986ec247bcfaea4df126ce2e",
+      "message": "Recebido pela máquina {host}"
+    },
+    "stash.refresh": {
+      "sourceHash": "e72605aa952edd41405c67bb834662c9e281ccb79d13ccc6ef289193285a2807",
+      "message": "Actualizar"
+    },
+    "stash.rescan_the_stash_share_for_other_hosts_stashes": {
+      "sourceHash": "f7b585ae82bb76e38fd8e6132c5a1d311dadf87ba33d4f7cda47a840e02f3cfd",
+      "message": "Verifica novamente o stash share para os stashs de outras máquinas"
+    },
+    "stash.scp_path": {
+      "sourceHash": "b226fb2fa81f9dec075410bb853276e58a2b8f45ed282b5e142cfdb9cc35e76e",
+      "message": "Caminho SCP"
+    },
+    "stash.search_id_filename_user_path": {
+      "sourceHash": "81ea106b29495fed7e53409af3c58b54ca85927c61d0e2d16751ce6b0eb535ae",
+      "message": "Procurar o ID, nome do ficheiro, utilizador, localização..."
+    },
+    "stash.select_stash_value1": {
+      "sourceHash": "f7c6b4eccd2e8c31d0cfd9aee2f4fc509cc905470c593584522ee8b3ea992ebc",
+      "message": "Selecione stash {value1}"
+    },
+    "stash.selection_count": {
+      "sourceHash": "8c0ee902bfedeaaf3d78da9152fe52efaf0a5983a83c6da0970049d6ac1131aa",
+      "plural": {
+        "variants": {
+          "one": "{count} stash",
+          "other": "{count} stashes",
+          "many": "{count} stashes"
+        }
+      }
+    },
+    "stash.short_link": {
+      "sourceHash": "be47c89393ca46067afdf86e26c8be1cf8c6a8e2ef41b4bbca2bfd0a430dc90f",
+      "message": "Ligação curta"
+    },
+    "stash.six_character_lab_token_from_the_dashboard": {
+      "sourceHash": "d6cff4ea81c3a19cdd4b0fa3a4250b2db51a3b8e4d8710b5e04f1e2d3568a176",
+      "message": "Token de laboratório de seis caracteres do painel"
+    },
+    "stash.size": {
+      "sourceHash": "28395a5dd4b7b8cc518e2cbd803fd231103c83396aed05365cecc167647e205b",
+      "message": "Tamanho"
+    },
+    "stash.sort": {
+      "sourceHash": "87cb1c9f1e55e8a46df5d846a67923f91c7571e0681ccc03c658352a8c5c5f24",
+      "message": "sort"
+    },
+    "stash.source": {
+      "sourceHash": "8bf322282e3281eb676be944409423c40a4393ec0687c1eddbfb5c890d982b36",
+      "message": "Origem"
+    },
+    "stash.stash": {
+      "sourceHash": "f3cf40f94e2ee9d8f68f311c1fbc3f9676a6bee4e947ecc83592d332d9bd5110",
+      "message": "Stash"
+    },
+    "stash.stash_not_found": {
+      "sourceHash": "71fdb7147508f3a704dda5f87a95bd6015174d618af79374a49c3a31ee9824a3",
+      "message": "Stash não encontrado."
+    },
+    "stash.stash_text_preview": {
+      "sourceHash": "73f3fbab86ec22922944df73cf7c98c895ee833fa155484cfa0788e09f6ae60a",
+      "message": "Visualização de texto stash"
+    },
+    "stash.stash_yuruna_stash": {
+      "sourceHash": "8ee87ddc70ad572f9b410b3bd5e7a5acfbe08199b9fc83812d1763dfc421c060",
+      "message": "Stash — Yuruna Stash"
+    },
+    "stash.stashes": {
+      "sourceHash": "5d294a5030752ca80b2d0efb7bdd239f1a39c2f066276f85949ffab7a2923365",
+      "message": "Tachas"
+    },
+    "stash.stashes_yuruna_stash": {
+      "sourceHash": "f87bd94c20a57ab0a39ed9ae37d278c7be9a61a56e5ffc9661909f1a83f67d87",
+      "message": "Stashes — Yuruna Stash"
+    },
+    "stash.state_archive": {
+      "sourceHash": "5158620f6e6b1f5b29ad19ad3f15032eab9ffc823edcfdaeeaa27eb0e0022df8",
+      "message": "arquivo"
+    },
+    "stash.state_audio": {
+      "sourceHash": "1e846b6ce71cd265c43bfbe6034734e9f383a3411b4128d65066de8b97c15047",
+      "message": "áudio"
+    },
+    "stash.state_complete": {
+      "sourceHash": "96f1d1c6ddbea5245aecdc3d4f96cb7d128ed361d805655c8e7dde919cd4127d",
+      "message": "completo"
+    },
+    "stash.state_image": {
+      "sourceHash": "54d0e837f347c3f5f2b3c02473c049dac9384fed9e05066e380264e59fb8e97a",
+      "message": "imagem"
+    },
+    "stash.state_other": {
+      "sourceHash": "8d18dee7f95b9c48c986107d5ea1723b65671a1deaa4cc001fb2cbfb46213ac3",
+      "message": "outros"
+    },
+    "stash.state_partial": {
+      "sourceHash": "e6ee7c6c70f2afceda736394b6e851eff1af0def43e1d3582fa6a417816228fa",
+      "message": "parcial"
+    },
+    "stash.state_pdf": {
+      "sourceHash": "df7eda627300ef8675fe7c4ce66f91e30d90df07c74b1cc17184aeb711da5ccf",
+      "message": "pdf"
+    },
+    "stash.state_pending": {
+      "sourceHash": "217b9a29e3629f1ac7fc229ddb6693af99526e07a213b39ec8d982c8f50b4b23",
+      "message": "pendente"
+    },
+    "stash.state_text": {
+      "sourceHash": "11ed997b1468dc1de2b4cc468d918ab597043ce000e6baa3917b5a09552cf872",
+      "message": "texto"
+    },
+    "stash.state_truncated": {
+      "sourceHash": "3a5eed9983583497363bf7649ad2a575203e9443ed2dff9ae15429d45b46ecc1",
+      "message": "truncado"
+    },
+    "stash.state_video": {
+      "sourceHash": "74b5fba6a8462196c52e011b97d04a38cb727797b42e06791ad06a45596cf18a",
+      "message": "vídeo"
+    },
+    "stash.status": {
+      "sourceHash": "b9eb7eefb22b3ba0705c239dba461e8e11e6e5f2f89577ed85fda78314835f77",
+      "message": "Estado"
+    },
+    "stash.still_receiving_no_preview_yet": {
+      "sourceHash": "4bdd896766609627ea627c22fd5b754d334c4180a91cffc469b763f385a5b8d5",
+      "message": "Ainda a receber -- nenhuma previsão ainda."
+    },
+    "stash.text": {
+      "sourceHash": "bc44f7bbf531cf4ac8bc98289e91c3565bbce812ddbd32d9d99d5f4f75551ec6",
+      "message": "Texto"
+    },
+    "stash.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "sourceHash": "0fc4274406e07e91f17ec09e61857fc9e6b46926d05238f2a39f817929928c7f",
+      "message": "O código de 6 caracteres no painel do Yuruna hospeda o token do painel; ambos funcionam em maiúsculas ou minúsculas. Abrir esta página desse painel o desbloqueia sem o código. Precisava apenas excluir."
+    },
+    "stash.this_host": {
+      "sourceHash": "45c86ee512fc583adcc6564f7e7df34810673275596b66badd6249432371cefa",
+      "message": "esta máquina"
+    },
+    "stash.title_filename_optional": {
+      "sourceHash": "6dcfaee2254b573669ca75cedeacf493f9b66d6d99e781c1162e0e1faa91cb94",
+      "message": "Título / nome do arquivo (opcional)"
+    },
+    "stash.truncated_at_the_100_mb_cap_download_serves_the_capped_artifact": {
+      "sourceHash": "656d1fcf18b8a2c937f8c937fa4b1a7bed11011a020cd495c47f4cd699b8465f",
+      "message": "Truncado na tampa de 100 MB -- Download serve para o artefato capped."
+    },
+    "stash.type": {
+      "sourceHash": "14fffb0f8e97bad54a1726a3275d90585a59061d67a6cd5ddfeb4a42adf4bc42",
+      "message": "Tipo"
+    },
+    "stash.unlock_actions": {
+      "sourceHash": "02842de65fc615386f9defdbfbb6a1b6a9e7e9947cc982bfabfe7be10a98f63c",
+      "message": "Desbloquear ações"
+    },
+    "stash.unlock_actions_to_delete": {
+      "sourceHash": "2c710a3a9d9e1c09017b31f42e0b889a2e3e8b66f2e0075a54658a940e9915ee",
+      "message": "Desbloquear ações para excluir"
+    },
+    "stash.unnamed": {
+      "sourceHash": "fd368eeeaaf9d175f5916d1090e4c5ae8a4abd96a800511641ecf7f43a98519c",
+      "message": "(sem nome)"
+    },
+    "stash.upload_file_s": {
+      "sourceHash": "848d40894349e2d25c5c8ff58b728fb93619cbb2425fb4d99b37c6b16f6d6e67",
+      "message": "Enviar os ficheiros"
+    },
+    "stash.upload_stash": {
+      "sourceHash": "bb9526087e20363a8af0a4617e10428a698d86063bbf9a3d6dd3712bc300652b",
+      "message": "Enviar stash"
+    },
+    "stash.user": {
+      "sourceHash": "1e774d1ad32e977737623234b6be466a98e29a52b59afdf62bb4bf6f9a5509b8",
+      "message": "Utilizador"
+    },
+    "stash.value1_malformed_permalink": {
+      "sourceHash": "18433b1a6d010d008122991ee473fdb661a5337d4d794733c8471a16ad60f2c7",
+      "message": "{value1} (permalink malformado)"
+    },
+    "stash.value1_of_value2_could_not_be_deleted_value3": {
+      "sourceHash": "78fec7d2863a97bd29bf1d987f9bd75c477092e41c354a48fb33e49b0253df88",
+      "message": "{value1} do {value2} não pôde ser excluído -- {value3}"
+    },
+    "stash.value1_pdf_preview": {
+      "sourceHash": "6ae10c8422ad93e8eeeaa5ee23b890f899c7e397936efbc40f7498aac1adcb4b",
+      "message": "{value1} (visualização em PDF)"
+    },
+    "stash.value1_yuruna_stash": {
+      "sourceHash": "22c9ceda57da289c71e42106054582c85241045b453a6095680ce98a0838792a",
+      "message": "{value1} -- Yuruna Stash"
+    },
+    "stash.video": {
+      "sourceHash": "81e26e7f9e3cbab767692bc13c3e659a2c03fd95dc6dd47db746949029e60d72",
+      "message": "Vídeo"
+    },
+    "stash.web": {
+      "sourceHash": "14b7e9568d3675f42b9c017297b4a0b8a84c9c4535ad001803e7b383bfb34db7",
+      "message": "Web"
+    },
+    "stash.yuruna_stash": {
+      "sourceHash": "174669c6ba2709efcd1bdeb918a3ced034ae7ade51430cafe5ca1a65f3816887",
+      "message": "Yuruna Stash"
+    },
+    "stash.yuruna_stash_service": {
+      "sourceHash": "03e2de1c6ebed2c471b069cf16b7ab6b3a52a2a501a658cf692bc437b5d20c18",
+      "message": "Serviço de stash Yuruna"
+    }
+  }
+}

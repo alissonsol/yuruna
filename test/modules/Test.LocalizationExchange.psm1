@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -782,8 +782,235 @@ function Set-LocalizationYamlValue {
     $node[$map][$Locale] = $Text.Normalize([Text.NormalizationForm]::FormC)
 }
 
+function Get-LocalizationYamlIndexPath {
+    <#
+    .SYNOPSIS
+        Resolve a project pointer with the grammar this module already owns,
+        recording the ordinal of each step so the same node can be found again
+        in a tree that carries line marks.
+    #>
+    param($Document, [string]$Pointer)
+    $segments = @($Pointer.TrimStart('/').Split('/') | ForEach-Object { $_.Replace('~1', '/').Replace('~0', '~') })
+    $node = $Document
+    $indexPath = [Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -lt $segments.Count - 1; $i++) {
+        $segment = $segments[$i]
+        if ($segment -match '^([^=]+)=(.+)$') {
+            $key = $Matches[1]; $value = $Matches[2]
+            $items = @($node)
+            $matching = @($items | Where-Object { $_ -is [Collections.IDictionary] -and [string]$_[$key] -ceq $value })
+            if ($matching.Count -ne 1) { throw "Ambiguous project pointer: $Pointer" }
+            $indexPath.Add(@{ Kind = 'sequence'; Index = [Array]::IndexOf($items, $matching[0]) })
+            $node = $matching[0]
+        } elseif ($node -is [Collections.IList] -and $segment -match '^\d+$') {
+            $indexPath.Add(@{ Kind = 'sequence'; Index = [int]$segment })
+            $node = $node[[int]$segment]
+        } elseif ($node -is [Collections.IDictionary] -and $node.Contains($segment)) {
+            $indexPath.Add(@{ Kind = 'mapping'; Key = $segment })
+            $node = $node[$segment]
+        } else { throw "Unknown project pointer: $Pointer" }
+    }
+    return @{ Path = $indexPath.ToArray(); Field = $segments[-1]; Node = $node }
+}
+
+function Resolve-LocalizationYamlMarkNode {
+    <#
+    .SYNOPSIS
+        Replay a recorded index path over a mark-carrying document. Marks give
+        positions only; the path was decided by the grammar above.
+    #>
+    param($Root, $IndexPath)
+    $node = $Root
+    foreach ($step in $IndexPath) {
+        if ($step.Kind -ceq 'sequence') {
+            if ($node -isnot [YamlDotNet.RepresentationModel.YamlSequenceNode]) { throw 'The staged document does not match its own shape.' }
+            $node = $node.Children[[int]$step.Index]
+        } else {
+            if ($node -isnot [YamlDotNet.RepresentationModel.YamlMappingNode]) { throw 'The staged document does not match its own shape.' }
+            $key = [YamlDotNet.RepresentationModel.YamlScalarNode]::new([string]$step.Key)
+            if (-not $node.Children.ContainsKey($key)) { throw 'The staged document does not match its own shape.' }
+            $node = $node.Children[$key]
+        }
+    }
+    # A mapping node enumerates its own children, and a function that returns
+    # one hands the caller those children instead of the node. The comma keeps
+    # the node whole.
+    return , $node
+}
+
+function ConvertTo-LocalizationYamlScalar {
+    <#
+    .SYNOPSIS
+        One line of double-quoted YAML for any text. Never ConvertTo-Yaml: that
+        emits a block scalar for anything holding a newline, which cannot be
+        spliced onto the line this writer is editing.
+    #>
+    param([string]$Text)
+    # Keyed by code point: a backslash, a quote, and the three named controls
+    # have short escapes; every other control and line separator is \uXXXX.
+    $named = @{ 0x5c = '\\'; 0x22 = '\"'; 0x0a = '\n'; 0x0d = '\r'; 0x09 = '\t' }
+    $builder = [Text.StringBuilder]::new('"')
+    foreach ($character in $Text.ToCharArray()) {
+        $code = [int]$character
+        if ($named.ContainsKey($code)) {
+            [void]$builder.Append([string]$named[$code])
+        } elseif ($code -lt 0x20 -or ($code -ge 0x7f -and $code -le 0x9f) -or $code -eq 0x2028 -or $code -eq 0x2029 -or $code -eq 0xfeff) {
+            [void]$builder.Append('\u' + $code.ToString('x4'))
+        } else {
+            [void]$builder.Append($character)
+        }
+    }
+    return $builder.Append('"').ToString()
+}
+
+function ConvertTo-LocalizationCanonicalNode {
+    <#
+    .SYNOPSIS
+        Rebuild a parsed YAML document with every mapping's keys in ordinal
+        order, so two documents that differ only in where a key sits compare
+        equal. Sequence order is kept: it is part of the document.
+    #>
+    param($Node)
+    if ($null -eq $Node) { return $null }
+    if ($Node -is [Collections.IDictionary]) {
+        $keys = [string[]]@($Node.Keys | ForEach-Object { [string]$_ })
+        [Array]::Sort($keys, [StringComparer]::Ordinal)
+        $sorted = [ordered]@{}
+        foreach ($key in $keys) { $sorted[$key] = ConvertTo-LocalizationCanonicalNode -Node $Node[$key] }
+        return $sorted
+    }
+    if ($Node -is [Collections.IEnumerable] -and $Node -isnot [string]) {
+        $items = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Node) { [void]$items.Add((ConvertTo-LocalizationCanonicalNode -Node $item)) }
+        return , $items
+    }
+    return $Node
+}
+
+function Set-LocalizationYamlLocaleText {
+    <#
+    .SYNOPSIS
+        Write locale entries into a project YAML file by splicing lines, so
+        every other byte of the file -- its license header, the notes its author
+        left and the shape they chose -- is exactly what it was.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'The caller owns the confirmation for the whole staged apply.')]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Edit)
+    Assert-LocalizationYamlCodec
+    $original = [IO.File]::ReadAllText($Path)
+    if ($original.Contains("`r`n")) { throw "Refusing to edit a file with carriage returns: $Path" }
+    $document = ConvertFrom-Yaml -Yaml $original -Ordered
+    $stream = [YamlDotNet.RepresentationModel.YamlStream]::new()
+    $stream.Load([IO.StringReader]::new($original))
+    if ($stream.Documents.Count -ne 1) { throw "Refusing to edit a file that is not one document: $Path" }
+    $root = $stream.Documents[0].RootNode
+    $lines = [Collections.Generic.List[string]]::new()
+    foreach ($line in $original.Split("`n")) { [void]$lines.Add($line) }
+
+    $plans = [Collections.Generic.List[object]]::new()
+    foreach ($change in $Edit) {
+        $resolved = Get-LocalizationYamlIndexPath -Document $document -Pointer ([string]$change.Pointer)
+        $field = [string]$resolved.Field
+        if ($field -cnotin @('displayName', 'description')) { throw "Not a project display scalar: $($change.Pointer)" }
+        $owner = Resolve-LocalizationYamlMarkNode -Root $root -IndexPath $resolved.Path
+        if ($owner -isnot [YamlDotNet.RepresentationModel.YamlMappingNode] -or $owner.Style -eq [YamlDotNet.Core.Events.MappingStyle]::Flow) {
+            throw "Refusing to edit a scalar written inline: $($change.Pointer)"
+        }
+        $fieldKey = $owner.Children.Keys | Where-Object { $_.Value -ceq $field } | Select-Object -First 1
+        if (-not $fieldKey) { throw "Not a project display scalar: $($change.Pointer)" }
+        $fieldValue = $owner.Children[$fieldKey]
+        if ($fieldValue -isnot [YamlDotNet.RepresentationModel.YamlScalarNode] -or $fieldValue.Start.Line -ne $fieldValue.End.Line) {
+            throw "Refusing to edit a scalar that spans lines: $($change.Pointer)"
+        }
+        $indent = ' ' * ($fieldKey.Start.Column - 1)
+        $mapName = $field + 'Localized'
+        $mapKey = $owner.Children.Keys | Where-Object { $_.Value -ceq $mapName } | Select-Object -First 1
+        $emitted = ConvertTo-LocalizationYamlScalar -Text ([string]$change.Text)
+        if (-not $mapKey) {
+            $after = [Math]::Max($fieldKey.End.Line, $fieldValue.End.Line)
+            # Each line is built before it enters the array. Inside an array
+            # literal the comma binds tighter than concatenation, and two lines
+            # written in place become one line with a space where the break was.
+            $mapLine = $indent + $mapName + ':'
+            $entryLine = $indent + '  ' + [string]$change.Locale + ': ' + $emitted
+            $plans.Add(@{ Start = $after + 1; DeleteTo = $after; Insert = @($mapLine, $entryLine) })
+            continue
+        }
+        $map = $owner.Children[$mapKey]
+        if ($map -isnot [YamlDotNet.RepresentationModel.YamlMappingNode] -or $map.Style -eq [YamlDotNet.Core.Events.MappingStyle]::Flow) {
+            throw "Refusing to edit a locale map written inline: $($change.Pointer)"
+        }
+        $childIndent = $indent + '  '
+        $last = $mapKey.End.Line
+        foreach ($entry in $map.Children.GetEnumerator()) {
+            if ($entry.Value -isnot [YamlDotNet.RepresentationModel.YamlScalarNode] -or $entry.Value.Start.Line -ne $entry.Value.End.Line) {
+                throw "Refusing to edit a locale map holding a scalar that spans lines: $($change.Pointer)"
+            }
+            $childIndent = ' ' * ($entry.Key.Start.Column - 1)
+            $last = [Math]::Max($last, [Math]::Max($entry.Key.End.Line, $entry.Value.End.Line))
+        }
+        $localeKey = $map.Children.Keys | Where-Object { $_.Value -ceq [string]$change.Locale } | Select-Object -First 1
+        $line = $childIndent + [string]$change.Locale + ': ' + $emitted
+        if ($localeKey) {
+            $localeValue = $map.Children[$localeKey]
+            if ([string]$localeValue.Value -ceq [string]$change.Text) { continue }
+            $from = $localeKey.Start.Line
+            $to = [Math]::Max($localeKey.End.Line, $localeValue.End.Line)
+            # Replacing a translation rewrites its line. Anything the author put
+            # after the scalar on that line is a note about the translation --
+            # most often who reviewed it, or an instruction not to touch it --
+            # and it belongs to the line being rewritten. It is not data, so the
+            # whole-document oracle below would never see it disappear. The rest
+            # of the line is carried across verbatim, and a key that does not sit
+            # on the same line as its value is refused rather than collapsed.
+            if ($to -ne $from) { throw "Refusing to replace a locale entry written across lines: $($change.Pointer)" }
+            $source = $lines[$to - 1]
+            $cut = [Math]::Max(0, [Math]::Min($source.Length, $localeValue.End.Column - 1))
+            $tail = $source.Substring($cut)
+            if ($tail.TrimStart().StartsWith('#', [StringComparison]::Ordinal)) { $line += $tail }
+            $plans.Add(@{ Start = $from; DeleteTo = $to; Insert = @($line) })
+        } else {
+            $plans.Add(@{ Start = $last + 1; DeleteTo = $last; Insert = @($line) })
+        }
+    }
+    if (-not $plans.Count) { return }
+    $ordered = @($plans | Sort-Object -Property @{ Expression = { [int]$_.Start } } -Descending)
+    $previous = [int]::MaxValue
+    foreach ($plan in $ordered) {
+        if ([int]$plan.DeleteTo -ge $previous) { throw "Refusing overlapping edits in $Path." }
+        $previous = [int]$plan.Start
+        $index = [int]$plan.Start - 1
+        $remove = [Math]::Max(0, [int]$plan.DeleteTo - [int]$plan.Start + 1)
+        if ($remove -gt 0) { $lines.RemoveRange($index, $remove) }
+        $lines.InsertRange($index, [string[]]@($plan.Insert))
+    }
+    $text = $lines -join "`n"
+
+    # One oracle, not a list of spot checks: the file this produced has to parse
+    # into the same document the serializing path would have produced. A write
+    # into the wrong node, a sibling locale deleted by a bad range, a line lost
+    # to an off-by-one -- all of them differ here, and none of them reaches the
+    # repository.
+    $expected = ConvertFrom-Yaml -Yaml $original -Ordered
+    foreach ($change in $Edit) {
+        Set-LocalizationYamlValue -Document $expected -Pointer ([string]$change.Pointer) `
+            -Locale ([string]$change.Locale) -Text ([string]$change.Text)
+    }
+    # The splice keeps a locale map beside the field it translates, where a
+    # reader looks for it; the serializing path appends it. A mapping's key
+    # order is not part of the document, so both sides are compared with their
+    # keys canonicalized and everything else exactly as parsed.
+    $actual = ConvertFrom-Yaml -Yaml $text -Ordered
+    $expectedJson = ConvertTo-Json -InputObject (ConvertTo-LocalizationCanonicalNode -Node $expected) -Depth 40 -Compress
+    $actualJson = ConvertTo-Json -InputObject (ConvertTo-LocalizationCanonicalNode -Node $actual) -Depth 40 -Compress
+    if ($expectedJson -cne $actualJson) { throw "Editing $Path would have changed it in a way the translation does not account for." }
+    [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
+}
+
 Export-ModuleMember -Function Get-LocalizationExchangeSchema, Get-TextSha256, New-LocalizationRow,
     Get-TerminologyRow, Get-MessageRow, Get-DocumentRow, Get-ProjectScalarRow, Get-YamlPointerValue,
     Get-LocalizationProjectSource, Get-LocalizationRow, Get-LocalizationRequestDigest, Test-LocalizationAttestation,
     Read-LocalizationAnswer, Get-LocalizationRowState, Get-LocalizationMessageHash, Assert-LocalizationYamlCodec,
-    Resolve-LocalizationPath, Read-LocalizationEntry, Write-LocalizationEntry, Set-LocalizationYamlValue
+    Resolve-LocalizationPath, Read-LocalizationEntry, Write-LocalizationEntry, Set-LocalizationYamlValue,
+    Set-LocalizationYamlLocaleText

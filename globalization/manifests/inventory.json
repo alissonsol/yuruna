@@ -152,6 +152,156 @@
       "bytes": 40769
     },
     {
+      "locale": "pt-BR",
+      "domain": "aggregator",
+      "source": "catalogs/pt-BR/aggregator.json",
+      "inputHash": "9544df7c9b154fc2e5c85f0b8584e3b116f524cba701d259c1b38a36153d03cd",
+      "generatedFrom": null,
+      "activeKeys": 100,
+      "compiledHash": "152907af2c5ba4a0d7f1faca211eaa65116ca37df1f4ad734a898e3368e89138",
+      "bytes": 17190
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "auth",
+      "source": "catalogs/pt-BR/auth.json",
+      "inputHash": "154a0ed95f3cc4c087026f5c059dd75ca6409d2bf30f4e7e88ed9d576ff45e68",
+      "generatedFrom": null,
+      "activeKeys": 21,
+      "compiledHash": "6ab3ca94335d797748cae39065933ddc1dbb69c76d7f4722637d12986a9ce713",
+      "bytes": 2481
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "automation",
+      "source": "catalogs/pt-BR/automation.json",
+      "inputHash": "45a745239fab1c882dddfcf7884b20d257e76e8527141887d1b724867f355302",
+      "generatedFrom": null,
+      "activeKeys": 697,
+      "compiledHash": "0b2f1ef8a67eec09e4ce7094f543fcc2db2fce9f3d1dd4f6cabbaf9b903fb368",
+      "bytes": 145958
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "cache",
+      "source": "catalogs/pt-BR/cache.json",
+      "inputHash": "fa4e2d8791c2645efe25efbc3389bc7a8580eac30bc99f45ae86dd8e19319e6b",
+      "generatedFrom": null,
+      "activeKeys": 58,
+      "compiledHash": "2b3ad50987f269e9adb9f02b59f1f4f2cf77a67e1e5b665f99f8de0d6a7a6fbc",
+      "bytes": 4451
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "configsync",
+      "source": "catalogs/pt-BR/configsync.json",
+      "inputHash": "5222b12cec55a1a7e13371a88dfe614c75ed6c64fe1152cf8eddd44456f09914",
+      "generatedFrom": null,
+      "activeKeys": 65,
+      "compiledHash": "5cb6c542b9d89bd43d242b7053d8f56353db8f9a677df6bf77760eceeb7d82e3",
+      "bytes": 17637
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "download",
+      "source": "catalogs/pt-BR/download.json",
+      "inputHash": "38fe03851afe2863ab4f84005d490ef1d9dd64e56d23e276afd913a0b6a0c2bb",
+      "generatedFrom": null,
+      "activeKeys": 154,
+      "compiledHash": "df9b74568fba84395e563c586b3a2c32fe9b161781691eff837325f2bf7278e2",
+      "bytes": 18499
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "exceptions",
+      "source": "catalogs/pt-BR/exceptions.json",
+      "inputHash": "64cb8ad6c9a1980d54631bf05868091bacbdfba70b4dda1547290fec8d3b8cca",
+      "generatedFrom": null,
+      "activeKeys": 143,
+      "compiledHash": "e067e331c923860d2b4d22b0732b50657f1a7c2cefcfef31355a3a0bf18deea3",
+      "bytes": 37482
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "host",
+      "source": "catalogs/pt-BR/host.json",
+      "inputHash": "0d1102250601aad89e717db1627472aa61a27665a87bb42acd12110a8c718d5e",
+      "generatedFrom": null,
+      "activeKeys": 1125,
+      "compiledHash": "1bed11ec8ffe764fb9e81b06da4419987b6196a0f203a6a9b016b6d68234848a",
+      "bytes": 236758
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "notification",
+      "source": "catalogs/pt-BR/notification.json",
+      "inputHash": "91f81e6a1187df9debe9d599906041900e4939676287f42018eabe782ea6ecd3",
+      "generatedFrom": null,
+      "activeKeys": 9,
+      "compiledHash": "c63824ae952e8cb3e39b5536db4464bc08964575d40dfbba05648b9a946b4e97",
+      "bytes": 2932
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "parser",
+      "source": "catalogs/pt-BR/parser.json",
+      "inputHash": "eb35a7915a228d14d6381f034da587227513c4b655b1bbcd8e895239769d2913",
+      "generatedFrom": null,
+      "activeKeys": 13,
+      "compiledHash": "231556fdf542fce3edc737d48cee6e1301aaf446faf336334af8b6c7dd2ae21f",
+      "bytes": 1622
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "pool",
+      "source": "catalogs/pt-BR/pool.json",
+      "inputHash": "176369f1af375e3c250ffb5da74b0fa9b0f192e1471219204058149bd8a749c5",
+      "generatedFrom": null,
+      "activeKeys": 316,
+      "compiledHash": "a8f6f78dcb2ef8e0c35f6527320bbf8bc59c3088404598ec3dd564791958c23a",
+      "bytes": 49277
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "remediation",
+      "source": "catalogs/pt-BR/remediation.json",
+      "inputHash": "26df130f277779088a6d00a05858ba37eb18412e845e109b4c2ff59a62707904",
+      "generatedFrom": null,
+      "activeKeys": 161,
+      "compiledHash": "3fee65f524c37bbe0e8e9867fda8b51d75b580713662617bb0a287e533321b62",
+      "bytes": 34798
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "runner",
+      "source": "catalogs/pt-BR/runner.json",
+      "inputHash": "de883e64aa96c185e53b9db734dcb559eb8431a926db6823c244592c1f6655e4",
+      "generatedFrom": null,
+      "activeKeys": 2683,
+      "compiledHash": "cdbcb73bf227c63732bcf738c3b5c2c2b2d3b93c8ffd47e48dd5056fd087d542",
+      "bytes": 585048
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "stash",
+      "source": "catalogs/pt-BR/stash.json",
+      "inputHash": "1be0866d48ffc575ce4ebf24e3ee1bd6a67f0167c2c1951d892606786545dad9",
+      "generatedFrom": null,
+      "activeKeys": 144,
+      "compiledHash": "565286924da66587326b7bcfb00d321a9adebac0d76c2783702c1f6847dcc366",
+      "bytes": 12933
+    },
+    {
+      "locale": "pt-BR",
+      "domain": "status",
+      "source": "catalogs/pt-BR/status.json",
+      "inputHash": "5d12d8f81b931048695f1454d9bc9f22382582cc286707c0289ebc4fc2145005",
+      "generatedFrom": null,
+      "activeKeys": 357,
+      "compiledHash": "5c5d7e5384e7b1ad4f382708b2982f68cca043d7741d8da9e40b5bfdc09407aa",
+      "bytes": 45139
+    },
+    {
       "locale": "qps-Ploc",
       "domain": "aggregator",
       "source": "catalogs/en-US/aggregator.json",

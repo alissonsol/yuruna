@@ -1,0 +1,2831 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "automation",
+  "locale": "pt-BR",
+  "messages": {
+    "automation.memory_plan": {
+      "sourceHash": "23b47444f5b76a8bb2fdf3c72511c8f16e77f3da7e27068fd290317f8373d78f",
+      "plural": {
+        "variants": {
+          "one": "{count} serviço VM esta execução começa",
+          "other": "VMs de serviço {count} esta execução começa",
+          "many": "VMs de serviço {count} esta execução começa"
+        }
+      }
+    },
+    "automation.memory_reclaim": {
+      "sourceHash": "77bded1335ce4a469b08d0812bc9e0f52c466af4d0b710b70a44d5db7197e41f",
+      "message": "Pular um serviço para recuperá-lo: {options}."
+    },
+    "automation.memory_service_names": {
+      "sourceHash": "cc6442314fa6068c74aae8120406130e99b7fa82e17dff3cc319c9470db5ef75",
+      "message": "{first} e {second}"
+    },
+    "automation.memory_size": {
+      "sourceHash": "377936c553ab0bdef413568e8e3f539d4df033d993c2cf8b3047a9dd27ffe9d4",
+      "message": "{size} GB"
+    },
+    "automation.memory_sized_plan": {
+      "sourceHash": "028b139a43069ab8377896f10c7750a1496e5c35b4baa6392fbc71c54efe5199",
+      "plural": {
+        "variants": {
+          "one": "{count} tamanho serviço VM esta execução começa",
+          "other": "{count} tamanho serviço VMs esta execução começa",
+          "many": "{count} tamanho serviço VMs esta execução começa"
+        }
+      }
+    },
+    "automation.memory_unsized_floor": {
+      "sourceHash": "cf34c2f20b8444c4afc4c9b1ffa6d32be71d4ee9033b47b9e39852b823b0f4e6",
+      "plural": {
+        "variants": {
+          "one": "Não nesse total: {names}, cujo tamanho configurado não pôde ser lido do construtor de host -- então essas figuras são um piso.",
+          "other": "Não nesse total: {names}, cujo tamanho configurado não pôde ser lido dos construtores de host -- então essas figuras são um piso.",
+          "many": "Não nesse total: {names}, cujo tamanho configurado não pôde ser lido dos construtores de host -- então essas figuras são um piso."
+        }
+      }
+    },
+    "automation.operator_00010ebe540ede32": {
+      "sourceHash": "a12b6c5360487dbab57d24e24fd92eafe158c1d9c102dbfc7a31e43735b76163",
+      "message": "esta máquina não reporta a sua memória instalada"
+    },
+    "automation.operator_0006b705ae0abd93": {
+      "sourceHash": "1a175dc543593fb70145b5f6276d36ad08de74c641f79e779bee91d7c688266d",
+      "message": "{label}: todas as tentativas {maxAttempts} esgotadas (exit={lastExit})"
+    },
+    "automation.operator_0052f7d7f687e07e": {
+      "sourceHash": "c4167f63fe89c59c038c1e98bd84f2b7961e2755edeaddc98fdb6d6439aaa2e4",
+      "message": "LINUX: dmesg mostra {count} linha(s) de erro de hardware/driver (erro de E/S, MCE, EDAC, etc.)."
+    },
+    "automation.operator_007dba8c891ef14e": {
+      "sourceHash": "387c05160c983324d56a43a67795e278704d72be6399a20e45bb725f5fc56e6d",
+      "message": "(nenhuma declaração globalVariables.namespace encontrada em resources.output.yml)"
+    },
+    "automation.operator_0086f1b5b2c1a09c": {
+      "sourceHash": "75486f5fd2adabe594742a34c9784b220f1842f989bf712b542a17d38ed0bd91",
+      "message": "Base de dados de encaminhamento de ponte (ponte fdb mostrar br <bridge>)"
+    },
+    "automation.operator_00dc7c766802c16f": {
+      "sourceHash": "b89c5817b8689ad5e5ee7f1475957f81b1f330c70e3d93905c3cf320f332b356",
+      "message": "-> Iniciar Docker Desktop no Windows:"
+    },
+    "automation.operator_01cea68c33aef2ca": {
+      "sourceHash": "2ca8ebd3e5efdaabb5db4f63d99f89ab907b244d0aaa5c5c8da95d99e42fc789",
+      "message": "({label} caminhada cronometrada após {timeoutSeconds}s -- retornando resultados parciais/vazios)"
+    },
+    "automation.operator_02f5964499aac6c9": {
+      "sourceHash": "76b1fa47c09319c042a74aeeb18d54a7ba9b6cb0ff977235dd36cf3391674e5b",
+      "message": "Tomadas de ouvido (ss - tulpn)"
+    },
+    "automation.operator_0309d6a5040c85c6": {
+      "sourceHash": "a9edce6d1733e8811caefd2c4eaa7da5583f370054fe209ab4e3e2cb669a49c6",
+      "message": "REGISTO: o cache não serviu um manifesto dentro de {registryCapSec}s enquanto /v2/ liveness foi {failing}. Imagem puxa resolve manifestos primeiro, então eles falham aqui, mesmo que o registro seja acessível."
+    },
+    "automation.operator_0322fcdddd1a1ac9": {
+      "sourceHash": "f506e3a5fa9cbe02645c045be9563d7480b7602310a68688e653432e049305bd",
+      "message": "Driver : {driverVersion}"
+    },
+    "automation.operator_034d601f7f7cdb2e": {
+      "sourceHash": "60646411a619eaef0b26b0b58e270a3c90c9d13dd132a7b00bc23fe4f5c42c3a",
+      "message": "Cauda (últimos 100 linhas):"
+    },
+    "automation.operator_039d15ebf558f3cc": {
+      "sourceHash": "28a49efc0361978f2c4c706458b8bebcffe056e05bf20cbf2a3c7f9fd32d8f41",
+      "message": "-> Iniciar Docker no Linux:"
+    },
+    "automation.operator_04b616b009d4b902": {
+      "sourceHash": "16e4a29cc6ccda5812fcb00cf78a2b3ac822682dc174b0ccc80304d208a3ab64",
+      "message": "EXITCODE: {lASTEXITCODE} para construção: {executionCommand}"
+    },
+    "automation.operator_04cb0b06ab0deedb": {
+      "sourceHash": "bb644791cc896679fd8faff8102dd7052e5af502a1b25e1b183826860b5ac8d5",
+      "message": "gerenciamento-OS vNIC: ausente"
+    },
+    "automation.operator_05b17216b940ff6d": {
+      "sourceHash": "0c71b1b6e11f7472e9b608df0202b93562bcd718752d3773c1262ac81207b6b6",
+      "message": "Conjuntos de Estado (todos os espaços de nomes)"
+    },
+    "automation.operator_06024f72c4a294e2": {
+      "sourceHash": "3e98d9aebe2fef60e444e05379261ce05d373f0396c9f6e36d1f13c2f419be85",
+      "message": "Para um NAS ou um servidor de arquivos separado, pare agora e responda esta pergunta de forma diferente:"
+    },
+    "automation.operator_06926d1d2c8038fd": {
+      "sourceHash": "912e6a0507221a0b909237c43eda729f070f0d11ae8b50d4adf9ad32ce7ba205",
+      "message": "sobras de um interruptor que uma vez ponteou o mesmo NIC; o vivo é escolhido por alias"
+    },
+    "automation.operator_06a1feb4b6be0aba": {
+      "sourceHash": "0bd345f477db7aaf637c61bce2e5ff32897a10530db0b206b8f27d0eb97bf539",
+      "message": "(sem entradas em rede systemd)"
+    },
+    "automation.operator_0708e3afbc3562b5": {
+      "sourceHash": "90a545e9083f6e77cebcb3bf905c849bc9febb22b60b697b82797f24894b201f",
+      "message": "Configuração do Netplan (/etc/netplan/*.yaml)"
+    },
+    "automation.operator_078426d92d53cf65": {
+      "sourceHash": "0448bb699c37e7e40b08aab3a81099e617c698d9c3559e4547cffedb8a46e7ad",
+      "message": "Tempo limite da sonda (doca ps -a não retornou dentro de 5s)."
+    },
+    "automation.operator_07fabc30d24cd858": {
+      "sourceHash": "97f1a8553208340b00c4d0accaf36eebc987e1c1cb5e738604f5c5702d884bcd",
+      "message": "(sem entradas resolvidas pelo sistema nos últimos 15 minutos)"
+    },
+    "automation.operator_0889da7a4985af01": {
+      "sourceHash": "553a08752a9a8ebf7a2f9d7cc0448c0e9f34f9f0e444738034b72c5ca686091b",
+      "message": "com duas consequências que valem a pena saber:"
+    },
+    "automation.operator_08adaa87a2f693da": {
+      "sourceHash": "41ee74928c0d91593e077dd0e967139e90b8923e70ef09c6183ca54be8ba2d35",
+      "message": "Falha na pesquisa: {message}"
+    },
+    "automation.operator_08d7d3525b3a0f99": {
+      "sourceHash": "8b8f961873b1c8ec410493b1b02aefb55ceb5d4f62226ba7fe5238535c4e5dc4",
+      "message": "O contexto de destino não pode estar vazio"
+    },
+    "automation.operator_0966db03993b9bcb": {
+      "sourceHash": "73641cb886b10c97582ded1524f4fb405a4b7be503e9028a90b808dcaef98f3d",
+      "message": "EXITCODE: {lASTEXITCODE} para: {executionCommand}"
+    },
+    "automation.operator_098fb3c06a9f2f65": {
+      "sourceHash": "f6837d8b5f93e6b64558105c095c01b3a732056725b15b71a79f8bb1044a6e13",
+      "message": "(... {count} aviso(s) antigo(s) omitido(s))"
+    },
+    "automation.operator_09a44e349e64e4a2": {
+      "sourceHash": "36d812c52fc34b90717cf6a30ecbd398a2a662a85d61c549a1b230b08193de9d",
+      "message": "-- pid {t} fds --"
+    },
+    "automation.operator_09f0b1c12db44484": {
+      "sourceHash": "d5618636eda75edb085f9f7743d8bfbd1c77db82eb65a61ab45a41d7765dd6ea",
+      "message": "Recusando correr como root.\n\nYuruna setup eleva as operações individuais que precisam dele e alerta para\nA execução do script inteiro sob sudo coloca cada\nartefacto na casa do root (HOME={hOME}) -- imagens de base, pacotes VM e o\nstorage mounts -- onde o hipervisor, que funciona como {asUser}, não consegue alcançar\nEles.\n\nRepetir sem sudo:\npwsh install/setup.ps1"
+    },
+    "automation.operator_0a5f2ba73289b02b": {
+      "sourceHash": "1bf60efd7e6d875c76c40349b4109bc201de7955be1b7dcc246eef0f849e40e9",
+      "message": "O LINUX: /etc/cni/net.d/ está vazio -- o kubelet não irá configurar as redes pod."
+    },
+    "automation.operator_0a78863ef3d20c87": {
+      "sourceHash": "0e8f3a3509af04bade80f638ab3a85a8a87ec1e62f47ea1bf726d6f2e4339e00",
+      "message": "Espaços de nomes que existem mas não têm Pods/Implantações"
+    },
+    "automation.operator_0a82e1007f732858": {
+      "sourceHash": "1e6b31a66c5d82ce594c58b38410f67f632d0d09d2551c58952f0e08ad9b1411",
+      "message": "Sobreposição '{overlayPath}' define seção(s) a base nunca ancora: {join}. Remova-os ou adicione a âncora correspondente à base."
+    },
+    "automation.operator_0b45180c32513386": {
+      "sourceHash": "7dc4ef0a4b2372d9bc67b0cc0a2476dde8db65124101bc2dbb749806460d2ff6",
+      "message": "Entradas (todos os espaços de nomes)"
+    },
+    "automation.operator_0b62c1c9d3cf7476": {
+      "sourceHash": "d59fdf36bee9535e9e83d0a1fe09b78cc09aa6ae9057b2afe7a9f635cb15dad1",
+      "message": "Novo-WindowsGuestBootstrap: requisitou o script convidado faltando: {locatePath}"
+    },
+    "automation.operator_0b83d0b9395f9cbc": {
+      "sourceHash": "17950358f45b44d53881f01e59424416e8afe86884f9ccf83cd6666622ebe63f",
+      "message": "A raiz de armazenamento não pôde ser resolvida a partir da convenção de plataforma ({message})."
+    },
+    "automation.operator_0b8563c838574b32": {
+      "sourceHash": "00ca07a14f0a8f783c9c8954c0de1f3aed605d599c19412fc74fdf77b4945d38",
+      "message": "Re-run Without -Rebuild: o proxy caching surgiu, e re-running com ele paga"
+    },
+    "automation.operator_0c0b6c2779c42621": {
+      "sourceHash": "edd33dcc90c4ccb6a234cbfbf4758d458f62524037b5756c5bc198dea242eb65",
+      "message": "(Skip-ProjectGaps)"
+    },
+    "automation.operator_0e79617cabbe97da": {
+      "sourceHash": "a39a5265805fca0d903b06756362a0c68a1a336e06f569e278f9bc86724fa719",
+      "message": "/var/log/installer/ (lista de pastas privilegiadas)"
+    },
+    "automation.operator_0feb9b01ffd492f4": {
+      "sourceHash": "3f8b1813a87a56cca824759b8d94e088f9e1e1f8f690f57371c360ddfa86ff35",
+      "message": "Recurso '{resourceName}' pode expandir para nome vazio no arquivo: {resourcesFile}"
+    },
+    "automation.operator_10822e392d94ddaa": {
+      "sourceHash": "ba95555f205ebef3d42a3f7b16a33a4bc24ec9f754c6232ad5e2df56b7d2c7e1",
+      "message": "Modelo : {name}"
+    },
+    "automation.operator_10d27b9c79644210": {
+      "sourceHash": "9aa9597e13246674aebfed1489829638a081a611c12abc6eab4fe93a73674ddb",
+      "message": "Não foi possível iniciar a transcrição para '{outFile}': {message}. Continuando sem - OutFile."
+    },
+    "automation.operator_115fdbece1d774ee": {
+      "sourceHash": "d4f4517f3e499465cfa32ccea55ab8d17bb039a99eb84fde1981f8954f98f762",
+      "message": "O manifesto da versão não foi encontrado: {path}"
+    },
+    "automation.operator_116716ac2e661aef": {
+      "sourceHash": "637cf98e3c9b85c9d6b60a9e4a51c1b35cf93a319a6c1445bba5964af427fb86",
+      "message": "Não foi possível gravar o arquivo de resposta {answerOut} ({message}). Esta execução não é afetada, mas não há nenhum arquivo de resposta para configurar a próxima máquina com. Se existir e for de propriedade do root, remova- o (sudo rm '{answerOut}') e repetir."
+    },
+    "automation.operator_11a394b95b2cb142": {
+      "sourceHash": "d4d863ca61e0afc0e206f7b9a2b08dfe1f3b906f11906bac60f6f8940857e5b5",
+      "message": "concedido: {capText}"
+    },
+    "automation.operator_11aa67846cf16f87": {
+      "sourceHash": "0dd0e61cf0fe032c2340789b7493f9b48b90553ccc8caaf1f9814176f880f3eb",
+      "message": "memória: {committed} comprometida, host tem {hostMemoryMb}, {remaining} esquerda"
+    },
+    "automation.operator_11dfac53e0602112": {
+      "sourceHash": "1b483f86f462da0ae9cd807c1655b2acff3790788c8707da63db5f070d3a9a51",
+      "message": "essas contas e permissões têm que ser criadas nesse dispositivo, por suas próprias ferramentas."
+    },
+    "automation.operator_1228b31b1ce78688": {
+      "sourceHash": "76c385d745ac3c66d73428392881c226157966e5ad1e9a4117c98ca99eb2f258",
+      "message": "ERRO DE get-module: {message}"
+    },
+    "automation.operator_1277101be3303544": {
+      "sourceHash": "94546edb959c1a945984058d43bb0c6a1918c5c4fdbcca683ab6615b051c0f9a",
+      "message": "buildCommand não pode ser nulo ou vazio no arquivo (tanto globalVariables e nível de componente): {componentsFile}"
+    },
+    "automation.operator_12ce8eb88f3b2110": {
+      "sourceHash": "832db82c902d9e89cfa3cd1c57f8e1bb5e8f7f6ee6ca41a282a2dc29fba7298d",
+      "message": "NOTA: esta máquina tem apenas a unidade do sistema ({systemDrive}), assim que o laboratório"
+    },
+    "automation.operator_13047337e502a109": {
+      "sourceHash": "e882400a2ce67cdd3f86354120ea7611d6b9d293aae97a14a14a8ef02aced365",
+      "message": "Hora (local) : {ssK}"
+    },
+    "automation.operator_1309c3acc622dab5": {
+      "sourceHash": "24bb6d50ee2980b4bdf4747a64e5430acb4f889feeaca13134978be591394374",
+      "message": "Pods (todos os espaços de nomes, - o wide)"
+    },
+    "automation.operator_13444d1232596727": {
+      "sourceHash": "16b4f72a2d09914e703991376515f0d74fe6c2b482eadd9a7cf4f0dfa4e8e2d2",
+      "message": "Namespace '{name}' declarado em {file} -- presente no cluster"
+    },
+    "automation.operator_134bb283b64fa9b9": {
+      "sourceHash": "24532507ddc666fad00268b7c396201fb0cfe97665089252c5c6ef374bee0194",
+      "message": "EXITCODE: {lASTEXITCODE} para etiqueta: {executionCommand}"
+    },
+    "automation.operator_142e2f906a880a91": {
+      "sourceHash": "0dd0608301714d7c813e66c228571495c5e10e52f64baf9c38dcefaf4bd1d8d3",
+      "message": "-- Imagens de Docker --"
+    },
+    "automation.operator_144a57b43107ed4c": {
+      "sourceHash": "ee4631d19335ac1211304c9da738722b87bbefada7c32f8fefbffc80da58c92c",
+      "message": "(... {count} mais linhas omitidas)"
+    },
+    "automation.operator_1506eb75a8975ce0": {
+      "sourceHash": "f010906cda724f32d367e59a162c96015736fbb52a0dee97851d4b8ed23e97a9",
+      "message": "context.chart não pode ser nulo ou vazio no arquivo: {workloadsFile}"
+    },
+    "automation.operator_1510c154a8ab2b3e": {
+      "sourceHash": "9d6bac52a0780635617bf3b4414a4bb8ee5e269c687c047f34eb46a9a70ae98c",
+      "message": "Recursos nulos ou vazios no arquivo: {resourcesFile}"
+    },
+    "automation.operator_159f23f7bbf09a33": {
+      "sourceHash": "6978330e2386b70d620fe40e6786a1c9c71ba0d9d8e14a7a1faf6140b5af6744",
+      "message": "1. add autoInrollment: { activado: true, targetPoolId: default } to pools.yml in the intention store"
+    },
+    "automation.operator_163577cbcc97e68e": {
+      "sourceHash": "e2fc1464b8614fa7635a9d2f162faf3512204456f3e81808d71589487d2bc0f6",
+      "message": "«{scriptName}» não está disponível para {hostType} (procurado para: {scriptPath})."
+    },
+    "automation.operator_16adc8435da55782": {
+      "sourceHash": "7f47fb98879f1d9e926db32d4fdf82ba1a313ca7e2b84687e97c1651591d462b",
+      "message": "Nada no {leavingServer} é excluído, esvaziado ou alterado -- seus compartilhamentos são deixados"
+    },
+    "automation.operator_16bb848a48f76f9d": {
+      "sourceHash": "b1a82432196465fbd34a5664f0bba563ea8f7efb26507a2071d240fdc7eb6e00",
+      "message": "NETWORK: nenhuma conectividade de saída (a sonda de porta para 8.8.8.8:443 falhou: {gateMsg})."
+    },
+    "automation.operator_1718072c6cf398d4": {
+      "sourceHash": "e85096f1719d273d45dccd89d6b8464dcf8e55c493cc59bc61c5c080712cdfdf",
+      "message": "Yuruna host bootstrap"
+    },
+    "automation.operator_172b5623f4f06af8": {
+      "sourceHash": "8ed7778eeddb8d552b075d98f67d58dd75aa02b1d41f354bf582dc98322e000d",
+      "message": "Comandos sugeridos pelo Linux (ufw):"
+    },
+    "automation.operator_17c3a371250a4683": {
+      "sourceHash": "fbc012b7dea1b0423b9325c4b95bf3f1881775966b0f42a2d19a05cea898eb02",
+      "message": "Sistema Get-WinEvent -- Erros nas últimas 1h"
+    },
+    "automation.operator_18152037a24112b7": {
+      "sourceHash": "b035b85bb2695b9665834b263990fc423302ab8f4d5c86e86dd0d4957dc74ef5",
+      "message": "(no /opt/cni/bin -- Nó Kubernetes ou CNI não instalado aqui)"
+    },
+    "automation.operator_189417db054e12ad": {
+      "sourceHash": "0274d7e36f2f040e4aa4467b43e79eb38d05d00e36555e0145c06cd9a84ad32f",
+      "message": "(nuvem-init não em PATH)"
+    },
+    "automation.operator_18982d04385047ff": {
+      "sourceHash": "84bf79129575db1549cb5af9185208a4bb8dc3ce9f07722ffbf9e185062e7dfa",
+      "message": "{updateCount} pined dependence(ies) tem uma versão estável mais recente -- bump-los em {versionsFile}."
+    },
+    "automation.operator_19207cb68304a0f3": {
+      "sourceHash": "61487071e029dcb414184991b2b12de7ef7a69c84434c41ed88b1bc28fbd89be",
+      "message": "Núcleos : {cores}"
+    },
+    "automation.operator_196fa0e4f293a074": {
+      "sourceHash": "fbad8c8c1327ef2d22e6369021d7da504c2f6ec32a8c8005229baea9578be3f1",
+      "message": "A configuração atual do K8S está vazia: {currentConfig}"
+    },
+    "automation.operator_1976f6226f942cc8": {
+      "sourceHash": "ede8e0298cdc443e119952068a50efaeca9b2a8bcda78fa1b5184e489e29821b",
+      "message": "EXITCODE: {lASTEXITCODE} para pós-Processo: {executionCommand}"
+    },
+    "automation.operator_19bdfd5f627c414b": {
+      "sourceHash": "05175a4badba3b705bb817fad97b4d24e4716dc1ad60ccfac9ed93bbf7a67cf7",
+      "message": "Pisos de máquinas-ferramenta de {requirementFile}"
+    },
+    "automation.operator_19ca036c78f36c2b": {
+      "sourceHash": "7d92384fe44bbf5310280d6e41ae3ed22791172f8012f9ea38dea698dcc60e30",
+      "message": "PID={processId} CMD={commandLine}"
+    },
+    "automation.operator_19cd199193631c68": {
+      "sourceHash": "147770cce87a88bd3662356d8f7aa96a2d2087ea6ce1970e4db10f4bd60a468e",
+      "message": "Digite um número entre 1 e {count}."
+    },
+    "automation.operator_19fa10611ea08e8b": {
+      "sourceHash": "44a06545652b9af2a8bb465c8c613109352fb106c6c02a6290769b6bc4f86873",
+      "message": "A resolução da raiz falhou; nenhuma carga de trabalho foi enviada."
+    },
+    "automation.operator_1a3e3a5fa77346d0": {
+      "sourceHash": "1c7ddb4a003ae4124b27f3f0316b3b8ba8e98c7987f1da77b262db944353d1f0",
+      "message": "Top 10 por CPU"
+    },
+    "automation.operator_1b15bdf8fde492ca": {
+      "sourceHash": "c951b8ac4adfa3823e88dab2bf1c81dd961661cb60603ae7b6c9a81372a43418",
+      "message": "-> Iniciar área de trabalho do Docker no macOS:"
+    },
+    "automation.operator_1b5c604fd0694be7": {
+      "sourceHash": "23ba993b3bc143a9ba96ac3a67071dc092c049c4a65c77c499167609510b801a",
+      "message": "(nenhum inner.pid ou runner.pid em {runtimeDir} -- runner não está ativo ou não pode ser descoberto)"
+    },
+    "automation.operator_1bc33fa48746dd65": {
+      "sourceHash": "37e260a0bddebbf9897d3693d40ee04efd46f10a947e016b96c1ff94fb61eedd",
+      "message": "getcap não está instalado -- o estado de capacidade de {source} é desconhecido."
+    },
+    "automation.operator_1cb63907b21a7688": {
+      "sourceHash": "5843ff35437a4a821a72d0ede107cbf366e432ab7c58521a05b25e6ea455345f",
+      "message": "-> Verifique com: ls -l $(comando -v leme); versão do leme -- short"
+    },
+    "automation.operator_1cdaae68f0f030a5": {
+      "sourceHash": "bdd75b76ca6fdbf1538618d44a046a6f3147affe01ccf2ae89e86621eae1b844",
+      "message": "(cache não publica nenhuma página de saúde no {healthUrl} -- medindo o caminho manifesto diretamente)"
+    },
+    "automation.operator_1d5a674e638004e7": {
+      "sourceHash": "0bb80719405bd5a35ed6d67ed32ba8c7bcfbed4a5d0e51368458145678c601ab",
+      "message": "(... {count} mais linhas omitidas)"
+    },
+    "automation.operator_1dbf1398dbcee3d7": {
+      "sourceHash": "367f17fdf23950f949deb102486d71ce875b5c67abc9733e7fd15142c158c021",
+      "message": "(ponte fdb mostrar br {br} retornou saída {lASTEXITCODE}: {join})"
+    },
+    "automation.operator_1f97f627af7c6621": {
+      "sourceHash": "326b1f5cc37c5b5e1285b1ac1942a5e074a5a291c74c137223cb62eda0a09186",
+      "message": "journalctl -xe (últimas 100 linhas após a votação deste arnês)"
+    },
+    "automation.operator_1fde11cd758abf02": {
+      "sourceHash": "44b0392d2f1408cc288507073cf30863ac9249f0a6b42d9023c2290d8e982bd0",
+      "message": "nenhum tamanho VM de serviço poderia ser lido dos construtores de máquinas ({join})"
+    },
+    "automation.operator_2259884669944bfb": {
+      "sourceHash": "971e8e383b982e595f1ed77c037f7d7bb65e9a53d73a7dc4d66db4240d3d04da",
+      "message": "(nem resolvectl nem systemd-resolve encontrado -- systemd-resolved provavelmente não em uso)"
+    },
+    "automation.operator_227db199c3c8f906": {
+      "sourceHash": "79fc6d718575d3e47562f3e899b32bc44aefaf13d413eea00b900fb235c94396",
+      "message": "-- AVISO: ARM SUBSCRIPTION ID não está definido e 'az account show' não retornou nenhuma assinatura; o provedor de Azurerm falhará na hora do plano até que um seja fornecido."
+    },
+    "automation.operator_22827d1698f66f24": {
+      "sourceHash": "bc3f2634a60b101c5f340f876f48604a17e7f65aa16fbc10f3ad343594bfabc4",
+      "message": "A pasta de componentes não foi encontrada: {buildFolder}\nUsado no ficheiro: {componentsFile}"
+    },
+    "automation.operator_228896e3eb28a705": {
+      "sourceHash": "c63929dfc77a0e66c076e11f42d55d7a89758bfcacfd2d4273fd2a81e9195079",
+      "message": "exatamente como eles são, e nada é copiado deles, então o armazenamento criado"
+    },
+    "automation.operator_231522de7ad0c540": {
+      "sourceHash": "df82685ee62fbb5a005c7713955162aea710bbbd2ee28b8138c409d43f6c0eea",
+      "message": "(nenhuma entrada crítica/erro do registo do sistema nas últimas 1h)"
+    },
+    "automation.operator_23355db5f693b7ef": {
+      "sourceHash": "b2c8740cede683ddd58071b60143e48831744ab672c11562234624d18a72beca",
+      "message": "Servidor : {gitVersion}"
+    },
+    "automation.operator_2400619d87db958d": {
+      "sourceHash": "4b166ca4c455c215f63c37a23efde61f5829c985e2123a9a0a3304a60944744d",
+      "message": "(... {count} imagem( s) mais pequena( s) omitida( s)"
+    },
+    "automation.operator_24a5e116f61aa042": {
+      "sourceHash": "8d61b0b9e63a032c06c4b1acb04b5fc8454a9bb4bfa80847c8486964de7ad750",
+      "message": "carga de trabalho[{contextName}]chart[{chartName}] pasta não encontrada: {chartFolder}"
+    },
+    "automation.operator_250f4d20840b7daf": {
+      "sourceHash": "4045212b8d35963526d08127576aa4165e01fbaec18625026c3f1efc44349f6c",
+      "message": "-> Kubelet não está activo."
+    },
+    "automation.operator_26f9c3d0c529d327": {
+      "sourceHash": "8d0800064181d8a106a3bae0fe59daf5f81157b6eb3814ae43577f17c15d98de",
+      "message": "yuruna clear [project  root] [config  subfolder]\nLimpar os recursos para uma dada configuração."
+    },
+    "automation.operator_27627383486fd63c": {
+      "sourceHash": "beec17c02e0d5e201fd18ca569665ffc010cbb14727cf8a5d5e1638c04edcc6d",
+      "message": "(nenhuma VM registada na Hyper-V)"
+    },
+    "automation.operator_27c29d60062fde4f": {
+      "sourceHash": "ed079e556a6ad41d5defc2b28005b114eccec27c1da2a38bcc545aff0366895f",
+      "message": "(imagens de doca retornadas saída {imgsExit})"
+    },
+    "automation.operator_282dc38f46468a29": {
+      "sourceHash": "b8d8fc130f5438fbb37400fad7d8d8eb4712aaad4dbb4b0dcd88face4c53d5a5",
+      "message": "Cliente : {gitVersion}"
+    },
+    "automation.operator_287506e0d1314af9": {
+      "sourceHash": "9ae419d34468258bed7b4a649b113b9009581fe2551e268f94007dde8469b0b3",
+      "message": "Até que (1) seja escrito, o \"pool alvo não carrega nenhum conjunto de testes\" guarda não está armado para"
+    },
+    "automation.operator_29759c8a58f5d70a": {
+      "sourceHash": "022130b7b0b08fc44fb61295c8c82cc18ff84cc5b993f443576e9b4af4a4366c",
+      "message": "ERRO do repositório Get- PS: {message}"
+    },
+    "automation.operator_29e3b381e78aec31": {
+      "sourceHash": "393128834e413a4688e53b353cee9d616e5a2d4620b9c96fb8a6d02e318090b5",
+      "message": "PROVISIONING: Get-PSRepository wrowd -- Registro PSGallery não é saudável; Install-Module irá falhar com 'Nenhuma correspondência foi encontrada'."
+    },
+    "automation.operator_29e3eefb95c92048": {
+      "sourceHash": "c046999275da9b781e7b806f4be93330ed14aead9227da97c195ffce8e207c9c",
+      "message": "contextual. implantação deve ser {expectedKinds} no arquivo: {workloadsFile}"
+    },
+    "automation.operator_2a2ce15d34fbba77": {
+      "sourceHash": "c555550a19e24847c75bb23863efee92eb844206cca16fc33adc422b04645ab3",
+      "message": "Imagens : {images}"
+    },
+    "automation.operator_2a3b65a19646de9d": {
+      "sourceHash": "c3793835d90a0716ad7b0ff91072dd0b722ddfbf08aa51779c249232a3f630fb",
+      "message": "Autenticação dockerhub: 'docker' CLI não no PATH."
+    },
+    "automation.operator_2a3f562a2200635a": {
+      "sourceHash": "ea1ce512103a59eda4f75a7209045e13a94d98f0399443510e81480fbaa6a671",
+      "message": "Eventos de aviso recentes (últimos 100 em todos os espaços de nomes)"
+    },
+    "automation.operator_2ae3b324855cd5a6": {
+      "sourceHash": "17ee2587f55a08da0ac2bd91001150d90878ec531f4b77645283095ee73b8c63",
+      "message": "Núcleos : {numberOfCores} físico / {numberOfLogicalProcessors} lógico"
+    },
+    "automation.operator_2b40950464027594": {
+      "sourceHash": "f92a3c032e4d913d88ea60db026239ac907d75d42382e4b80ea58404b960cda3",
+      "message": "Autenticação dockerhub: definir YURUNA DOCKER HUB USERNAME e YURUNA DOCKER HUB PASSWORD env vars para habilitar o login do Docker Hub."
+    },
+    "automation.operator_2bc578a9fce34264": {
+      "sourceHash": "a31a04998fceb668f9e2ab649a90a6d25f5293dab80be458575b795a1d0f18a1",
+      "message": "(nenhuma entrada -- nenhum convidado MAC foi visto nesta ponte)"
+    },
+    "automation.operator_2bcf3d5983bd68a0": {
+      "sourceHash": "4fc30bf59d374747b53a357746d003f21e53a9edb176c6360f8cf0b7adf635bf",
+      "message": "Pasta de configuração não encontrada ou ambígua: {configRelative}"
+    },
+    "automation.operator_2bd5e3cda8731457": {
+      "sourceHash": "209a6dd6970fb0e87e654fdb40bed87f2c79f06c161dc0bc5feb4d851b24f697",
+      "message": "(virsh está presente mas não respondeu nada -- nenhum qemu:///system acessível)"
+    },
+    "automation.operator_2becfac1438e0c34": {
+      "sourceHash": "8afb2edc437de89866825c68e134bde6a9951fc0edbeac2a8f56653b86bce2cd",
+      "message": "O pool e o stash partilham desta máquina."
+    },
+    "automation.operator_2beedb6fff0f94ac": {
+      "sourceHash": "eaeb41e3383292ecd4b35774f26939c3941720cab51392e54394d9c50e7056b6",
+      "message": "Não foi possível determinar o tipo de máquina. Só são suportados o macOS (UTM), o Windows (Hyper- V) e o Linux (KVM/libvirt)."
+    },
+    "automation.operator_2c034a64269ac7d5": {
+      "sourceHash": "604e3407c67ad68ea5d9bcabb19a624530dd68c4a0ad2dae02679d7d570fef6e",
+      "message": "tofu output -json retornou vazio para o recurso '{resourceName}' -- esta base de código requer que cada recurso defina pelo menos um bloco de saída. Adicione um no {templateFolder}/*.tf, ou remova o recurso do resources.yml se ele já não é necessário."
+    },
+    "automation.operator_2c1747899df468d4": {
+      "sourceHash": "1a24180df472ebad91477b45e583d20c9ef4c531ba558fabb51e7e86ecd6ddf0",
+      "message": "Problema( s) {count} marcado( s):"
+    },
+    "automation.operator_2c97df948ff5ed77": {
+      "sourceHash": "1b70e5007e04b5282889f891707cb79dfd9119e9dc5e6a69a9e61aa239cf5791",
+      "message": "Não foi possível localizar um executável pwsh para iniciar o script da máquina."
+    },
+    "automation.operator_2cc4e66e0035e6a7": {
+      "sourceHash": "8757e4d260cb173e910bbc31fe8bc8aba539f978d7498e5989da4c28c573fff6",
+      "message": "O(s) passo(s) {count} falhou -- esta máquina NÃO está totalmente configurada. A lista de erros acima nomeia cada uma."
+    },
+    "automation.operator_2cf639068f11200e": {
+      "sourceHash": "ff96e2eaee805e1dd86d87e7b70aef661456e7b662688bbc0cd71fea22ff376f",
+      "message": "downloadAgentService.enabled: false in test/test.config.yml ignora o agente de download sozinho{daSize}"
+    },
+    "automation.operator_2dfbf02a6050f367": {
+      "sourceHash": "187229e97778dcb3217cdcc4be35799776b9c631315c82c3fab8e8a40c04828b",
+      "message": "Até que as terras de reconstrução, buscar-e-execute.sh vai silenciosamente cair"
+    },
+    "automation.operator_2e15c2e53d3f7ff5": {
+      "sourceHash": "e367e3f062d664e059d579766abdfa1f234c7ff9226bb668296d5344300e5f39",
+      "message": "(sem linhas eth0/netvsc/carrier/RA no buffer de anel de kernel)"
+    },
+    "automation.operator_2ef2b00d42a09705": {
+      "sourceHash": "b2f855efce03daaa5c39159aed4ed0349057a00aa5bf754f3dcf144b0a7792b6",
+      "message": "REGISTRO: o cache serve sua página de saúde, mas nenhum documento métrico no {metaUrl}, então suas leituras não podem ser classificadas. A página acima ainda é legível por olho."
+    },
+    "automation.operator_2f89b400662cacb4": {
+      "sourceHash": "fe79c4f9b892160740f78e391775263de0b6d2501394656a969781bf23b25c82",
+      "message": "Problemas de configuração do K8S. Tente apagar contextos inválidos: {currentConfig}"
+    },
+    "automation.operator_2fbfbb8a667a9470": {
+      "sourceHash": "f83719ee22f189949f8c68c62caa2ce0e7b52c41f46f1171a5f921223f844a9c",
+      "message": "Yuruna setup -- {hostFolderName}"
+    },
+    "automation.operator_300c080adc474c41": {
+      "sourceHash": "f6f3d5abc208819a80ddad1dd8ca25507d0605171e4d16e0da90f0cff24ebee4",
+      "message": "** ERRO na secção «{title}»: {message}"
+    },
+    "automation.operator_30e5a9c36e444264": {
+      "sourceHash": "49df96edfcc91278d3613f1154da0734edd01829877bb445add7ce41eb6da2ee",
+      "message": "Última inicialização : {lastBootUpTime}"
+    },
+    "automation.operator_31d987c65f45d002": {
+      "sourceHash": "d5325c5e9f1fb1cd024d089db7fbc210a727bb6201ba6e5b08bc66a0ef4f758c",
+      "message": "Perfis de firewall do Windows"
+    },
+    "automation.operator_3205971a3ab9d377": {
+      "sourceHash": "03e5d59a8d16920e3160612f3725a7b0ba3c6fada2c9e78176ef268592fc1016",
+      "message": "(Get-NetTCPConnection falhou: {message})"
+    },
+    "automation.operator_3263dfddfd59f8af": {
+      "sourceHash": "ec259b8345d2dc92cae1f5a8d162224d406bff87005fde6bdef2da64e55376fa",
+      "message": "arquivos tofu.tfstate: {tfStateCount}; lançamentos do leme (todos os espaços de nomes): {helmCount}"
+    },
+    "automation.operator_337741d0b21e8f43": {
+      "sourceHash": "86c95b093a75726ea21288f64daf6b67202b2c0e1cc7893e7fa13086971ae7ee",
+      "message": "-- Componente: {projectName} de {buildFolder}"
+    },
+    "automation.operator_34010bbd70837710": {
+      "sourceHash": "933df4417adcf00468253f98e9cad8d0811f38747cdc4ced886ed48bf1bc7469",
+      "message": "!! {label}: falha não passível de repetição (exit={lastExit}); falha rapidamente"
+    },
+    "automation.operator_3411f56fc66f3ed9": {
+      "sourceHash": "f416432bb4d9c15085890f38230aa7a2a97755eb08b603d12f957cb85f0b584e",
+      "message": "(sem conectividade de saída para 8.8.8.8:443 dentro de 1500 ms -- skipping endpoint sondas)"
+    },
+    "automation.operator_36a9f2bd83246e41": {
+      "sourceHash": "3b1ab132e737bd6fee7b94f1355652feb513541c970e9b8c77a626de99529b23",
+      "message": "última versão {latestFull}"
+    },
+    "automation.operator_36db573bfe1ac885": {
+      "sourceHash": "fe0f3ca9fe4760bdd6dbf26ddebb4c5e935905759f37ac92d26636267af89d9b",
+      "message": "A resolução raiz falhou; nenhum recurso foi fornecido."
+    },
+    "automation.operator_37ab2c9f0d8d6336": {
+      "sourceHash": "9992b8f0288d9baf59aa1ed04bc24663306c86bef8d1e5cdbeadb103e83b2b0a",
+      "message": "Pid raiz: {rootPid} (de {rootSource})"
+    },
+    "automation.operator_37be8f13b76494a0": {
+      "sourceHash": "342d85c2b0681fffcb91caf03616dbfac001dc57c048c4e3465485c9d8375252",
+      "message": "Não encontrado pasta local: {templateProjectFolder}"
+    },
+    "automation.operator_382787bb31d0ed63": {
+      "sourceHash": "8d6363bb3d0ffb4cb876622e572c15b82510411160e4fe69b51090a1d2a380bc",
+      "message": "(ip not in PATH -- install iproute2)"
+    },
+    "automation.operator_38b2e61abf2a764b": {
+      "sourceHash": "7f6228ce5b0396f453f89d70b8282486d556db596c926ad94b17e42cd7ed39f3",
+      "message": "MEMÓRIA: {pct}% utilizado (>=90%)."
+    },
+    "automation.operator_38b84356d9ef0785": {
+      "sourceHash": "800c812e1c867eb3a50fbcb01f058ef1482eb71c48cfed2139620d8596d91a87",
+      "message": "Controlador do grupo : {cgroupDriver}"
+    },
+    "automation.operator_38c78044744306af": {
+      "sourceHash": "c8a4679232e94c96d455b517fc92ec037d266feb4d37b892d07724ca55efe193",
+      "message": "({tool} não é executável -- faltando, um link simbólico pendurado, ou não executável)"
+    },
+    "automation.operator_38e06e9b805aee27": {
+      "sourceHash": "641b2412ff3b86e9016fdbb30dd55d96211d2577bd85a13b1cec74a6905a1a47",
+      "message": "sonda de compilação: FAILED (sem produção binária)"
+    },
+    "automation.operator_392f4d20e6624910": {
+      "sourceHash": "f998738be4bca8116e3afa888a87ddd3607d38ae6824f940675850af511a7e0b",
+      "message": "DISK: {cols} é {usePct}% cheio (montado em {cols2})."
+    },
+    "automation.operator_39b5280c08d21d32": {
+      "sourceHash": "108b62075f8a98f8a7344dae4c98167956edd796ff21ab07e2ac594d9c5ab4d6",
+      "message": "({tfStateCount} tofu.tfstate ficheiro(s) presente(s) mas não leme no PATH; não pode verificar)"
+    },
+    "automation.operator_3a0c224edeb697d8": {
+      "sourceHash": "54642d4637206959051bd6b14855fa053dfb1a7986807be8f859e9c9389d85ca",
+      "message": "Falha ao {name}: {message}"
+    },
+    "automation.operator_3a40a1163d5c3772": {
+      "sourceHash": "d4c0d8df2763472999de669f2cf2309a905848080731af2f674e2ec7fec734ed",
+      "message": "--- {fullName} ({length} bytes, mtime {mtime}){sizeNote}{rcNote} ---"
+    },
+    "automation.operator_3a6d1507411d1aa5": {
+      "sourceHash": "ccac8cc8f2337ea766a061c0cf4737f709d21d60dede591b92d43bf1fc6d3296",
+      "message": "DIAG: {label} caminhada recursiva cronometrada após {timeoutSeconds}s; os resultados abaixo podem estar incompletos."
+    },
+    "automation.operator_3a9c0f6767b77dc5": {
+      "sourceHash": "5fe9bb7c1af582a50ebf8cea4ecda42535055d1c155da8367a77f6bf997a0fde",
+      "message": "YURUNA STATUS SERVICE IP faltando ou vazio no {hostEnvFile}"
+    },
+    "automation.operator_3ae794313d668573": {
+      "sourceHash": "667584e7992eac05550f76143e7d9291724d53290252f577125cad8d2c91ee3f",
+      "message": "sonda de compilação: OK (binário produzido; Vision OCR caminho rápido pode construir)"
+    },
+    "automation.operator_3afa1715b4f04e1b": {
+      "sourceHash": "891545110ef5ea3f22ac0024c0d530dc5e9e1338695f3a43c8a56d6993a6d58b",
+      "message": "host.env: YURUNA STATUS SERVICE IP={hostIp} YURUNA STATUS SERVICE PORT={hostPort}"
+    },
+    "automation.operator_3b6105a4e3726e67": {
+      "sourceHash": "503e2ad0f892aec6dcf6e90dec8497a0898010063175d65857ddacf3c0fccfe3",
+      "message": "Processos de gerenciamento de pacotes (estado, wchan, descendentes, fds)"
+    },
+    "automation.operator_3b76598616520aa3": {
+      "sourceHash": "7d48c85d140bfc9c5f1665f21fe6a659a790b3c754809e346d2e02a659bc8d62",
+      "message": "Arquivo não encontrado: {componentsFile}"
+    },
+    "automation.operator_3bc6d2f5edbf00c0": {
+      "sourceHash": "e12aa2e8145c0c4862fae690d6bdc6c9d4620f5e5cd713d4d9a7dc7e2755b586",
+      "message": "-> Leme de reinstalação: https://helm.sh/docs/intro/install/"
+    },
+    "automation.operator_3c1dd62a526940d8": {
+      "sourceHash": "fb1293785cc56b9a0ce54b936290f94975d9d95f90d39045fa4f9ef10131eab8",
+      "message": "HELM: leme não instalado (ou não no PATH / não executável)."
+    },
+    "automation.operator_3c44577797e2dd05": {
+      "sourceHash": "c3a42533d28df4be663d30f058b72589bd5e79250c4162164f0dac1bcc237322",
+      "message": "Catálogo de registo local (sonda http://localhost:5000/v2/_catalog)"
+    },
+    "automation.operator_3c501632d2ed2862": {
+      "sourceHash": "766a88881656567fbcfd1848e1244d3884200c7bbd991c66f53092c1a2710dc5",
+      "message": "O endereço MAC '{macAddress}' não é válido. Use AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, ou AABBCCDDEEFF (12 dígitos hex)."
+    },
+    "automation.operator_3ce1f61bd83a82f5": {
+      "sourceHash": "96baa2afe1dce120f7bf92edbd18613dd75f9c42f263fde69f03ef16e1c76d48",
+      "message": "O LINUX: /opt/cni/bin/ está vazio -- nenhum plugin CNI instalado; os pods não podem obter rede."
+    },
+    "automation.operator_3d27e61ad4660394": {
+      "sourceHash": "17087448b08006a3f69d2dbcdf8b5df00e1856c05b88af49b6099cbee5c3dc0b",
+      "message": "As ligações aos serviços tornar-se-ão activas após a sua inicialização."
+    },
+    "automation.operator_3d4ee76ddb60efa9": {
+      "sourceHash": "6ed1486e31b5565c67c4cbd12078a54b57f8883fd887d970c28795c05208e395",
+      "message": "{v2} FAILED após {elapsedMilliseconds} ms: {message}"
+    },
+    "automation.operator_3d642d2080f94214": {
+      "sourceHash": "cd54512502b133cc4a989db9d6db3d21b42995ec1cc70ad3713147b4ea60329a",
+      "message": "CPU: carga média {busy}% em todos os processadores lógicos (>=90)."
+    },
+    "automation.operator_3d926ec2c9a14019": {
+      "sourceHash": "f59345fb2acd6bc4abc4791520b08339676b2026bf0964b3796568c1c798885d",
+      "message": "Nome de utilizador : {userName}"
+    },
+    "automation.operator_3e3c06d4edff4846": {
+      "sourceHash": "4ae52004f4562f6ac70d4b893c92ab641a4c2080ce4bfa3b46e34457cc62ebb6",
+      "message": "(... {count} mais linhas omitidas)"
+    },
+    "automation.operator_3e64c84b3fef9e73": {
+      "sourceHash": "e7200bff7b72adbddb5b4dfce20d921650c9d9ebed31df6dc7a6a412927f6751",
+      "message": "O armazenamento do laboratório desta máquina é servido por outra máquina."
+    },
+    "automation.operator_3e92708420fcba11": {
+      "sourceHash": "126126e2bd0d89d3b6ee0532c95189d8c6704b02bdc04b3c14ab93050bdd728b",
+      "message": "MEMÓRIA: {usedPct}% utilizado (>=90%)."
+    },
+    "automation.operator_3f717ea683c65c4f": {
+      "sourceHash": "a0d09416264531b7f61a695dc18d9b8e4b816a664f34070a2037120605433f48",
+      "message": "Não foi possível processar uma etiqueta de lançamento a partir de redirecionar o alvo '{final}'."
+    },
+    "automation.operator_3fceb1a4b1db4faa": {
+      "sourceHash": "13a2b642db0b3d7f1559d4cd3f5191efd780156d72ca1158b111a3a2965871a2",
+      "message": "ip rota (quadro completo)"
+    },
+    "automation.operator_40089ed3a3e8b270": {
+      "sourceHash": "3f8ce9dde57b6a3036b5a580b33f0d6d49be4575be6a8a3eb37e0b9eccf7841a",
+      "message": "LINUX: ping to 1.1.1.1 failed (exit {pingExit}) -- verifique rota padrão, NAT, ou conectividade upstream."
+    },
+    "automation.operator_407a4077484dc534": {
+      "sourceHash": "bad4af97fe299e0d0f3815d5b7c394ffa72ebaa2d8b3a6588826ae0654e53e79",
+      "message": "(não foi possível escrever JSON sidecar '{sidecar}': {message})"
+    },
+    "automation.operator_40a0bcb292b4974b": {
+      "sourceHash": "07bb6805a4938f3a42977bbbe8261bd778d7f7cdcb7006f6f501c1b51aae1b5a",
+      "message": "(nenhuma informação de processo recolhida -- executor pid {rootPid} provavelmente saiu entre sonda e caminhada)"
+    },
+    "automation.operator_413b7cf0cb658ee6": {
+      "sourceHash": "540fbf39eb730e03ea83823de9dfcbdf472d65bf9dda15371f1e73c3218aa974",
+      "message": "-- Cargas de trabalho para o contexto: {contextName}"
+    },
+    "automation.operator_41fce0708182b250": {
+      "sourceHash": "5db1d7278a8d690969518d30d9c7086bb38a8192e7db62081b6c413e24c8ad41",
+      "message": "esta execução não inicia nenhuma VM de serviço"
+    },
+    "automation.operator_4212a91ebd33d406": {
+      "sourceHash": "19e1b6d8517ce02d805f2bc0bdce84ef674578f9bd5899506c966e02f3bfd8c7",
+      "message": "Corrija o nome e execute novamente este script: as etapas completadas detectam-se e são ignoradas."
+    },
+    "automation.operator_4221b57b738104bc": {
+      "sourceHash": "2f207d4f110933219a9a1b1b10007b6b18f00872e19104d2dc4b45860aeac39e",
+      "message": "(no tofu.tfstate files under {projectRoot} -- Set-Resource não foi executado; pulando)"
+    },
+    "automation.operator_4272d9bd74626ac9": {
+      "sourceHash": "9a7c894d29c744d09c66f199f137affd136b8d713a0e6e1af522243f27388379",
+      "message": "Heurística 2: espaços de nomes declarados em falta no cluster"
+    },
+    "automation.operator_428373fe65b0a16b": {
+      "sourceHash": "7deaf3e79341ea9c3ca94f18a1b55a97f4d599e32dbc8739ed17fb07867d7ea1",
+      "message": "Retentar/Temperar/Erro de ligação em linhas de captura delimitadas: {count}"
+    },
+    "automation.operator_4330a0cd21a835c5": {
+      "sourceHash": "5b1fade46ef952e115d56ddee976fafcc0e9b10035792bdf30a47a4cc712a41f",
+      "message": "(sem módulos relacionados à virtualização carregados -- metal nu ou hipervisor não reconhecido)"
+    },
+    "automation.operator_43adba726850fef5": {
+      "sourceHash": "725821b0eab0678c4781d16d761b5bb90e663cbdcd4a6261466825d3d6bf25ca",
+      "message": "===== {name} ({length} bytes) ====="
+    },
+    "automation.operator_43c9133034669a17": {
+      "sourceHash": "18c6d4474f0b80106355689e4e095ac1087e9073e3a1abc35f2857f43ec2a75e",
+      "message": "Carga : {load}"
+    },
+    "automation.operator_43fd2598d28c6a0d": {
+      "sourceHash": "b188b07e72c6f962ccba62556c8d2f97fb447cdd5c4ae97583b0ea3052eb55a7",
+      "message": "armazenamento vai sobre ele. Uma quota de piscina cresce sem limite (pruning aposentado"
+    },
+    "automation.operator_44307ca3abfeb77b": {
+      "sourceHash": "76ea0822339d50762f774aef1363d2f0bdeb1d4849a0bf267c2af0a99e1e9d07",
+      "message": "O contexto de origem não pode estar em branco"
+    },
+    "automation.operator_44b14d5da1878689": {
+      "sourceHash": "cd7f1d80d1dc3b71de353851204f0222d67206182e439ab35ddacab27ae656f4",
+      "message": "Apenas {value} seria deixado para o sistema operacional, o hipervisor e esta execução"
+    },
+    "automation.operator_45ac4b861def17e9": {
+      "sourceHash": "57c728320a2753778b97d917ef2d6594e017669754e6d0a2d3e5d1da5661409c",
+      "message": "Heurística 4: imagem de registro local não referenciada por nenhum pod"
+    },
+    "automation.operator_47229a44b80ae93b": {
+      "sourceHash": "899281af85e1b4e269bc1c14b6cc0d122253f9bc48463ded41ce4896c13e9040",
+      "message": "(não há nós Prontos -- o cluster não está em cima; não existe uma lacuna de implantação, veja a seção KUBE)"
+    },
+    "automation.operator_4788a5c9b68d9b0a": {
+      "sourceHash": "a7f708f5006ef4376b96d4b63193f3d0f06f90bc375560dfdcc664f44ec1cfbe",
+      "message": "{problemTag}: código de saída {lASTEXITCODE} de '{tool} {join}'."
+    },
+    "automation.operator_483ad55e8c49c6d8": {
+      "sourceHash": "d503abf8d7cb6bb31f7c19f912eaf56a14821a0a37ea41e61598e259a275b5a8",
+      "message": "-- AVISO: tofu já inicializado: {terraformPath}\nO recurso pode não ser criado. Use 'yuruna clear' para limpar o estado do tofu."
+    },
+    "automation.operator_485fb74637bada2f": {
+      "sourceHash": "b9d1df2f21aae34f789c6ae6da7e0e8486cfd1a8bb1bb0cc1fc7e251184a640e",
+      "message": "Sonda de conectividade (ping -c 3 -W 2 1.1.1.1)"
+    },
+    "automation.operator_48a01e8836cadcfb": {
+      "sourceHash": "96d9f9c830c8665d234924794cf9c437f99c7a077f10683f3398a49d4e5c4f1e",
+      "message": "Estado da resolução de DNS"
+    },
+    "automation.operator_48ffd650c4a65b3b": {
+      "sourceHash": "72995836773050052eb94435e88d4c3133b671a21ef7d94062955dc2f3caba9a",
+      "message": "ecr Autenticação: 'docker' CLI não no PATH; não pode concluir o login."
+    },
+    "automation.operator_495dcc6db4d4fc56": {
+      "sourceHash": "7048484e6bfeae65adeb25aeed70d1a5fd2751337f11c8d7711a24b2f705fbe4",
+      "message": "(sem yuruna repo root em {yurunaRootCandidate} -- pulando)"
+    },
+    "automation.operator_49673525d6734038": {
+      "sourceHash": "a93e1fd2a9065b349868996040bfa583f87df55fde5b5beb23dbc4ebb6771464",
+      "message": "(Informações do BIOS indisponível: Get-ComputerInfo retornou nenhum dado.)"
+    },
+    "automation.operator_4a34878c962422f2": {
+      "sourceHash": "39385f2e8a527ba17c003a793443c3b70e65945187c41c3f35f95df1aac5513b",
+      "message": "ip-br link / ip-br addr"
+    },
+    "automation.operator_4aff59adcc34fceb": {
+      "sourceHash": "2e13ed89f8d3ed2ce94556794e54341f3c199eb5a20fe079b07f6faf2cd506f0",
+      "plural": {
+        "variants": {
+          "one": "Memória: esta máquina tem {hostMemoryMb}; o {plan} compromete {committed} de memória de hóspedes{list}, cerca de {resident} residente, deixando {remaining}.{floorNote}",
+          "other": "Memória: este host tem {hostMemoryMb}; o residente {plan} commit {committed} da memória convidada{list}, sobre {resident} residente, deixando {remaining}.{floorNote}",
+          "many": "Memória: este host tem {hostMemoryMb}; o residente {plan} commit {committed} da memória convidada{list}, sobre {resident} residente, deixando {remaining}.{floorNote}"
+        }
+      }
+    },
+    "automation.operator_4b5000e2da8b0a45": {
+      "sourceHash": "d538450632ca768b43867e83026737594cfc0c32570f40b3b01de117a1dbed54",
+      "message": "GAP: {count} image(s) pressionada(s) para o registro local, mas não referenciada por qualquer pod -- {join}. A fase de cargas de trabalho ou não implantou um gráfico que usa essas imagens, ou o gráfico renderizou- as com um diferente prefixo de registro (verifique componentesRegistry.registryLocalização em resources.output.yml). Uma imagem que só serve como uma etapa de compilação é esperada aqui e não é propriamente uma lacuna de implantação."
+    },
+    "automation.operator_4ba3081aa0af2a76": {
+      "sourceHash": "17ffe8102da968f5306dc6ac2bb5b225fab53e4de4edc4945e08b5ffee03e51c",
+      "message": "(toda a janela é a votação deste arnês -- nada mais foi registrado)"
+    },
+    "automation.operator_4bcda64ddc713b3c": {
+      "sourceHash": "cd80343043ad68354a1e8540db18113d9629374d15d5f60eb57cb53bc4080674",
+      "message": "kubectl config view --flatten falhou (saída {lASTEXITCODE})"
+    },
+    "automation.operator_4c41c3b887d1d8d9": {
+      "sourceHash": "377690a6bff173e07690e7aa8d14f4ca5d98cdae66c58f6a6460b897b2006470",
+      "message": "Soquetes de escuta (Get-NetTCPConnection -State Ouça, primeiro 40)"
+    },
+    "automation.operator_4c47b23469f21be0": {
+      "sourceHash": "4b333af774a8f2b86fba3f1910d8bbe966b49315da15543e6ed7a9e49e802ade",
+      "message": "Plano energético: {trim} ({value})"
+    },
+    "automation.operator_4c8c5980fef3a417": {
+      "sourceHash": "8d41968d2742f8e4754259bf0a1b45a2ae42f746a16e88529b10ba98eb4d2f80",
+      "message": "-> Executar 'kubectl descrever nó <node-name>' para detalhes."
+    },
+    "automation.operator_4cd81329e032794c": {
+      "sourceHash": "57bcbb42d9a9f286fb1c17868cb4a538f7d10ec65188063dafe76a31695c344a",
+      "message": "{answerOut} está incompleto para uma execução não assistida: {join}."
+    },
+    "automation.operator_4d056a8f44de93c4": {
+      "sourceHash": "2cd4750ab57b51fbb4600f849c53b492395ffb1e6341b90ae27b0756ff51d0c6",
+      "message": "Falta o arquivo docker na pasta: {buildFolder}"
+    },
+    "automation.operator_4d1c48e1fe3d437b": {
+      "sourceHash": "af76719bd760a52ae99342f4b5f4639fc2cfe4b63d00fdb6690f6977bd98e4c8",
+      "message": "Containers : total={containers}, em execução={containersRunning}, pausado={containersPaused}, parado={containersStopped}"
+    },
+    "automation.operator_4da5638570dedd1f": {
+      "sourceHash": "2f11c4e3db9ffac6407bed3f22675b9f5e38fba810ea3a62007584783419f696",
+      "message": "Versão do kernel : {kernelVersion}"
+    },
+    "automation.operator_4e2d63d457a25a3e": {
+      "sourceHash": "40851996dbfb573ec40c300c1d98fe543d334136b0801ef65f1c785f9f7f7402",
+      "message": "Memória inválidaStartupBytes '{value}': deve ser um tamanho positivo."
+    },
+    "automation.operator_4e5c913a3ad57e31": {
+      "sourceHash": "c5c1e2d82ae403a2755bbde342853fe54d915d47b330e93e8cf239d0700544f7",
+      "message": "Erros recentes no registo do sistema (últimos 1h, 25 mais recentes)"
+    },
+    "automation.operator_4eeea39bff48dea5": {
+      "sourceHash": "b1f62eecd5e8fe159f47ed93a93775aa7fc55ae0735a5d14989c0cf9d08f061c",
+      "message": "powershell- yaml é necessário. Instale- o com: Install- Module -Name powershell- yaml"
+    },
+    "automation.operator_4f49b26ecda1d965": {
+      "sourceHash": "5a3e8e381044ee006d52fc8a621b7490130798f61d1dbb5a3fe1e1520de7d2cf",
+      "message": "KUBE: o espaço de nomes '{n}' existe mas não tem Pods ou Implantações -- uma carga de trabalho (helm/kubectl) para este espaço de nomes provavelmente falhou em pousar."
+    },
+    "automation.operator_4f68be4909fd3297": {
+      "sourceHash": "873214066cecd07f2eaa6025e5cdec4b0331b2f521681bc4ad69db43d8c8703b",
+      "message": "host.env não encontrado em {hostEnvFile}"
+    },
+    "automation.operator_4fbb64b5bef0972c": {
+      "sourceHash": "a8a99067dd27f57abb059d7f553121fccdf5fbc3792f909cece0d803604c12eb",
+      "message": "Sonda de resolução DNS (one.one.one)"
+    },
+    "automation.operator_5010c107b9432bae": {
+      "sourceHash": "57f63f9f5d2f97b240efdfa5853862d2c52ba54fb4875e7343e670c4db29ee8d",
+      "message": "O lançamento do Helm '{installName}' está em estado {pendingState} (provavelmente SIGKILL de ciclo anterior)."
+    },
+    "automation.operator_502e7583e46dd166": {
+      "sourceHash": "23aca592433b82daa8e477cde22d6206ea088e04f17a230c4748fcb496bbfa19",
+      "message": "(Get-NetFirewallProfile falhou: {message})"
+    },
+    "automation.operator_521d33a2b84cdcd4": {
+      "sourceHash": "0a5806a3dd769c799f6ddae691ac7b0a9b9a102b9817fca3e7e04733b7313697",
+      "message": "outra demolição completa e reconstrução (cerca de 15 minutos, e um cache de lulas frias)."
+    },
+    "automation.operator_5240a16c69305911": {
+      "sourceHash": "d934a8572c3f10fca288447d0d614fb1de03f6740f8563c3820e0cbc1ac2e5ed",
+      "message": "tcpdump não está instalado -- as falhas do DHCP convidado capturam nenhuma evidência do fio."
+    },
+    "automation.operator_530e430042eaa997": {
+      "sourceHash": "f0baf612ff012804ae94c43b1dfc25777ee2b27f5b9d75679b71dbcf9be25948",
+      "message": "(ss retornado saída {ssExit}: {join})"
+    },
+    "automation.operator_5376c9efd7b38f35": {
+      "sourceHash": "d9d8604849b77177b59d2f1000e0bc572e5c55d0795d33920ebe0e3ae40a345c",
+      "message": "REGISTRO: o cache mantém {held} de imagens {total} no {set} definir um cliente puxa. Cada imagem em falta é copiada a montante enquanto o hóspede aguarda o seu pedido manifesto, que custa minutos cada um e sobrevive a um orçamento de passo de provisionamento -- enquanto cada vida e leitura manifesta acima permanece verde."
+    },
+    "automation.operator_538dbbedc6313351": {
+      "sourceHash": "753a141b4d5149b9fb7764c8146db7279c9e854badd8911064da3cccf78ee582",
+      "message": "- Então tente novamente este cheque."
+    },
+    "automation.operator_53d63125deb58dff": {
+      "sourceHash": "fb16d1612a11a7634e635c1cf04cf45313dc14b3067c068a2fcb47dcdce788e7",
+      "message": "- esta máquina é agora o único ponto de falha para o armazenamento da piscina;"
+    },
+    "automation.operator_545f599c8329b23f": {
+      "sourceHash": "6c78b8b1d944b45d1983ffae0644c2426caa208dd03208f71be4c0eae3570974",
+      "message": "/etc/hosts mapeia yuruna-host para {mappedIp}, mas YURUNA STATUS SERVICE IP é {hostIp} -- mapeamento de nome->IP; URLs baseadas em nome atingirão o host errado."
+    },
+    "automation.operator_5462f41e8c0e63b5": {
+      "sourceHash": "542ca99792b106828d138fa71f85dadf0a3e0e39a0f82b5c88cdf6a57d4c3c90",
+      "message": "(swiftc not runnable -- Vision OCR fast path indisponível; OCR usa o backback interpretador/tesseract)"
+    },
+    "automation.operator_54ad31700e7323b1": {
+      "sourceHash": "51e5ceaaea94f70ca9717ea7ce01994c537bdb955c46c5962b59230fbc579f47",
+      "message": "Arquivo de dados de usuário base não encontrado: {basePath}"
+    },
+    "automation.operator_54bb3bd3dc906778": {
+      "sourceHash": "366842d949de55a236316e109a08f65f08c886db4094f759b2618bfe2c659715",
+      "message": "Versão de Yuruna: {yurunaVersion}"
+    },
+    "automation.operator_55a6da533049c54d": {
+      "sourceHash": "c0ed62394fbab9d6d0cb652c1a5343f594210e571f0d47adf5d4cef4b503d29e",
+      "message": "/livecheck JSON não se identifica como yuruna-status-service (service='{service}')"
+    },
+    "automation.operator_55c150c8e52ed5c6": {
+      "sourceHash": "f550ea589d73685bcd99e94342ef81d082e4cba0e0aeca65f75bf8d32e68cf1c",
+      "message": "Arquivos modificados mais recentemente sob .yuruna/ (top 100 por mtime)"
+    },
+    "automation.operator_564abb9d3abeae2e": {
+      "sourceHash": "4d4115bf040db4d35cbfd4a7d5540fb9582ec37d14597129454ab30624768f7c",
+      "message": "tagCommand não pode ser nulo ou vazio no arquivo (tanto globalVariables e nível de componente): {componentsFile}"
+    },
+    "automation.operator_56fa491fa25bce42": {
+      "sourceHash": "da7800286622020fcda85328ac455f0ec1b363645b30c43cecdc0f7e2fc16dd4",
+      "message": "Tempo (UTC): {z}"
+    },
+    "automation.operator_57118242879db9a9": {
+      "sourceHash": "d0ca41cef1d3c2b1cdcef2d9bfd9dd73859bd2f5f9fbd54187fb7198c029b343",
+      "message": "alterações de iteração no host NÃO serão visíveis neste convidado."
+    },
+    "automation.operator_57e9b1596ecdf272": {
+      "sourceHash": "a4fb50e8193877627108b2e15228a3448181c661d5802bd4ac07bb7317e01e6f",
+      "message": "(SkipDocker)"
+    },
+    "automation.operator_58e0bb2082b9b937": {
+      "sourceHash": "784571b5fa6fc1f8d8532c32bb1c6742ec445b71f5eb04174817ffedaa9a3f68",
+      "message": "Foram encontradas sobras de propriedade da raiz, mas nenhuma delas bloqueia esta execução; continuando. O bloco acima lista- as."
+    },
+    "automation.operator_58ff80ccf6e0d414": {
+      "sourceHash": "ea66329c889413ac207fc6bba30de8b9e1178e48072e9f91bac652ae8800e8d1",
+      "message": "Arquivo de resposta não encontrado: {answerFile}"
+    },
+    "automation.operator_5916ef3813bf8149": {
+      "sourceHash": "068d79c52dc506e232ffbd6679e11d0570b9bf9266af424b7452b3c6a9df7c11",
+      "message": "KUBECTL: o kubectl não está instalado ou não está no PATH."
+    },
+    "automation.operator_5957b44c1fb2ab86": {
+      "sourceHash": "d30df18f47089cf103f1fed153feac566e33a18fb23fd7827ba152a68e0f3f87",
+      "message": "Yuruna.Component.Registry: Yuruna.CredencialProvider.psm1 não encontrado no {credentialProviderModulePath}; o login de registro componente-push será ignorado para cada registro."
+    },
+    "automation.operator_59d1126624ee215b": {
+      "sourceHash": "8934ded3e73816bda96998ec2beb9d0cfc106b9e7309cd9101bc657b59d8a26e",
+      "message": "pushCommand não pode ser nulo ou vazio no arquivo (tanto globalVariables quanto nível de componente): {componentsFile}"
+    },
+    "automation.operator_5af1f9a8e9d365d6": {
+      "sourceHash": "a5cb9a338709312d191d9851c4ee15ac8454ecdd2adc92e591ff6c3a60eced02",
+      "message": "GPU : {name}"
+    },
+    "automation.operator_5b2ea4673a88ff6f": {
+      "sourceHash": "561334af02c156de6d3fcf4c04d4dd2362d5b07f896372109becdc777a4b929c",
+      "message": "recursos yuruna [project  root] [config  subfolder]\nLança recursos usando OpenTofu como helper."
+    },
+    "automation.operator_5b61d37259974d2f": {
+      "sourceHash": "3cc3a1c9ce59b143f2e571ae1892d11a1bad53d2f66c24f98c91c199a48ca70d",
+      "message": "http proxy é {plainProxyUrl}; buscando um pequeno corpo por origem do espelho de pacote através dele (revalidação forçada)."
+    },
+    "automation.operator_5b83af96edec0999": {
+      "sourceHash": "b6a6668d3ab8084593c54fdce972d395d91ca632833f707edf3214f146754383",
+      "message": "# # interfaces de {dom}"
+    },
+    "automation.operator_5b97d4a3f5ce357b": {
+      "sourceHash": "6245a9e3132d8a83c79c7c19b2f1ba19a9e404b90978134da7e006c501626d63",
+      "message": "KUBE: pod {ns}/{name} status: {status} (pronto {ready})"
+    },
+    "automation.operator_5ba0dbd55dfbc5f1": {
+      "sourceHash": "37d8526d781e6b0aa7d86cab7b57becef99f476ff43f83e3c2dbc02a289f7287",
+      "message": "(docker ps sonda cronometrado após 5s -- daemon provavelmente encravado)"
+    },
+    "automation.operator_5bb127d98fea6728": {
+      "sourceHash": "2d222c6e561442dabfd5eeb4abb3d722e4ef5da8c1811453f6796912efef70f6",
+      "message": "!! {label}: DeveTentar o predicado lançado ({message}); tratando a falha como reexperimentável"
+    },
+    "automation.operator_5bca1de1ae2456e7": {
+      "sourceHash": "074e66571c27ae637ed970d1abab478e8d398d41e4e7a35355e3dc2f4b84cc5b",
+      "message": "(symlink -> {join})"
+    },
+    "automation.operator_5c07f5289661e7e1": {
+      "sourceHash": "0adad2861a66279e14020da1b3db93a44d0c26f78270a29883e4709c588e0459",
+      "message": "Para se juntar a outra máquina: leia o ladrilho token Lab no painel"
+    },
+    "automation.operator_5d063be800d28f8d": {
+      "sourceHash": "241ee1ad7af35268d0d186071b97f2059afa2472f7f8c1418cbf58b07ebe24bc",
+      "message": "O endereço MAC '{macAddress}' é multicast (o primeiro bit do octeto é definido); um NIC não pode ser obtido a partir dele, então o DHCP nunca alugaria. Use um mesmo octeto (por exemplo, 02:...)."
+    },
+    "automation.operator_5dcf5d347e3917c0": {
+      "sourceHash": "f27a15d4c8eddc2cf1829a1b3ded9de87f0bb9b8701b213d065c7865d6ab9351",
+      "message": "locations.context não pode ser nulo ou vazio no arquivo: {workloadsFile}"
+    },
+    "automation.operator_5e0cc0356ca62c91": {
+      "sourceHash": "765ff3084288fa9c66b51cbd22fc9c6c01df02c629dcfa121e414042c3e34fba",
+      "message": "Heurística 1: estado de tofu sem liberação de leme"
+    },
+    "automation.operator_5e3e34e68522ecb2": {
+      "sourceHash": "39bd708e2570921c0b41989a3343efd937cdfdd4c3434382623982c2808bda0f",
+      "message": "Nada mudou (-E se)."
+    },
+    "automation.operator_5f419145bd02451c": {
+      "sourceHash": "abb9c7999e01f4e7a886b8e62197b3b789ebe5e25acdf45711183c3bc79e7d03",
+      "message": "/var/log/installer/autoinstall- user-data (apenas metadados; credenciais de sementes omitidas)"
+    },
+    "automation.operator_5f4da68a8a0470cb": {
+      "sourceHash": "be8a65a67fc9abb1179327cf63c0cd541e4ff225494cb710d16371a1156417b3",
+      "message": "LINUX: dmesg mostra {count} OOM- killer event(s) -- a pressão da memória matou um processo."
+    },
+    "automation.operator_5fda31960d8c149a": {
+      "sourceHash": "54aa74d04193fca07fc26ae6733d49db57450cf9c62fb761ffce5207cac9e2fa",
+      "message": "df - P (sistemas de ficheiros locais, formato POSIX 1K- block)"
+    },
+    "automation.operator_60108482ffac31eb": {
+      "sourceHash": "10c838e9307482feff5b681f218842d18b7957c59e3fb5c2cfded521b9b4605a",
+      "message": "-> Executar 'kubectl obter nós' manualmente para investigar."
+    },
+    "automation.operator_601b6a8a371d20bf": {
+      "sourceHash": "cff8ce8c62b29d7a0524d4e3f47de799ef3194ccb68cd3e55e1883bf4fc7d88e",
+      "message": "NÃO concedido no {source} -- as falhas do DHCP convidado capturam nenhuma evidência do fio."
+    },
+    "automation.operator_6026e7f1ae4f2ef0": {
+      "sourceHash": "4b8e530d54c9b66f0b50d24fb127788be5b0e3683480c4b73c483fc934a0a9ab",
+      "message": "GAP: namespace '{name}' declarado em {file} mas não existe no cluster -- a fase de cargas de trabalho nunca o criou (helm install / kubectl create namespace não foi executado ou errou)."
+    },
+    "automation.operator_6036ef007d775983": {
+      "sourceHash": "e543863bc05b6dcdc1e804dab34d2e2e7ab56cbaa66cb31c4d88322da108ce46",
+      "message": "Disponível%: {usedPct}% utilizado (1 - MemDisponível/MemTotal)"
+    },
+    "automation.operator_60747ca0849cfbc6": {
+      "sourceHash": "142bda36e81c383295d02b8ea087f76460a88e1877361c1846f7a68214cd51ad",
+      "message": "Não foi possível determinar o tipo de máquina. Só são suportados o macOS (UTM), o Windows (Hyper-V) e o Linux (KVM/libvirt)."
+    },
+    "automation.operator_607a7ca5cfe89be1": {
+      "sourceHash": "0f8fbcf1e6ee0540cb16399e096e98f90e4420bbfdd8b31570411c2ab83fa188",
+      "message": "Duplicar a seção '{currentKey}' em {overlayPath}: um cabeçalho repetido sobrescreveria silenciosamente a carga útil anterior."
+    },
+    "automation.operator_60bde44af83103ca": {
+      "sourceHash": "f24f686ff42579ff772fd216599960decaab44db33bda1fd5ebc9e0ef42365de",
+      "message": "VMs hiper-V (se presentes)"
+    },
+    "automation.operator_60e4e2f2dbcc4366": {
+      "sourceHash": "31c966b7099dca91162e7c348c7e490abc44db4a6885f7b36e6408d18d24755e",
+      "message": "Importar Test.HostContract + instalar powershell-yaml + PSScriptAnalyzer"
+    },
+    "automation.operator_6122beada92e6164": {
+      "sourceHash": "3f91614a89c5ad056766d875e3c9cea4527a212295c71355d4e0fea3d929c075",
+      "message": "PROVISÃO: {name} registra {label} parando em uma falha permanente na tentativa {attempt} de {maxAttempts} (rc={rc}) -- a causa foi classificada como não reexperimentável."
+    },
+    "automation.operator_622708460ec0912c": {
+      "sourceHash": "df57a8e13728f404288278918e44356ae748609bd6650c51c06af766159f18ef",
+      "message": "ifconfig (interfaces com IPv4)"
+    },
+    "automation.operator_6300fb1f8affd460": {
+      "sourceHash": "f1fcf63d5e778eb10961825bcd2b7a5d49b8c9c2892668737414904e1b468a38",
+      "message": "Suas perguntas são feitas: a partir daqui só este script fala, e nada que ele começa pode perguntar."
+    },
+    "automation.operator_6335eb75973bfc19": {
+      "sourceHash": "2cfeb572cbb76a867053d61b11471c53cc6f8d1e381f34ac32a81d7e2feb6729",
+      "message": "a máquina yuruna está acessível. Hora do servidor: {time}"
+    },
+    "automation.operator_634f2762ed20d183": {
+      "sourceHash": "59f16ce69c484fc51532b4e1d252a2ed2bed7243e72cfd11abf018bb1cd070fb",
+      "message": "(ip - 4 neigh show retornado saída {lASTEXITCODE}: {join})"
+    },
+    "automation.operator_63e3af676d098fb9": {
+      "sourceHash": "108d7b5426ae27685b8ff8ff83d7d52046391de5af50bf23454d47fa57066713",
+      "message": "/etc/hosts não tem nenhuma entrada de host yuruna -- somente URLs baseadas em IP funcionarão."
+    },
+    "automation.operator_63fd3d91f443af9b": {
+      "sourceHash": "063a9cdaf65fb872bda7a9dfffe946e1de0ea9c4dc40d9132ecf4297d89c598d",
+      "message": "NIC: {name} status={status} velocidade={linkSpeed}"
+    },
+    "automation.operator_641722ebda2acafc": {
+      "sourceHash": "3a418a8d3af914a29d9a0e1b515fa71124d8c197b1e0fe7f3aa41ac2e1eaf332",
+      "message": "(dmesg restrited -- rerun as root for kernel ring buffer)"
+    },
+    "automation.operator_64cf72692732e576": {
+      "sourceHash": "bce028794939b6ef3cd024b77bad784b71932488470122b65b81d80db5517a11",
+      "message": "-- Recipientes a correr (todos) --"
+    },
+    "automation.operator_64dbb21dc24464dc": {
+      "sourceHash": "fd98a46d3c09f513d8fdccdd80a9cf5439a39b39f13a1387ab3a03e7f035f140",
+      "message": "Arquivo de saída de recursos: {resourcesOutputFile}"
+    },
+    "automation.operator_6530aabbb1b7a40a": {
+      "sourceHash": "eb57c20e3fd55e17f889098d299e8d9b5e329d0644388ddc56b56179323e6364",
+      "message": "Pasta do projeto não encontrada ou ambígua: {projectRoot}"
+    },
+    "automation.operator_655a3cbad32833be": {
+      "sourceHash": "8b780711080642ad902d7263ad48182c5054f10634035eb78d173884f774f690",
+      "message": "Esta configuração precisa de sudo uma vez, agora, para:"
+    },
+    "automation.operator_657d36ac7fd4580a": {
+      "sourceHash": "cea5ae67c6170fe5aee9ea7ea7a99a73cb1526ec55768483cb025bdd83ba6430",
+      "message": "Certifique-se de que o serviço de status está rodando no host primeiro:"
+    },
+    "automation.operator_659703929bd102c5": {
+      "sourceHash": "753f7a0374700e1373826823dc01321b1d204029ea1002d69ce71d9609abf4ea",
+      "message": "O {nameUrl} falhou ({message}); o caminho nome->IP é quebrado embora o caminho IP funcione."
+    },
+    "automation.operator_6647068482edb16a": {
+      "sourceHash": "0a52690c1bd9f1a6c2a2b39d954cba85f7b9b82e6a4423f25347a45a9fef165f",
+      "message": "(sem pastas de trabalho .yuruna/ sob {projectRoot} -- nenhum projeto foi implantado através do framework yuruna aqui ainda)"
+    },
+    "automation.operator_69144d64953b7a98": {
+      "sourceHash": "769444aedef31bde24cfd788b5cc73ed7f43cbb97c0e930b905c161b86555a49",
+      "message": "EXITCODE: {lASTEXITCODE} para o pré-processador: {executionCommand}"
+    },
+    "automation.operator_691593f6f5a4fa03": {
+      "sourceHash": "0c7f6e6d398d42c826219fcd75f30f9d1de8e928d43a1b6d7f2a0efc3c0ba1f5",
+      "message": "tempo de análise sistematizada"
+    },
+    "automation.operator_69b9722682b44fc4": {
+      "sourceHash": "f3328e4190e55434082cd43e161a187319727d39b60d0ed2ad08082a7af56fc4",
+      "message": "KUBE: pod {ns}/{name} tem o {restartCount} reinicia."
+    },
+    "automation.operator_69bcdce303eb8a3d": {
+      "sourceHash": "84c8f73652f589b88eebcdcdff490ba7b66d4ca45571ebcafaa0ca06568ce810",
+      "message": "Não foi possível escrever o log de configuração ({message}); o resto desta execução é apenas para consoles."
+    },
+    "automation.operator_69ccbdc3edf66706": {
+      "sourceHash": "2d1f11427ee6a6c12c2e5a102f01a65af2df0c0abdd7c039e085c604adb9451a",
+      "message": "Árvore de processo de corredor Yuruna (descendentes de inner.pid/runner.pid)"
+    },
+    "automation.operator_6a25d0419bde0a78": {
+      "sourceHash": "f474708a7b7d2671a126591e57570f43148775d8f25d338379affc35ddb17682",
+      "message": "estatísticas de docker -- no- stream (contêineres em execução)"
+    },
+    "automation.operator_6adf8d997a5873b0": {
+      "sourceHash": "dd9ea0b1bc12be5a260bc1457623ee80add302a67e186f75519742b2bbe85030",
+      "message": "--- {healthUrl} (publicado pela cache) ---"
+    },
+    "automation.operator_6b1227d43bb8ae6b": {
+      "sourceHash": "ef130e00ccd9da6400a8e7f8c8ca149a7d1e84cc96e19e5681bcb36a155f3826",
+      "message": "processos de entrada de kubectl (scan de máquina)"
+    },
+    "automation.operator_6b21049f8cccfe28": {
+      "sourceHash": "374c5d259e7e0010daf9bebc97aedb908d1d0c6e4f39876689d8b54c00e5dbe0",
+      "message": "CLUSTER: Um ou mais nós não estão em estado Pronto:"
+    },
+    "automation.operator_6ba42815e2c0ef04": {
+      "sourceHash": "e1dd6cbbf9873ffadbbd78234203648f1b9d09b02cad2f0bdd2182295a802aff",
+      "message": "(sem arquivos *.log)"
+    },
+    "automation.operator_6bb2b40cf71cf7e1": {
+      "sourceHash": "4ae5e794df0b5a2e4c1dd64a7889d237d065e371ff9de7962c31118b554aa19d",
+      "message": "Tempo limite da sonda (as imagens da doca não voltaram dentro de 5s)."
+    },
+    "automation.operator_6d8cf5a6c9945be5": {
+      "sourceHash": "6f5fd14219954039089103dd53a2a44f01fa2c563b2af808bebf7c0464bf14e9",
+      "message": "(nvidia-smi não presente; usando o backback da plataforma)"
+    },
+    "automation.operator_6ddddbd8ec8625e1": {
+      "sourceHash": "89c7a99ae74a8ffc7d8db0591d1a6b721722b51b446f3a8d7d719f088db1dec6",
+      "message": "sonda de compilação:"
+    },
+    "automation.operator_6e7a5d7d1bd2a516": {
+      "sourceHash": "372077c83f05226a365737fd79100f4575fefe91a23bbfe183c00110a876a013",
+      "message": "(egresso do proxy {proxyHost}:{proxyPort} inatingível: {gateMsg} -- skipping endpoint sondas)"
+    },
+    "automation.operator_6f0c94761254ca79": {
+      "sourceHash": "7befb561b54bc513da70881ceae4d5b06704c8fd17c13490cd3d2076ab5eb191",
+      "message": "Origem do espelho de pacotes (direct -- sem http  proxy no env)"
+    },
+    "automation.operator_6f2d0aef178bf1b3": {
+      "sourceHash": "0f41fe924f489bdf6d48531d9f339b26e9cdbe4a3022b67ba44658bb873a8872",
+      "message": "(sem erros na última hora)"
+    },
+    "automation.operator_6fc61f0366ccc45e": {
+      "sourceHash": "eec084b46f968e1dc8e5fb9b3edef931902c09da9a50cd979276d67392062d20",
+      "message": "{canaryTag} FAILED após {elapsedMilliseconds} ms (cap {registryCapSec}s): {message}"
+    },
+    "automation.operator_6fd9ccb12f673bfb": {
+      "sourceHash": "42b9b0da647517f351ca0086f09283fe541c438f5d91f5e9d2742e482db77e97",
+      "message": "Bloqueado (algo que eles precisam não teve sucesso):"
+    },
+    "automation.operator_7062ead52be3e83c": {
+      "sourceHash": "10bd831243ba2a636e9e36348eafa92be7f650b90073d41551c83fb4268a7c03",
+      "message": "{t} SKIPPED (orçamento de sonda compartilhado de 10s esgotado por barracas anteriores)"
+    },
+    "automation.operator_70a25bee43fda5e2": {
+      "sourceHash": "511182277d7bc1dd4b3408576108d78be0a196f88f80f12509ba6af55ca8276a",
+      "message": "tofu output -json devolveu {} para o recurso '{resourceName}' -- a aplicação foi bem- sucedida, mas todos os blocos de saída avaliados para vazio. O provisionador null  resource sob {templateFolder} quase certamente falhou silenciosamente (sem código de saída, Verifique o {tofuLogFile} e os scripts do fornecedor em {templateFolder}."
+    },
+    "automation.operator_70b856c7f2d86801": {
+      "sourceHash": "846eae84e6b9cb4e5c8a2b189a11333b45b756d6bfac7f3d6679178edfc767c3",
+      "message": "Contexto atual"
+    },
+    "automation.operator_712c78ee18789584": {
+      "sourceHash": "b0819d1eae5ab19bb6172ae778db039173c106bbf31f37174458bd6b5b4b7294",
+      "message": "O retrocesso do leme falhou (saída {rollbackExit}); recuando para desinstalar --no-hooks."
+    },
+    "automation.operator_719107a91a9041cd": {
+      "sourceHash": "9040937904b847d12f94bed8ab62c65a771df6d1cf3ffa8de78df19122a28d0a",
+      "message": "(dmesg retornou saída {dmesgExit}; kernel.dmesg restrict pode ser 1 -- rerun como root para o buffer de anel do kernel)"
+    },
+    "automation.operator_71acf9bf9963db93": {
+      "sourceHash": "32f5ac0cf5498500fb3ad2d3a68b3d7660a53a3a56bfcb8cae5cabf445b751a6",
+      "message": "Soquetes de escuta (ss -tuln, primeiras 200 linhas)"
+    },
+    "automation.operator_71e456ef5ba1bbde": {
+      "sourceHash": "3f7f10ad198af96d6e7023829a49dfbebc5e2b42796d485bb7fbedf1c4691fb3",
+      "message": "(O processo Win32 Get-CimInstance falhou: {message})"
+    },
+    "automation.operator_726f2fd533779220": {
+      "sourceHash": "3a6ce653886aa9f18c8f1ae0d53277935892bc8a690a94d561d46e44407138c2",
+      "message": "(helm not in PATH -- as cargas de trabalho baseadas em gráficos não serão implantadas)"
+    },
+    "automation.operator_72c1075973a89231": {
+      "sourceHash": "937fd251a76400fae1f9fae9f831ce0cd7a469ba15265c88b2614128273baba8",
+      "message": "GAP: {tfStateCount} tofu.tfstate arquivo(s) presente(s), mas leme tem 0 lançamentos em todos os espaços de nomes -- a fase de cargas de trabalho parece ter sido ignorada ou saiu 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script."
+    },
+    "automation.operator_72e28a58e0301f9b": {
+      "sourceHash": "44f111f969d608de098aee839233d1d7c6e7139e922be02b16472d8c52145574",
+      "message": "-> Implementações de gráficos não podem ser executadas sem ele."
+    },
+    "automation.operator_72e2cb646e4c4115": {
+      "sourceHash": "04374682c4fd7976dbfdd41d25dc54580bbda40ce76d110555aa2730cbe27d93",
+      "message": "NETWORK: tcpdump não possui CAP  NET  RAW, então um hóspede que não consegue obter uma locação DHCP não deixa nenhuma evidência de fio. Conceda-a: sudo setcap cap  net  raw, cap  net  admin=eip $(command - v tcpdump)"
+    },
+    "automation.operator_7381c2ff7b092be4": {
+      "sourceHash": "a9e84998f97494f984d163680f24e4924a5fc02f01cabb9c399c749f7e3c9a08",
+      "message": "Nenhum http  proxy está definido, então estes vão diretamente. Os hóspedes obtêm os mesmos objetos através do proxy de cache; uma falha direta aqui significa a origem em si, não a cache."
+    },
+    "automation.operator_748e4216448e7f0d": {
+      "sourceHash": "40ecfba299c0a919ea8971d9acede082a335d87ae18d08abb8a010095e4f1d26",
+      "message": "Painel de máquinas Yuruna: http://{proxyIp}:3000{path}"
+    },
+    "automation.operator_74cd64678d9ced5d": {
+      "sourceHash": "a19c4bf749c13469f0559d6cd3ae2f337c01a3bfcb0384ac77860fef02503cd2",
+      "message": "O serviço de estado da máquina não é acessível. A correção suportada é reconstruir"
+    },
+    "automation.operator_74de2e28a089729b": {
+      "sourceHash": "d2daaf528808a1d5d5f9031a020034c7d94814f865a26e4ae48a8834cbc6269d",
+      "message": "libvirt guest networks (folhas, pontes, dnsmasq)"
+    },
+    "automation.operator_7547f4a3d66ac1fb": {
+      "sourceHash": "d6afe9b4d330521137bdcba4f66efadfe8bd114c42f17424d14219832e75e25a",
+      "message": "REGISTO: a própria sonda manifesto do cache não obteve resposta dentro de {probeCap}s enquanto /v2/ liveness permanece saudável. A imagem puxa resolver um manifesto primeiro, então eles falham aqui, mesmo que cada verificação de acessibilidade passe."
+    },
+    "automation.operator_7564908a891ca5fd": {
+      "sourceHash": "f0dbc00f891209ef4fa04413e5bf48b3ea30c65402041491d2f2d817b0e47f79",
+      "message": "O serviço VMs sozinho quer sobre {resident} em um host com {hostMemoryMb} -- {remaining} mais do que ele tem"
+    },
+    "automation.operator_75654a06afaa3cf5": {
+      "sourceHash": "ce3788daa2f5bec71385f6d38f4cc2e3f0eece29410845476e090207117b4d46",
+      "message": "KUBE: versão do servidor indisponível -- cluster pode não ser acessível."
+    },
+    "automation.operator_75f1073141152b04": {
+      "sourceHash": "b6aa6138dc6f89ac554dbc81f263eecc77ec00e3f01eb1e3ee69061ba487d71d",
+      "message": "Versão Yuruna: {yurunaVersion} - {yurunaOrigin}"
+    },
+    "automation.operator_76bd42e13cff8e8c": {
+      "sourceHash": "ee6089773e6539cea99310b5bd1f5b73590a89763da728d3012748bb364080ce",
+      "message": "Versão do projeto: (não encontrado em {projectVerFile})"
+    },
+    "automation.operator_7734067755bb03df": {
+      "sourceHash": "b589761f136493cacb16991c799a08bc91a5cd0cf294e3fa404e61ce8ead4325",
+      "message": "REGISTRY: a cache respondeu a uma solicitação manifesta no {elapsedMilliseconds} ms (liveness {a} ms). Um tempo de execução do contêiner desiste de uma tração cujos cabeçalhos de resposta não chegaram em aproximadamente 30s, então uma cache neste estado falhas puxa ao passar cada verificação de vida."
+    },
+    "automation.operator_7756a95f3b0dc2f6": {
+      "sourceHash": "3979cef0c94d12d848777461f15846208339e9c67894706151c54037bb2176cb",
+      "message": "Controlador de armazenamento: {driver}"
+    },
+    "automation.operator_77a6787d5a9b9be1": {
+      "sourceHash": "8075c1883f410c66354ea058766953f34fa6674b862cb26e2571a885c44daea8",
+      "message": "(/opt/cni/bin/ existe mas está vazio)"
+    },
+    "automation.operator_77bedab7a23f0549": {
+      "sourceHash": "033964cb757c034f330dbd9255b675b6376b19e4513cc5d1d3a48844979391dc",
+      "message": "NETWORK: A resolução DNS de 'one.one.one.one' falhou -- verifica a configuração do resolvedor."
+    },
+    "automation.operator_77e3426b7eb34748": {
+      "sourceHash": "d4c45911a73e77ad6a8be64e96d6785ae6cd2dd9da79ebd7753d53cad028c139",
+      "message": "A memória VM do serviço não foi verificada: {missing}.{floorNote}"
+    },
+    "automation.operator_77efb8119a26e1df": {
+      "sourceHash": "9930486aebb17aa769e8b52f359fd5a12688bbca75b84da1db691712111970c4",
+      "message": "O arquivo base '{basePath}' âncoras YURUNA OVERLAY {key} mas sobreposição '{overlayPath}' não define esta seção."
+    },
+    "automation.operator_77fd267fe41256a8": {
+      "sourceHash": "27bac560d9f411f82ba68886a2e6b61dd8c1b86c03b4712ea2cddae87197d977",
+      "message": "Sistemas operacionais : {operatingSystem}"
+    },
+    "automation.operator_7828c795bc84626b": {
+      "sourceHash": "6b240678276d9a522e45a30abdef6a9890ed4e2a4e8a10dfbcd3dc243b7e64a9",
+      "message": "Set-ExpandedResourcesOutput: '{resourceKey}' não é uma folha { valor: ... }; usando seu valor bruto. Verifique a forma resources.output.yml se inesperada."
+    },
+    "automation.operator_78d2e6388bf62f89": {
+      "sourceHash": "f35428c01834091d9f0b201ca7dbc2bae5a201a55aae870963fb4776f488a400",
+      "message": "(o Kubectl não pôde listar as imagens da página; não foi possível cruzar o catálogo de registo)"
+    },
+    "automation.operator_796c5d30f7816aa9": {
+      "sourceHash": "48db64cd2e7b18a92e7a1a25561d4f97c20925ee9ed4389cc79f61338903a47a",
+      "message": "EXITCODE: {toolExit} para: {expression}"
+    },
+    "automation.operator_79fc4de78443f4b1": {
+      "sourceHash": "c483e577190e418b9a75f5e363bd380afb8eb1efd93e9c6ab39f4500c192f7ac",
+      "message": "Veredito: {verdict}"
+    },
+    "automation.operator_7a6f4736fc5e969c": {
+      "sourceHash": "84a8e7eb2fc4cba462cc9f723c295e678e0d376024065c6bb7fe94d52ce050e7",
+      "message": "Outra viagem."
+    },
+    "automation.operator_7a8a2cc13729acb4": {
+      "sourceHash": "ececc10e4ccba3b211bd7f2400f56da568dc46e691dfb03ebbb81cc4929d371d",
+      "message": "Autenticação docker-generic: definir YURUNA REGISTRY USERNAME e YURUNA REGISTRY PASSWORD env vars para habilitar o login para '{registryHost}'."
+    },
+    "automation.operator_7b7b0576c0414d06": {
+      "sourceHash": "550156300d3b2a88d7151ae76b3f6394d7645ba511199a2c53cdb886aff701ce",
+      "message": "({suppressed} de entradas de erro {entryCount} são as próprias pesquisas deste arnês -- não contadas como um problema)"
+    },
+    "automation.operator_7cbd86bd81900553": {
+      "sourceHash": "c8c6c287803e7108dd89b6bc5ff45f4be7175c7cf11446eebed2a0a1d6c44cde",
+      "message": "Não foi possível verificar a(s) dependência(s) do {failCount} (veja a coluna Detalhe)."
+    },
+    "automation.operator_7cf438f650a43df4": {
+      "sourceHash": "12180aadf2fe0cd0b22fdac688c3002965e70b3db848bcf483d0a7522bf1dd55",
+      "message": "Comutadores virtuais Hyper-V"
+    },
+    "automation.operator_7d384e5a632109dd": {
+      "sourceHash": "35f9d9eece5e6e8fb60fcea1933e932852976ac0a5a11d040c13756064ea8a46",
+      "message": "(nenhum diretório de projeto no {candidate} -- pulando heurísticas de gap)"
+    },
+    "automation.operator_7f64bfad9ab853d4": {
+      "sourceHash": "e0c3e75600f2bd58072c51cf3c5392fb2a042a50f79074af89955edd290f9fd6",
+      "message": "Autenticação docker-generic: 'docker' CLI não no PATH."
+    },
+    "automation.operator_7fcfb4c365b13187": {
+      "sourceHash": "19cb35c068abbfe8e57ac30eefdb7557558c7090df7aa574211ff233b8584bfc",
+      "message": "Tampão de anel de Kernel (dmesg -- precisa de root; caso contrário, mostra o log do sudo)"
+    },
+    "automation.operator_800be59d158c392f": {
+      "sourceHash": "c376aca7d647c49dd01a7f367640c8652c236589844ed759f053e971e11ad452",
+      "message": "Implantações (todos os espaços de nomes)"
+    },
+    "automation.operator_801a366c249222a2": {
+      "sourceHash": "74c044f42fb99547d4c24d2390f1aa9b067c50d89d4acda7e5baa122cd1e6a64",
+      "message": "Configuração CNI (/etc/cni/net.d/)"
+    },
+    "automation.operator_80503e4a3d349cc5": {
+      "sourceHash": "1266fb8ad79eafd56d6f09b32e61d2000abadfbaf8e217fffc5f79eeefb08771",
+      "message": "/etc/hosts mapeia yuruna-host para {mappedIp} (correspondências YURUNA STATUS SERVICE IP)."
+    },
+    "automation.operator_806ec1c40ae4b734": {
+      "sourceHash": "c75259226626d929836cbd489fc289d1370311afe5af6eba651d97e43e22e8d0",
+      "message": "DOCKER: daemon não acessível (a informação do doca foi mal- sucedida)."
+    },
+    "automation.operator_80a91c7136b5ea24": {
+      "sourceHash": "98c7423da06fd03a58ac88bd062fa6e9fe01dc88c81f8b7b5f96f3fa0b09c976",
+      "message": "{setting}: AC {acText} / DC {dcText}"
+    },
+    "automation.operator_80b291736892294d": {
+      "sourceHash": "2bea50e698f8a80c770df5726d9766cb996040b3f6be78c7280ca0f9f0a6b4b5",
+      "message": "... ({count} linhas médias omitidas) ..."
+    },
+    "automation.operator_81c43d658d161aa5": {
+      "sourceHash": "81d1939fbae211e80c5900120c41b89b12784c325896161cdb3180d549ffa451",
+      "message": "-> Se usar o Docker Desktop, habilite o Kubernetes nas configurações do Docker Desktop."
+    },
+    "automation.operator_825b1a81c52b4a7a": {
+      "sourceHash": "9f1c77531c5d74b5b95b0a4093391d5da5b32d290edb649af441b25727700730",
+      "message": "EVENTOS: Registros de erro do {realCount} Journalctl na última hora."
+    },
+    "automation.operator_82bcd42076e94095": {
+      "sourceHash": "8b4174872db0a63ddc9ef213151b2502c0071fdb1a8cee4637011ff1f0c34d42",
+      "message": "Tipo de máquina: {hostType}"
+    },
+    "automation.operator_82c987150223392e": {
+      "sourceHash": "1d34ae7f33db6dfe815b74120d0631906eabfec04a1c85600a02993ee0c7002a",
+      "message": "O Docker não está a correr ou não é saudável."
+    },
+    "automation.operator_83e94a134a825b6e": {
+      "sourceHash": "d4b3980d0786c3b888195610d45635a491d4ba15fdfd86204139ed6fd616d5c1",
+      "message": "YURUNA STATUS SERVICE PORT faltando ou vazio no {hostEnvFile}"
+    },
+    "automation.operator_842502c243d9b6fe": {
+      "sourceHash": "d904449592d3d21bcc26dc0854f397d1e0900a826a5c25a79070209d39c790e9",
+      "message": "Grátis : {free}"
+    },
+    "automation.operator_8447eca0c0a9d73f": {
+      "sourceHash": "b8fb0efb4d6d4daf8aa4049c6de0098811210ad3d9197b092c997982dcdda12c",
+      "message": "Versões de dependência do {versionsFile}"
+    },
+    "automation.operator_844deaf41917277b": {
+      "sourceHash": "7ebdd94c3cd66d0521258ff70e9f560116d680366fa07809b3c50125fce51382",
+      "message": "Arquivo de resposta {answerFile} não tem seções; deve ser um mapeamento YAML com configuração: e chaves de armazenamento."
+    },
+    "automation.operator_8673902ca1f57300": {
+      "sourceHash": "1f3c8d0e27fb4bc8f8ae0e0cca19ff0b7901709ff64bc01bc1a72187cf9c9770",
+      "message": "Recurso sem nome no arquivo: {resourcesFile}"
+    },
+    "automation.operator_86af45ab06fb8dac": {
+      "sourceHash": "05db0a12ba81662f73ea6adb3168afb581ec45b52388508099d2137563bf2687",
+      "message": "system profiler SPDisplaysDataType (truncado)"
+    },
+    "automation.operator_86ef52add548f1a6": {
+      "sourceHash": "a04f202bf30bb5a44a4dd912f70c6dffaf061510cab4b489757b7a2f31620288",
+      "message": "Corrigir {answerFile} e executar novamente."
+    },
+    "automation.operator_87bad0326d09536b": {
+      "sourceHash": "671d9397319a9541763bc81bb8dac56f06eb5d2b75026ec01d1b6446b3cbd2aa",
+      "message": "(sem regras comunicadas, nem texto de erro)"
+    },
+    "automation.operator_87bba5430b63c2ef": {
+      "sourceHash": "b66624c3426dde7d21a8abad2cf10c4bc50adae0c1d736f6f595c7fad956e776",
+      "message": "HELM: o leme está ausente, ou está presente, mas não executável (um binário corrompido ou de comprimento zero)."
+    },
+    "automation.operator_87fbc44e5784e7ea": {
+      "sourceHash": "3e80ef5df3e6a23adeb9b76a5833b5b1a8c5fc6d04fd47b6ceaf0186d8353982",
+      "message": "Relógio máximo : {maxClockSpeed} MHz"
+    },
+    "automation.operator_8833009c9a699b81": {
+      "sourceHash": "e5d25e755910191acfaf6a3f624f6280fa9b931b3df7fb313348846488473aa4",
+      "message": "(arquivos {filesScanned} digitalizados, {filesSkipped} ignorados, {totalMatches} linhas correspondentes, {linesFiltered} filtrados pela lista negativa)"
+    },
+    "automation.operator_883c24367a7311b4": {
+      "sourceHash": "46f5b408216b2d8faf328185296600d9a356228cd25e39d1b646af73cc8cfd89",
+      "message": "(dacker info probe cronometrado após 5s -- daemon provavelmente encravado)"
+    },
+    "automation.operator_88570e5c6483f2df": {
+      "sourceHash": "840b97ef46c3fce7413cf2b31e40ca041f87b7a2d25908fa569ff2802baffb26",
+      "message": "(Jornalctl não disponível)"
+    },
+    "automation.operator_886762e8e63ddc51": {
+      "sourceHash": "e7f8e4c4e4e2c748694fafda1d9d8efdc20332195b45cb9d63d8c8eaac7b696f",
+      "message": "(Get-VMswitch não disponível -- Ferramentas de gerenciamento Hyper-V não instaladas)"
+    },
+    "automation.operator_886b6f5d510a69fb": {
+      "sourceHash": "b32c669d9061ec764659f6a5fb355163059efc5d5718b887ec272663ec4ac163",
+      "message": "Não encontrado pasta global: {templateGlobalFolder}"
+    },
+    "automation.operator_886f4b1b1e46bc84": {
+      "sourceHash": "5e2200398c00679179701e83a07e3c0ad5438c4132c97435d40412693acafa86",
+      "message": "O egresso passa por {proxyHost}:{proxyPort} ({proxyUrl}); reportando viagem de volta via HTTP CONNECT."
+    },
+    "automation.operator_88d94868c16da4b7": {
+      "sourceHash": "d3780447cd4ac5d70daff204937ec9155613752d8aa3f29c8969d6892e274d71",
+      "message": "O contexto de origem do K8S não foi encontrado: {sourceContext}\n"
+    },
+    "automation.operator_890c2539295306b9": {
+      "sourceHash": "2e3537c84be5de22f3de7f540c43c5a024f63679f13229e3f8f0875543bc3e75",
+      "message": "Tempo de funcionamento : {totalHours} horas"
+    },
+    "automation.operator_892002ebf63081aa": {
+      "sourceHash": "9a7f9ef71e58aecf1ed492e06dda7c87c05661d34b3e2c873758e8008a166264",
+      "message": "repo de registro '{repo}' -- referenciado por {count} container(s)"
+    },
+    "automation.operator_8aa84a9f7af375bd": {
+      "sourceHash": "f7f2f3a8d0b350a8a3356de3429bfd78c48a77d0acaed04fdbbc54799e8506be",
+      "message": "SWIFT: swiftc não pode produzir um binário -- o caminho rápido Vision OCR está em baixo (ocr vision slowpath). Correção usual: reinstalar as Ferramentas de Linha de Comando (xcode-select --install) ou repontá- las (sudo xcode-select -s <developer dir>)."
+    },
+    "automation.operator_8b1cc72a282b2b00": {
+      "sourceHash": "92cf816625a8a5690c4f3e6b36e31c05531b93915f713aaf6904ff593f1c3b24",
+      "message": "{v2} HTTP 200 em {livenessMs} ms"
+    },
+    "automation.operator_8b61ddee871d0168": {
+      "sourceHash": "4872e14fedb7e67b000128c0269fca55904c9e4c0fb49a68a6fefc8c4ef9f1b8",
+      "message": "NETWORK: proxy de saída {proxyHost}:{proxyPort} inatingível ({gateMsg})."
+    },
+    "automation.operator_8b8f2d24872ecf9a": {
+      "sourceHash": "dd827057481c12e3a142c8d0fc21cb86f07039b6ab4da627bebc78ef61d79ecc",
+      "message": "Sobreposição do ficheiro não encontrado: {overlayPath}"
+    },
+    "automation.operator_8c7476793d8974ca": {
+      "sourceHash": "c3ee455a982fcddf72a07460e83e90698c6d480c78e85c2f7e14e8d10ec9b02b",
+      "message": "(no /etc/cni/net.d -- Kubernetes não configurado aqui)"
+    },
+    "automation.operator_8cc3b54d17ecd066": {
+      "sourceHash": "601514e86154168caf5705503b33a899382c318aa3f632120b2f20f8a3bf4a6a",
+      "message": "cargas de trabalho do yuruna [project  root] [config  subfolder]\nCarregar cargas de trabalho usando o Helm como ajudante."
+    },
+    "automation.operator_8deabd038eb2770d": {
+      "sourceHash": "c2d99e38e042931a176dcefe8bfdce0002382c66462b6b4f41e605216e56e5df",
+      "message": "CLUSTER: Nenhum nó pronto relatado."
+    },
+    "automation.operator_8e17815082cb03cd": {
+      "sourceHash": "5dfd165fa9547d533670d62d15e88289575ec66a662b9b5e6d1f25599c289e53",
+      "message": "-- Inicializando: {resourceName} do modelo {templateFolder}"
+    },
+    "automation.operator_8e214cf40db4bf91": {
+      "sourceHash": "a88938145ae5f5fc509c319aca2b37677cf8f064123299962d722c5dc3e4ddbc",
+      "message": "DOCKER: tempo limite da sonda (dacker info --format json não retornou dentro de 5s)."
+    },
+    "automation.operator_8e387ee6ac99f4e6": {
+      "sourceHash": "5a7e87291cc1dda2077a55db73fad34eab15f0e436f219e7f1827577db12103f",
+      "message": "Origem do espelho de pacotes (rota http proxy GET/cache)"
+    },
+    "automation.operator_8e9c512867ac6ba2": {
+      "sourceHash": "cf735b8dcaa95f7156be44c993950021ccbae32d3a0a051b5890ce01b8517b49",
+      "message": "(analisar sistema não em PATH)"
+    },
+    "automation.operator_8ea0ca42f7ecc9f7": {
+      "sourceHash": "4b349db7471c020c865226676c54e092f4b3493e91e264816976c0f9da01292b",
+      "message": "MUDANÇA <iface> : {count}"
+    },
+    "automation.operator_8f5850e67eb6453e": {
+      "sourceHash": "d28af3cb84bcbc47b45edbc37ea670ca7066abaec392bcba039de986e1ef2782",
+      "message": "versão do kubectl"
+    },
+    "automation.operator_8fbc9fb190730004": {
+      "sourceHash": "13e82b29aeeb085f86ac36c1ab188c772239b2aae74643695c867677a262dc5f",
+      "message": "Não foi possível abrir o log de configuração no {target} ({message}); esta execução é apenas para console."
+    },
+    "automation.operator_906db62350cd0764": {
+      "sourceHash": "cfec623f15d30ae7497d00903a6d856f3f14ea211c3e546548af576831eda1e4",
+      "message": "(A informação do BIOS está disponível apenas através do Get-ComputerInfo no Windows.)"
+    },
+    "automation.operator_90d269f47f52341e": {
+      "sourceHash": "ced7015223364d1b10e6b1e7add92de852ef70370184b6bf091e6fa467a458b8",
+      "message": "Versão do Yuruna: (não encontrado em {yurunaVerFile})"
+    },
+    "automation.operator_90f26461d4a00353": {
+      "sourceHash": "38ee41d89b892781ef48b7b1cfad4268426d89e37ac2caa5e02210f912fcca3a",
+      "message": "O destruição do OpenTofu falhou (sair do {destroyExit}) para o {resourceName}; preservar o {workFolder} para tentar novamente"
+    },
+    "automation.operator_912a7349029915c6": {
+      "sourceHash": "01ee2491396c4c5dff73c51ce740ab6c264c120f3c793aa48683f2712f137e76",
+      "message": "Nada nesta execução pode ser ignorado -- o proxy de cache é o que cada instalação de convidado passa."
+    },
+    "automation.operator_91db0522b1d981fb": {
+      "sourceHash": "59132d2c7a873e7511f2c28faff4ea7ce49cdcce85e4d53fe0f0ef530ab9f383",
+      "message": "networkctl status --all"
+    },
+    "automation.operator_926bc2ef75b29511": {
+      "sourceHash": "0ba6f0b45ff6e134bb812e72435adaa1b90104dbe71f3e9a96795dc89d2cabb1",
+      "message": "Diagnóstico completo."
+    },
+    "automation.operator_92b000bbc8fbfa86": {
+      "sourceHash": "6b27f91c6a683da5ea07fb13c4e43a82e79006c9eb958f8c505e24c2de03611d",
+      "message": "comando docker não encontrado no PATH (ou presente, mas não executável)."
+    },
+    "automation.operator_92cf51282b025cb1": {
+      "sourceHash": "e0b1edc71bb47cb5340089ef8fd41fe044dde69546b29be3d49a7de873119836",
+      "message": "Este hóspede não tem a configuração do host yuruna."
+    },
+    "automation.operator_92d670bc7925ddf3": {
+      "sourceHash": "d4eafcf453c6e060a4d14975e6c813762b1be8c4fd1e5cd9ead93fe09ce96437",
+      "message": "Falha na descarga do apt- config: {message}"
+    },
+    "automation.operator_92e7c51c10f09b59": {
+      "sourceHash": "f8949dfb310ee73ad94f4077e5f72cfab40a7b185765c6dab36cf222e9123fbf",
+      "message": "INSTALL: Curtin viu pelo menos {count} retry/timeout/connection-error lines -- proxy ou mirror era lento/inalcançável; verifique o bloco apt em autoinstall-user-data."
+    },
+    "automation.operator_9378f57b64553a05": {
+      "sourceHash": "57c93e4141420d5b9370d6184f611f0c67a61401bf3a9bfa81c6c0bbe7a5e24e",
+      "message": "Modelo : {model}"
+    },
+    "automation.operator_93f5be3ae63d7cac": {
+      "sourceHash": "261ea3496e123dfe0f5283811f7326a4d8de14b35991c9e41d9576530a6139b0",
+      "message": "voltar para https://raw.githubusercontent.com/alissonsol/yuruna/... -- ou seja,"
+    },
+    "automation.operator_93fe53da38102f00": {
+      "sourceHash": "d532a6f9b4f3c4900766ecaaa09a0c235b88ed2595d18014664370c052ddce33",
+      "message": "memória: {committed} autorizado, o host tem {hostMemoryMb} -- {remaining} curto"
+    },
+    "automation.operator_94449206290537fc": {
+      "sourceHash": "0155c0ec2cd7eacda303a86a84323d788dab00efbd8e76ba9a5cb95219cca24d",
+      "message": "(tabelos não em PATH)"
+    },
+    "automation.operator_94793b409f5adbb8": {
+      "sourceHash": "f63e653c41d19755ddda0825fd7da7575670abd5783e75fa8a3a6f4ea1717c18",
+      "message": "(no /var/log/yuruna -- guest update.sh não foi executado, ou seu wrapper pwsh retry foi ignorado)"
+    },
+    "automation.operator_94cff3770e209f03": {
+      "sourceHash": "8e1e7a30d12ea2f4d5dd9caca818d9831b0568f4b42b4ab4903727ac7f8b0348",
+      "message": "Heuristic 3: cluster Pronto, mas sem pods de espaço de usuário"
+    },
+    "automation.operator_9504b598bf631fce": {
+      "sourceHash": "1e1ff7b8ac5a7a262e1adcc64a1f4e08a46fbbd6edf51a67eb6ae446581ac529",
+      "message": "REGISTO: o cache pull-through no {registryBase} não respondeu /v2/ -- os hóspedes puxam apenas dele, então cada imagem puxada nesta máquina falha até que ela volte."
+    },
+    "automation.operator_951861044b696fe1": {
+      "sourceHash": "302b184f984780e6541263060e4b2f0fe95ea43829558480956f2aa8690c739e",
+      "message": "O endereço MAC '{macAddress}' não tem o conjunto de bits administrado localmente (primeiro octeto 0x02); pode colidir com hardware real na LAN. Considere um primeiro octeto como 02, 06, 0A ou 0E."
+    },
+    "automation.operator_95b70a8cbc67dfd3": {
+      "sourceHash": "f6bdb0682b921789f0025c9b382360a53da7d3aea74d4c789331d70394633c96",
+      "message": "Para habilitar a comunicação VM de serviço, permita o tráfego para sua subrede de rede local."
+    },
+    "automation.operator_95bd2668cfa67b2b": {
+      "sourceHash": "433376f06a91e7ac8ce53773291c3698af0b937f2e559d4e2645322bce86ed02",
+      "message": "Processamento de configuração:"
+    },
+    "automation.operator_966e9d1dffe3cee1": {
+      "sourceHash": "3aef8c256ddf78b06567b121833552a368b73f5fcc3a9bfda230e822b1334f6c",
+      "message": "({tool} sonda cronometrada após {timeoutSeconds}s -- daemon provavelmente encravado)"
+    },
+    "automation.operator_9676f7771566a233": {
+      "sourceHash": "b8043811b2dbcd2d636b1cac28a0e6f4d57697f2bca1567a1d0295585a107989",
+      "message": "Todas as operações de VM Hyper-V exigem."
+    },
+    "automation.operator_96ad56a16e901bb7": {
+      "sourceHash": "52c348b9b04dc53151a0d7db004e2c0189ba47c4a44442f05217088fb4045365",
+      "message": "(... {count} mais entradas omitidas)"
+    },
+    "automation.operator_96f6823edc565c32": {
+      "sourceHash": "040cad15d66de9827543d7b489053c4a7fda3ea61feda6a4e2fa6bf835beefeb",
+      "message": "(ss não disponível -- install iproute2)"
+    },
+    "automation.operator_97598358f835a356": {
+      "sourceHash": "8e882ad1968f982e49b49bfe1fa347060656332fb41ac4f4f91b0005697067df",
+      "message": "Serviços (todos os espaços de nomes)"
+    },
+    "automation.operator_977327e4a8e5b75a": {
+      "sourceHash": "d833036f6d12a282600cf0b38c7036cb695ab4f7cc0814fd7aac4e6a82e85b33",
+      "message": "(mesma página por endereço, se o nome parar de resolver: http://{proxyIp}:3000{path})"
+    },
+    "automation.operator_97aa0bbd89aefd9a": {
+      "sourceHash": "1d6cd95f4d21d7b9d90636c5635d8c4ecfe87edc45a554c2a6e873ac41d4ac76",
+      "message": "{lastWriteTime} {length} {rel}"
+    },
+    "automation.operator_990b0100f26b0d55": {
+      "sourceHash": "159fcc7636900dc6133921fd40831703b8897cd3968c25d9eb2c6bb6a6206f64",
+      "message": "Mover para um NAS mais tarde é uma repetição da etapa de armazenamento, não uma reconstrução."
+    },
+    "automation.operator_9911832dfc6a1a02": {
+      "sourceHash": "918c11c4958bb9430d9eba4989de7f879a16651ec14277b27f70e8a32a6a6d14",
+      "message": "(o directório existe mas está vazio -- nenhuma acção pwsh retry foi executada ainda)"
+    },
+    "automation.operator_9928c4ddab42f536": {
+      "sourceHash": "99fd7a6de18b97dc71d630ec237b3bcd2d22a5a190c06a8aaad89e9ae7ea0089",
+      "message": "{cloudPath} (lida, cauda 200)"
+    },
+    "automation.operator_99a7029eb87427d9": {
+      "sourceHash": "fa5c9ddeab461d77ef67b4c91db50ae16f8644f1b22a0b9270501342ac6eec70",
+      "message": "Cargas de trabalho nulas ou vazias no ficheiro: {workloadsFile}"
+    },
+    "automation.operator_99c6f7bd7b0f53a1": {
+      "sourceHash": "c7c21e0d0680c1afd308e4172ee0c03f4dbb54be00b327856b603694cdda6cde",
+      "message": "topo - l 1 (cabeçalho PCU)"
+    },
+    "automation.operator_99f43b55d16c10d9": {
+      "sourceHash": "51b3c78053844e055211d67c708bd645cdfbffa4d4122e6702bab6729ee61d25",
+      "message": "Carga % : {loadPercentage}"
+    },
+    "automation.operator_9a08e978373feffe": {
+      "sourceHash": "f37d9790aa7fd9da1fb21427c46738065198ad5e7b8be732e3fc11b24578d68c",
+      "message": "-> Executar 'kubectl obter nós' manualmente; o cluster não relata nós scheduláveis."
+    },
+    "automation.operator_9a305d78bd89da96": {
+      "sourceHash": "9c411404b0c0d55c649b46893b46d8e55256c1b349e3a7d753fdbafa4872726e",
+      "message": "Este laboratório usa ações LOCAL nesta máquina."
+    },
+    "automation.operator_9a7a2b89b445e955": {
+      "sourceHash": "e1de0f9319c35a4a1d10dab9293ac7bfae699a88d4ccc9ff18e9a8f30ce35391",
+      "message": "Ficheiros completos de *.stderr.log sob yuruna repo root (verbatim, para tofu/helm/kubectl/docker post-mortem)"
+    },
+    "automation.operator_9a85e0c370a533d9": {
+      "sourceHash": "ac5577e204f464c9f8da9334d42289c9ce1c43bb1aba942d180dd63e9ceccf02",
+      "message": "gerenciamento- OS vNIC: presente ({join}) ipv4={ipText}"
+    },
+    "automation.operator_9aae0dfbbf78d36e": {
+      "sourceHash": "e8153699b9566a9e4b72ac1bb1ae4b806bf38b8c088c59383acdb2fbea212463",
+      "message": "2. inicie o servidor de controle de piscina com -- auto-enroll"
+    },
+    "automation.operator_9afc6dc3fd49c033": {
+      "sourceHash": "03aa7501140417322cd76d28b6113905a9e0c4fb5f0dcf48d3dbb313873d7f80",
+      "message": "(caminhada descendente em {treeCap} processo(es); crianças mais profundas não mostradas)"
+    },
+    "automation.operator_9afcda1ae598ab10": {
+      "sourceHash": "57e91622a2caabd4642a3452eadbd462915bb7fd06e5dd061cb61cfcb89b9c2e",
+      "message": "(ponte não no PATH -- o utilitário de ponte do iproute2 está ausente, ou /usr/sbin está fora do PATH desta conta)"
+    },
+    "automation.operator_9bcfa00b94f40a2a": {
+      "sourceHash": "ed01f4d35fea962b2a9db5e8b6c108aa4cd762867c8c8d66462427c497d06636",
+      "message": "{problemTag}: '{tool}' não é um executável executável executável executável."
+    },
+    "automation.operator_9becc4a51e2efe4f": {
+      "sourceHash": "5f45a31f945395b0515c980a3f3809b572992fb2d4315c2460f4c5f5d1a2a5b4",
+      "message": "As coordenadas yuruna-hospedeiro assadas neste convidado estão ociosos ou o"
+    },
+    "automation.operator_9cf3996f93916a8c": {
+      "sourceHash": "571323260b4ef32aa3d46e228228362ee486e3db2fcf9bd75e514f5d6fe7eab6",
+      "message": "(no *.stderr.log em {diagScanRoot} -- nenhuma fase produziu saída aqui)"
+    },
+    "automation.operator_9da6aea5b3ca9c8c": {
+      "sourceHash": "6323d7bfff4eed99e1e41d4f0bdf6bf54d47b1c41a3dce3ea597aa34f69f9a56",
+      "message": "-> Instalar kubectl: https://kubernetes.io/docs/tasks/tools/"
+    },
+    "automation.operator_9dcd9b109c2d9e64": {
+      "sourceHash": "cd9adc7da48277daea02d5261f469421062515f80d7e810d1c2a4b2542e54e60",
+      "message": "(o ficheiro está vazio)"
+    },
+    "automation.operator_9e426b0a65404260": {
+      "sourceHash": "97a049a30bba9d4b23e272411746e3742d686ff46e9ae2d0785cb1f545acedf5",
+      "message": "KUBE: {count} Eventos de alerta presentes (ver kubectl get events - A)."
+    },
+    "automation.operator_9e80c4507aa91ce1": {
+      "sourceHash": "8c4074f0b9932c14347e95f702a290c2849de2b95751999ff14a52aba3254ab6",
+      "message": "INSTALL: subiquity  send update disparado pelo menos {count} times -- o modelo de rede está sendo re-emitido (IPv6 RAs, mirror retry storm, ou flap VF)."
+    },
+    "automation.operator_9e908d7d9bc23dd3": {
+      "sourceHash": "161fd36eb9a251ca36edfc93dfce114b79746d4d6cc6365a2e0df53788348fc6",
+      "message": "Total : {total}"
+    },
+    "automation.operator_9ec31ed2e8859fe3": {
+      "sourceHash": "a7ecc4772c6d8289d9230c3af7844a6fa6de7d0e5658e65bfa395264ed17c6dc",
+      "message": "O contexto do K8S '{contextName}' não é utilizável (aglomerado não acessível ou contexto não encontrado)\nArquivo: {workloadsFile}"
+    },
+    "automation.operator_9ee6bb00d3a4a86f": {
+      "sourceHash": "a5ca0f376a103cc19832cc3d9f51be9b728634571aa831a3bd59b3959894b4b6",
+      "message": "{answerFile} carrega seção(s) este script não lê: {join}. Esperado: {join2}."
+    },
+    "automation.operator_9f3473ece2877e46": {
+      "sourceHash": "3a664b00f9c92c8ea00d7bdec9501bae20d8049099cbd47380ebb43c3db77f42",
+      "message": "hosts é manual), e uma unidade de sistema completo derruba toda a máquina,"
+    },
+    "automation.operator_a0085d33a3129918": {
+      "sourceHash": "638e4fbc7c95e2b42b7e7e54ed059ccf3637896b9e6942608cec68fcfd74b037",
+      "message": "CPU: estado máximo do processador fechado em {throttleMaxAc}% no esquema de potência ativa (AC)."
+    },
+    "automation.operator_a020fcb6f53ad8cd": {
+      "sourceHash": "83a210c52f30153cb768408595f8afb9c9ef92fc37cb3f1b5df89c6a943233e4",
+      "message": "Esta execução foi: pwsh {pSCommandPath} {invokedWith}"
+    },
+    "automation.operator_a024c74dba6acc59": {
+      "sourceHash": "5c14b99b55db0a812f62ef38b71c88757a7aa6659fd586de1d5a77ad86397ca2",
+      "message": "Cadeia de ferramentas rápida (caminho rápido OCR de visão)"
+    },
+    "automation.operator_a0594e5a22e6ed90": {
+      "sourceHash": "b64dbdcf37dd9c923a9cdbceada3f98e993f4590e0b20844884c6a996d2ae00b",
+      "message": "HELM: versão '{name}' (ns: {namespace}) status: {status}"
+    },
+    "automation.operator_a07107e65b3dc315": {
+      "sourceHash": "00ae15a6772b5c91d328768c297f8d38459c7eadd9bbbfe3fecbb10160d4d363",
+      "plural": {
+        "variants": {
+          "one": "storage.kind = nenhum salta o serviço {sharedNames}{sharedSize}, desistindo do armazenamento compartilhado",
+          "other": "storage.kind = nenhum salta o {sharedNames} services{sharedSize}, desistindo do armazenamento compartilhado",
+          "many": "storage.kind = nenhum salta o {sharedNames} services{sharedSize}, desistindo do armazenamento compartilhado"
+        }
+      }
+    },
+    "automation.operator_a09a0f237d2b144a": {
+      "sourceHash": "61a110265d85c5fe46f3384c5827337b0308b4749725b118f8ee01e6190dff2a",
+      "message": "Cauda (últimas 80 linhas):"
+    },
+    "automation.operator_a0ec8f6ea6d810ce": {
+      "sourceHash": "d2e4f0a077def73aab7bf148378f517e494709cc594faa4a2b9bc58b7d7f19c8",
+      "message": "Respostas escritas para {answerOut} -- passe com -AnswerFile para configurar a próxima máquina da mesma forma."
+    },
+    "automation.operator_a102b702035dd928": {
+      "sourceHash": "6cec78cba97ba8ead5a546473d93dca44c9895dfb50614a74d8e8875aaf89d43",
+      "message": "-> Instalar mkcert: https://github.com/FiloSottile/mkcert/releases"
+    },
+    "automation.operator_a15f59ef0d1479f4": {
+      "sourceHash": "f69384b981fad5de32c39ed8a62f622c7ff2a9ffb52f3ecd3e245509b4f3a0a2",
+      "message": "EXITCODE: {lASTEXITCODE} para empurrar: {executionCommand}"
+    },
+    "automation.operator_a2a19cf79b334375": {
+      "sourceHash": "846badf327ae88a059bfe70ab9ff8d9afb895f2339736a544f86f9ff3fb6a87b",
+      "message": "Não foi possível reiniciar o valor elevado ({message}). Esta conta pode não ser um administrador local; adicione- a a partir de uma que é, volte a iniciar sessão e volte a executar: pwsh {pSCommandPath}"
+    },
+    "automation.operator_a2f93f5cc132a461": {
+      "sourceHash": "8408389fde3ce67ebe0411117e3a34d761ba0eb24e85dc14fc3edb49a13756e9",
+      "message": "DOCKER: tempo limite da sonda (a informação do doca não retornou dentro de 5s; daemon provavelmente encravado)."
+    },
+    "automation.operator_a2fd0c17817a279f": {
+      "sourceHash": "8b5d04be0f865511f314594b77722f194489902793bb6a4cdf870b64495897ea",
+      "message": "- 'ypool-nas' e 'ystash-nas' mapa para loopback aqui, então cada host unindo necessidades"
+    },
+    "automation.operator_a34795a8608f486f": {
+      "sourceHash": "4550ededc6724bd5a06eb766d2c4a92ee17b9f28570664c8fafaca4a5f85c3ce",
+      "message": "Esta configuração precisa de Administrador: configurações do host, as regras do firewall e"
+    },
+    "automation.operator_a352a82ac44d9d01": {
+      "sourceHash": "f5152559870137ddae6d6102c93de38e353e7f67665e7bf479880549fd25c0cd",
+      "message": "A sondar cada alvo através do TCP/443 directo (sem http(s) proxy no env)."
+    },
+    "automation.operator_a379553e78e3f321": {
+      "sourceHash": "facf56f40410ae8a781e5cb7c9dc62e562d5f1908849214d58cd5c0403e604d9",
+      "message": "{nameUrl} devolveu HTTP {statusCode} (o caminho IP funciona; o caminho do nome degradado)."
+    },
+    "automation.operator_a3928565043bd38e": {
+      "sourceHash": "ace23247b107e285707cadfb28ca4d773a5d1c473924f9733c233cd46a5bb1e3",
+      "message": "{pID} {pPID} {eTIME} {cPU} CMD"
+    },
+    "automation.operator_a393cb03dba55e4a": {
+      "sourceHash": "acf5f90fd880c5f79efb71c111fff8ee6fc2c3b098cf88efe0eed3435bf598cd",
+      "message": "(kubectl não está no PATH; não pode verificar)"
+    },
+    "automation.operator_a3aa7f35af447110": {
+      "sourceHash": "559748e8206565da39619c83bfb44f807334c64c27d50c326f766eb993d3b4a1",
+      "message": "(Informações do BIOS não disponíveis: O Get-ComputerInfo não está instalado.)"
+    },
+    "automation.operator_a447c115b0de3b93": {
+      "sourceHash": "7e04204b7d08fa3bcb2f1e0b71de609368de4a43c4f15465dd33bb1352600566",
+      "message": "MKCERT: Certificado de CA local em {caPem} tem comprimento zero."
+    },
+    "automation.operator_a474a4f862597d0d": {
+      "sourceHash": "115b035f25d8c8ab8d4370735f524e2b751f08cc9ff3328162412771202be0c1",
+      "message": "Container runtime diários (últimos 100 avisos+ entradas, desde 6h atrás)"
+    },
+    "automation.operator_a4bbdffc9ba74919": {
+      "sourceHash": "57628a2ea389f585e5495117c71d421f1a24dd2a0a24eff1032a28f983504694",
+      "message": "{cmd}: (não no PATH)"
+    },
+    "automation.operator_a4e0c8c241287bb7": {
+      "sourceHash": "e5cee228ebe7403f688149ad1d1b79a14800f30dcd428b5e770f3654b532e506",
+      "message": "Versão do sistema operacional: {caption} (construir {buildNumber})"
+    },
+    "automation.operator_a594feac6339b77c": {
+      "sourceHash": "b3431ce5a114784ba84f6f07c2a6bb6ef08c62e8478502cd3d874404629b4b83",
+      "message": "{fullName}: (não foi possível ler: {message})"
+    },
+    "automation.operator_a5d3784c19c2e8f7": {
+      "sourceHash": "d870c3aae8a61c3313d4e2096b5687621a1d12a13b5b73e78af6dc1de3840a49",
+      "message": "Tarefas planejadas para uma configuração {setupType} no {hostFolderName} :"
+    },
+    "automation.operator_a5f5181e50794260": {
+      "sourceHash": "8b22bd6b80276592859e415a4ad3234e897746a73339f04faf855dfbff5faa60",
+      "message": "Problemas detectados:"
+    },
+    "automation.operator_a6692253a1a34a18": {
+      "sourceHash": "3e32d07fae6456c40e03d5491ac3bb89ee6f4ea2438753a335d355d30a398784",
+      "message": "O endereço MAC '{macAddress}' é all-zeros; os hipervisores rejeitam-no."
+    },
+    "automation.operator_a6a3fec0977d82a0": {
+      "sourceHash": "1b1292bf210753670fcc333e308c2ced3ec35c052325984c057425d6d2a1e2da",
+      "message": "-> Iniciar Docker Desktop no Windows (não encontrado no local padrão)."
+    },
+    "automation.operator_a85e6d3c95a02f33": {
+      "sourceHash": "c537416535b4d3ae7c53e56f02a816a074164faaa6a0bcdc5edbb0d5177477ac",
+      "message": "azurecr Authenticator: 'az' CLI não no PATH; não pode executar 'az acr login'."
+    },
+    "automation.operator_a864244a08aca6fd": {
+      "sourceHash": "7da91d714a3abda6cf9303f1150ea2b94c5893aa2591ae30eb5591a3c2bcd0c8",
+      "message": "sistema de docker df"
+    },
+    "automation.operator_a8ad0a1fc36b0005": {
+      "sourceHash": "7e93e2c1088e842e382001cf52850533a8adbc10daefaca7de09a24c24c239af",
+      "message": "(Informações do BIOS não disponíveis: o Get-ComputerInfo falhou: {message})"
+    },
+    "automation.operator_a8f43a580cdc14d3": {
+      "sourceHash": "a410ce29413763d2a6644fb8e9e1ebbc1c91624852f79faf7fd9f8ec3f8dc50f",
+      "message": "Rota padrão + interfaces (netstat - nr lumina; ifconfig brief)"
+    },
+    "automation.operator_a96e14d3e499c9a0": {
+      "sourceHash": "a27401df05a8fbb544fc3e930976280ea25aabbe92dde41fd554012c7d50159d",
+      "message": "(sem ficheiros)"
+    },
+    "automation.operator_aa4ec3163ff01d87": {
+      "sourceHash": "b51847b39ba98fe49c9a76206b98cddd20e0f63244f850cfcd0ff1fbfc20538f",
+      "message": "(lsof not in PATH)"
+    },
+    "automation.operator_aa6008fc30719924": {
+      "sourceHash": "49940c1b48b160838bdcc91eef830368ad0bebaa03fc162436ca6edd3c0762b7",
+      "message": "Este checkout veio de '{remoteSlug}' mas repositórios.frameworkUrl names '{configSlug}'. Servindo o retorno do convidado de '{remoteSlug2}' para que corresponda ao commit sendo fixado; um commit de um repositório não pode ser obtido a partir do outro. Point frameworkUrl no repositório, esta máquina realmente rastreia ou executa a máquina a partir de uma verificação dela."
+    },
+    "automation.operator_aa6b37528c8d7be2": {
+      "sourceHash": "a9691e5220f4575ec5e467c9d3da5178e36625f3beef4f0e26fe62e175685755",
+      "message": "(nenhum diretório de projeto no {candidate} -- execute este script a partir de uma verificação de yuruna para povoar esta seção)"
+    },
+    "automation.operator_aa8bf2f60f5da888": {
+      "sourceHash": "08c314fa2dd0017c1a587d7413cc3fc56d4b3568f16ac547614fd9435dd90b10",
+      "message": "Gráfico[{chartName}] variáveis em falta['installName'] no ficheiro: {workloadsFile}"
+    },
+    "automation.operator_ab010829b00c1e08": {
+      "sourceHash": "2f95a2dc87653e37cedfc34c52ed945274f957e7b8118142c15bf4aa7f488132",
+      "message": "{value} PERDIDA: nenhuma versão detectada (tool ausente ou a sonda falhou)."
+    },
+    "automation.operator_abe933a8d836ad06": {
+      "sourceHash": "09d560947e50ba45c38a42b9178e5c1f059861574c59815154f6e35e8bb7f75e",
+      "message": "dmesg grep -iE 'et0'netvsc'hv  o porta-aviões' é o 'aceit ra' NEWLINK' (últimos 80 jogos)"
+    },
+    "automation.operator_ac0d79bc35b11ca4": {
+      "sourceHash": "9ff576215c8b6a324b1b071ef6edf6655a326dff078cc2b7fe71dc5326404225",
+      "message": "(direto TCP/443 a 8.8.8.8 recusado pelo filtro de saída local; nenhum http(s)  proxy no env -- sondas de endpoint de salto)"
+    },
+    "automation.operator_ac1256277a04aa2e": {
+      "sourceHash": "54c9691cb500f3cc903ec0a5a3ec9060a1197a386496e102406407bfe24a4b5e",
+      "message": "YURUNA: {totalMatches} error/ fail/ warning lines across .yuruna/ working folders (veja a secção acima do Projecto YURUNA)"
+    },
+    "automation.operator_ac19e0a29d150ada": {
+      "sourceHash": "f9f21f5d3910c772e2198c13addff74a1cae9e3a7dd9a318795ac1e50f1e1b05",
+      "message": "(ip not in PATH -- não pode enumerar dispositivos de ponte)"
+    },
+    "automation.operator_ac4b5b8a5b1fb746": {
+      "sourceHash": "0ec9fb1858e55e277ade4f655e6b418076ba71c34011b82986010807d102cb14",
+      "message": "LINUX: /etc/resolv.conf está faltando -- a resolução do nome falhará."
+    },
+    "automation.operator_ac55f29eb491874d": {
+      "sourceHash": "6e8c96ff05e853d58ca830e386992b441dc70d9e0f714419a4f3bfca6f53ed2c",
+      "message": "(sem arranque anterior, ou sem entradas de aviso+)"
+    },
+    "automation.operator_acf06d0797fb527b": {
+      "sourceHash": "b48480ee6ebe32caae6eda894d8273cb6c8755b60a3a58cd9ccfb601b8be7b3f",
+      "message": "-> A troca está ligada. O Kubernetes requer que a troca seja desactivada:"
+    },
+    "automation.operator_acfdc6c69e5739b9": {
+      "sourceHash": "ecdc3ea1c828401838fb204a7c810930cb568f14e20d29b2d0c9073989d0798c",
+      "message": "O pré- voo em tempo de execução falhou; não foi enviada nenhuma carga de trabalho."
+    },
+    "automation.operator_ad4c01d36493a583": {
+      "sourceHash": "2fc12c3417e70893a5ed3e74b52a7ae6d8db8bbb87735e356feca5359379c5ac",
+      "message": "-- floresta de processo completo (primeiras 250 linhas) --"
+    },
+    "automation.operator_ad5cd796383abcb2": {
+      "sourceHash": "7eee1bac4825038c9836f3d8a68900065220ca9112805551fcf9497ff16d3ee9",
+      "message": "NIC vinculado: (não avaliável)"
+    },
+    "automation.operator_ad9c42ff8e5e7995": {
+      "sourceHash": "bc245daabe76d5406669cdcd9bcb521bd9e758707e055d51c111d75fa4b6089a",
+      "message": "Resolução-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: {join}. Adicione-os a - Substituição (com valor vazio se intencional) ou passe -PermitidoNão resolvido."
+    },
+    "automation.operator_add466496962fbf6": {
+      "sourceHash": "a8a0b7908862921241d295278461e53f524395f13cddd9388f6d1ebd7ba4ec8d",
+      "message": "YURUNA: {fullName} está vazio"
+    },
+    "automation.operator_af1b6f5726980144": {
+      "sourceHash": "f1e7abcc966c50b44d23b88607a4e0b6fbdc35903b3c5a858e27555408201c78",
+      "message": "Todas as dependências fixadas estão atualizadas com suas versões estáveis upstream."
+    },
+    "automation.operator_af3b08b6cf7fc2be": {
+      "sourceHash": "9f446e9b9a3e7e44c665b70a4d7c5985f5c5676da1c0286ed2961600ec4fe094",
+      "message": "(lspci não instalado; instale pciutils para detalhes da GPU)"
+    },
+    "automation.operator_af544eaa07446367": {
+      "sourceHash": "c9c67a72bc6b68413bc08e44c1b6b3d7f451e55e364063ec9f5735cc6ae37b3b",
+      "message": "(sem entradas do dnsmasq na janela -- nenhum convidado pediu uma locação, o dnsmasq não se registra aqui, ou esta conta não pode ler o diário do sistema)"
+    },
+    "automation.operator_afe1f122a5fe1eda": {
+      "sourceHash": "f8b19a0d1970cc52858739657f27fac317324d61a110eee7962248c7410763cc",
+      "message": "A configuração do K8S não foi encontrada: {currentConfig}"
+    },
+    "automation.operator_b02f124a17d21759": {
+      "sourceHash": "e2fcd9c6ccbbc906cc2eb3e3ef660999dd0a4af44f4a68fa72bf293c3500141d",
+      "message": "(lista de problemas legível por máquina também escrita para {sidecar})"
+    },
+    "automation.operator_b191443e06072bac": {
+      "sourceHash": "550d8228827787cde044e0be8c5971cd47859b19d6376aba0e8353b80ba6a69d",
+      "message": "imagens docker (top 100 por tamanho)"
+    },
+    "automation.operator_b192afb689e5cf6d": {
+      "sourceHash": "ae629d91a2046842a642c7a07cf0671018c5a6cf8439e57e70f6d011ab64751d",
+      "message": "Usado%: {pct}%"
+    },
+    "automation.operator_b2776f3a9666e4d4": {
+      "sourceHash": "37c4d0a3ff00ccbfb575d8a05683a29a0728b9d3a5d6ed98b6065792bc2a87b5",
+      "message": "-> No Linux, verifique: sudo systemctl status kubelet"
+    },
+    "automation.operator_b2baf090b729cd3c": {
+      "sourceHash": "1c4cac1b52460538c9e865013edbd92dd34f7eb8654b830ec15f36435b9c553a",
+      "message": "(virsh not in PATH -- a libvirt não executa a rede convidada aqui)"
+    },
+    "automation.operator_b2bc1409342474de": {
+      "sourceHash": "1eb8c5cc12d51d2600112f405550e8a0918f4e73afa1e2685dd0dc718ada0f6a",
+      "message": "desenvolvedor ativo dir: {join}"
+    },
+    "automation.operator_b2e83136c96ad810": {
+      "sourceHash": "af6fa665efdac7ebf5e0061cb1e431db8ef7f16541f2a14c828e5ec8d844f6b0",
+      "message": "GAP: cluster tem o(s) nó(s) {count} Ready (s) mas zero pods fora dos espaços de nomes do sistema -- nada foi implantado (a fase de carga de trabalho/componentes não pousou)."
+    },
+    "automation.operator_b31e13c9f6666800": {
+      "sourceHash": "395b3b92f34c7edc44a4d26a5f01e45c48d926f3b8f5a0e5e9ebc5a9904a70b4",
+      "message": "não foi possível limpar: {summary}. Execute os comandos listados acima à mão."
+    },
+    "automation.operator_b33c77878eaa7c77": {
+      "sourceHash": "4afef61cc45f8d51857b4b0070cff2c6403307c038235e0051327f83cebda01a",
+      "message": "!! {label}: tentativa {attempt}/{maxAttempts} falhou (exit={lastExit}); dormindo {sleep}s antes de tentar novamente"
+    },
+    "automation.operator_b34ace96616eb2ca": {
+      "sourceHash": "ccfd551ccea712f37609ef51fc2734864e041a2519c88fdc643fe55c9ac0a352",
+      "message": "(nuvem-init analisar a saída da culpa {lASTEXITCODE})"
+    },
+    "automation.operator_b400ae75394f002b": {
+      "sourceHash": "f8325a31bb0b15cfcb05351368e49ae8c4aa25dfe515e8cf7fb29444da603031",
+      "message": "Arquivo não encontrado: {resourcesFile}"
+    },
+    "automation.operator_b4aa23b7a1644d14": {
+      "sourceHash": "9bb3d65ab734a816e31f6a315d2dc75c2e2c20e050a58885149da4991d36aa6a",
+      "message": "Raiz do projeto: {projectRoot}"
+    },
+    "automation.operator_b4b7d067da09b239": {
+      "sourceHash": "983bb80403a4a3a2b7b8dadad8426101667857dee1a24351edd08bdd844dbe47",
+      "message": "a VM convidada do anfitrião:"
+    },
+    "automation.operator_b5362b267131b912": {
+      "sourceHash": "03825496aa21395a1090c56863c128c4d7ca79e265c37a9c777f1cdcd263adb2",
+      "message": "O diretório de saída já existe; escolha um novo diretório para preservar evidências anteriores."
+    },
+    "automation.operator_b5e24639de15386d": {
+      "sourceHash": "d850008c48a25e1c2b358814d074343f4a2e2984ad239681baece7c25d7717a1",
+      "message": "-> Depois de instalar, execute: mkcert -install"
+    },
+    "automation.operator_b5ed33d7f546a531": {
+      "sourceHash": "d7c8ee3740b620bfb79964607a271a19b472b7a9c6168e3008e63b226222dbf5",
+      "message": "(lsmod não em PATH)"
+    },
+    "automation.operator_b5f48e0638856581": {
+      "sourceHash": "63d640626e815d24e3e61ac53df3ea597c4af759b803c1390bf6b71caf8cf61a",
+      "message": "NETWORK: package-mirror fetch over {plainPathLabel} falhou para {count}/{count2} origin(s): {join} -- os hóspedes instalam e atualizam este caminho, então uma falha aqui quebra as instalações do sistema operacional antes de qualquer convidado o diagnóstico pode ser executado."
+    },
+    "automation.operator_b67daf1100c845ef": {
+      "sourceHash": "42349308f613ca4b6ee5911e428f89f3b2430f6a47cc90bea618642771daac9d",
+      "message": "YURUNA: arquivo VERSION do projeto faltando ou vazio no {projectVerFile}"
+    },
+    "automation.operator_b6be1dbdabe6cc70": {
+      "sourceHash": "778eaaf027b9cb29381ea8aee8c451ba4ec4e2bf51db3ceff7d1a916f8d99bb7",
+      "message": "REDE: {count}/{count2} endpoint(s) não alcançáveis: {join}"
+    },
+    "automation.operator_b77f5899ba9b851a": {
+      "sourceHash": "78d3ceb6d686e5e3e1704a10d24610a41f2f9f0404d3770e79f544dd96986067",
+      "message": "MKCERT: Certificado AC local não encontrado em: {caPem}"
+    },
+    "automation.operator_b78019a8c5b4d334": {
+      "sourceHash": "d125b01b41a0367e5f505fe958c73d8e91c3a4e0b5ae607a12ff50a7dbe99cd9",
+      "message": "(nenhum registro local em :5000 ou seu catálogo está vazio; nada para cruzar)"
+    },
+    "automation.operator_b78f57491832bdf1": {
+      "sourceHash": "881387e96e22417b12dda8372eecda7104c6e8ab0fb5487588a1044affa2416a",
+      "message": "(no /etc/netplan/*.yaml -- distro provavelmente usa NetworkManager ou ifupdown)"
+    },
+    "automation.operator_b831671d51bb8258": {
+      "sourceHash": "d9b4a88391ccc387cd59573751b5fd637f18f27c1c4072fe7bc816d15bfaca5a",
+      "message": "Painel de máquinas Yuruna: http://{aliasName}:3000{path}"
+    },
+    "automation.operator_b882a1d97c6d1e64": {
+      "sourceHash": "547ae7c67ddb658f00aa828e573f1164af5e531524b235fc332818414a0bffa6",
+      "message": "REGISTO: o orçamento de pull compartido a montante está esgotado (0 de {limit}). Cada hóspede por trás deste IP de saída se baseia nele, e o pull-through retries upstream antes de responder, por isso a exaustão superfícies para um hóspede como um cache que parou de responder a tempo ao invés de como um erro de limite de taxa."
+    },
+    "automation.operator_b89ad48331af1923": {
+      "sourceHash": "3fa7f60d274d97ae269f8f1a1e644202289d024eaa5425f5fa4e675df0a55db9",
+      "message": "Secção «{title}» abortada: {message}"
+    },
+    "automation.operator_b8a3a38bd4c24074": {
+      "sourceHash": "ebc61625eb6aeb02fc5dc49f11c8a5793e426d62ea32a6d87081d8cdde00b455",
+      "message": "(sem registro no http://localhost:5000 -- isto é normal nas máquinas que não usam o fluxo localhost)"
+    },
+    "automation.operator_b8d9c8f44a701dc0": {
+      "sourceHash": "fe690f55d50ef0ad1c89822f3b36e6e82a1584e90644345f80e3875387d816b7",
+      "message": "(a pesquisa foi mal- sucedida: {message})"
+    },
+    "automation.operator_b97395da00cd6199": {
+      "sourceHash": "57da0e6f3889305e10b331524f0ae1fcaf2ec521a31d396960d81d7be3e59325",
+      "message": "(nenhum em {projectRoot} -- 'yuruna resources' não foi executado para nenhum projeto, ou seu arquivo de saída foi limpo)"
+    },
+    "automation.operator_ba76b3f8b1fdb5b8": {
+      "sourceHash": "07eeac9b9000ed166de4b790af35c5d548e7914174e7159799df65cf0edce51b",
+      "message": "{problemTag}: código de saída {exit} de '{tool} {join}'."
+    },
+    "automation.operator_ba98150f5b113567": {
+      "sourceHash": "53b5b3de63cdd197fb9ae033a3c724aef03dedc477b43b78ccf0526adb6b757f",
+      "message": "Componentes nulos ou vazios no ficheiro: {componentsFile}"
+    },
+    "automation.operator_baf284244c809741": {
+      "sourceHash": "6a76451aa98cd823257a403bf091ae5574e7aa5c6c13ba63c1b0d2ad94115733",
+      "message": "{envVar}='{val}' não é uma porta TCP válida; caindo para padrão."
+    },
+    "automation.operator_bb0c3d93bfb12851": {
+      "sourceHash": "9cfabbc2a88c1e5463791d58660bd34080c8e851d7602483123f99cc47b86ed0",
+      "message": "Nenhuma entrada LTS encontrada no nodejs.org/dist/index.json."
+    },
+    "automation.operator_bb12775978dc7d56": {
+      "sourceHash": "a0260d743152c7c3c3b22d4f167dd63a5ad38d6f3ebc9c630fe5d4006be3bbbf",
+      "message": "yuruna valida [project  root] [config  subfolder]\nValidar os ficheiros de configuração."
+    },
+    "automation.operator_bbbaa5da661ba342": {
+      "sourceHash": "d9ecc0203f5792ba83c6137a1c1dc13f7333807168dbcf908077d10c501d0a0b",
+      "message": "A verificação da conectividade de rede falhou: O tráfego de saída para a sub-rede local /24 é restrito por regras de firewall."
+    },
+    "automation.operator_bbf65c9184e07ba9": {
+      "sourceHash": "52a2234668d1d076d38f584373a89aded0257972c9ac4b0d7e0ea6b94ce95b61",
+      "message": "Versão para servidor : {serverVersion}"
+    },
+    "automation.operator_bbfe9b036024c873": {
+      "sourceHash": "4b357731e0e2d9996ff0a54c6bab7dfd2d0c13c3d7156ac7f5a8dd2694ac0bf4",
+      "message": "Mapas de configuração : {cmCount}"
+    },
+    "automation.operator_bc13de7101298f4c": {
+      "sourceHash": "4a885bbfdc0cea7b9dc60ef544056faa39b3c93def2cb7111d32bc63cfb8874c",
+      "message": "/var/log/yuruna/*.log (conteúdo completo)"
+    },
+    "automation.operator_bc9fc9dd34fb6538": {
+      "sourceHash": "972d6ad0abd8f2701ba41b15b840223b9e45d5693cf04a5dba51ce25d0834d5b",
+      "message": "(estado lido: {state})"
+    },
+    "automation.operator_bd1e95a93c4cad8e": {
+      "sourceHash": "6df0a79e7ec19e3238379d19741883e04e4abf250ce5da7e421d2e06b633385b",
+      "message": "Informação do docker (campos selecionados)"
+    },
+    "automation.operator_bd1f98629ef68eb5": {
+      "sourceHash": "75f90f0dbe13ebb7e526dcd38625abf004882bc46d3eb3c162bf0f96dd613c0b",
+      "message": "Captura de fio DHCP (tcpdump CAP NET RAW)"
+    },
+    "automation.operator_bd3dcda0a121faa1": {
+      "sourceHash": "b985d3579e1cba9954154c9048c4d60b8155018ea1a8dfa4d2d56217ae70ef2f",
+      "message": "{deviceID} size={tot} free={fre} usado={pct}% fs={fileSystem}"
+    },
+    "automation.operator_bd5b8edfeeb6c8d5": {
+      "sourceHash": "43c51e4b3d86d2e9021e164137ffb7564d5f426c56d7199b56859540b005ae50",
+      "message": "REGISTO: A própria sonda manifesta do cache não teve sucesso{else}. As imagens resolvem um manifesto primeiro, então eles falham aqui, mesmo que cada verificação de acessibilidade passe."
+    },
+    "automation.operator_bd923b6990ccc65e": {
+      "sourceHash": "4cd94cac5a5b0ca2ec5c61ed7aca185e4db99ee490364f9296ecac26b0a3f189",
+      "message": "(Get- VMSwitch falhou: {message}; necessita de função Hyper- V + elevação)"
+    },
+    "automation.operator_bdb8150b986b7b72": {
+      "sourceHash": "0e8da453253b4a8339a4e4ad2094aa1ca944f1034133f43b4d926dc6931aaab3",
+      "message": "(sem aviso + entradas nas últimas 6 horas, ou unidade não presente)"
+    },
+    "automation.operator_bdbf233b751e53a0": {
+      "sourceHash": "c026ff5bf66252e35a80227133222d56b898f3a6a98b595c0568c2077ff40bc1",
+      "message": "Feito, com algo ainda desconhecido:"
+    },
+    "automation.operator_be35048de6a6280c": {
+      "sourceHash": "9cc925777c0e6a6d1ad9403709a888f7eba779bcdb22f63ffd7a176d45dc12ad",
+      "message": "status do início da nuvem -- long"
+    },
+    "automation.operator_be415be6232790f3": {
+      "sourceHash": "80315f3e87dc2cfa55a880cacd904364be01ed9fcbfad573a30eec903dcea5c3",
+      "message": "O comando Windows PowerShell (elevado) sugeriu:"
+    },
+    "automation.operator_beb381d52a393ad5": {
+      "sourceHash": "38f17423e84f025c4cf825f8a565be04f3961e1ebc843d5c249a6a40f5913d46",
+      "message": "(networkctl não em PATH)"
+    },
+    "automation.operator_bec7da8072d14157": {
+      "sourceHash": "d56faf735fdfebee3747a304567f31d56eec5a288d046b572468bd49eb518e7e",
+      "message": "(as imagens da doca da sonda foram desligadas após os 5s -- daemon provavelmente encravado)"
+    },
+    "automation.operator_befb68c3b5ba5317": {
+      "sourceHash": "62c3c5444b97c2fb7ce5569020fbeafb0dc6ed87178fa4f28c2392481327ba97",
+      "message": "Arquivo de página grátis : {kB}"
+    },
+    "automation.operator_bf1c637eb978cee4": {
+      "sourceHash": "c315ded28236f22804403f1bf0c378f55336cedf6364453291259b5305689e50",
+      "message": "(detalhes por plataforma: SO desconhecido)"
+    },
+    "automation.operator_bf62fc801f72e42d": {
+      "sourceHash": "2fa57374d075c77dc36c8cb8ebafa59abbd5de02304d43661200dcd9b61b3688",
+      "message": "contas OS locais, um servidor SMB, partilhas, aliases de ficheiros de hosts e unidades montadas."
+    },
+    "automation.operator_bfcbf1a3d4f19f5d": {
+      "sourceHash": "c05a3d364700dfcdc6d002e38844390f0afc04209ad50eff497d5514d1d9171e",
+      "message": "Última .yuruna/ write : {ss} ({ageMinutes} min há)"
+    },
+    "automation.operator_c05e152dacede6aa": {
+      "sourceHash": "37d8a8360626fb93892469760a8a3a681cffea22fb65951f8cf4195d1e003d66",
+      "message": "dmesg - T (últimas 100 linhas, com OOM scan)"
+    },
+    "automation.operator_c08c4959cc86f9f1": {
+      "sourceHash": "f090601fb232b880d470d9837c08f347641c8ce01b911a1b43f84447b9d337bd",
+      "message": "(Get-VM falhou: {message}; necessita de função Hyper- V + elevação)"
+    },
+    "automation.operator_c0d772dace958bda": {
+      "sourceHash": "995c8ecfd97baff9b39419fffb95d000dcc4c8609a1bfb8901096c72fc8480e4",
+      "message": "(a tabela do vizinho está vazia -- nada foi resolvido recentemente em qualquer interface)"
+    },
+    "automation.operator_c1183a01da877148": {
+      "sourceHash": "8ec1c3d8f2743573111fb8f71ba7f63d7b607740739c4057fa5b9875b9026c5d",
+      "message": "CLUSTER: Não foi possível obter o estado do nó."
+    },
+    "automation.operator_c17cf396c249fccd": {
+      "sourceHash": "e8a7881433160ebfed1106dc9c2dcd315a559fbc76ce395edc40394083904c63",
+      "message": "Pasta da máquina não encontrada: {hostFolder}"
+    },
+    "automation.operator_c1e63b1cf5008b04": {
+      "sourceHash": "ff9d88294c439d7d2382127ef555f73c0ee8dd8a7587db421ceafd4cbcca0694",
+      "message": "Aqui começa vazio."
+    },
+    "automation.operator_c1eddd578c2a9c04": {
+      "sourceHash": "83f8535c0296f6ea1fe8a6d6160640c0e9fa429a45214a4470fe7948c0d97964",
+      "message": "(sem processos de gerenciamento de pacotes em execução)"
+    },
+    "automation.operator_c2498d8f40bd3b7e": {
+      "sourceHash": "e8d8eba353cbafc47a1a465e485dcbc5d5f236b1968a3936d03c1c634c2adde5",
+      "message": "Set-HostAlias: '{targetIp}' não é um endereço IPv4 ou IPv6 válido."
+    },
+    "automation.operator_c2d1de94ff3d2321": {
+      "sourceHash": "df44978e3dcfce9a934ec36e0024acb4c1b9c3f8fdbeda0b82e33e9dcfa13b34",
+      "message": "PSRepository / PackageProvider / estado do módulo (foto atual)"
+    },
+    "automation.operator_c31b9b429279d53c": {
+      "sourceHash": "a597920cf204544e60deaefaba76929e02f27f9b11e78841f35824c56f696b8a",
+      "message": "versão docker (cliente + servidor)"
+    },
+    "automation.operator_c4bb0e59cd2b6b17": {
+      "sourceHash": "203e6db7aab7b304788b122c7ce54c160a3f569c15a0c26c9bccf11f797c69e7",
+      "message": "{floorBehind} host-tool floor(s) rastreia seu lançamento estável upstream -- informacional; eleve-os em {requirementFile} quando um host é conhecido por carregar a compilação mais recente."
+    },
+    "automation.operator_c53fba62e994e87a": {
+      "sourceHash": "aa7a24feafc3a43876b6acfcaa2bc030f4f5bacfa301b2ea2a0cfde9bc84d06e",
+      "message": "gar Autenticação: 'gcloud' CLI não no PATH; não pode executar 'gcloud auth print- access- token'."
+    },
+    "automation.operator_c5d7264ec6630cba": {
+      "sourceHash": "fa066da4745d9c89e331fa0d62336fbbf71a38afc2d1b77d0303eebddf488c81",
+      "message": "==Verificação de Execução: ALL OK=="
+    },
+    "automation.operator_c61cf155a222f155": {
+      "sourceHash": "16a03cfb6fe6587883d3328ad836aee09cc28df0f9c531f11ddf16c9320b4b9a",
+      "message": "memória: {committed} comprometida, host tem {hostMemoryMb}, deixando {remaining} para o próprio host -- sob {reserve}"
+    },
+    "automation.operator_c684c661d5615781": {
+      "sourceHash": "faa40e022a3790902e4ec94d2a54fbab60ad6e18092f205a97a6b3c165a8e700",
+      "message": "Arquivo de resposta {answerFile} não é válido YAML ({message})."
+    },
+    "automation.operator_c6903487e18366b6": {
+      "sourceHash": "888dfbfff72ed242a970a8449519eec8a88f90e5d3f9d9e1de2382fde2d8baf1",
+      "message": "component.project não pode ser nulo ou vazio no ficheiro: {componentsFile}"
+    },
+    "automation.operator_c694f7571769d514": {
+      "sourceHash": "30158d54693aa350bca145d4bef447ddfe73992d954f39adcbffaf463748d427",
+      "message": "(dmesg requer elevação; salto)"
+    },
+    "automation.operator_c7337ea5e2763690": {
+      "sourceHash": "c7ac0228a999a113176303e2bb39a7a3da2e7a650f2ec3e17161e200ff6f0e9f",
+      "message": "(ping não instalado)"
+    },
+    "automation.operator_c7e1634dbc149906": {
+      "sourceHash": "b4c46e9930930e08da5efd289e28405da9952977567113bc3027398fb95ade8f",
+      "message": "Tabela de vizinhos IPv4 (ip - 4 neigh show)"
+    },
+    "automation.operator_c897ef5902418efd": {
+      "sourceHash": "c683215eda22d39835a2eb703037ce040a7411726a4f53666e7dcc0c3a755fdd",
+      "message": "Trabalhos / CronJobs (todos os espaços de nomes)"
+    },
+    "automation.operator_c8d5acba93bb94a2": {
+      "sourceHash": "dfeb044a67367f79a868b88e35ee2290bfa49c83495042e524314f793e55232c",
+      "message": "Memória inválidaStartupBytes '{value}': espera-se uma contagem de bytes inteiros ou um número com um sufixo KB/MB/GB/TB (por exemplo, 34359738368, 32768MB, 32GB)."
+    },
+    "automation.operator_c954ba96bb4cba77": {
+      "sourceHash": "71ebc3e5a9fc40096ef3763600504fae8311a92356034dd0f327574119764735",
+      "message": "ERRO DO PROVIDOR DE get-package: {message}"
+    },
+    "automation.operator_c9b26da18f4d0f59": {
+      "sourceHash": "3451642094f6659e134c3d913ca281eb1a853fb3eb479402258bf50373ee8ac5",
+      "message": "Plug-ins CNI (/opt/cni/bin/)"
+    },
+    "automation.operator_caf9b81631b566c3": {
+      "sourceHash": "d6f50a9a94ba87bda002041ef29b5c1d8896ee7af48e7956aecd994b9cbea3d0",
+      "message": "{name} : (não instalado)"
+    },
+    "automation.operator_cb3a96dd4251d42c": {
+      "sourceHash": "c840cd7e32267693536e6575444171f5e47e29f778c86e866efac6150496ce2a",
+      "message": "ecr Autenticação: 'aws' CLI não no PATH; não pode executar 'aws ecr get-login- password'."
+    },
+    "automation.operator_cb7cb002c87ecc4f": {
+      "sourceHash": "59c787f085d8cb37d6e15c59d661835eb64204b16411c4ef6a24222d3bbc521c",
+      "message": "Um laboratório controla tudo isto, por isso a única alavanca que resta é a memória da máquina."
+    },
+    "automation.operator_cc08dcc24c89ccb5": {
+      "sourceHash": "827d332681b4f629f3fec8e45c88fc50f0f9138a8f767a75a215ad64b3d11571",
+      "message": "{cmd}: (não executável -- faltando, não executável)"
+    },
+    "automation.operator_cc2e6d3f0701ae2f": {
+      "sourceHash": "3f34117050698ce322f1f3d5b90ede587ab0fc50afef5f040a9f458e44307c19",
+      "message": "{kind} {remote} montado em {mountPoint}"
+    },
+    "automation.operator_ccb71d2cb4689150": {
+      "sourceHash": "fd28eb0619477c54cdeb5468b17e6f6ebc85de454e65bcea9d5f3dc1c21a7acb",
+      "message": "========== ====== Yuruna setup ======================"
+    },
+    "automation.operator_cd63c049294a2c32": {
+      "sourceHash": "853a70677ac04b723dba6a2fcd894ce1c95f35b2c0d3aece73858ff3ab5ecf1c",
+      "message": "{problemTag}: tempo limite da sonda após {timeoutSeconds}s de '{tool} {join}'."
+    },
+    "automation.operator_cd9e1527d1f146c7": {
+      "sourceHash": "d4dc81b11c3cb48d3ef6354dfdde079ac1d17d6bb955a6092130a208a35e7e1e",
+      "message": "libertações do leme (todos os espaços de nomes)"
+    },
+    "automation.operator_ce09531d5eab7838": {
+      "sourceHash": "ef3325163ec3277769d3f198eb6c5465a63a081cffe2cccdb6b8a2853bd88989",
+      "message": "New-NetFirewallRule - DisplayName 'Permitir Subnet Local' -Direction Outbound -Action Allow -RemoteAddress LocalSubnet"
+    },
+    "automation.operator_ce3524d480509234": {
+      "sourceHash": "3be262fb941a7cc3ecd33c50a63a37490f413bd92457b912650f013089b235a8",
+      "message": "Atualização do leme --install -- atômico '{installName}' FAILED (saída {installExit}, {count} Erro: linha( s)) no {workFolder}"
+    },
+    "automation.operator_cfcb46f2db95508a": {
+      "sourceHash": "4c3bbf6d44c3670726aa1766a260c73958c6cc1f35a8fe97b09ba39f23d72284",
+      "message": "ConvertTo-ProxyHostPort: '{url}' não é um URL http://host:port válido."
+    },
+    "automation.operator_d010ef7a06fe926c": {
+      "sourceHash": "9d8fa4063a7fcea52eb337f55a85269f57c1ab727f06b3f01b2f8e72c7bb5508",
+      "message": "Repita o mesmo comando de um PowerShell elevado (Start-Process pwsh -Verb RunAs)."
+    },
+    "automation.operator_d040472089a90429": {
+      "sourceHash": "bbbce80cfc42e993a5b606a1c4724bd6c539935a292a45bac373759425bac06f",
+      "message": "A resolução raiz falhou; nenhum componente foi compilado."
+    },
+    "automation.operator_d06b949771ace46b": {
+      "sourceHash": "ae5f859f37b45368fc3205197f80da69badd93db28e5ee9f5405bd17a88c112c",
+      "message": "PROBLEMAS DETECTADOS"
+    },
+    "automation.operator_d0a19f78bb71a684": {
+      "sourceHash": "2fa5956fde38397979328d050639c0f46eb1fe892c19ffeb14ed1ba583356320",
+      "message": "este tempo de execução não tem AES-GCM, então a inscrição do token Lab e a troca de credenciais de configuração-sync falham neste host até que o PowerShell seja atualizado (encontrado {pSVersion} no {trim})"
+    },
+    "automation.operator_d1479ec6f1e779bb": {
+      "sourceHash": "e62fe9a3d0b3a25601b6078581a3d96afeea7c729aea3532fa6ce9b8f07132b1",
+      "message": "DaemonSets (todos os espaços de nomes)"
+    },
+    "automation.operator_d227328570c74937": {
+      "sourceHash": "f86d527d112d3b1c211a641ec9e68f2b77a79d0fe9973183c1b399fc53f8f94a",
+      "message": "Modelo de recursos não encontrado localmente ou globalmente: {resourceTemplate}\nUsado no ficheiro: {resourcesFile}"
+    },
+    "automation.operator_d27a1042e1f11ccd": {
+      "sourceHash": "5d9b24a399f945dcf71a17b4358ddd26fb4e0074341b0663e6bff6a82467c5a5",
+      "message": "({count} resources.output.yml arquivo(s) presente(s) mas kubectl não em PATH; não pode verificar)"
+    },
+    "automation.operator_d2b8e5f19799eb58": {
+      "sourceHash": "ac444d752da95928f9a19ec1a112ad54c4784139a7731a3ca133a61e8f86e73e",
+      "message": "/var/log/yuruna/ (dir listing)"
+    },
+    "automation.operator_d2c774924094e180": {
+      "sourceHash": "10adee7128a284f35b7d18cf0d580459e191d795dc399eabe77dc663aa7a9efc",
+      "message": "docker ps -a (todos os recipientes)"
+    },
+    "automation.operator_d2d4c3349fa9c41f": {
+      "sourceHash": "f68d5d55bc92547171cdddfe046501aae147da670b957e93d4bb43a28d56a90e",
+      "message": "KUBECTL: o kubectl não pode ligar- se ao conjunto Kubernetes."
+    },
+    "automation.operator_d334c6088d89072e": {
+      "sourceHash": "b0c6644a486ccb4353fe60939e08ba68857cbb6978286c2fd51cf94b951caf55",
+      "message": "EVENTOS: {count}+ Eventos de erro do sistema na última hora."
+    },
+    "automation.operator_d34d1a36cb2cfedc": {
+      "sourceHash": "1a3f8acf96e70ef83027da0775097be58378d425085199b106b0421ced54162d",
+      "message": "NETWORK: pacote- espelho obter sobre {plainPathLabel} respondeu, mas assumiu {plainSlowMs}s para {count}/{count2} origem(s): {join} -- blocos apt nestas buscas, assim uma origem lenta esgota um tempo limite de um passo Da mesma forma que um inalcançável."
+    },
+    "automation.operator_d38b56750f65cb96": {
+      "sourceHash": "9d573382a45977e3bcf6223ed80fba3ac4760d1af549a61fc76d9d6b187ab282",
+      "message": "-- pid {pkgPid} e todos os descendentes (processo(es) {count}) --"
+    },
+    "automation.operator_d3ead8947216ae55": {
+      "sourceHash": "434bb2af13ca31e668a906a9b846da3dd902316600a34609e500122826809b1d",
+      "message": "Usado : {used}"
+    },
+    "automation.operator_d4587f70644914bd": {
+      "sourceHash": "367e005d772afce064928444b31a19009497b1cc718159dfd4e7b35406bf2b50",
+      "message": "dnsmasq transações DHCP (últimos 30 min)"
+    },
+    "automation.operator_d4ecc627a9a631cd": {
+      "sourceHash": "45fbf6bb0513851082bfb421ebfea9dc6ebe87c8fa4504bbc719e482dc9a0ffa",
+      "message": "Apenas {freeGb} GB livre no volume segurando {home} -- As imagens VM precisam de aproximadamente 40 GB. Continuando."
+    },
+    "automation.operator_d522efedd63f0b44": {
+      "sourceHash": "cb542b91df811ffb8c8346401c8636a158080cceaa6c2ed56d3e612303f8221a",
+      "message": "MKCERT: o mkcert está ausente, ou está presente, mas não está executável (um binário corrompido ou de tamanho zero)."
+    },
+    "automation.operator_d5339462df16bcf8": {
+      "sourceHash": "bd879b9222b3f5377ff846852a512bdd6b3b91e0a4d53555a0c68a2ee0b167e1",
+      "message": "Total do arquivo de página : {kB}"
+    },
+    "automation.operator_d57d57d8e669f184": {
+      "sourceHash": "2c4cb2d2e4fd32da9d8a621d9f15d94396535e0da27c0ab4602452805a7f70aa",
+      "message": "Soquetes de escuta (lsof -nP -iTCP -sTCP:LISTEN -40)"
+    },
+    "automation.operator_d58761741eae9025": {
+      "sourceHash": "cdc16cd380d00a7ac484609cb5ee37bdfdb20287efffd041150166b67e09fa67",
+      "message": "/livecheck devolveu 200 mas o corpo não é JSON: {length}"
+    },
+    "automation.operator_d6774599c4bb2aa3": {
+      "sourceHash": "b9708ed63d5f8f4dfa6f0de6a786511f42010da5a3bb668af030544b1ade26b9",
+      "message": "MAC de gestão partilhada em: {join}"
+    },
+    "automation.operator_d67ba5d3e55b2ade": {
+      "sourceHash": "62b592cda833b063d83f32dd24b55968886539af17e076d189812e8acb973d3c",
+      "message": "Nenhum http proxy no env, por isso não há máquina de cache para derivar -- os hóspedes tomam a rota de registro a partir dessa mesma variável."
+    },
+    "automation.operator_d6e66216138554de": {
+      "sourceHash": "e3b98707fa827a658a5c37e4481f57f7cb32dd5c620de51dff9b46515a049152",
+      "message": "kubectl obter nós - o largo"
+    },
+    "automation.operator_d700912928a3d5ac": {
+      "sourceHash": "2292fb4e163a4f45ee6a11e823c6becfe515e144f8e65a84c63deffbc6fb784e",
+      "message": "YURUNA: {fullName} -- {iss}"
+    },
+    "automation.operator_d7469332f7ce8f65": {
+      "sourceHash": "a1dbfb181745f1cea77dadb6b85c2c83b7ed2b3377ae5a15571a6c55d219387b",
+      "message": "(sem dispositivos de ponte nesta máquina)"
+    },
+    "automation.operator_d76c7f8316e11dcf": {
+      "sourceHash": "586d1b147acbfbda6dd8cd0c747d28c23cb74b9d12e6de2bb86d47942df813e0",
+      "message": "Rota do registo de contentores (cache OCI pull-through)"
+    },
+    "automation.operator_d7820c1435d6f83d": {
+      "sourceHash": "37b959b2d2ea1e891b36422c25393fcf2e67e748000d125992557b0925c987d3",
+      "message": "-- Criando: {resourceName} do modelo {templateFolder}"
+    },
+    "automation.operator_d79ea1202ce9e895": {
+      "sourceHash": "52b704762c0b721d3dbdb98c0069dce677e1b57a1985be9c56622946f2cd6151",
+      "plural": {
+        "variants": {
+          "one": "{shortfall}. This host has {hostMemoryMb}; the {plan} commits {committed} of guest memory{list} as fixed allocations with no balloon, which the hypervisor holds at about {resident} resident. Carrying that and still leaving the host the {reserve} it needs for itself takes about {needed} of RAM.{levers}{floorNote} Continuing.",
+          "other": "{shortfall}. This host has {hostMemoryMb}; the {plan} commit {committed} of guest memory{list} as fixed allocations with no balloon, which the hypervisor holds at about {resident} resident. Carrying that and still leaving the host the {reserve} it needs for itself takes about {needed} of RAM.{levers}{floorNote} Continuing.",
+          "many": "{shortfall}. This host has {hostMemoryMb}; the {plan} commit {committed} of guest memory{list} as fixed allocations with no balloon, which the hypervisor holds at about {resident} resident. Carrying that and still leaving the host the {reserve} it needs for itself takes about {needed} of RAM.{levers}{floorNote} Continuing."
+        }
+      }
+    },
+    "automation.operator_d7dcae6d696a3bf3": {
+      "sourceHash": "ca0c7727d34f8f8ebe9a6f4eb3db9de5fdbcc0e91f19932844861c0ed78d1444",
+      "message": "Registry: a sonda de manifesto do cache respondeu em {of}s, passado o {patience}s um cliente espera por cabeçalhos de resposta. Um tempo de execução do container abandona uma atração nesse ponto, então uma cache neste estado falha Passando cada verificação de vida."
+    },
+    "automation.operator_d8870f8f0c55a665": {
+      "sourceHash": "94489343f76853f43a5805f7548c4225a8d249b4c81cb72dfe3865299bb7d349",
+      "message": "ConvertTo-Sha512CryptHash: não foi encontrado nenhum openssl de trabalho com o suporte SHA-512 (-6). Tentado: {join}. Instalar OpenSSL >= 1.1 (Linux/macOS) ou Git para Windows."
+    },
+    "automation.operator_d91128cf43fe5efd": {
+      "sourceHash": "9529a977a9874b6362e2f8f881cf7130cc045daef7f422903c618b59cb4d0218",
+      "message": "CPU: 1-min carga {load1m} excede 1,5x núcleos ({cores})."
+    },
+    "automation.operator_d97c4ddb2e78c92c": {
+      "sourceHash": "20fb5c6e268e61b30efeaa58ae6a02ec58b46303cd15c593b4f99e46f91c302b",
+      "message": "(Get-VM não disponível -- Ferramentas de gerenciamento Hyper-V não instaladas)"
+    },
+    "automation.operator_d984bd8b6c4ca252": {
+      "sourceHash": "740e73d91037f02d0de52cab78b116fa0781a7792a03df69db5e543ee0427ed2",
+      "message": "Câmara da memória não verificada"
+    },
+    "automation.operator_d9b96add0edcb040": {
+      "sourceHash": "18bd4a43a0d47fff905474f7045f807d4d78723af8edd7b060ba970a3d3623f7",
+      "message": "Rota padrão"
+    },
+    "automation.operator_d9c1fd0b30efa8fb": {
+      "sourceHash": "4d7e94c53974fdc24e406ba66b276ee6c5e05e3a3c31e4b3d809134c00f07a45",
+      "message": "Servidor : (inalcançável)"
+    },
+    "automation.operator_daa53807f586eaba": {
+      "sourceHash": "817fde548ce1c7297b692a0aae58d5f04b80247484a0ffd1e1aa6a4d64cbc2a5",
+      "message": "gerenciamento-OS vNIC: (não avaliável)"
+    },
+    "automation.operator_daf5c05adf2266a4": {
+      "sourceHash": "7be1b6f1d9c4359793845e9e90f8c543d5f3967f32e107b18e30bea56ff10346",
+      "message": "(... {count} mais linhas fd omitidas)"
+    },
+    "automation.operator_db2c708f71117181": {
+      "sourceHash": "00d7d8e514d1c633daff1617d59ffb2d8f1470ed178907aed8b2e7b17529ac9f",
+      "message": "enviar atualizar linhas na captura delimitada: {count}"
+    },
+    "automation.operator_db72b63273de3023": {
+      "sourceHash": "fe267b65743271e7510618643810b50cf913ea91a528d059d97ddde312d16b86",
+      "message": "Uma gravação anterior ou o estado WPR localizado desconhecido impede uma nova gravação segura."
+    },
+    "automation.operator_dba4f2e3a437938b": {
+      "sourceHash": "325efe1150298dbfab4b6842f37a57b78ccd3ee64549bccd3735a91148b27188",
+      "message": "{t} HTTP {statusCode}, {rawContentLength} em bytes {elapsedMilliseconds} ms{cacheNote}{slowNote}"
+    },
+    "automation.operator_dcdd159b73d02608": {
+      "sourceHash": "53df3759382de8baf78fbe1c8c0029d0f99b0eec89c6efa03248ce29a4bdf520",
+      "message": "/livecheck devolveu HTTP {statusCode}"
+    },
+    "automation.operator_dce38997155da39d": {
+      "sourceHash": "4846b7437890306d7d05cf8eed8ca55033f33f1a636e42c1bb9308eec9183f9f",
+      "message": "(dmesg não em PATH)"
+    },
+    "automation.operator_dcf3166a7dd19f7f": {
+      "sourceHash": "5821220fe724232828f4e323ab2ea6af135afea5660a921b631d5b367484695f",
+      "message": "Falha na visualização de configuração do kubectl (saída do {lASTEXITCODE}) para: {sourceContext}"
+    },
+    "automation.operator_dd0de2a2eaf244da": {
+      "sourceHash": "e13e89b57a548488611546ba23c7cb10371ad4c330b4f0c6ab66a11cb28461a3",
+      "message": "-> Executar (pode requerer privilégios elevados): mkcert -install"
+    },
+    "automation.operator_dde796c9dd1d2e34": {
+      "sourceHash": "a30b434c799344549bed9fc715f53cde7834da0e85c55e961390fbef14678bcd",
+      "message": "(ps - axo falhou: {message})"
+    },
+    "automation.operator_de05acb3122a8284": {
+      "sourceHash": "10eec604bf132daf9a743ffe98ea8d9823ad94233223ebf276ac7f862e26db73",
+      "message": "um pool meramente NAMED default -- o guard liga-se ao autoInrollment.targetPoolId."
+    },
+    "automation.operator_de580b5b7b4a75be": {
+      "sourceHash": "0a80f6afd19aa3f1be39d99554581f65a16b958092d19aab8ffad8e94c19b7aa",
+      "message": "A gravação do host terminou antes que um instantâneo de hóspedes sobreposto pudesse ser capturado."
+    },
+    "automation.operator_df08720fd08e0df4": {
+      "sourceHash": "8c4e7f23d91d62119e526524b71421fbf6999fe90494af662af857ce5812e978",
+      "message": "setup.type deve ser 'standalone' ou 'lab' (tem '{setupType}')."
+    },
+    "automation.operator_dfef811368420551": {
+      "sourceHash": "f61c854243ddb85db3cb57faad02ed9f8d5deb7bd535645ef860d81ec0b01341",
+      "message": "Para instruções detalhadas, ver: {documentationUrl}"
+    },
+    "automation.operator_dff7d59ece61e081": {
+      "sourceHash": "0770c979ccb2169b5f4667753614a636808b77e131ce1ca656d13ef915b9b108",
+      "message": "Erros, falhas e avisos"
+    },
+    "automation.operator_e043073e5c3e6d7a": {
+      "sourceHash": "4b26bba93265f1152f973e0abcbd006e6315d22862a0936deb6fd677a828c019",
+      "message": "{canaryTag} HTTP 200 em {elapsedMilliseconds} ms{slowNote}"
+    },
+    "automation.operator_e06453a569393d9a": {
+      "sourceHash": "6ed4b547c90c9e550e1f14e192ae43f160b29ac754ea28dcd03181de881479ff",
+      "message": "repo de registro '{repo}' -- NO pod refere"
+    },
+    "automation.operator_e06cc5e640fcddaf": {
+      "sourceHash": "0958b5c98741002f3aa6648d36fb53b387384c9be6a5000eeb86465e86975657",
+      "message": "(sem tomadas de escuta relatadas)"
+    },
+    "automation.operator_e0765f1e2dfb2c75": {
+      "sourceHash": "e0a1a1eac0106dcaf2283a6a30a40d9b6528610791d404ac2cf14d052fdfbd58",
+      "message": "componentes yuruna [project  root] [config  subfolder]\nCrie e empurre componentes para o registro."
+    },
+    "automation.operator_e08ec6745a750a1d": {
+      "sourceHash": "ebdfa54e48bcedd46b06f2f7090f10d54c617d30901c2d1730bb35b284527f86",
+      "message": "saída tofu -json ({resourceName})"
+    },
+    "automation.operator_e0a4bce23c46a537": {
+      "sourceHash": "c37cd592c8f19536d3faac5a2be0a28b92b182dd3deacac87ba09d3ebf0c86a0",
+      "message": "O projeto de componentes '{project}' pode expandir para vazio no arquivo: {componentsFile}"
+    },
+    "automation.operator_e13171542462cc83": {
+      "sourceHash": "cf70c09c6017d22fea4872e488148ff902d0b95e44f1aaf8812f60b446b9c92d",
+      "message": "(Scutil não em PATH)"
+    },
+    "automation.operator_e1738c24bf654188": {
+      "sourceHash": "2db47f488b49aba2ace9ede7d33dbfdcdb9bf4592845b32cb3e54ba4a7730d1f",
+      "message": "Fio de leme FAILED (saída {lintExit}) para o gráfico «{installName}» em {workFolder}"
+    },
+    "automation.operator_e1a9e5fe4f68be46": {
+      "sourceHash": "b902352717636a694ef9668f87357332e91976adf3d045c2f5bb22be47f7d796",
+      "message": "(SkipKube)"
+    },
+    "automation.operator_e22147108d6ae87f": {
+      "sourceHash": "3dd990b03eb535c2472e19c987e16d27011c2d2ec60614ad5a33d00506dba4ca",
+      "message": "(nenhum VERSION CODENAME encontrado: sondando índices de diretório, que uma cache pode responder sem atingir a origem)"
+    },
+    "automation.operator_e288495c99f6fc3b": {
+      "sourceHash": "0e7acddf3b4162fa5307a522f72b6a7713af868c4cd6383501e98a0049ad80a3",
+      "message": "Docker CLI presente, mas daemon inacessível."
+    },
+    "automation.operator_e2efc72fae64b6d2": {
+      "sourceHash": "5c4710e87d6ed02e42003469f6d1bc559a7b1aa73559d8af860327b110ac924a",
+      "message": "Culpa (top 20):"
+    },
+    "automation.operator_e3409ddcbcaf5655": {
+      "sourceHash": "de9d2c7fc5d987dce2fa2f8a16c69f14ad77fd9bac59dfa0cb5251d6190e95fd",
+      "message": "não apenas o laboratório. Definir storage.localRoot em um arquivo de resposta para colocá-lo"
+    },
+    "automation.operator_e342099ae5f2fc9f": {
+      "sourceHash": "9f2c82d1bdd8e42cdd6bbfeef262c501bad379b1918f060068841e4956fcfc20",
+      "message": "NIC ligado: (o adaptador nomeado não está presente nesta máquina)"
+    },
+    "automation.operator_e36c08286c075185": {
+      "sourceHash": "705fbe6dac64be378594b12b4744d602db6efb0d151cc4fde16defa4af34a621",
+      "message": "Pilha de virtualização (UTM/QEMU/utmctl)"
+    },
+    "automation.operator_e3804b3eb9e6aaab": {
+      "sourceHash": "37a9bdcb2218cd99235284871728e142aaaa71096f7b12eaa33ba123d8f45d6c",
+      "message": "(... {count} mais linhas omitidas)"
+    },
+    "automation.operator_e39c3c3dc7a39a89": {
+      "sourceHash": "e0f7d4df4e51a4657a7c1b81edbfef512cc7ef1bc08ca204ab929337cf09a76b",
+      "message": "Nenhum recurso implantado no arquivo: {resourcesFile}"
+    },
+    "automation.operator_e52adc6735b99987": {
+      "sourceHash": "ccc35efb4f65a68b641a6340e57e68d185bfa30676bee45d1e9066e016d32885",
+      "message": "Quem serve a estes montes não poderia ser estabelecido, então eles são deixados como eles são:"
+    },
+    "automation.operator_e62e8faba8815e88": {
+      "sourceHash": "42cd3fe783a79f41954d94149935fb9306a07a44a89c2681ad5274f46f9265a2",
+      "message": "Arquivo não encontrado: {workloadsFile}"
+    },
+    "automation.operator_e6aeb3342245f36c": {
+      "sourceHash": "f3140a05c26d8af59a0152e13975e3596aa806fbe6f1a6caae7c926bcc25121c",
+      "message": "Nós prontos: {count}; pods de espaço de usuário: {count2}"
+    },
+    "automation.operator_e6d55325874daa86": {
+      "sourceHash": "7f818af46bc6cfb7e8b0f2a1b8d3a520473359d9f719812edc048ff6ed535f2d",
+      "message": "uma entrada hosts-file apontando esses nomes para esta máquina, além da credencial de compartilhamento."
+    },
+    "automation.operator_e6f4dbb4910837d1": {
+      "sourceHash": "41a09659a2d1808f8d440b21b7429741e9eb3586a11c4dc908b8c31728732b85",
+      "message": "{k} (não definido -- o apt usa o padrão incorporado)"
+    },
+    "automation.operator_e7055db124290299": {
+      "sourceHash": "7cf0ca1c64072064e489a01fb65dd0263ad06a54ecff6f50ad2e54c98bdfea05",
+      "message": "(... {count} mais entradas omitidas)"
+    },
+    "automation.operator_e7aa118c776ef4a7": {
+      "sourceHash": "d4ced7f2f00ecd2bb948f6da5db70c18c1119b090da5a13e36738804a09c43dc",
+      "message": "apt Adquire configurações (visão mesclada do /etc/apt/apt.conf.d)"
+    },
+    "automation.operator_e87092c2e06d1183": {
+      "sourceHash": "006f83a06bb10056573795b05a2d0a3c91be9cea0425dd09e2f410daa58d246d",
+      "message": "Set-HostAlias: '{computerName}' não é um nome de máquina válido ou FQDN."
+    },
+    "automation.operator_e89fa5a7953b2b69": {
+      "sourceHash": "26fcd782b7f742eae4f4d534db2fea69973f9f7619b38d6ef90491d22d1cf0ad",
+      "message": "ConvertTo-Sha512CryptHash: Texto simples está vazio."
+    },
+    "automation.operator_e89fa5be525e6ab3": {
+      "sourceHash": "a90b62125fc5b1d37881eaa97eaaedf0e50c854eab51c4b8eb92863a21cfbca8",
+      "message": "(não foi possível ler: {message})"
+    },
+    "automation.operator_e92648502054ef88": {
+      "sourceHash": "fbd178ca8bcfb597f63d91ea954ea4017a22d7b48c73256658b8b7f399dc9e82",
+      "message": "{value} DESAPARECIDO: {reason}"
+    },
+    "automation.operator_ea04ff3f63fe8b95": {
+      "sourceHash": "b8dc7ee5076a056899d34d9b2eaab07a0756fdf11b6e10e316e1ab64117fbec8",
+      "message": "namespace '{name}' declarado em {file} -- Desaparecido do cluster"
+    },
+    "automation.operator_ea67c1a52bd67b37": {
+      "sourceHash": "001df3d2d81006d32f889243134dee0406599807289e7632e2bba7758fa7cb12",
+      "message": "YURUNA: arquivo VERSION faltando ou vazio no {yurunaVerFile}"
+    },
+    "automation.operator_eac08d333d18b400": {
+      "sourceHash": "6cf1169ccf4a08003da1c1c686f6c468d61ef1a0289d49006d4137d85f69c262",
+      "message": "O executável WPR está indisponível."
+    },
+    "automation.operator_ebc89a16d6b57e72": {
+      "sourceHash": "dea8043d6a09ca46dbac8806719a409cab73bf9ca2b24c04aad063f4b18a60a7",
+      "message": "comando kubectl não encontrado no PATH (ou presente, mas não executável -- por exemplo, um /usr/local/bin symlink pendurado)."
+    },
+    "automation.operator_ec0ef9d3e6ca9f44": {
+      "sourceHash": "11444d02a49fc211189148348ffab5d25e972010f2bb823e6abd9be6bd352240",
+      "message": "Módulos de kernel de virtualização (lsmod, filtrado)"
+    },
+    "automation.operator_ed6c4bcd982b86b4": {
+      "sourceHash": "743f075ab035348e684a8b8ba49b4ac124aaffd9ed4295241bb5dc099984a517",
+      "message": "Get-YurunaGuestScriptBase64: necessário script convidado faltando: {p}"
+    },
+    "automation.operator_edd1385e46d681de": {
+      "sourceHash": "6096d32614047b67f8ffbd75935f51d4bd0ea21685ad155a2974d5ee627782b8",
+      "message": "Esta verificação não tem nenhum comando GitHub, de modo que o backback do convidado cai de volta para repositórios.frameworkUrl ('{repo}'). Seu commit HEAD pode não existir lá, nesse caso o backback 404s."
+    },
+    "automation.operator_edef6b8e8e995aea": {
+      "sourceHash": "6173b6f13484867ee4b25a01210634483a54f49844dbe26abe9b0f06e7354603",
+      "message": "Teste.HostContract.psm1 não encontrado em: {modulePath}"
+    },
+    "automation.operator_ee4c81412b67b1c2": {
+      "sourceHash": "b4601140143eddc704f5663733ec5b328da8eaf5352a2b177488c50edbcf525e",
+      "message": "Especifique GuestAddress e GuestUser para incluir um instantâneo de hóspedes."
+    },
+    "automation.operator_ee5948b70f314800": {
+      "sourceHash": "e0ddffd1e9fc5c99e3d819c02cbc2f3082b0845daed40366686971963ec16d24",
+      "message": "-> Verifique seu kubeconfig com: kubectl config view"
+    },
+    "automation.operator_ee81fd4c1b5a982c": {
+      "sourceHash": "5cea9781af3650c079c4003582fe70f283fd771e7573f8e72192b3a6ee3fda9c",
+      "message": "Segredos : {scCount}"
+    },
+    "automation.operator_f06dbaaa4796a8b5": {
+      "sourceHash": "8cfd5392cbfd9e91cb165d13a565477e5a5da84afae13f96ac3e0934bfb5a679",
+      "message": "(sem erros na última hora)"
+    },
+    "automation.operator_f0cbbc50ffd86b13": {
+      "sourceHash": "fab07c20f7d0562615e11f3ead8a7d7a8ceb42e26ae15722173332869c898277",
+      "message": "Não está em execução como Administrador. Esta antevisão não precisa de elevação, mas a execução real precisa -- irá relançar elevada."
+    },
+    "automation.operator_f12c03f2812948ec": {
+      "sourceHash": "17f478ee7b9cb2ce4dc3192afbbd6c0e754a970d435375183ed4c5d69f628514",
+      "message": "{switchName}: switchType={switchType} allowManagementOS={allowManagementOS}"
+    },
+    "automation.operator_f147ac8566432a50": {
+      "sourceHash": "8a2e9736e50525947ce566b43133f978baf76e240e531a91829d2041b7b9924b",
+      "message": "-> Verifique com: ls -l $(command -v mkcert); mkcert -versão"
+    },
+    "automation.operator_f18af6f34851269c": {
+      "sourceHash": "0ebf67a98844164b048a3fdeb12a58a4ae3fd93b22eaa44e1d17d80a59a6bf64",
+      "message": "{t} FAILED após {elapsedMilliseconds} ms: {message}"
+    },
+    "automation.operator_f2223139d6d90a86": {
+      "sourceHash": "a2666c0b8bc3813ae1e0bb861c6c114c7820d3a04c5fc8bc37a53602f272c3ba",
+      "message": "workFolder não pode ser nulo ou vazio no arquivo: {workloadsFile}"
+    },
+    "automation.operator_f250b44132d70fac": {
+      "sourceHash": "81e1d1eec00811a92742c932c9e50f0f11bd3325bb2e3281c68ad6deb512e312",
+      "message": "O início do WPR ultrapassou o seu prazo; não foi possível confirmar o registo da propriedade. Inspecione o estado do WPR antes de iniciar outro rastreio."
+    },
+    "automation.operator_f2c81ff0219bedfa": {
+      "sourceHash": "81ec2b1af3517fd802249ff392e27f7579d9aa4c18de8f17abafb31f0b4dce90",
+      "message": "Top 10 de memória"
+    },
+    "automation.operator_f30d376c3b6737d6": {
+      "sourceHash": "d524887221c7192aabd7711264442952f67fcc8aa3d9caab0dc1dee8e1f596b5",
+      "message": "Clear-Configuration: forward resources.yml validation failed; proceed with riverdown from resources.output.yml anyway (source config may have drifted from implaption)."
+    },
+    "automation.operator_f36a3040f1c5e565": {
+      "sourceHash": "152b84ed414a72a78650963a08c2877e8b495bccd830b7ea251a447929bb41d5",
+      "message": "Registry: registro local em :5000 é acessível, mas seu catálogo está vazio -- nenhuma imagem foi empurrada (ou o armazenamento do registro foi reiniciado)."
+    },
+    "automation.operator_f374af33972ebb69": {
+      "sourceHash": "12ba5b7ca0b4221b19f853e906528edf526061589705d68f34a01e1439ef6db8",
+      "message": "(/etc/cni/net.d/ existe mas está vazio)"
+    },
+    "automation.operator_f4880cadf6480c92": {
+      "sourceHash": "459b57cf58195477b9dc2ce14d05609cad2629bbc2d2f75e619225cfd55d5974",
+      "message": "Versão do projecto: {projectVersion} - {projectOrigin}"
+    },
+    "automation.operator_f4bb767139b39bba": {
+      "sourceHash": "310995c6593305d36ef98bbaac57e53ea53d226f0fd38f0aa030d94798b05ed9",
+      "message": "gar Autenticação: 'docker' CLI não no PATH; não pode concluir o login."
+    },
+    "automation.operator_f4bc7d8c9f330da6": {
+      "sourceHash": "6c0fcb1f62a67076abd203943db96e144cc45ad0feeabcc6b402de43564ef579",
+      "message": "DISK: {deviceID} está {pct}% cheio."
+    },
+    "automation.operator_f4f77e3413af6867": {
+      "sourceHash": "dce26cf8bd645f3ee513924e52a0fe082eace4cc6cc01a824ac608020d05fc3b",
+      "message": "Módulo de detecção da máquina não encontrado: {detectionModule}"
+    },
+    "automation.operator_f4f81454232e5a55": {
+      "sourceHash": "5591837ed55afa4da9e6d2ebc1ad81f0b49942ab4b3524547e9e6cf21e9b36c2",
+      "message": "requisitos de yuruna\nVerifique se a máquina tem todos os requisitos."
+    },
+    "automation.operator_f61604afb0d83e33": {
+      "sourceHash": "71a8cac153d325545f2d592e826c1f4200e3c8a8aa93e05b183247f3974c4030",
+      "message": "ConfiguraçãoMaps + Segredos (apenas contas)"
+    },
+    "automation.operator_f623437c4d70cbb4": {
+      "sourceHash": "97009bf6dd9061917a6d8e0ac3c5b07a4437b5b06206dbddc67a7fcab13cdef3",
+      "message": "Versão do projecto: {projectVersion}"
+    },
+    "automation.operator_f6931515ec49fa8a": {
+      "sourceHash": "d6c90d2ba901308609e10dd76dd0b0cd71fdafe6af2bfaf93f8bce905dc3f5d7",
+      "message": "então corra AQUI (o código gira a cada minuto, então leia-o na hora):"
+    },
+    "automation.operator_f6bd22fdf471e472": {
+      "sourceHash": "2cd3b5e45a5d2cf2255280171a9b4cda17772af45aaf1cf40208aac0fa09943b",
+      "message": "O resultado do tofu - json falhou para o recurso '{resourceName}' (sair do {outputExit}). Inspecione o {tofuLogFile}."
+    },
+    "automation.operator_f6c3acdbc6bb49a8": {
+      "sourceHash": "006b34b3264b5362dd89170ffb885bc77a6b35dcc5c0e082a42d6c7cf27d0545",
+      "message": "(nenhuma configuração de registo de docker/contentor encontrada nesta máquina)"
+    },
+    "automation.operator_f72a73ef3f898934": {
+      "sourceHash": "af06dd14fe8214942e3363dbb4a62fbffcb24a65a11ee1bea7888ba5142bd414",
+      "message": "(Skipped: precisa de diárioctl e de uma máquina libvirt)"
+    },
+    "automation.operator_f779d2d738d724fe": {
+      "sourceHash": "75b3b18b944184131f458a172688f061763a80c1df654533e89c33cdb112e44d",
+      "message": "cloud-init analyse culp (top 25)"
+    },
+    "automation.operator_f7b74149a97de81d": {
+      "sourceHash": "d2492986ef887da6894bedc4f7a34805f6069e260feb05441278d77be0247b3b",
+      "message": "Requisitos nulos ou vazios no ficheiro: {requirementsFile}"
+    },
+    "automation.operator_f7d06707f6830526": {
+      "sourceHash": "64ad6ae417b170cb59423228743eea116ed1788ad3ebf7b60447391f9fecbe93",
+      "message": "uplink: {uplinkText}"
+    },
+    "automation.operator_f7d6f1dda37c2a27": {
+      "sourceHash": "fec3071ac8e934ebd5e744a6c51064752ded0693d64167ad6024e0453525afc2",
+      "message": "NETWORK: o tcpdump não está instalado; um hóspede que não consiga obter uma locação DHCP não deixará evidência de fio. Instale o tcpdump e conceda- o: sudo setcap cap net  raw, cap net admin=eip $(command - v tcpdump)"
+    },
+    "automation.operator_f8d085009c4c8200": {
+      "sourceHash": "29002395375d8e5743a17b3d199adb143b8ab889b61c461b113e2e9ad642095a",
+      "message": "(sem interruptores virtuais definidos)"
+    },
+    "automation.operator_f92f81ef8113846a": {
+      "sourceHash": "e9092e46d87018139442299136243353a64543fdcceb3642bc9118ba98b64d01",
+      "message": "journalctl - u systemd- resolved -- desde '15 min ago' (corta DNS)"
+    },
+    "automation.operator_f95d3804292ed206": {
+      "sourceHash": "6f277a7da8f29bebce199395aa3a2e73c2b5774a129048b18d0c1fdf7ef4f563",
+      "message": "(sem resources.output.yml em {projectRoot} -- pulando)"
+    },
+    "automation.operator_fa511b523f557f63": {
+      "sourceHash": "c4f1cc428dfa1d4dc5e6fbc9437addb0d0ff61632cffdb832e82ea4d0ba1fb02",
+      "message": "(pid {rootPid} (de {rootSource}) não está atualmente em execução -- o corredor terminou)"
+    },
+    "automation.operator_fa51b7fe133151e7": {
+      "sourceHash": "adb953e6ce666a6291c845bd05522f7a48b30893595a922ac62a219488ff320c",
+      "message": "VRAM : {adapterRAM}"
+    },
+    "automation.operator_fa548dc8b72a02c6": {
+      "sourceHash": "faef5c3dfefe897d5062a968d6130d3e6e5eab37bf682dcecba63471d93c40c3",
+      "message": "tofu init falhou para o recurso '{resourceName}' após tentativas {attempts} (saída final {lastExit}). Inspeccione {tofuLogFile} para o erro subjacente (muitas vezes um 5x do registry.opentofu.org ou uma verificação do provedor desfasamento)."
+    },
+    "automation.operator_fac07c9b40638bff": {
+      "sourceHash": "b9ff4d729cf9cabc885f2a573a2e84e96f2e0008a469ab1435602555d1f8ccac",
+      "message": "Novo-WindowsGuestBootstrap: template obrigatório faltando: {templatePath}"
+    },
+    "automation.operator_fb806fabc4ba34ba": {
+      "sourceHash": "c521bbec70a1cb8dfa00f8f7f4a72f967b5224b5cece4b927493270ecb2d5704",
+      "message": "PROVISÃO: {name} registra {label} exausto {maxAttempts} tentativa(s) (rc={rc}) -- a ação envoltória falhou cada repetição, ciclo abortado."
+    },
+    "automation.operator_fbfc5171f0719513": {
+      "sourceHash": "8a7824093f5d111ceabadd5dd3c05734a46c0a738a0ee146f8122291b4f52f38",
+      "message": "Yuruna-host resolve e {nameUrl} é acessível."
+    },
+    "automation.operator_fc543d57e6ae8eda": {
+      "sourceHash": "4d7e78f53cca003702559f5b1ab7336116c0d4ab4ecb1cb85c8b5db14d1f63ff",
+      "message": "Tomadas TCP estabelecidas com temporizadores (ss -tnpo)"
+    },
+    "automation.operator_fcbd291003607027": {
+      "sourceHash": "7d1277fd840d03a7c3504de9f82532cf89b3cc41a2d4a0a0b01fc15b4213b538",
+      "message": "(O sistema Get- WinEvent falhou: {message})"
+    },
+    "automation.operator_fcd2c71f3eb5ddd2": {
+      "sourceHash": "ad081c454ca469d42e84d38cf09a2d639347f0966c04f13f0162fd957b4eea1c",
+      "message": "O comando tofu '{resolvedCommand}' falhou para o recurso '{resourceName}' (saída {applyExit}). Inspecione o {tofuLogFile} para o erro subjacente (muitas vezes um provedor de recursos nulos retornando não- zero, ou um programa de fonte de dados falha)."
+    },
+    "automation.operator_fd2a582c09e3d15d": {
+      "sourceHash": "d5fd1db6c252a56b8e2cf4912e46fed6d892ecad01d0da77f685ac7122f0ee0e",
+      "message": "journalctl - b - 1 - p warning -- no- pager (PREVIOUS boot -- geralmente a inicialização de instalação; head 60 + tail 60)"
+    },
+    "automation.operator_fddd431669f34dca": {
+      "sourceHash": "63f3883af1aee0db151fe29a913693f225adf2651d13837173c8c1a212e6bcc6",
+      "message": "Nome da máquina : {getHostName}"
+    },
+    "automation.operator_fdfd8304afedfbc9": {
+      "sourceHash": "c281f8fac04cfef2afbd8a2aa54e1ddf65b00cc699a7ce5ee971bb64307810ea",
+      "message": "NETWORK: TCP/443 direto recusado pelo filtro de saída local e nenhum http(s)  proxy está definido."
+    },
+    "automation.operator_fe1810bb5dfc8772": {
+      "sourceHash": "5fdcfe0cd55b79b9211a1d765dbd435478c581f930d7359fd1a764974dd5773c",
+      "message": "Set-HostAlias: sistema operacional não suportado; não é possível localizar um arquivo de hosts."
+    },
+    "automation.operator_fe8311a330cc8284": {
+      "sourceHash": "bd1d6be0c77c4be4313c205719f32dbecde37b3af8c2f813e0bcce90c8c07d6e",
+      "message": "Os servidores por trás das montagens de armazenamento desta máquina não puderam ser estabelecidos ({message}); a etapa de armazenamento irá decidir sobre suas próprias evidências."
+    },
+    "automation.operator_fe8635d4be96c860": {
+      "sourceHash": "a41e9b5ba9a6da29c622e674fca6201f384ff537b42e3a6959002b1ef27f5787",
+      "message": "A varredura de auto-inscrição NÃO está ligada. Dois passos ativá-la quando você quiser:"
+    },
+    "automation.operator_fecdb825feac6c33": {
+      "sourceHash": "f004c1cd8799d0667be366473087deaf560eb2e585921fb19c6e5abd63e82a46",
+      "message": "Armazenamento local muda esta máquina, sob {storageLocalRoot} :"
+    },
+    "automation.operator_ff01fa82ff0150ac": {
+      "sourceHash": "3e4584678e786e27c2740f29cc9b3e575a59b27eac9cc8ac1a1f6e7f66da5099",
+      "message": "Contexto de uso da configuração do kubectl falhou (saída {lASTEXITCODE}) para: {sourceContext}"
+    }
+  }
+}

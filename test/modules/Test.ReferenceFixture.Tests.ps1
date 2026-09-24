@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 425c19e6-01ab-4b44-b9fe-f6dbc6860439
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,14 @@ function Invoke-FixtureTool {
     $all = [string[]]@('-NoProfile', '-File', $script:Tool) + $Argument
     $global:LASTEXITCODE = 0
     $text = (& $script:PowerShell @all 2>&1 | Out-String)
+    # This text becomes the -Because payload of the assertions below, and a
+    # drift report arrives through Write-Warning, which colors it on a capable
+    # host. ESC is not a legal XML 1.0 character, so the NUnit writer aborts on
+    # that byte and truncates the result file: the suite then reports as zero
+    # tests -- tests disappeared -- exactly when a row has drifted and the
+    # assertion had something to say. The tool strips the same escapes from the
+    # text it compares; the captured copy has to be stripped as well.
+    $text = [regex]::Replace($text, "$([char]27)\[[0-9;?]*[ -/]*[@-~]", '')
     return @{ Code = $LASTEXITCODE; Output = $text }
 }
 }

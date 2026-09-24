@@ -39,6 +39,7 @@ installer invokes setup automatically. The bootstrappers are
 [Enable-TestAutomation.ps1](../../test/lab/Enable-TestAutomation.ps1), which
 dispatches to the platform script. Services-only setup skips that call.
 Setup prepares or mounts requested storage through
+[New-LocalLabStorage.ps1](../../test/lab/New-LocalLabStorage.ps1),
 [Test.LocalLabStorage.psm1](../../test/modules/Test.LocalLabStorage.psm1) and
 [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1), and invokes
 [test/service](../../test/service) launchers. Requested storage precedes service seeds.
@@ -223,8 +224,8 @@ Results/logging groups [Yuruna.Result.psm1](../../automation/Yuruna.Result.psm1)
 policy; [Yuruna.CredentialProvider.psm1](../../automation/Yuruna.CredentialProvider.psm1)
 owns registry authenticators, not the test authentication vault.
 [host/modules](../../host/modules) contains shared image/provisioning helpers.
-These are source families, not an import chain; `Yuruna.Common` remains a
-dependency-free leaf. Harness helpers are grouped with the test harness above.
+These are source families, not an import chain; `Yuruna.Common` imports only
+`Yuruna.Globalization`. Harness helpers are grouped with the test harness above.
 
 The globalization aggregate includes
 [Test.Locale.psm1](../../test/modules/Test.Locale.psm1),

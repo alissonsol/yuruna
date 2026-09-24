@@ -33,7 +33,7 @@
     .section-title.with-controls #sec-sequences-title,
     .section-title.with-controls #sec-history-title {
       font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .07em; color: #6b7280; color: var(--fg-muted);
+      letter-spacing: .07em; color: var(--fg-muted);
       flex: 1 1 auto; min-width: 0;
     }
 
@@ -49,27 +49,24 @@
 
     /* Refusal notice for a control action the host would not accept (403). */
     .control-notice {
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border);
-      border-left: 3px solid #1e40af;
+      background: var(--bg-elevated); border: 1px solid var(--border);
       border-left: 3px solid var(--link-strong); border-radius: .5rem;
       padding: .7rem 1rem; margin-bottom: 1.25rem; font-size: .8125rem; line-height: 1.5;
     }
-    .control-notice a    { color: #1e40af; color: var(--link-strong); }
-    .control-notice code { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono); }
+    .control-notice a    { color: var(--link-strong); }
+    .control-notice code { font-family: var(--font-mono); }
     .control-notice[hidden] { display: none; }
 
     /* Degraded guest-network notice. Shares the notice shape but takes the
        warning accent: the host keeps running and passing on a fallback path,
        so this reports a topology, it does not report a failure. */
-    .host-network-notice { border-left-color: #b45309; border-left-color: var(--warn-fg); }
+    .host-network-notice { border-left-color: var(--warn-fg); }
 
     .meta-grid {
       display: flex; flex-wrap: wrap;
     }
     .guest-card {
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .875rem 1.125rem; margin-bottom: .625rem;
     }
     .guest-card-header {
@@ -82,10 +79,9 @@
        they are one unbreakable token wider than a phone. The sibling
        .sequence-name and .guest-toplevel already break the same way. */
     .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; word-break: break-all; }
-    .guest-meta { font-size: .75rem; color: #6b7280; color: var(--fg-muted); margin-bottom: .45rem; }
+    .guest-meta { font-size: .75rem; color: var(--fg-muted); margin-bottom: .45rem; }
     .guest-toplevel {
-      font-size: .75rem; color: #1e40af; color: var(--link-strong); margin-bottom: .45rem;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: .75rem; color: var(--link-strong); margin-bottom: .45rem;
       font-family: var(--font-mono); word-break: break-all;
     }
     .steps      { display: flex; flex-wrap: wrap; }
@@ -95,24 +91,19 @@
       white-space: nowrap;
     }
     .guest-error {
-      margin-top: .5rem; font-size: .75rem; color: #b91c1c; color: var(--fail-fg);
-      background: #fef2f2;
-      background: var(--fail-soft-bg); border: 1px solid #fecaca; border: 1px solid var(--fail-soft-border);
+      margin-top: .5rem; font-size: .75rem; color: var(--fail-fg);
+      background: var(--fail-soft-bg); border: 1px solid var(--fail-soft-border);
       border-radius: .375rem; padding: .45rem .625rem;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
       font-family: var(--font-mono); word-break: break-all;
     }
     .guest-action {
-      margin-top: .5rem; font-size: .75rem; color: #1d4ed8; color: var(--info-fg);
-      background: #eff6ff;
-      background: var(--info-bg); border: 1px solid #bfdbfe; border: 1px solid var(--info-border);
+      margin-top: .5rem; font-size: .75rem; color: var(--info-fg);
+      background: var(--info-bg); border: 1px solid var(--info-border);
       border-radius: .375rem; padding: .45rem .625rem;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
       font-family: var(--font-mono); word-break: break-all;
     }
     .guest-action.paused {
-      background: #a16207;
-      background: var(--banner-paused-bg); color: #ffffff; color: var(--fg-header); border-color: #a16207; border-color: var(--paused-strong-border);
+      background: var(--banner-paused-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
     }
 
     /* A sequence card is the visual unit for one test.runner.yml entry; it
@@ -120,8 +111,7 @@
        their own card chrome (see .sequence-card .guest-card below) so the
        sequence card reads as a single tile even with one guest. */
     .sequence-card {
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .875rem 1.125rem; margin-bottom: .75rem;
     }
     .sequence-card-header {
@@ -132,15 +122,14 @@
     .sequence-name {
       flex: 1; min-width: 0;
       font-weight: 600; font-size: .9375rem; word-break: break-all;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-family: var(--font-mono); color: #111827; color: var(--fg-primary);
+      font-family: var(--font-mono); color: var(--fg-primary);
     }
     .sequence-card .guest-card {
       background: transparent; border: none; border-radius: 0;
       padding: 0; margin: 0;
     }
     .sequence-card .guest-card + .guest-card {
-      margin-top: .625rem; padding-top: .625rem; border-top: 1px solid #f3f4f6; border-top: 1px solid var(--border-soft);
+      margin-top: .625rem; padding-top: .625rem; border-top: 1px solid var(--border-soft);
     }
     /* Demote the guest key inside a sequence card to a sub-label — the
        sequence name is the card's primary title. */
@@ -152,7 +141,7 @@
        glance; nested cards nest further to any depth. */
     .nested-card {
       margin-top: .5rem; margin-left: .75rem;
-      padding-left: .625rem; border-left: 2px solid #f3f4f6; border-left: 2px solid var(--border-soft);
+      padding-left: .625rem; border-left: 2px solid var(--border-soft);
     }
     .nested-card .guest-name { font-size: .8125rem; font-weight: 500; }
     .nested-card .nested-card { margin-top: .375rem; }
@@ -177,12 +166,11 @@
     }
 
     .meta-card {
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .15rem 1rem;
     }
-    .meta-card .label { font-size: .625rem; color: #6b7280; color: var(--fg-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
-    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono); color: #111827; color: var(--fg-primary); word-break: break-all; }
+    .meta-card .label { font-size: .625rem; color: var(--fg-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: var(--font-mono); color: var(--fg-primary); word-break: break-all; }
 
     .badge {
       display: inline-flex; align-items: center;
@@ -191,30 +179,35 @@
     }
     #history-body .badge {
       font-size: .625rem; padding: .15rem .4rem;
-      font-weight: 400; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono);
+      font-weight: 400; font-family: var(--font-mono);
     }
     #cycle-timestamp .badge { font-weight: 400; }
 
     /* Per-row status colors (.badge / .step-pill) live in yuruna.common.css,
        shared across the status pages so they stay in lockstep. */
 
-    .table-wrap { overflow-x: auto; }
+    /* Positioned so overflow-x can actually contain what it scrolls: an
+       absolutely positioned descendant -- .sr-only inside a row badge -- takes
+       the nearest positioned ancestor as its containing block, and with none
+       here that is the page itself, so the 1px box escapes the wrapper and is
+       laid out at its static x. In English it lands inside the viewport and
+       nothing shows; translated text pushes it past 320px and the document
+       gains a second scroll direction, which is a reflow failure. */
+    .table-wrap { position: relative; overflow-x: auto; }
     table {
       width: 100%; border-collapse: collapse;
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border);
+      background: var(--bg-elevated); border: 1px solid var(--border);
       border-radius: .5rem; overflow: hidden; font-size: .8125rem;
     }
     th {
-      background: #f9fafb;
       background: var(--bg-primary); padding: .625rem 1rem; text-align: left;
-      font-weight: 600; color: #111827; color: var(--fg-primary); border-bottom: 1px solid #e5e7eb; border-bottom: 1px solid var(--border);
+      font-weight: 600; color: var(--fg-primary); border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    td { padding: .625rem 1rem; border-bottom: 1px solid #f3f4f6; border-bottom: 1px solid var(--border-soft); color: #111827; color: var(--fg-primary); }
+    td { padding: .625rem 1rem; border-bottom: 1px solid var(--border-soft); color: var(--fg-primary); }
     tr:last-child td { border-bottom: none; }
-    tbody tr:hover td { background: #f3f4f6; background: var(--bg-hover); }
-    .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono); font-size: .75rem; }
+    tbody tr:hover td { background: var(--bg-hover); }
+    .mono { font-family: var(--font-mono); font-size: .75rem; }
 
     /* The footer bar itself -- surface, height, type scale and its
        narrow-viewport behavior -- is the shared page chrome in

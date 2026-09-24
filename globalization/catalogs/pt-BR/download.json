@@ -1,0 +1,641 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "download",
+  "locale": "pt-BR",
+  "messages": {
+    "download.actions": {
+      "sourceHash": "9179e8f8ea023a72fd8d168bdd3fc34beea338c799de34b24feba55a0ea73281",
+      "message": "Acções"
+    },
+    "download.actions_need_the_internal_authentication_key_as_a_bearer": {
+      "sourceHash": "614f1341898cac23ed2249740b3421ecb7b2a47e2266db20115d704716d3f7c6",
+      "message": "As ações precisam da chave de autenticação interna como portador"
+    },
+    "download.api_arch_query_parameter_is_required_amd64_or_arm64": {
+      "sourceHash": "ac379033e2c4afcc9a2707860c8c5c0aa4dff11c9f72bbf78686b22b375354c5",
+      "message": "parâmetro de consulta do arco é necessário (amd64 ou arm64)"
+    },
+    "download.api_detail": {
+      "sourceHash": "31f608ef88c3272a55097c0bfc8814d5e8278e05be54b3f933ae70633b7dbafa",
+      "message": "{detail}"
+    },
+    "download.api_generation_not_found": {
+      "sourceHash": "1c5fcb077b5248270452edea711d419b3910c9f24fe8a53113d859b56c245112",
+      "message": "geração não encontrada"
+    },
+    "download.api_invalid_generation_name": {
+      "sourceHash": "1f732854bd613e4fe2880c1a817ea854c4d687ac9bd858d53b5cf06a6b9c62b6",
+      "message": "nome de geração inválido"
+    },
+    "download.api_invalid_json_body_detail": {
+      "sourceHash": "912f0fa21cca932d3b8077f9e2840731456addebaf216a9b6233ba08e7e257a5",
+      "message": "corpo JSON inválido: {detail}"
+    },
+    "download.api_no_image_store_configured": {
+      "sourceHash": "eff008ebaa353151c5b2e4e508cd8354cb823c2ed87aa5175c9c0c07bbf70571",
+      "message": "sem armazenamento de imagens configurado"
+    },
+    "download.api_pool_refresh_refused_reason": {
+      "sourceHash": "4cc5f88e26bfe7f7f901d775cded2f93f5db9065d84f85e05906065fd14c36b4",
+      "message": "atualização do pool recusada: {reason}"
+    },
+    "download.api_refresh_refused_reason": {
+      "sourceHash": "516452b2ea580a4a21e196d836df4da2539a34ed64368212664b702295770ea0",
+      "message": "atualização recusada: {reason}"
+    },
+    "download.argv_value1": {
+      "sourceHash": "54c2492a61fe64e3d8ec01fff6947d94dea3626c4a6073e52bff7456a1a0f24e",
+      "message": "argv: {value1}"
+    },
+    "download.artifact": {
+      "sourceHash": "1f6b0edb6f996e745d6111f326839b4dcbc5822abb916ba316bc46a0ef5cf0a9",
+      "message": "Artefacto"
+    },
+    "download.as_of_value1": {
+      "sourceHash": "3755092a21d6bdd71e4f9f263c99a602ca662931bc647b09662bf4a4426a6d3a",
+      "message": "Desde {value1}"
+    },
+    "download.as_of_value1_273588ee": {
+      "sourceHash": "ccf87ce0bc04112041ef91bec2759bc20de0a167c5b6fec6515f661033c06890",
+      "message": "a partir de {value1}"
+    },
+    "download.attempt_arch": {
+      "sourceHash": "a8e80d92067fc78277d81b7ce1e167678a1168aa82b124f3eeb9d7c97a85afce",
+      "message": "Arch {value}"
+    },
+    "download.attempt_exit": {
+      "sourceHash": "075cfbf15a4c4607b39c7b78d2a4ff08c622f155778566d9be12ebe441c9c519",
+      "message": "saída {value}"
+    },
+    "download.auto_seed": {
+      "sourceHash": "fd9efe3e3fa0761c691999697fa28143238cddb31e10383196a9b1ab03f46a52",
+      "message": "Semente automática"
+    },
+    "download.available": {
+      "sourceHash": "b8122da8bfb17394922f13b60f78736c768589c7a7def7eca262f185409496a0",
+      "message": "disponível"
+    },
+    "download.best_effort": {
+      "sourceHash": "cc9ff26ae681546c05d900d59d1832fbfa1c71ac8a14a451bb2423436e5b8d68",
+      "message": "Melhor esforço"
+    },
+    "download.best_effort_identity": {
+      "sourceHash": "d9c4b953136d26811b1b833602a4f1fdaa101b483e13e2d5cd247a74dbd689e8",
+      "message": "{identity} - melhor esforço"
+    },
+    "download.byte_downloads_go_direct": {
+      "sourceHash": "37d152ca560e184615f77662544f2db6dfc31a9d012b9f9aa2dc588029b112e3",
+      "message": "Os downloads do Byte são diretos."
+    },
+    "download.checksum": {
+      "sourceHash": "916ef235b83838669107856a3fd6cbaacd5122d411725399d986a8767f690d99",
+      "message": "Soma de verificação"
+    },
+    "download.command_line": {
+      "sourceHash": "d95d0ff693f4fc34870212efb65c7a13d5a52d66d906cc656ee0daf4f3138d17",
+      "message": "Linha de comando"
+    },
+    "download.configured": {
+      "sourceHash": "3ebd7369690b5d7578c0433de3c1e41b6978c5008e019919e36d013c844ee43d",
+      "message": "configurado"
+    },
+    "download.deferred_count": {
+      "sourceHash": "d482f162a92f8fb4884f76a77557417e5cb1f527f1d5fd9837fc37ad7ab82341",
+      "message": "Adiado: {count}."
+    },
+    "download.delete": {
+      "sourceHash": "dbc5b0311b6e1e673dfbe605ecb24b03afdddb2943123ef7deb5e0acc199b38b",
+      "message": "Apagar"
+    },
+    "download.delete_every_generation_of_value1_value2_value3_value4_the_next_h": {
+      "sourceHash": "cb9a8a278a57b166c4f5ba6245fa8161466e132fdfc012a8a6a1cf2dcb73cf28",
+      "message": "Apagar todas as gerações de {value1} ({value2}, {value3}, {value4})?\n\nA próxima requisição da máquina ou o passe de sementes volta a transferi- la da origem. As máquinas mantêm as suas cópias locais."
+    },
+    "download.diagnostics": {
+      "sourceHash": "4fc5b42abe329051fb9855f0d7d3b130f64c09318707caf361639a318f773226",
+      "message": "Diagnósticos"
+    },
+    "download.diagnostics_load_failed_value1": {
+      "sourceHash": "924556b2f85451f6589491e6e5cfb628c5d2d9ae78ea2ce62d661677cc370d19",
+      "message": "Falha na carga diagnóstica: {value1}"
+    },
+    "download.diagnostics_yuruna_download_agent": {
+      "sourceHash": "daed9f129173c94e4b1f27b3c4022615367440cf76b39c88d11d804b5b8ddb4a",
+      "message": "Diagnósticos — Yuruna Download Agent"
+    },
+    "download.discard_the_previous_generations_of_value1_value2_value3_value4_t": {
+      "sourceHash": "795b72dd63ac1c822a99aaf9587bdb906de9672c7c297642da484c397cf38c47",
+      "message": "Rejeitar as gerações anteriores de {value1} ({value2}, {value3}, {value4})?\n\nA geração atual é mantida. Os descartados não são recuperáveis."
+    },
+    "download.download_pool": {
+      "sourceHash": "cbb64b1589faaca949216a4aa4e1089241cb1a9f9d1e4a4ec3a031a67e896656",
+      "message": "Obter o pool"
+    },
+    "download.download_pool_yuruna_download_agent": {
+      "sourceHash": "cff6a00c30cf3ab7923718ff342378593d5eeed69fd70ff148e83219c5ba1532",
+      "message": "Download pool — Yuruna Download Agent"
+    },
+    "download.enter_the_dashboard_lab_token_to_enable_actions": {
+      "sourceHash": "380a060af33abc2a5038273a8a937dd8dbe9fb98b667061ea373812e83f04a91",
+      "message": "Digite o token do laboratório do painel para habilitar ações"
+    },
+    "download.entry": {
+      "sourceHash": "21f8e7148c3979ed799c5117dd485ac781008b621f2b04e290a77f2184afacd2",
+      "message": "Entrada"
+    },
+    "download.entry_bytes": {
+      "sourceHash": "e6254c430780c92d8bb02abb88dc5c0cab60fe6913157ad65804d56969bd7d76",
+      "plural": {
+        "variants": {
+          "one": "Entrada {count} - Corrente {bytes}",
+          "other": "Entradas {count} - Corrente {bytes}",
+          "many": "Entradas {count} - Corrente {bytes}"
+        }
+      }
+    },
+    "download.entry_count": {
+      "sourceHash": "2850192aaa3a994538c1d1cd6295284d3acab634f25a7f8b28532f4ef043df82",
+      "plural": {
+        "variants": {
+          "one": "Entrada do {count}",
+          "other": "Entradas do {count}",
+          "many": "Entradas do {count}"
+        }
+      }
+    },
+    "download.error": {
+      "sourceHash": "aec44b49175ef48f5fdb5ce37b13b427116fd03d76460f73a3bf1e85861fb588",
+      "message": "Erro"
+    },
+    "download.every_value1": {
+      "sourceHash": "25c8948f22bfd6348aa491a7e1af2f00bf2768bb53f8d5c46590b6f55dcc5cdb",
+      "message": "cada {value1}"
+    },
+    "download.expired_value1_ago": {
+      "sourceHash": "a2791c209e74a3bf17d0dfddb25de4c6e758f4fde5705742c4ff58a02584727f",
+      "message": "expirado {value1} há"
+    },
+    "download.expires_in_value1": {
+      "sourceHash": "847814273215dac3bfc8a04a363cb71b6088de52ff9f8ebcbc89215a5cfd45c4",
+      "message": "expira em {value1}"
+    },
+    "download.failed": {
+      "sourceHash": "99fb353a10d0cfbecf1bc763480351fb39bafd791e39141ec8bacca29320c18f",
+      "message": "falhou"
+    },
+    "download.fido_script": {
+      "sourceHash": "7e67a70615748d3af3fe66f63bc20aa205b27a138a6239a31ce7660b538a4ad8",
+      "message": "Fido script"
+    },
+    "download.force_refresh": {
+      "sourceHash": "29e89a92ad4090699e1cc17b87e4ae9aac75fbc7275c314082167f01c64f7702",
+      "message": "Forçar a atualização"
+    },
+    "download.found": {
+      "sourceHash": "a432c0ea3d9ee53ba6d1fd0cc5a7479734dc1a0631bdc99c4f08742f9111a4ea",
+      "message": "encontrado"
+    },
+    "download.freshness_window": {
+      "sourceHash": "9827c9c6b87af93451158352882bcce4b73e7277f4fdd5c071e67040b75db74c",
+      "message": "Frescura: {freshness}; chumbo prefetch: {lead}."
+    },
+    "download.guest": {
+      "sourceHash": "4fabd3eb41296364ed73c7d40eb171e8ca01c52ad691fc6a422078e703f81198",
+      "message": "Convidado"
+    },
+    "download.guide": {
+      "sourceHash": "24c369276ac0043c7e26c0428d4f332cabd5119dacc2461b66653e42bae6c900",
+      "message": "Guia"
+    },
+    "download.held_by_value1": {
+      "sourceHash": "1b68638227d21234b494d71cabd0ca5654ce70e3d98164499a321dbfea0b5f7c",
+      "message": "Detido por {value1}"
+    },
+    "download.hosts_without_status": {
+      "sourceHash": "fc24c99093b8076d1a7f31b275b09a97574db1e48bf7bca5d6059939f4596bc0",
+      "plural": {
+        "variants": {
+          "one": "Servidor {count} sem status.",
+          "other": "Servidores {count} sem status.",
+          "many": "Servidores {count} sem status."
+        }
+      }
+    },
+    "download.image": {
+      "sourceHash": "89e2c9146e9344197b6cd67d6340768cb7c083493b8b2c73ed171d53eb93516f",
+      "message": "Imagem"
+    },
+    "download.interpreter": {
+      "sourceHash": "8565f7f75609528171a4599f73b83a278bb6ee222bc9eb357519ce93a535a677",
+      "message": "Interpretador"
+    },
+    "download.interpreter_and_script_present_resolves_are_attempted": {
+      "sourceHash": "9c25bf608c0d759ac5f4eadd97c0cd238e2026a2bd5d426edf021f8c760a3b8a",
+      "message": "Interpretador e script presente; soluções são tentadas."
+    },
+    "download.ips": {
+      "sourceHash": "729205bad462277f134260e2c95ad9e987a219232b662cd9fa2d0a7e059011a7",
+      "message": "IPs:"
+    },
+    "download.lab_token": {
+      "sourceHash": "2026f8baaf7aa2f51d4e0689ba89d61bc92b72604c9550cb3d6dc79091206614",
+      "message": "Token de laboratório"
+    },
+    "download.last_pass_failed_value1": {
+      "sourceHash": "1b00c996990da9f946415da06fd852c3953d89b6afc7ae45bac846bb5bac8a65",
+      "message": "Falha na última passagem: {value1}"
+    },
+    "download.last_resolver_run": {
+      "sourceHash": "0f6c3d5d6c4de176a64e8cd81f1fde6fd819ce35aa52cdb48c28d5c4533215c1",
+      "message": "Última execução do resolvedor"
+    },
+    "download.last_value1": {
+      "sourceHash": "37ff77ce6fd55dc55fc2e1d45294a515e47e6cc85023880b19f5acf7ab39450a",
+      "message": "último {value1}"
+    },
+    "download.lease": {
+      "sourceHash": "52b62273f0a3e04cdaaae78d7d4266bd14ea537d6c4a432d039800d270a8ffe3",
+      "message": "Locações"
+    },
+    "download.loaded": {
+      "sourceHash": "1454b5b7f8d498555b7ee34cc73d2e4a0da2399454d5e899c985632ccbbd04d8",
+      "message": "Carregado:"
+    },
+    "download.manual_copy": {
+      "sourceHash": "9cb356f5a3f3f180d93ec116985c779d864a840194b9f350f2a6df103ef175f4",
+      "message": "Copie o arquivo baixado para a pasta de destino."
+    },
+    "download.manual_resolve": {
+      "sourceHash": "2468c53855fc5893cff95e2556234642af4deaffb8ddf52c9f15482e0c873c97",
+      "message": "Fido falhou. Visite a página de download e selecione: {selections}."
+    },
+    "download.menu": {
+      "sourceHash": "da0f7f4d05c53977e24c9e1507e914041bfe4be1b1e50a1f705f7715cfdcb755",
+      "message": "Menu"
+    },
+    "download.minted_url": {
+      "sourceHash": "c928e4874dc14c72b60ff2b93bcd59f9a8c59e4bfcbdef43b9c40b5b95e0761c",
+      "message": "Mintada: {url}"
+    },
+    "download.missing": {
+      "sourceHash": "262149b6123369bb5d82cc7d6c30d1f9928321064e691dd8c84cf854a1793344",
+      "message": "faltando"
+    },
+    "download.next_scan": {
+      "sourceHash": "d0d4712170c95b132cddf9ae32bf9b34299b742c8f97df1f1b64171076c0405c",
+      "message": "Próxima verificação: {time}."
+    },
+    "download.no_aggregator_url_and_no_internal_authentication_key_are_configur": {
+      "sourceHash": "f430889dc107db19c9298de1a7497654a06e8aaa9eb07acf26081bc316631ae4",
+      "message": "Nenhum URL agregador e nenhuma chave de autenticação interna estão configuradas, então o teste de resolução está desativado. Defina {command1} ou {command2} no servidor para habilitá- lo."
+    },
+    "download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e": {
+      "sourceHash": "f3e7c5f8a68d95c4260362deb7b01dfd7b5c535f51ec5306979d9b9b465d8464",
+      "message": "Nenhum URL agregador e nenhuma chave de autenticação interna estão configurados, então Forçar atualização, Excluir e Pruna estão desativados. Defina {command1} (que permite que o token Lab do painel os desbloqueie) ou {command2} no servidor para os permitir."
+    },
+    "download.no_aggregator_url_or_internal_authentication_key_configured_on_th": {
+      "sourceHash": "2f07c872e782b4ac9237af3a23ee05fcf66181b810b6fd13dec5d958c12a7e38",
+      "message": "Nenhum URL agregador ou chave de autenticação interna configurada no servidor"
+    },
+    "download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o": {
+      "sourceHash": "730aaaba55fd3e3e7b4f23c32513ba09d02b50d7d9f6dede58098afce5069297",
+      "message": "Ainda não existem itens do pool. O scanner semeia o pool na sua próxima passagem, ou usa o Forçar a actualização numa linha para iniciar um agora."
+    },
+    "download.no_previous": {
+      "sourceHash": "199e75a09a195502655ad84810738d024e0bea24a56a391331e71bb1770aa380",
+      "message": "nenhum anterior"
+    },
+    "download.no_remembered_refresh_errors": {
+      "sourceHash": "3c143cd4aaaf840a9f18e9ab0cc7db49230d1f93f3b4b173e0ce11bc90e3e907",
+      "message": "Nenhum erro de atualização lembrado."
+    },
+    "download.no_resolver": {
+      "sourceHash": "9b4e421021e429600cdd42e8f492922011425e8509da3207f99303c7ac21a9c0",
+      "message": "sem resolução"
+    },
+    "download.no_resolver_run_recorded_since_the_daemon_started_a_scan_a_host_r": {
+      "sourceHash": "41a92de4a573366959faac6566f093328da6cb45715cb33342b278749d3f6a1e",
+      "message": "Nenhuma execução de resolução gravada desde o início do servidor. Uma verificação, uma solicitação da máquina ou o botão de teste acima irá gravar um."
+    },
+    "download.none": {
+      "sourceHash": "2584806f737e7d4fc7c27f5cea00520545421e9a1b190c4703ce232b1b8915f5",
+      "message": "nenhum"
+    },
+    "download.off": {
+      "sourceHash": "cc1c481424f21cdf4597e2b1c7002761c554f56b26376ed4b345d5d4df0a2868",
+      "message": "desligado"
+    },
+    "download.on": {
+      "sourceHash": "de30dca39acecc0f518773f813bee218e786a97b16f5850c3080cc5653075b1e",
+      "message": "ligado"
+    },
+    "download.pages": {
+      "sourceHash": "04f9321053459226e75dd221b6e34471f8c7162cb46daf3f5b8e7b255b5f38d2",
+      "message": "Páginas"
+    },
+    "download.pause": {
+      "sourceHash": "32e242a57d121c87860464db1ba36bda178e51dc91171c56d482eea79e477bb6",
+      "message": "Pausa"
+    },
+    "download.pool": {
+      "sourceHash": "92031d89a0725ecdebc260230e314ed42c5a26b7c13c795767c031fe1f7fde05",
+      "message": "Piscina"
+    },
+    "download.pool_bytes": {
+      "sourceHash": "971f4de4ded1937edc183aa921ed70e79f9a14e198ea00e9f248eb1116406c47",
+      "message": "bytes de piscina"
+    },
+    "download.previous_value1": {
+      "sourceHash": "66e6823affb37085d2bdc6387ede753316e4457278df653875b8f8b08e017c37",
+      "message": "{value1} anterior"
+    },
+    "download.proxy": {
+      "sourceHash": "2440c8cf37e372e012ebc7bfe34543a828a2be8e71240b95bfe523fdcf7bd616",
+      "message": "Proxy"
+    },
+    "download.prune_previous": {
+      "sourceHash": "e06bad6b33e2c81f435a0e613af8a5c6a176aa7ff2b5edd9b9b6caa2a8053f13",
+      "message": "Pruna anterior"
+    },
+    "download.read_only": {
+      "sourceHash": "76cb8cf492df5d66ea41611a324a20b7e68ebe52600566f16b934d3c524d63e6",
+      "message": "somente leitura"
+    },
+    "download.recent_errors": {
+      "sourceHash": "c968a0c3bf2260ac7b0ecccabbd504e1c68dbe2b13c6f1101e7c03427309df6d",
+      "message": "Erros recentes"
+    },
+    "download.recent_image_errors": {
+      "sourceHash": "39d4eb6dc6477b5c82b18cb08a0c460358ff4727c9b628f64f3e62e7f12b30a3",
+      "message": "Erros recentes na imagem"
+    },
+    "download.refresh": {
+      "sourceHash": "52221e000477bceaf390320c2cb61d66c3db66b961509b09349d231c7ac38654",
+      "message": "Actualizar"
+    },
+    "download.refresh_origin_probe": {
+      "sourceHash": "29f647998effa25e60cf0c0dc0571ea4f1ccd68b8ea4bda1b6fde49c508dcba6",
+      "message": "Sonda de origem {url}: {detail}"
+    },
+    "download.refresh_proxy_retry": {
+      "sourceHash": "290462950ab9b143cd28eed58fdc24974435fa94d255392c3f74803da19f11e1",
+      "message": "Falha na transmissão do 'proxy' ({proxy}); repetição direta: {direct}"
+    },
+    "download.refresh_size_mismatch": {
+      "sourceHash": "1e1edf1e2bf54fc76b6e6ac269456fd33dfe9191498794cc8db6b7dd25fa2af5",
+      "message": "origem {url}: HEAD informou {expected} byte(s), o download produziu {actual}"
+    },
+    "download.refresh_view": {
+      "sourceHash": "ab33c3da2d712632eeaaf1fd650ebfad9c0294a288510ed6a50b9cf75f864d03",
+      "message": "Actualizar a vista"
+    },
+    "download.resolve_failed_the_capture_below_says_why": {
+      "sourceHash": "72dba80bb6ecebf9cc4b1d28aa3b94b8637954745926cc686db4b036c0498c85",
+      "message": "Resolver falhou -- a captura abaixo diz porquê."
+    },
+    "download.resolve_succeeded_the_family_is_usable_on_this_agent": {
+      "sourceHash": "47c044295f0768cd36814d80119b82a5cf8c8292cba3bbbe9a4180cca44a1ef8",
+      "message": "Resolve conseguiu -- a família é utilizável neste agente."
+    },
+    "download.resolved_variant": {
+      "sourceHash": "d1ac2208d5a03a32365c4b30f11ed2a56cb4f09c8d07ef8c3961ebf511e5d79b",
+      "message": "{identity} (resolvido {variant})"
+    },
+    "download.resolver_test": {
+      "sourceHash": "c1c14c57036d3f28f72947a5fa9c778d37b0950aebeb0b5e761dc0ca6134a398",
+      "message": "Ensaio de resolução"
+    },
+    "download.resolver_test_failed_to_run_value1": {
+      "sourceHash": "18d208a1996d2dfd7e3cd59a9d6dfc3bac7594f707c8ea289508c4fb82fb2387",
+      "message": "Não foi possível executar o teste de resolução: {value1}"
+    },
+    "download.resolver_test_refused_value1": {
+      "sourceHash": "92d0fc97355f716f550af9f0358b8351f758e4f580269507f8510ddfca4ca137",
+      "message": "Teste de resolução recusado: {value1}"
+    },
+    "download.retries_after": {
+      "sourceHash": "2ed4cc8464753d8a6e0c89068c4a2a900d11e2f9d3d265b6c3e2d88ca9b5a041",
+      "message": "Repetições após {time}."
+    },
+    "download.row_number": {
+      "sourceHash": "97985912c4996b8bda7aa02ef26d5c909a10abd009af1cafc23e45fafa93bd87",
+      "message": "Número da linha"
+    },
+    "download.running_a_resolve_can_take_up_to_3_minutes": {
+      "sourceHash": "40a8db980bc92ddc47a6d8f33ed7833df4663828cc9deadbab04f203b27cf1d4",
+      "message": "Correr — uma resolução pode levar até 3 minutos..."
+    },
+    "download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u": {
+      "sourceHash": "17066269fc2ebaadad7873f4a5730bddbc1cc741ac6180f2d670ac917449099a",
+      "message": "Executa o Fido vendido uma vez com os parâmetros exatos que uma solução usa.\nEle menta um URL assinado e não baixa nada, mas cada execução gasta um\nSessão Microsoft (seus servidores rate-ban chatty endereços), então use-o para\ndiagnosticar, não pesquisar. Um teste bem sucedido limpa uma falha lembrada em\no local; um falhou o rearma."
+    },
+    "download.scanner": {
+      "sourceHash": "57e516ffc18c6d127b7620720c38a7ed71f963391b573f1def3ec1641a3ddc6c",
+      "message": "Scanner"
+    },
+    "download.six_character_lab_token_from_the_dashboard": {
+      "sourceHash": "8f11c7b61a0cc38bcec61006100acbfa6412295dd98dfe7017e2af98135cf950",
+      "message": "Token de laboratório de seis caracteres do painel"
+    },
+    "download.size_current_previous": {
+      "sourceHash": "a18edfbd3502be7ebe4736ab7d0b3794bfd275fc29b9897375146957f4a2e72f",
+      "message": "Tamanho (atual / anterior)"
+    },
+    "download.skipped_value1": {
+      "sourceHash": "3ca40a866c841594a0bdee4e904001f78b46f0368db3ff3a503748c1cd933c60",
+      "message": "pulou: {value1}"
+    },
+    "download.source": {
+      "sourceHash": "03f78beaefa53ac4e85e9a543ac6f2528efbe3f2c3be99ab1726fd07bb12396d",
+      "message": "Origem"
+    },
+    "download.standard_error": {
+      "sourceHash": "54395955bc4681aeb30e8c7f4332791e438cf4221a9aca573218c0c19ae0b7c3",
+      "message": "Erro padrão"
+    },
+    "download.standard_output": {
+      "sourceHash": "0d12f0bc876594fce808003390c72888a9746ee02c703ae91bfcd69fdd2d2e21",
+      "message": "Saída padrão"
+    },
+    "download.state": {
+      "sourceHash": "4bcf635f477827c9c71e1a28f070648d5bc07f6b14c1586e59da8b5eaec8250a",
+      "message": "Estado"
+    },
+    "download.state_absent": {
+      "sourceHash": "9088e535f016a7e61bab8bb4db4982be5cb88c060251a658afd19de72a46997b",
+      "message": "ausente"
+    },
+    "download.state_adopting": {
+      "sourceHash": "b98db031748d746bb23ebc7d736fba10b3ba533336a96291401f62d2dd2f982d",
+      "message": "adopção"
+    },
+    "download.state_deleting": {
+      "sourceHash": "35ec935dbe371e40585658ee48c2240f746cfb6293c6022a463c15ef7c02a7fa",
+      "message": "apagar"
+    },
+    "download.state_downloading": {
+      "sourceHash": "d5555c1d420987e65a7fae44b9cc37b341b1581a39de1973d5660fd138fe48cf",
+      "message": "baixando"
+    },
+    "download.state_failed": {
+      "sourceHash": "f1937b13693e92d109d7a900e976cdd6d2834eeecd2ff208cb04b7a52278ba63",
+      "message": "falhou"
+    },
+    "download.state_fresh": {
+      "sourceHash": "58557902091036f372425836d6a3b07221f96fa0b6775076849bfe3853f322b1",
+      "message": "fresco"
+    },
+    "download.state_match": {
+      "sourceHash": "479e37fda47b6973fde3bbf48d5dbd702625d69822709d3c731eb40451dbf2a6",
+      "message": "corresponder"
+    },
+    "download.state_mismatch": {
+      "sourceHash": "dd1d67b2d2a81a0dc5ac5172a7d82a341b36863368c86513b420a2c3f45d5a27",
+      "message": "desfasamento"
+    },
+    "download.state_missing": {
+      "sourceHash": "1876a7bfc41f8c5e7757515a8374c8167d659caaee42becdb2034c8eb56c5dc6",
+      "message": "faltando"
+    },
+    "download.state_probing": {
+      "sourceHash": "d07077d681fb007da4411f1c6195dfa093b4bd8264b59b8d36b6deaab3d8d545",
+      "message": "sondagem"
+    },
+    "download.state_promoting": {
+      "sourceHash": "9e40e97f9fa9db0278c41cb5ee2728321e56ad65366bdfca4f692ec5078f964f",
+      "message": "promover"
+    },
+    "download.state_ready": {
+      "sourceHash": "429c1319329c80cc7d0be04a101e1e32f4f49507a807430c8745828e31491cd5",
+      "message": "pronto"
+    },
+    "download.state_resolving": {
+      "sourceHash": "344559ae855ffc9fbd0ea707f6c23d6232d783f5cc103b91dcc222e2c6efbccb",
+      "message": "resolução"
+    },
+    "download.state_stale": {
+      "sourceHash": "1ac4d2cdb3c7a2b3d9acdd4b4e42d890ca86afbbd2549fec288b0e708c776749",
+      "message": "stale"
+    },
+    "download.state_unavailable": {
+      "sourceHash": "2f80a9afbf5c75da989b98b8397562aefc33b54b49ee87a238fdab219161983d",
+      "message": "não disponível"
+    },
+    "download.state_unsupported": {
+      "sourceHash": "eef791210d7b601f35d13b4de1c083992865901768b3b23c5be794e2c4208a73",
+      "message": "não suportado"
+    },
+    "download.state_verifying": {
+      "sourceHash": "45f73acc77b81d6f81708b5445a6769aae014dab314f511fbde22a543aec95fb",
+      "message": "verificação"
+    },
+    "download.state_working": {
+      "sourceHash": "e5fba97071bfe4d0b77e4b34f3afedb82af237744977f22dec9bd9d4b8daf215",
+      "message": "trabalhando"
+    },
+    "download.stderr": {
+      "sourceHash": "4c59b8f067600b048d66cadc1209daa6e6226de6f253fd9675939f8d5dd3e6cb",
+      "message": "stderr"
+    },
+    "download.stdout": {
+      "sourceHash": "c8743aabe7f45d58f5bb60fb7f4e214990b71f3e2e1ca35cafba5aee3714ac15",
+      "message": "stdout"
+    },
+    "download.test_amd64_resolve": {
+      "sourceHash": "0dab06106bab4b1cda1513a41133b6e9b1033a4ea17282da21df3cef4a8aa015",
+      "message": "Resolução do teste amd64"
+    },
+    "download.test_arm64_resolve": {
+      "sourceHash": "6ab03e70212fe1a493384c5b131b88f3b2e4f576f2185409349e8611b459621c",
+      "message": "Determinação do braço de ensaio64"
+    },
+    "download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti": {
+      "sourceHash": "3ad79939cb05ebab950f61d31dbebf5dc01650a1cf08395e52e5d3b4c5e65cf7",
+      "message": "O código de 6 caracteres na peça de token do painel do Yuruna; ambos funcionam em maiúsculas ou minúsculas. Necessário apenas para o teste de resolução abaixo -- tudo o mais nesta página é somente leitura."
+    },
+    "download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2": {
+      "sourceHash": "0bb52a501d3463e5bf7e62bda44367ec697a59ff3aeff6bf64b4a15ed202beda",
+      "message": "O código de 6 caracteres no painel do Yuruna hospeda o token azulejo do laboratório; ambos funcionam em maiúsculas ou minúsculas. O agregador do pool verifica- o e ele gira, então um código anotado na semana passada não abrirá nada."
+    },
+    "download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t": {
+      "sourceHash": "9a0d83944424576cf4d35cf58444b72b336262f7aa585fb8e8ebbb061267d9fc",
+      "message": "A última falha de atualização lembrada por entrada do pool, mais recente primeiro. Estes são os erros por trás de um crachá falhado na página do pool."
+    },
+    "download.the_pool_share_is_not_available_the_agent_still_answers_metadata_": {
+      "sourceHash": "0a20d82922c35e8b0281c9b83f77701b2e54248a31666e43e62be53d3fe65da4",
+      "message": "O compartilhamento do pool não está disponível. O agente ainda responde aos metadados, mas nada pode ser baixado ou servido até que esteja montado."
+    },
+    "download.this_folder": {
+      "sourceHash": "1816880217c5441365ecf2bce464d2cdf1ab804937bd6e8e9058d647764bfa58",
+      "message": "esta pasta"
+    },
+    "download.this_page": {
+      "sourceHash": "09e2701fa7edc2aae4ea3fd16fb3dfecce97634b9e6c97127d76e5304fcce7c2",
+      "message": "esta página"
+    },
+    "download.totals": {
+      "sourceHash": "03b0f7d1e27109bf63ed3a20169b1d4376ce7e73db5b93f9a406b10a9a8056b5",
+      "message": "Total"
+    },
+    "download.unavailable": {
+      "sourceHash": "773e781da3b69b8c270e385d9c7b7f88904fa52b9ea538905533f27d621e87d7",
+      "message": "não disponível"
+    },
+    "download.unlock_actions": {
+      "sourceHash": "e30afdccf33a8ff9e501016e341a0908e67a7ec6d5bce27591df939ec87d2a19",
+      "message": "Desbloquear ações"
+    },
+    "download.unlock_actions_first_enter_the_lab_token_above": {
+      "sourceHash": "a5fb88d8fbbdeba5af4fa19b0ed01ec642fbf93ebac347a1317d063dacb91e0b",
+      "message": "Desbloquear ações primeiro -- insira o token do laboratório acima."
+    },
+    "download.v": {
+      "sourceHash": "be19718b6e0b77a9a04e9182080d2fab1b3387dd7a9cf244aea13718f93d34c5",
+      "message": "v"
+    },
+    "download.value1_failed_for_value2_value3": {
+      "sourceHash": "ef9d4e344066a1a80330bfe62aef19dc94d683db4acb048c5caba69d2d3a248c",
+      "message": "{value1} falhou para {value2}: {value3}"
+    },
+    "download.value1_failed_value2": {
+      "sourceHash": "32246609c202512b86f0a836f73d4cb9e242bf14b881c548806d6d03a07db58a",
+      "message": "Falha ao {value1}: {value2}"
+    },
+    "download.value1_of_value2_available": {
+      "sourceHash": "ba1044a31a9665068f4ed76a9868bf7bfe82e63af44fd723f8a1dc69bbda4ade",
+      "message": "{value1} de {value2} disponível"
+    },
+    "download.value1_on_the_share": {
+      "sourceHash": "3ddf77d2c48b584e12aaa3f586ff6767bd560298b8b46be226d20b9034b683fd",
+      "message": "{value1} na ação"
+    },
+    "download.value1_started": {
+      "sourceHash": "625656ce21360fcde2841dfc9807ecbff323d26d0392f8439d5d75c72a58349f",
+      "message": "O {value1} começou."
+    },
+    "download.value1_started_value2": {
+      "sourceHash": "47e525c750ef42fcfac2d2e75db8e46e6aca36a5ba0282356fd1ae77b10d320b",
+      "message": "{value1} - iniciado {value2}"
+    },
+    "download.verified": {
+      "sourceHash": "33d634d779495994dafb31f9b24c856e77034ada774fcc19904dbfdaf5fb1fb1",
+      "message": "Verificado"
+    },
+    "download.when": {
+      "sourceHash": "bef57931b0fe4a99702bd57a6bc6365fd2cb311c2791c603f88a7ba53492b3b8",
+      "message": "Quando"
+    },
+    "download.windows_11_family": {
+      "sourceHash": "166ed0b877d5f5cae0d15f4fb32be5675fb3ab4efcf47a1ed660f0d47988e16d",
+      "message": "Família Windows 11"
+    },
+    "download.writer": {
+      "sourceHash": "fc64ffb942ad50eba0eb1d597b1783dd6bc53bb5cfd9fa74ff929f3117623170",
+      "message": "escritor"
+    },
+    "download.yuruna_download_agent": {
+      "sourceHash": "98e0474b9772f49ad6944c9576ccbd80ad60a557205f1dd8d3d84e24b9546735",
+      "message": "Yuruna Download Agent"
+    }
+  }
+}

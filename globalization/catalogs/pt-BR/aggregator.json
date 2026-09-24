@@ -1,0 +1,407 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "aggregator",
+  "locale": "pt-BR",
+  "messages": {
+    "aggregator.announce_accepted_but_not_durably_recorded_retry": {
+      "sourceHash": "28e11da3eab77a55966409e0c0a5850ca92f66b5f8e347e2f7f89e3de22c8a46",
+      "message": "Anunciar aceito, mas não duravelmente registrado; tentar novamente"
+    },
+    "aggregator.announce_accepted_but_not_recorded": {
+      "sourceHash": "df97bc4b61ef0be5f3d3aecb6066ef91438bafa35f38051f2242a68a59544068",
+      "message": "anunciar aceite mas não registado"
+    },
+    "aggregator.announce_disabled": {
+      "sourceHash": "a1f913185568758cf0328bdf5c3f074d18867d4d6d8b57c8ae3d45d1388e41c7",
+      "message": "anunciar desabilitado"
+    },
+    "aggregator.announced_address_did_not_serve_status_json": {
+      "sourceHash": "16070538128f67633e0d1c06ca480fe30b919df4b1d79b3d0e496a6584629925",
+      "message": "endereço anunciado não serviu status.json"
+    },
+    "aggregator.announced_address_serves_a_different_hostid": {
+      "sourceHash": "753654746a1057bc8efbf057b73fab79325ac520006dc6f3819c74c0a1a8c03f",
+      "message": "endereço anunciado serve um hostId diferente"
+    },
+    "aggregator.batch_mixes_multiple_hostids": {
+      "sourceHash": "ed461966de67425fb839a14b7dd341d5766fa614f8f3567f59b86bf986f05fcf",
+      "message": "lote mistura vários hostIds"
+    },
+    "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte": {
+      "sourceHash": "ce457b922f8ff318ec6e7f46dd111ddfc6991de6111622bc059dbca6df82f84e",
+      "message": "verificação à prova de controle desabilitada: este agregador não possui nenhuma chave de autenticação interna"
+    },
+    "aggregator.encode_failed": {
+      "sourceHash": "42df79b2001a415e5664db11c31c67cb19bd894b6310eb9205673049f4f49902",
+      "message": "codificar falhou"
+    },
+    "aggregator.failed_to_encode_extension_hosts": {
+      "sourceHash": "e44f629f0b7891a966b0f78ad8e354eb95b1b2cba8d01a605c0102ee84f26a54",
+      "message": "falhou ao codificar máquinas de extensão"
+    },
+    "aggregator.failed_to_encode_pool_status": {
+      "sourceHash": "6f3265353efe9c89066b92e42cd54b8aa2985f764720376dfaf346d6bc867b41",
+      "message": "falhou ao codificar o status do pool"
+    },
+    "aggregator.failed_to_encode_result": {
+      "sourceHash": "d8dc777b2b91432b50fab98cd03e8b7b3440cf3c2d153b4a69aadcc1d2afeae9",
+      "message": "não foi possível codificar o resultado"
+    },
+    "aggregator.failed_to_encode_scrape_targets": {
+      "sourceHash": "ef982563256dffbe48be9156547ed5eb540a53d255512911e16e83c063246035",
+      "message": "não foi possível codificar alvos de raspagem"
+    },
+    "aggregator.failed_to_seal_the_token": {
+      "sourceHash": "7b19a4f2d5ee8dfe0f4ea1c26da67d4efe29a11ec11175cd550afa4ae7434aca",
+      "message": "falhou ao selar o símbolo"
+    },
+    "aggregator.forget_host_disabled_no_auth_token_configured": {
+      "sourceHash": "9d3b514c1b9c3cdafddc4b1625b83c2d1b81e03c3c17e403276e02965ddf0894",
+      "message": "esquecido- máquina desactivado (sem auth token configurado)"
+    },
+    "aggregator.help_address_to_listen_on_59add3f5": {
+      "sourceHash": "d42b244f92bad708e0b5b4f7ce1360ae2bf2230864ab2a5af9cd41f3eb443453",
+      "message": "endereço para ouvir em"
+    },
+    "aggregator.help_allow_pseudo": {
+      "sourceHash": "822fc793f0cdba09d6ec641497b446502dd593063a5c55a9deea98f16ad9a139",
+      "message": "Activar as pseudo- localizações de diagnóstico"
+    },
+    "aggregator.help_display_language": {
+      "sourceHash": "276a7679eaa09c945a2910ec76759d6ebcc9654717cc82f0f8c40bc7a0a6feb6",
+      "message": "Exibe o idioma: auto ou um local suportado"
+    },
+    "aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083": {
+      "sourceHash": "9c87789af529e72ad1306dc52948be793c93b1cbf9b953c713f96adb3b3c44f3",
+      "message": "hospedeiros distintos que devem falhar dentro de -cross-host-janela para abrir um incidente em toda a piscina"
+    },
+    "aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1": {
+      "sourceHash": "7ea3d6028d8d0edc11b62ac5bb85cdc2e26d923dd80152a9ad2a3ec30b04aa1c",
+      "message": "soltar um host da vista da piscina este tempo após o último contacto; o seu estado de desdup por ciclo é mantido uma hora a mais para que um host que reaparece não possa contar duas vezes e as ligações profundas do painel resolvam pelo menos 24h, independentemente. Os contadores cúmulos de passe/falha não expiram por este -- use POST /api/v1/forget-host"
+    },
+    "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": {
+      "sourceHash": "761d35e199dac245785466dbbad8e6d25d910951676b184444226cd4a25fc73e",
+      "message": "arquivo segurando o token ao portador compartilhado que gates POST /ingest; vazio/ausente/arquivo vazio -> /ingest desabilitado (nunca uma rota de escrita não autenticada)"
+    },
+    "aggregator.help_loki_push_api_url_c89d9321": {
+      "sourceHash": "e9b9a6d503a6b6dc1029077c0d274c882f47b699f50955664baf499b985ea446",
+      "message": "URL da API do Loki push"
+    },
+    "aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f": {
+      "sourceHash": "1f8b18c4c2851ac136aeb8a03cb587e140b0eea8be32f20845133f7f4c5e0fdc",
+      "message": "ao iniciar, restaure as contagens de ciclo do Loki sobre esta janela (0 para desativar)"
+    },
+    "aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc": {
+      "sourceHash": "1a2afa58983bc5197d6df8f2f2b79a6f74351c39f27a3b62b8bd9033530253f7",
+      "message": "abrir um incidente após muitos ciclos falhados dentro da janela-incidente"
+    },
+    "aggregator.help_poll_discover_interval_a9ec46cd": {
+      "sourceHash": "91ab59dccbe0d2867d4535fdab30a4437ad23b1674ac80195650583ffd08c533",
+      "message": "intervalo de pesquisa/descoberta"
+    },
+    "aggregator.help_pool_name_label_31358a97": {
+      "sourceHash": "428a36a5796376c65577549c2a3fe264f5c7ad5f12c8356b6efda275e622bbed",
+      "message": "rótulo do nome do grupo"
+    },
+    "aggregator.help_port_the_machine_metrics_exporter_listens_on_for_each__0ae78ba6": {
+      "sourceHash": "f4a1c53a9d350f9bc6e8601ab0463f8c90fd999b8787c2bf27b88c6442a27caa",
+      "message": "porta que o exportador de máquina-metrics escuta para cada host Windows, como publicado no documento /api/v1/prometheus-targets scrape"
+    },
+    "aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce": {
+      "sourceHash": "e4573d144295671a74f9537d06c415383f353d341280f6879b5a90043b84b01d",
+      "message": "colhe uma extensão auto- anunciada (POST/announce) não atualizada nesta janela; 0 desabilita a rota anunciada"
+    },
+    "aggregator.help_rotate_the_dashboard_lab_connection_token_this_often_0_f9f6d959": {
+      "sourceHash": "b5a0a4590e5808aa9f3f812cf9a540a7aa523d4f5a0713691cbf9d1a6525f1b7",
+      "message": "rotaciona o token de conexão de laboratório do painel de instrumentos com frequência; 0 desativa a telha do token do laboratório e a troca POST /api/v1/lab-token"
+    },
+    "aggregator.help_squid_access_log_to_discover_pool_client_ips_from_93473aba": {
+      "sourceHash": "b2de0ae45193d99d71945e23a865ca1a0280edca3e264ac0f404e8eed2faccd0",
+      "message": "log de acesso da lula para descobrir IPs do cliente da piscina"
+    },
+    "aggregator.help_status_service_port_to_probe_on_each_discovered_ip_e5073cc7": {
+      "sourceHash": "3f793895d000f6c1c6548ba1cae05ee302f9b2faf31a09506021f759860559e5",
+      "message": "porto de serviço de estado para sondar em cada IP descoberto"
+    },
+    "aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e": {
+      "sourceHash": "70bba51f00e692f2c67b7a757aaf6540e6e49a7c6159ab6b187c382dcfdbe8d0",
+      "message": "o diretório hosts/ pool share nesta máquina (por exemplo, /mnt/ypool-nas/hosts); serve resultados de ciclo arquivados em /archive/<hostId>/test-cycles/... e permite /go/cycle resolvê- los. Vazio desactiva ambos -- a rota é não registado em tudo"
+    },
+    "aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e": {
+      "sourceHash": "dd1351cb275480e134b9d5a6ebff6f2370bdd3c94f20119dd958e4637e57b17d",
+      "message": "Arquivo de certificado TLS (PEM); quando ambos -tls-cert e -tls-key nome legível arquivos o ouvinte é HTTPS, então HTTP simples"
+    },
+    "aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018": {
+      "sourceHash": "57a9118c454a89ef129ada480510766ede1d11c4f740c7e9907c82a9334a6417",
+      "message": "Arquivo de chave privada TLS (PEM); veja - tls- cert"
+    },
+    "aggregator.help_trailing_window_for_the_n_failures_in_m_minutes_incide_60aa9aa2": {
+      "sourceHash": "0c6f4b9085d1c7a126c8dd64a0cb4630449fc939d8d77c6e822201befda69aa8",
+      "message": "janela de seguimento para a regra de incidente N-falhas-em-M-minutos"
+    },
+    "aggregator.help_window_for_cross_host_pool_wide_incident_correlation_b4663557": {
+      "sourceHash": "60b1c5fce526e98f61266aa6f6e00a96eebe034fffed60773246c99a9b13520d",
+      "message": "janela para a correlação de incidentes entre máquinas (em conjunto)"
+    },
+    "aggregator.host_not_known_to_the_pool": {
+      "sourceHash": "4a81a4f15427c8406b282249b81f9169b64f4f49f641ba73e387f7850ebcc7cd",
+      "message": "hospedeiro desconhecido da piscina"
+    },
+    "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": {
+      "sourceHash": "e04457006f731e87d057eb65e4f5eb00c2d1f435e383a366ade573420e5979bd",
+      "message": "hostId deve ser um id 32-hex de 42 prefixos"
+    },
+    "aggregator.ingest_disabled": {
+      "sourceHash": "37536a81fc4cf8561946c6fa99571e63efcaaf58d1061b961d418541532b187e",
+      "message": "ingerir desactivado"
+    },
+    "aggregator.invalid_hostid": {
+      "sourceHash": "c680d8cc75d5f962a3e7a385e84e34ccb536944050895a29d1ab6c58b79ab318",
+      "message": "hostId inválido"
+    },
+    "aggregator.invalid_hostid_or_area": {
+      "sourceHash": "42e43a797f56e03728722f5bd7b25076cc39af1496543fd3e3e5419af867e4c7",
+      "message": "hostId ou área inválida"
+    },
+    "aggregator.invalid_statusport": {
+      "sourceHash": "067ddedad64d40e8f8d9b15bc96ce194f9abbeb45c4da8c04ce93d06b9ad8e0e",
+      "message": "status inválidoPort"
+    },
+    "aggregator.invalid_target_address_detail": {
+      "sourceHash": "0a34c21bf7ee52e3da88a6dd583e87ddb65dfcf6d511d17c4185e9c4b75b1244",
+      "message": "endereço de destino inválido: {detail}"
+    },
+    "aggregator.invalid_target_url": {
+      "sourceHash": "6e629ec7de521a7fc58b28a96c3dfcc103ec60d60aba8ea7a79208fad5cb5c69",
+      "message": "URL de destino inválido"
+    },
+    "aggregator.lab_token_exchange_disabled": {
+      "sourceHash": "a49a10585b8b8e3775e4b0187fb916e890f430141a70bce5a2c926c7b88d3bba",
+      "message": "troca de lab-token desabilitada"
+    },
+    "aggregator.labtoken_must_be_6_lowercase_letters_digits": {
+      "sourceHash": "494a94369f4eb4ecbe3e93dd669f8ef4549c16739f8f7d77f49467b9631d8fc1",
+      "message": "labToken deve ter 6 letras/dígitos minúsculas"
+    },
+    "aggregator.log_archive_route_enabled_at_archive_from_value1_7b032a09": {
+      "sourceHash": "9bee104e9d934cf4018f0fa895bdffce79a132fc6eefcc7446d4a6f0e1f23779",
+      "message": "rota do arquivo habilitada em /archive/ a partir de {value1}"
+    },
+    "aggregator.log_auth_token_file_value1_unreadable_value2_ingest_contro_d458a79c": {
+      "sourceHash": "f67df5618848d1bd8812f4b76e75a76d02ae525f7817dd2c1dacf49054e3b9a7",
+      "message": "arquivo auth-token {value1} ilegível ({value2}); /ingest, provas de controle e a troca lab-token estão desabilitadas"
+    },
+    "aggregator.log_extension_value1_refusing_value2_for_resolution_unansw_14b41da9": {
+      "sourceHash": "988ae94f1700d3fbca6cf8acb618e39e64ceb4d22ce329be493a3fe439adefd7",
+      "message": "extensão {value1}: recusando {value2} para resolução -- sem resposta para {value3} ({value4}); a entrada permanece suprimida até que o serviço re-anunciou ou o anúncio TTL colher"
+    },
+    "aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724": {
+      "sourceHash": "94d94229cb80185a16c47079fae5778f64f829a4962b5680d17daa4b7260e1e3",
+      "message": "host-metrics-port {value1} não é uma porta válida; mantendo o {value2} padrão"
+    },
+    "aggregator.log_host_ttl_value1_is_not_positive_keeping_the_default_va_7ade3d03": {
+      "sourceHash": "1c5f66bc6a909b682feb770c9e40226815286874354806a02b6bb014a3fa69bd",
+      "message": "host-ttl {value1} não é positivo; mantendo o {value2} padrão"
+    },
+    "aggregator.log_ingest_disabled_no_token_3a819fb4": {
+      "sourceHash": "40d57651922b23352ccc831f0e488a6af123f1c5ccfdd4e6c5681f6a24ffb814",
+      "message": "ingerir desactivado (sem token)"
+    },
+    "aggregator.log_ingest_enabled_bearer_89578b00": {
+      "sourceHash": "da7eef28e6e6beac9af397eb8af02335183a784d717996e98b9bcd4a100f3f5e",
+      "message": "ingesta ativada (portador)"
+    },
+    "aggregator.log_internal_auth_key_read_from_value1_rebuild_this_proxy__c326800d": {
+      "sourceHash": "63605df585d58fa8be87e8b762bfc680341816d48b1ef76c1a69b9c92df18c47",
+      "message": "chave de autenticação interna lida do {value1}; reconstrua este proxy para movê- lo para {value2}"
+    },
+    "aggregator.log_lab_token_exchange_disabled_no_auth_token_configured_a47d49b1": {
+      "sourceHash": "9a52fc71879a71ebf5d7f839857a5bb4283d1e1dccc967ce337275da4c07d32e",
+      "message": "troca de toque de laboratório desactivada: não foi configurado nenhum token de autenticação"
+    },
+    "aggregator.log_lab_token_exchange_off_4bdcc105": {
+      "sourceHash": "7c09967f03c32c35f6217cf95ae5dde2b082571b1212ce4e7e9cd1ffd2d33bc9",
+      "message": ", troca de dados de laboratório desligada"
+    },
+    "aggregator.log_lab_token_exchange_on_rotate_duration_5ce442f0": {
+      "sourceHash": "171bc7671cd194bb64b0f4e8b63fb27b6f5f0c12d04a83ec0db91f885fb3fb3c",
+      "message": ", intercâmbio de dados em laboratório (rotação {duration})"
+    },
+    "aggregator.log_lab_token_exchange_sealing_failed_value1_8aceabc2": {
+      "sourceHash": "22cddff963f7f2121b69b56e6a081b5c6b3e4368ec9f2ab2882c18f1fe853068",
+      "message": "troca de lab-token: a vedação falhou ({value1})"
+    },
+    "aggregator.log_lab_token_exchange_value1_from_value2_3d2e9e4a": {
+      "sourceHash": "2ddac1e2eda51d90969ad5fa28207fe96f126a3c3e078f06fe169785805397be",
+      "message": "{value1} de {value2}"
+    },
+    "aggregator.log_lab_token_rotation_failed_value1_keeping_previous_code_e2670350": {
+      "sourceHash": "d038f2833b6364d117492a0609ab16fc185a97a4c6b2137a833c504c1141dc13",
+      "message": "Falha na rotação da token de laboratório ({value1}); manter os códigos anteriores"
+    },
+    "aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764": {
+      "sourceHash": "66a7711516efef5cb63844c23b9abb4712bcd108721bf753e11bfa74afd787f4",
+      "message": "pool-aggregator-service listening on {value1} ({value2}), pool={value3}, discover-from={value4}, status-port={value5}, loki={value6}, interval={value7}, {value8}"
+    },
+    "aggregator.log_rehydrate_announces_loki_query_value1_99a0159c": {
+      "sourceHash": "7ac7022495bcfca6f0fa1e295fb4756a5ad56b85221be7e2d6261d48e831a5e1",
+      "message": "reidratado anuncia: Consulta Loki: {value1}"
+    },
+    "aggregator.log_rehydrate_build_request_value1_11b6bf8a": {
+      "sourceHash": "fe1a8ce4d306b9078cd6ff2880fe3b2297cfda6a985f754801c4c37085568058",
+      "message": "reidratado: pedido de compilação: {value1}"
+    },
+    "aggregator.log_rehydrate_incidents_loki_query_value1_62f316f1": {
+      "sourceHash": "a2b1a34f041e30dbe14f6446b0abaf3075acc69cc1d6d9ffd84af93384c6dc06",
+      "message": "incidentes reidratados: Consulta de Loki: {value1}"
+    },
+    "aggregator.log_rehydrate_incidents_parse_value1_6c2aee5f": {
+      "sourceHash": "f5ec22a0e8ef238e4899ece3184f6b4f460fb198a581886db7392a40c756bb85",
+      "message": "incidentes reidratados: análise: {value1}"
+    },
+    "aggregator.log_rehydrate_loki_http_value1_value2_starting_with_empty__4f5aa860": {
+      "sourceHash": "2307f0b9f4337e44d986323128ff4334ec9d8a16fb4cea30535de5677d39d733",
+      "message": "reidratado: Loki HTTP {value1}: {value2} (começando com contagens vazias)"
+    },
+    "aggregator.log_rehydrate_loki_query_value1_starting_with_empty_counts_13e1deb7": {
+      "sourceHash": "321779ad942b822e3363c01f851627b1d282f4a4fafef65d264b2d6b2f800c50",
+      "message": "reidratar: Consulta Loki: {value1} (começando com contagens vazias)"
+    },
+    "aggregator.log_rehydrate_parse_loki_response_value1_5d983c04": {
+      "sourceHash": "9138583e5dd3e532c6bbd41d1ff738f76080e73958ff07918625311c9f69b936",
+      "message": "reidratado: análise da resposta de Loki: {value1}"
+    },
+    "aggregator.log_rehydrate_presence_loki_query_value1_5ba034a0": {
+      "sourceHash": "c3150c56df2f63f2789f7e50ae7730a948a6f80b79b486ed7658eac0db9314a2",
+      "message": "presença reidratada: consulta Loki: {value1}"
+    },
+    "aggregator.log_rehydrate_re_seeded_value1_host_s_from_the_presence_fe_b6c9e59f": {
+      "sourceHash": "dac9b8a4c0739b71b6a705aec0f9e5dba100b99403477c63cc431e15069d0fe5",
+      "message": "re-hidratado: semeado de novo o(s) hospedeiro(s) {value1} da fonte de presença"
+    },
+    "aggregator.log_rehydrate_re_seeded_value1_host_s_from_transition_base_4a5fd67e": {
+      "sourceHash": "c81c21a1880c0ccb5fa80d145c9250cde81b180f37c4574922e0bf05180ce0b6",
+      "message": "reidratado: máquina(s) {value1} ressemeada(s) da base de transiçãoUrls (janela={value2})"
+    },
+    "aggregator.log_rehydrate_restored_value1_open_incident_s_from_loki_9bcd828c": {
+      "sourceHash": "9f2d046becafa2cdc1453ca26907da19c3030ab7709bdf8fc0cd8cfab7cca4f2",
+      "message": "reidratado: restaurado o incidente aberto {value1} de Loki"
+    },
+    "aggregator.log_rehydrate_restored_value1_self_announced_extension_s_f_e79d2b5f": {
+      "sourceHash": "9998fb1555a9c29dd9fddd6d172fdf4405f6da50134e5535cf75b2ad82b272e4",
+      "message": "reidratado: restaurado {value1} extensão (s) auto-anunciada de Loki"
+    },
+    "aggregator.log_rehydrate_restored_value1_terminal_cycle_counts_from_l_de930fa3": {
+      "sourceHash": "05827fe5a7e256bff759cec9d9e3674e8eace3a620a3b02ef563464de6caf42f",
+      "message": "reidratado: restaurado o número de ciclos terminais {value1} de Loki (janela={value2})"
+    },
+    "aggregator.log_rehydrate_warning_hit_the_5000_line_query_cap_counts_o_08375cc0": {
+      "sourceHash": "8684ccb4d9297174366670e80603b074756fd30919bc33e5c9159362552adb3d",
+      "message": "reidratado: ATENÇÃO atinge o limite de 5000 linhas de consulta; conta mais de 5000 transições mais recentes podem ser pouco contadas"
+    },
+    "aggregator.log_squid_log_value1_value2_792a142a": {
+      "sourceHash": "115ef245e7af5b3003b9666195282d1a46ff04b78410be4e75ba0d04326987e1",
+      "message": "log de lulas {value1}: {value2}"
+    },
+    "aggregator.log_tls_cert_tls_key_set_but_not_both_readable_non_empty_s_f5dfa9e3": {
+      "sourceHash": "8dfff9e58cba486960ecd0eab07f768518f88bed1f028a822371858ceabdc176",
+      "message": "tls-cert/tls-key set mas não ambos legíveis + não vazios; servindo HTTP simples"
+    },
+    "aggregator.log_value1_build_value2_cf7663df": {
+      "sourceHash": "c55bda9c8cbd09cdbdeac6d3feb20b73a891f3ed6e1b43b5f4055d54875b0c2a",
+      "message": "{value1} build: {value2}"
+    },
+    "aggregator.log_value1_http_value2_eb0cd24f": {
+      "sourceHash": "50e6aa9003fb79f4a4fdb19d858dbd4cf0e28112bcd7db489a6a27e48136fd18",
+      "message": "{value1} HTTP {value2}"
+    },
+    "aggregator.log_value1_value2_efae3eb9": {
+      "sourceHash": "71e4b22124a04372ac7fcc04a16d26e3d46fe84afc793a23915deb7f7d031549",
+      "message": "{value1}: {value2}"
+    },
+    "aggregator.loki_query_failed": {
+      "sourceHash": "0b09be22d2045a7d79fcb2f279dd977399f85db04df26be99d783c52f66de821",
+      "message": "Falha na consulta do loki"
+    },
+    "aggregator.malformed_announce": {
+      "sourceHash": "6a8d2525162000381129e74e18d69d1e745ec21a634bd4e6fdf9dde54c24ad51",
+      "message": "anúncio mal formado"
+    },
+    "aggregator.malformed_request": {
+      "sourceHash": "954ecb300ddab86a17e209296e2cc61180c06523a50beda24dc7f5da42274fc8",
+      "message": "Pedido malformado"
+    },
+    "aggregator.method_not_allowed": {
+      "sourceHash": "ebda605cbc33d04d66e9b76d33134d031683594305440a3b842540c83606551d",
+      "message": "método não autorizado"
+    },
+    "aggregator.metrics_are_served_to_this_host_only": {
+      "sourceHash": "c039a666d1a830321c06f0e432571354eff6af786ab1a9819323dbcac9d1fcd2",
+      "message": "as métricas são servidas apenas para esta máquina"
+    },
+    "aggregator.missing_host": {
+      "sourceHash": "20c4dcc4bf47746904c403c9c9e5bdf05eb294a8dc3e1a3236cf2dd1593fa17e",
+      "message": "máquina ausente"
+    },
+    "aggregator.no_cycle_results_folder_for_that_host_at_that_time": {
+      "sourceHash": "6da4765db306f0c229513b979353003ad276c27aa306a0e6a32b4f6f95d7e373",
+      "message": "nenhuma pasta de resultados de ciclo para essa máquina naquele momento"
+    },
+    "aggregator.no_live_host_for_that_extension_area": {
+      "sourceHash": "461ca30581939d85dc901928f709c9a9e66301176c23f0f4b47dd340102fa1b0",
+      "message": "nenhum hospedeiro vivo para essa área de extensão"
+    },
+    "aggregator.no_source_address": {
+      "sourceHash": "1e12df85a1e0343254976bbe61b6e0974e4367001542f474a5b77546f9115445",
+      "message": "sem endereço de origem"
+    },
+    "aggregator.payload_too_large_or_unreadable": {
+      "sourceHash": "2e385cef252be46ec050959a1801dbb347ba4d1288b76aa984c5a083b2e1ee44",
+      "message": "carga útil demasiado grande ou ilegível"
+    },
+    "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own": {
+      "sourceHash": "14c2e43e50752a7f797e6e88ee125816b578814e3b42f62f82239dfcf6c640ec",
+      "message": "a identidade do remetente não pôde ser vinculada (IP não coberto, hostId não pertence a este IP, ou ambíguo)"
+    },
+    "aggregator.stash_target_not_known_to_the_pool": {
+      "sourceHash": "00d1239c0765ae0ce775860a2673f1af6a5785a9aa861fb564435cd0d683aefb",
+      "message": "alvo do stash desconhecido da piscina"
+    },
+    "aggregator.target_host_must_be_the_announcing_address": {
+      "sourceHash": "87a0d494719a8da7ee43c92dbee7594ae588b8c8ab919116148df3c45e43095d",
+      "message": "host alvo deve ser o endereço anunciando"
+    },
+    "aggregator.the_pool_share_is_not_mounted_on_this_machine": {
+      "sourceHash": "c9d0f9b00268a888cb43e743250ae7ae0b79aec6c22fe285fc2dc04bac3b10cd",
+      "message": "o pool share não está montado nesta máquina"
+    },
+    "aggregator.too_many_announced_extensions": {
+      "sourceHash": "94bf831b16057c0f049500047b7918c4a4d2f8f62788ed7f0745ba46726e44bb",
+      "message": "demasiadas extensões anunciadas"
+    },
+    "aggregator.too_many_failed_attempts_retry_later": {
+      "sourceHash": "864c4ecfd01ab19856f30a0986e2e0f810b291f939adacaca1cfc870a02b58d9",
+      "message": "muitas tentativas falhadas; tente novamente mais tarde"
+    },
+    "aggregator.too_many_lines": {
+      "sourceHash": "7764bcfb6a87b2ae4fa698a137843e9931047170c815d6e2846a390b2f41c9d5",
+      "message": "muitas linhas"
+    },
+    "aggregator.unauthorized": {
+      "sourceHash": "c40ccdf70ef49b7c58bdceba0d1d4e02e97351c141264a367e09e238a9e0fef1",
+      "message": "não autorizado"
+    },
+    "aggregator.unknown_or_expired_lab_token": {
+      "sourceHash": "392773c444f25dfe7225e526089328018f126e380713b4b3a6263d80f4f6d71a",
+      "message": "token de laboratório desconhecido ou expirado"
+    },
+    "aggregator.unsupported_range_use_1h_24h_7d_or_30d": {
+      "sourceHash": "7defa866921ec655c312ea36bb59f1da615f6a9d4b28b9cbd206622e47923679",
+      "message": "intervalo não suportado; use 1h, 24h, 7d ou 30d"
+    },
+    "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time": {
+      "sourceHash": "c8f806233bbb5e5c197421ee5c4025c6a56e74f5bb76b0517cb3dcffe5add608",
+      "message": "pasta de resultados de ciclo inutilizável para essa máquina nesse momento"
+    }
+  }
+}

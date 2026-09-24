@@ -206,8 +206,8 @@ const indexHTML = `<!doctype html>
   /* Scoped to tbody so the sticky header keeps its own opaque background. The
      hover rule below still shows through: it paints the td, and a td's
      background paints over its tr's. */
-  tbody tr:nth-child(odd) { background: #111827; background: var(--band-odd); }
-  tbody tr:nth-child(even) { background: #0b1220; background: var(--band-even); }
+  tbody tr:nth-child(odd) { background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok   { color: #10b981; } /* 2xx / 3xx */
   .red  { color: #f87171; } /* 4xx / 5xx */

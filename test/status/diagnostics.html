@@ -24,7 +24,6 @@
       background: transparent;
     }
     #banner-user {
-      font-family: ui-monospace, Menlo, Consolas, monospace;
       font-family: var(--font-mono);
       font-weight: 600;
     }
@@ -38,18 +37,15 @@
       padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
     }
     pre#diagnostics-output {
-      background: #ffffff;
-      background: var(--bg-elevated); border: 1px solid #e5e7eb; border: 1px solid var(--border); border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: 1rem 1.25rem;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
       font-family: var(--font-mono); font-size: .75rem;
       line-height: 1.4;
       white-space: pre-wrap; word-break: break-word;
-      color: #111827;
       color: var(--fg-primary);
     }
-    pre#diagnostics-output.loading { color: #6b7280; color: var(--fg-faint); font-style: italic; }
-    pre#diagnostics-output.error   { color: #b91c1c; color: var(--fail-fg); background: #fef2f2; background: var(--fail-soft-bg); border-color: #fecaca; border-color: var(--fail-soft-border); }
+    pre#diagnostics-output.loading { color: var(--fg-faint); font-style: italic; }
+    pre#diagnostics-output.error   { color: var(--fail-fg); background: var(--fail-soft-bg); border-color: var(--fail-soft-border); }
   </style>
 </head>
 <body>

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.09.18
+.VERSION 2026.09.24
 .GUID 42f60b19-4d8a-4e27-9b53-1c7048ae3d62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test browser floor timeout fetch pester
+.TAGS yuruna test browser timeout fetch pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -18,27 +18,20 @@
 
 <#
 .SYNOPSIS
-    Prove the shared request timeout answers the caller on time in every
-    capability combination the supported browsers actually present.
+    Prove the shared request timeout answers the caller on time when the
+    request it bounds never answers at all.
 .DESCRIPTION
-    A timeout that cannot reject a stalled promise is not a timeout, whatever
-    the version label on the browser says. Three combinations exist across the
-    supported range and they fail differently:
+    A timeout that only cancels the transport is not a timeout. Aborting frees
+    the socket but settles nothing the caller is waiting on, and a transport
+    that ignores the signal is not even canceled. Both failures look the same
+    from the page -- a promise that never settles -- so the timer has to reject
+    the caller's promise itself rather than wait for the transport to fail.
 
-      No fetch at all. The XHR stand-in is installed and holds a handle it can
-      abort, so both cancellation and rejection work.
-
-      Native fetch and AbortController. The signal cancels the request.
-
-      Native fetch, no AbortController. Nothing can cancel: the stand-in was
-      not installed, so there is no handle, and a native fetch given no signal
-      cannot be interrupted. This is the combination that hangs if the timer
-      only aborts instead of also rejecting, and it is a real browser rather
-      than a hypothetical one.
-
-    The capability pair is tested directly rather than inferred from a version,
-    because a page that works only because the test browser is modern proves
-    nothing about the floor.
+    Both request paths are measured: Y.api in the shared runtime, and the
+    standalone bounded helper carried by the two pages that are built as Go
+    string literals and so load no runtime at all. What the rejection says is
+    measured too, because a page can only explain the wait to a reader if the
+    error describes the timeout rather than reporting the abort it caused.
 
     Run: Invoke-Pester -Path test/modules/Test.BrowserRequestTimeout.Tests.ps1
 #>
@@ -64,11 +57,11 @@ Copy-Item -LiteralPath $script:Runtime -Destination (Join-Path $script:Sandbox '
 function Invoke-TimeoutScenario {
     <#
     .SYNOPSIS
-        Load the runtime under one capability combination and report what
-        Y.api did with a request that never answers.
+        Load the runtime over a stalled transport and report what Y.api did
+        with a request that never answers.
     .PARAMETER Preamble
-        JavaScript that runs BEFORE the runtime loads, so it decides which
-        capabilities the runtime finds.
+        JavaScript that runs BEFORE the runtime loads, so the transport it
+        installs is the one the runtime binds to.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -107,13 +100,12 @@ $Preamble
 }
 
 # A fetch that never answers, which is what a stalled daemon looks like from
-# the page. Defining it BEFORE the runtime loads is the point: the runtime
-# installs its stand-in only when fetch is missing, so this is how a browser
-# with a native one is represented.
+# the page. It is defined BEFORE the runtime loads so the runtime binds to it
+# rather than to the browser's own.
 #
-# It honors an abort signal, because a native fetch does. Without that the
-# scenario with AbortController would exercise the same path as the one
-# without it, and three tests would prove one thing.
+# It honors an abort signal, because a native fetch does. That is what makes
+# the test sharp: the timer's abort does reach this promise, so the rejection
+# the caller ends up with proves the timer settled it first.
 $script:StalledFetch = @'
   window.fetch = function (url, init) {
     return new Promise(function (resolve, reject) {
@@ -135,7 +127,7 @@ if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
 }
 }
 
-Describe 'a stalled request is given up on, whatever the browser can cancel' {
+Describe 'a stalled request is given up on rather than left hanging' {
 
     BeforeEach {
         if (-not $script:Chrome) {
@@ -143,43 +135,11 @@ Describe 'a stalled request is given up on, whatever the browser can cancel' {
         }
     }
 
-    It 'rejects when the browser has fetch but cannot abort it' {
-        # The combination that matters. Nothing here can cancel the request, so
-        # the timer has to answer the caller by itself.
-        $result = Invoke-TimeoutScenario -Name 'fetch-no-abort' -Preamble @"
-$script:StalledFetch
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
-"@
+    It 'rejects a request the transport never answers' {
+        $result = Invoke-TimeoutScenario -Name 'stalled-fetch' -Preamble $script:StalledFetch
         Assert-True ($result -like 'REJECTED*') `
-            "with native fetch and no AbortController the request was not given up on (page reported '$result')"
+            "the stalled request was not given up on (page reported '$result')"
         Assert-True ($result -notlike '*NaN*') 'the rejection reported no elapsed time'
-    }
-
-    It 'rejects when the browser can abort it' {
-        $result = Invoke-TimeoutScenario -Name 'fetch-with-abort' -Preamble $script:StalledFetch
-        Assert-True ($result -like 'REJECTED*') `
-            "with AbortController present the request was not given up on (page reported '$result')"
-    }
-
-    It 'rejects when the browser has no fetch at all' {
-        # The floor itself: the XHR stand-in is installed, and it holds a handle
-        # it can abort. XMLHttpRequest is replaced so nothing leaves the page.
-        # The stand-in behaves the way a real XMLHttpRequest does: abort() fires
-        # onabort, NOT onerror. A fake that fired neither would let a shim with
-        # no onabort handler look correct here and hang in a browser.
-        $result = Invoke-TimeoutScenario -Name 'no-fetch' -Preamble @'
-  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
-  window.XMLHttpRequest = function () {
-    var self = this;
-    this.open = function () { };
-    this.setRequestHeader = function () { };
-    this.send = function () { };
-    this.abort = function () { if (self.onabort) { self.onabort(); } };
-    this.readyState = 1;
-  };
-'@
-        Assert-True ($result -like 'REJECTED*') `
-            "on the floor's XHR path the request was not given up on (page reported '$result')"
     }
 
     It 'bounds a request on a page that carries no shared runtime' {
@@ -201,7 +161,6 @@ $script:StalledFetch
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>t</title>
 <script>
 (function () {
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
   window.fetch = function () { return new Promise(function () { }); };
 }());
 </script>
@@ -237,10 +196,7 @@ $script:StalledFetch
     }
 
     It 'says what happened rather than failing silently' {
-        $result = Invoke-TimeoutScenario -Name 'message' -Preamble @"
-$script:StalledFetch
-  try { delete window.AbortController; } catch (e) { window.AbortController = undefined; }
-"@
+        $result = Invoke-TimeoutScenario -Name 'message' -Preamble $script:StalledFetch
         Assert-True ($result -match 'took too long') `
             "the caller received no explanation it could show a reader: '$result'"
     }

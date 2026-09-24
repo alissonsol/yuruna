@@ -121,7 +121,7 @@ The source locations are resolved by these concrete fields:
 | Resource `template` | `<project>/resources/<template>` first, then `yuruna/global/resources/<template>`. |
 | Component `buildPath` | `<project>/components/<buildPath>`; the publisher falls back to `project` when omitted. |
 | Workload `context` | Expanded name of an existing Kubernetes context; it also selects the workload work directory. |
-| Deployment `chart` | `<project>/workloads/<chart>` copied into the workload work directory. |
+| Deployment `chart` | `<project>/workloads/<chart>` copied into an `<installName>` folder under the workload work directory. |
 | Deployment `variables.installName` | Required Helm release name for a chart; duplicates within one context are rejected. |
 
 Component build, tag, and push commands may be supplied on the entry or inherited
@@ -193,9 +193,10 @@ erDiagram
 The identity-map key is the logical sequence username; the vault-map key is the
 resolved credential key. Both are YAML map keys, not extra fields within an
 entry. The optional mapping edge reflects the non-strict local-user fallback;
-strict configuration validation requires declarations and populated referenced
+strict configuration validation requires declarations and populated `vaultKey`
 credentials. `corporate` contains `domain`, `sam`, and `upn`; the resolver prefers
-`domain\sam`, then UPN, then the local identity when constructing `loginUser`.
+`domain\sam`, then a bare `sam`, then UPN, then the local identity when
+constructing `loginUser`.
 
 `Get-Password` uses `vaultKey`, falling back to the logical username when empty.
 It may create a missing fallback credential but refuses to invent a password for

@@ -62,7 +62,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
           what the focus scroll itself honors. */
        scroll-padding-bottom: 3.5rem;
        scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
-body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111827; color: var(--fg); background: #fff; background: var(--bg); margin: 0; }
+body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 
 /* ===========================================================================
    PAGE CHROME -- the black header bar, its menu, and the black footer bar.
@@ -78,8 +78,7 @@ body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Hel
    Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
    =========================================================================== */
 header.app {
-  background: #111827;
-  background: var(--chrome-bg); color: #f9fafb; color: var(--chrome-fg);
+  background: var(--chrome-bg); color: var(--chrome-fg);
   display: flex; align-items: center; flex-wrap: nowrap;
   /* Fold the iPhone safe-area-inset into the horizontal padding so the
      full-bleed bar stays readable under the notch (every page sets
@@ -94,20 +93,20 @@ header.app > * + * { margin-left: 1rem; }
 header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
 header.app .brand a { color: inherit; text-decoration: none; }
-header.app .version { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
 header.app .spacer { flex: 1; }
 /* The host id is the header's one variable-width item, so it is the one that
    gives: it truncates rather than pushing the menu button off a phone. */
-header.app .machine { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A plain header action sits on the black bar and cannot inherit the page's
    light button styling. :not(.primary) leaves the accent-filled ones alone --
    they already read on black. Scoped to .btn, never to bare `button`: a
    `header.app button` selector would outrank .menu-button's own rules below and
    flatten its open state. */
 header.app .btn:not(.primary) {
-  background: transparent; color: #f9fafb; color: var(--chrome-fg); border-color: #374151; border-color: var(--chrome-line);
+  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
 }
-header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chrome-raised); }
+header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 
 /* Right-hand page menu. Every service carries the same control in the same
    corner, so moving between pages does not change from one Yuruna UI to the
@@ -118,20 +117,16 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 2rem; padding: .3rem .6rem;
   font: inherit; font-size: .85rem; line-height: 1;
-  color: #f9fafb;
   color: var(--chrome-fg); background: transparent;
-  border: 1px solid #374151;
   border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
 }
-.menu-button:hover, .menu-button[aria-expanded="true"] { background: #1f2937; background: var(--chrome-raised); }
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
 .menu-button .menu-icon { font-size: 1rem; line-height: 1; }
 .menu-button .menu-icon + .menu-label { margin-left: .4rem; }
 .menu-panel {
   position: absolute; top: calc(100% + .45rem); right: 0;
   min-width: 12rem; padding: .3rem;
-  background: #1f2937;
-  background: var(--chrome-raised); color: #f9fafb; color: var(--chrome-fg);
-  border: 1px solid #374151;
+  background: var(--chrome-raised); color: var(--chrome-fg);
   border: 1px solid var(--chrome-line); border-radius: 8px;
   box-shadow: 0 10px 28px rgba(0,0,0,.45);
   /* Above the fixed footer bar (3), any sticky page furniture (1) and the
@@ -141,14 +136,13 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
 }
 .menu-panel a {
   display: block; padding: .5rem .6rem; border-radius: 6px;
-  color: #f9fafb;
   color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
 }
-.menu-panel a:hover, .menu-panel a:focus { background: #374151; background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
 .menu-panel a[aria-current="page"] { font-weight: 600; }
 .menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
 /* The trailing link leaves the service; the rule says so before it is followed. */
-.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid #374151; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
 
 /* Footer bar (server IPs - loaded - refresh countdown), the same surface as the
    header above -- fixed at the bottom, with a readonly mono textarea for the
@@ -157,8 +151,7 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
    carries this id on a <footer class="app"> that centers its flow content. */
 #footer-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: #111827;
-  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
+  background: var(--chrome-bg); color: var(--chrome-muted);
   margin-top: 0; text-align: left;
   /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
      the iPhone home indicator and the landscape notch. */
@@ -174,16 +167,14 @@ header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chr
   z-index: 3;
 }
 #footer-bar > * + * { margin-left: .75rem; }
-#footer-bar a { color: #9ca3af; color: var(--chrome-muted); }
+#footer-bar a { color: var(--chrome-muted); }
 #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
 #footer-ips > * + * { margin-left: .5rem; }
 #footer-ips .label { flex-shrink: 0; }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--mono); font-size: .6875rem;
-  color: #9ca3af;
-  color: var(--chrome-muted); background: #0b1220; background: var(--chrome-input-bg); border: 1px solid #8b93a1; border: 1px solid var(--chrome-control-edge);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -199,8 +190,7 @@ body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env
    page that ends early ends on a bar of identical height and color instead of
    trailing off into the page background. */
 footer.app {
-  background: #111827;
-  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
+  background: var(--chrome-bg); color: var(--chrome-muted);
   /* Deliberately NOT a flex container: this variant holds a run of inline text
      around its link, and flex would promote each text run to its own anonymous
      item and eat the spaces at their edges. The taller padding centers that one
@@ -211,12 +201,12 @@ footer.app {
   /* Same floor as the fixed bar above -- these are one bar in two placements. */
   min-height: 2.25rem;
 }
-footer.app a { color: #9ca3af; color: var(--chrome-muted); }
+footer.app a { color: var(--chrome-muted); }
 
 /* Phone: the menu is how you leave a page, so it keeps a full touch target
    while its label drops -- the glyph alone survives a 320px viewport. */
 @media (max-width: 600px) {
-  .menu-button { min-height: 2.75rem; min-height: var(--touch-min); min-width: 2.75rem; min-width: var(--touch-min); font-size: 16px; }
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
   .menu-button .menu-label { display: none; }
   .menu-panel a { padding: .65rem .6rem; }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
@@ -239,10 +229,10 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
 #footer-bar .linkish {
   appearance: none; -webkit-appearance: none;
   background: none; border: 0; padding: 0; margin: 0;
-  font: inherit; color: #9ca3af; color: var(--chrome-muted);
+  font: inherit; color: var(--chrome-muted);
   text-decoration: underline; cursor: pointer;
 }
-#footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
@@ -290,8 +280,8 @@ main {
 }
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #e5e7eb; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: #6b7280; color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 /* Banded rows. Every table here is wide enough that the eye loses its row
    between the first and the last column; the alternating background is what
    carries it across. The pair is a token, and the same two values in every
@@ -301,8 +291,8 @@ th { color: #6b7280; color: var(--muted); font-weight: 600; font-size: .82rem; t
    Scoped to tbody: a thead/tfoot row is not part of the alternation. A cell
    that paints its own background still wins, because a td's background paints
    over its tr's. */
-tbody tr:nth-child(odd) { background: #f6f8fa; background: var(--band-odd); }
-tbody tr:nth-child(even) { background: #ffffff; background: var(--band-even); }
+tbody tr:nth-child(odd) { background: var(--band-odd); }
+tbody tr:nth-child(even) { background: var(--band-even); }
 /* A host type is ONE name that happens to contain dots and a hyphen
    ("windows.hyper-v"), and auto table layout treats both as break points --
    it hands the width to the columns beside it and leaves a lone "v" on a
@@ -310,15 +300,15 @@ tbody tr:nth-child(even) { background: #ffffff; background: var(--band-even); }
    single token, so it never wraps; the column then reserves what it needs and
    the phone breakpoint's horizontal scroll absorbs the rest. */
 td.host-type { white-space: nowrap; }
-button { font: inherit; padding: .35rem .7rem; border: 1px solid #e5e7eb; border: 1px solid var(--line); background: #f6f8fa; background: var(--btn-bg); color: #111827; color: var(--fg); border-radius: 5px; cursor: pointer; }
-button:hover { background: #eef1f4; background: var(--btn-hover); }
-button.primary { background: #2563eb; background: var(--accent-fill); color: #ffffff; color: var(--accent-fill-fg); border-color: #2563eb; border-color: var(--accent-fill); }
+button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
+button:hover { background: var(--btn-hover); }
+button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); border-color: var(--accent-fill); }
 button:disabled { opacity: .5; cursor: default; }
-input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px solid #6b7280; border: 1px solid var(--control-edge); background: #fff; background: var(--bg); color: #111827; color: var(--fg); border-radius: 5px; }
+input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
 .row > * + * { margin-left: .5rem; }
-.hint { color: #6b7280; color: var(--muted); font-size: .82rem; margin-top: .25rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .85rem; word-break: break-all; }
+.hint { color: var(--muted); font-size: .82rem; margin-top: .25rem; font-family: var(--mono); }
+.mono { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 /* The expand-on-click id (Y.idCell). A real <button> for the keyboard and the
    screen reader, stripped back to reading as the text it replaces -- the chrome
    of a button around an id would say "act on this", and it only reveals. */
@@ -336,8 +326,8 @@ th > button.sort {
   font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
   text-align: left; white-space: nowrap;
 }
-th > button.sort:hover { background: none; color: #111827; color: var(--fg); text-decoration: underline; }
-th[aria-sort] > button.sort { color: #111827; color: var(--fg); }
+th > button.sort:hover { background: none; color: var(--fg); text-decoration: underline; }
+th[aria-sort] > button.sort { color: var(--fg); }
 th[aria-sort="ascending"] > button.sort::after { content: " \25B2"; font-size: .7em; }
 th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: .7em; }
 /* The counter column (Y.numCell). It numbers positions on screen rather than
@@ -345,30 +335,29 @@ th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: 
    aligned on tabular figures so the units line up as the count passes ten. */
 th.rownum, td.rownum {
   width: 1%; text-align: right; white-space: nowrap;
-  color: #6b7280;
   color: var(--muted); font-variant-numeric: tabular-nums;
 }
 /* The footnote a column header marks with an asterisk: one line under the
    table, so a hint that is the same for every row is stated once. */
-.footnote { color: #6b7280; color: var(--muted); font-size: .82rem; margin-top: .75rem; }
-.footnote code { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); word-break: break-all; }
+.footnote { color: var(--muted); font-size: .82rem; margin-top: .75rem; }
+.footnote code { font-family: var(--mono); word-break: break-all; }
 .notice { display: none; padding: .6rem .8rem; border-radius: 6px; margin-bottom: 1rem; }
-.notice.ok { background: #e8f5ec; background: var(--ok-bg); color: #1a7f37; color: var(--ok); border: 1px solid #b7e0c2; border: 1px solid var(--ok-line); }
-.notice.error { background: #fde8ea; background: var(--err-bg); color: #b00020; color: var(--err); border: 1px solid #f3b6bd; border: 1px solid var(--err-line); }
+.notice.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-line); }
+.notice.error { background: var(--err-bg); color: var(--err); border: 1px solid var(--err-line); }
 /* hosts.js raises a 'warn' notice when the aggregator is unavailable. Without
    this rule that message rendered as bare unframed text -- present, but not
    reading as a notice at all. */
-.notice.warn { background: #e8f5ec; background: var(--ok-bg); color: #111827; color: var(--fg); border: 1px solid #e5e7eb; border: 1px solid var(--line); }
-.muted { color: #6b7280; color: var(--muted); }
+.notice.warn { background: var(--ok-bg); color: var(--fg); border: 1px solid var(--line); }
+.muted { color: var(--muted); }
 h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .85rem; word-break: break-all; }
+code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 /* Check verdicts. Scoped to table cells so they do not collide with the
    .notice.ok / .notice.error banner rules above. */
-td.ok { color: #1a7f37; color: var(--ok); font-weight: 600; }
-td.error { color: #b00020; color: var(--err); font-weight: 600; }
+td.ok { color: var(--ok); font-weight: 600; }
+td.error { color: var(--err); font-weight: 600; }
 /* Probe output is captured verbatim (version banners, stderr), so keep the
    newlines but let long single lines wrap instead of widening the table. */
-pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .85rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+pre.detail { font-family: var(--mono); font-size: .85rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
 
 /* The network field on the Scan page. The label sits above its input rather
    than beside it so the two stay together when the row wraps on a phone. */
@@ -388,18 +377,17 @@ pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-family:
 .scan-field, .labeled-field { display: flex; flex-direction: column; min-width: 0; }
 .scan-field > * + *, .labeled-field > * + * { margin-top: .15rem; }
 .labeled-field input { max-width: 100%; }
-.scan-label { color: #6b7280; color: var(--muted); font-size: .82rem; }
-.scan-field input { font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); min-width: 14rem; }
+.scan-label { color: var(--muted); font-size: .82rem; }
+.scan-field input { font-family: var(--mono); min-width: 14rem; }
 /* A field the daemon would refuse. Color is not the only signal: the hint
    under it says what is wrong in words, and the input carries aria-invalid. */
-input[aria-invalid="true"] { border-color: #b00020; border-color: var(--err); }
-.hint.scan-invalid { color: #b00020; color: var(--err); }
+input[aria-invalid="true"] { border-color: var(--err); }
+.hint.scan-invalid { color: var(--err); }
 .scan-note { font-size: .82rem; margin-top: .25rem; }
 /* The address ticker: one line that must not reflow the page as it changes, so
    it holds its height when empty and clips rather than wraps. */
 .scan-current {
   height: 1.4rem; margin-top: .35rem; overflow: hidden; white-space: nowrap;
-  color: #6b7280;
   color: var(--muted); font-size: .8rem;
 }
 progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
@@ -413,13 +401,13 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .discovered-host > * + *, .host-flags > * + * { margin-left: .4rem; }
 .badge {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
-  padding: .05rem .35rem; border-radius: 4px; border: 1px solid #e5e7eb; border: 1px solid var(--line); color: #6b7280; color: var(--muted);
+  padding: .05rem .35rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
 }
 /* The one badge that means a row needs an operator rather than a reading: two
    ids for one machine, with the pool membership on the wrong one. Carries the
    error color the notices and row feedback already define, so it reads as
    actionable in both themes without introducing a token of its own. */
-.badge.rekeyed { border-color: #b00020; border-color: var(--err); color: #b00020; color: var(--err); }
+.badge.rekeyed { border-color: var(--err); color: var(--err); }
 
 @media (max-width: 600px) {
   /* The 4-6 column tables overflow a 375px phone; scroll the table itself
@@ -428,12 +416,12 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
   /* iOS Safari zooms the viewport when a focused text control computes under
      16px and never zooms back out; keep desktop density, pay 16px on phones.
      min-height widens the tap targets toward the 44px touch minimum. */
-  input, select, button { font-size: 16px; min-height: 2.75rem; min-height: var(--touch-min); }
+  input, select, button { font-size: 16px; min-height: var(--touch-min); }
   /* min-height alone still leaves a single-glyph control -- the per-host remove
      button -- around 32px wide. Square the floor so it clears 44px on both axes,
      matching the touch minimum the status and stash UIs share; mis-tapping it
      drops a host from a pool with no confirmation. */
-  button { min-width: 2.75rem; min-width: var(--touch-min); }
+  button { min-width: var(--touch-min); }
   /* The 16px bump also widens the size="40" URL inputs past the content box of a
      375px phone, and a flex item's automatic minimum stops them shrinking, so the
      page scrolls sideways. min-width: 0 lets flex-shrink do its job. */
@@ -447,15 +435,14 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    the first one of the day is the slow one -- long enough that a blank table
    reads as a stuck page, and the operator reaches for reload, which throws the
    pending fetch away and starts the same wait over. */
-.loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: #6b7280; color: var(--muted); }
+.loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: var(--muted); }
 .loading .loading-text { margin-left: .6rem; font-size: .95rem; }
 /* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring must be visibly incomplete. flex-shrink keeps it circular when the
    message beside it is long enough to compete for the row. */
 .spinner {
   width: 1.5rem; height: 1.5rem; flex-shrink: 0;
-  border: 3px solid #e5e7eb;
-  border: 3px solid var(--line); border-top-color: #2563eb; border-top-color: var(--accent);
+  border: 3px solid var(--line); border-top-color: var(--accent);
   border-radius: 50%;
   animation: yuruna-spin .9s linear infinite;
 }
@@ -465,8 +452,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 #footer-busy {
   display: inline-block; width: .7rem; height: .7rem; margin-left: .4rem;
   vertical-align: -1px;
-  border: 2px solid #374151;
-  border: 2px solid var(--chrome-line); border-top-color: #f9fafb; border-top-color: var(--chrome-fg);
+  border: 2px solid var(--chrome-line); border-top-color: var(--chrome-fg);
   border-radius: 50%;
   animation: yuruna-spin .9s linear infinite;
 }
@@ -491,9 +477,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 }
 .unlock-overlay .login {
   width: 100%; max-width: 22rem; text-align: center;
-  background: #fff;
-  background: var(--bg); color: #111827; color: var(--fg);
-  border: 1px solid #e5e7eb;
+  background: var(--bg); color: var(--fg);
   border: 1px solid var(--line);
   border-radius: 16px; padding: 1.25rem;
 }
@@ -504,11 +488,10 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .unlock-overlay .login input,
 .unlock-overlay .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
 .unlock-overlay .login input {
-  border: 1px solid #e5e7eb;
-  border: 1px solid var(--line); background: #fff; background: var(--bg); color: #111827; color: var(--fg);
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
   text-align: center; letter-spacing: 0.2em; text-transform: lowercase;
 }
-.unlock-overlay .login-error { color: #b00020; color: var(--err); font-size: 0.9rem; margin: 0.6rem 0 0; }
+.unlock-overlay .login-error { color: var(--err); font-size: 0.9rem; margin: 0.6rem 0 0; }
 
 /* Outcome of a per-row action, shown in the row that produced it. The banner
    at the top of <main> stays -- this is the copy a magnifier user can actually
@@ -516,8 +499,8 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    screen together. */
 .row-feedback:empty { display: none; }
 .row-feedback { margin-top: .25rem; font-size: .8rem; }
-.row-feedback.ok { color: #1a7f37; color: var(--ok); }
-.row-feedback.error { color: #b00020; color: var(--err); }
+.row-feedback.ok { color: var(--ok); }
+.row-feedback.error { color: var(--err); }
 
 /* --------------------------------------------------------------------------
    Right-to-left mirror. Logical properties would say this once, but they are

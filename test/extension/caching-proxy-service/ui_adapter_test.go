@@ -6,9 +6,10 @@ package main
 import "testing"
 
 // This page is a string literal and loads no shared runtime, so the adapter
-// every other page inherits has to travel inside it. Without one, a browser
-// with no fetch renders the shell and fills in nothing -- an empty table that
-// reads as a lab with no data rather than as a page that failed.
+// every other page inherits has to travel inside it. Without one the page
+// renders its shell and fills in nothing whenever the request behind it never
+// answers -- an empty table that reads as a lab with no data rather than as a
+// page that failed.
 func TestTheServedPageInstallsTheRequestAdapter(t *testing.T) {
 	if requestAdapterScript == "" {
 		t.Fatal("the generated request adapter is empty; run tools/Invoke-CatalogEmbed.ps1")
@@ -23,21 +24,13 @@ func TestTheServedPageInstallsTheRequestAdapter(t *testing.T) {
 	if adapterAt < 0 || bodyAt < 0 || adapterAt > bodyAt {
 		t.Errorf("the adapter is at %d and the body starts at %d; it must be installed in the head", adapterAt, bodyAt)
 	}
-	// The stand-in must not replace a working native fetch -- and the guard has
-	// to be around the stand-in alone. Guarding the whole file would leave the
-	// bounded helper below undefined on every browser that HAS fetch, so the
-	// page would break on the modern browsers rather than on the old one the
-	// file exists for.
-	if !contains(requestAdapterScript, "if (!window.fetch) {") {
-		t.Error("the adapter does not stand aside for a browser that already has fetch")
-	}
 	if !contains(requestAdapterScript, "window.yurunaRequest = function") {
 		t.Error("the bounded helper is not defined unconditionally")
 	}
 	// The page's own request must be bounded. A bare fetch on a page that
 	// refreshes on a timer leaves a stale table with nothing to say it is
-	// stale, and on the browser that has fetch but cannot abort it there is
-	// nothing that would ever make the call fail.
+	// stale, and a request nothing ever gives up on never reports a failure
+	// the page could show instead.
 	if !contains(requestAdapterScript, "window.yurunaRequest") {
 		t.Error("the adapter offers no bounded request for the page to use")
 	}

@@ -19,32 +19,9 @@ func TestAssetServesTheSharedRuntime(t *testing.T) {
 	if len(b) == 0 {
 		t.Fatal("yuruna.core.js is empty")
 	}
-	for _, want := range []string{"Y.initMenu", "Y.api", "Y.el", "window.fetch"} {
+	for _, want := range []string{"Y.initMenu", "Y.api", "Y.el"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("yuruna.core.js does not define %s", want)
-		}
-	}
-}
-
-// The runtime is the file that makes the browser baseline hold, so the two
-// constructs that would break it outright are checked here as well as by
-// tools/Invoke-Es5Check.ps1: this test runs in every `go test` on every host,
-// and that script runs where pwsh does.
-func TestSharedRuntimeStaysOnTheBaseline(t *testing.T) {
-	b, _, ok := Asset("yuruna.core.js")
-	if !ok {
-		t.Fatal("yuruna.core.js is not embedded")
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		code := line
-		if i := strings.Index(code, "//"); i >= 0 {
-			code = code[:i]
-		}
-		if strings.Contains(code, "=>") {
-			t.Errorf("arrow function outside a comment: %q", strings.TrimSpace(line))
-		}
-		if strings.Contains(code, "await ") {
-			t.Errorf("await outside a comment: %q", strings.TrimSpace(line))
 		}
 	}
 }

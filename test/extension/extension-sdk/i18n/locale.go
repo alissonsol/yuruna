@@ -5,7 +5,7 @@
 // catalog in it.
 //
 // Three runtimes make this decision -- PowerShell for the lab commands, this
-// package for the Go services, and an ES5 kernel in the browser -- and they
+// package for the Go services, and a compiled kernel in the browser -- and they
 // have to make it identically. A page in one language beside a transcript in
 // another is worse than either language alone, and nothing in either surface
 // tells the reader which one is wrong. So the rules live in a fixture under
@@ -13,8 +13,8 @@
 // written from the same paragraph.
 //
 // Nothing here reads Go's own locale database. Separators and plural rules
-// come from the compiled locale data, because the browser floor has no Intl to
-// read one from and a server's locale database shifts between releases.
+// come from the compiled locale data, because ICU data differs between engines
+// and a runtime's locale database shifts between releases.
 package i18n
 
 import (

@@ -1,0 +1,43 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "notification",
+  "locale": "pt-BR",
+  "messages": {
+    "notification.all_delivery_failed": {
+      "sourceHash": "6de380e04855eb19421d8e8c5d9398e07af569f624abfcf6f2fb7dd3aa77bf0d",
+      "message": "Notificação '{eventCode}': todas as tentativas de entrega do {attempted} falharam. Último erro: {detail}"
+    },
+    "notification.config_mapping_required": {
+      "sourceHash": "da7ad18c0687decc5074a1cc9d9d71190f95083e129f35f53ec0598cd7ed3352",
+      "message": "transports.yml não analisou para um mapeamento; tratando como vazio."
+    },
+    "notification.config_parse_failed": {
+      "sourceHash": "9607879da3b01a48c05617fa0a0cb02a0221dea3ff7dc2d5ce9cb986d96f7dcf",
+      "message": "o processamento do transports.yml falhou: {detail}. Tratando como vazio."
+    },
+    "notification.delivered": {
+      "sourceHash": "d16da8b65138ab0c1eda3e790e5a8b83d693b4ae5e5f06decae1164c7f54b92e",
+      "message": "Notificação «{eventCode}» entregue ao {address}"
+    },
+    "notification.delivery_failed": {
+      "sourceHash": "6d006047452bf7cfd673d72fc479f2fffee5d293456f10beda9ddd539b7c153f",
+      "message": "Falha na entrega da notificação para '{eventCode}' -> {address}: {detail}"
+    },
+    "notification.failure_body": {
+      "sourceHash": "44c254aecb41ceff8e6538865d8d1c4e2dce0e54a4bb6775a0fa799120197d07",
+      "message": "Yuruna Test Failure\n\nHost:     {host}\nMachine:  {machine}\nGuest:    {guest}\nStep:     {step}\nError:    {error}\nCycle start: {cycleStart}\nCommit:   {commit}\nTime:     {time}"
+    },
+    "notification.failure_subject": {
+      "sourceHash": "98ea4a44a3892cc85393aaec84674bcef36cb7fc84825345be9ab20ae2020b2f",
+      "message": "Teste de Yuruna: FAIL em {host} / {subject}"
+    },
+    "notification.resend_config_required": {
+      "sourceHash": "78a3a7df6e03b6ab148bcbb4c7b639de437e94a246487687429a2fb6d1c0ba2f",
+      "message": "transports.resend.apiKey e transports.resend. fromEmail são necessários."
+    },
+    "notification.unknown_transport": {
+      "sourceHash": "7c09654a72297db8cfbac2086ce02e04e32d5fdad3fec9978f553962cdc405be",
+      "message": "Transporte desconhecido '{transport}' para o evento '{eventCode}'."
+    }
+  }
+}

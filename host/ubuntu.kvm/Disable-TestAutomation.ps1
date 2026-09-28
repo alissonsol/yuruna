@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,8 @@ $skipped  = [System.Collections.Generic.List[string]]::new()
 # --- REGION: Script-local helpers
 # Thin local shim over the shared driver so the three per-host scripts stay
 # readable: -State, -Cmdlet and the two lists are the same on every call.
+$Script:DisableCmdlet = $PSCmdlet
+
 function Restore-Knob {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -82,7 +84,7 @@ function Restore-Knob {
         [scriptblock]$Absent
     )
     Invoke-HostKnobRestore -State $state -Name $Name -Description $Description `
-        -Apply $Apply -Absent $Absent -Cmdlet $PSCmdlet -Restored $restored -Skipped $skipped
+        -Apply $Apply -Absent $Absent -Cmdlet $Script:DisableCmdlet -Restored $restored -Skipped $skipped
 }
 
 if (-not $WhatIfPreference) {
@@ -207,7 +209,7 @@ if (-not $ufwCmd) {
 
 # --- REGION: Services (opt-in)
 if ($StopServices) {
-    Stop-YurunaServiceVMSet -RepoRoot $RepoRoot -Cmdlet $PSCmdlet -Restored $restored -Skipped $skipped
+    Stop-YurunaServiceVMSet -RepoRoot $RepoRoot -Cmdlet $Script:DisableCmdlet -Restored $restored -Skipped $skipped
 }
 
 # --- REGION: Report

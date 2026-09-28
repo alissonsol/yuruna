@@ -78,6 +78,7 @@ actions:
     default = vmCommunication.charDelayMs), delaySeconds (number, drain pause before Enter,
     default 2), waitPattern (string), timeoutSeconds (number, OCR-wait
     deadline for waitPattern; default = vmCommunication.timeoutSeconds),
+    noSegmentMatch (boolean, default false; require bounded per-line OCR matching),
     pollSeconds (number, OCR poll interval while waiting for waitPattern;
     default = vmCommunication.pollSeconds), freshMatchTailLines (number,
     default 24 -- how many trailing OCR lines the completion marker is
@@ -115,7 +116,19 @@ actions:
     "retry exhausted (N attempts)" prefix in last_failure.json. retry
     blocks may nest. Parameters: maxAttempts (integer, default 3, must
     be >= 1), steps (array of step objects -- the same shape as a
-    top-level sequence's `steps:` list, recursively).
+    top-level sequence's `steps:` list, recursively), restartVmBeforeRetry
+    (optional enum; arm64HyperVColdPowerCycle cold-restarts only an ARM64
+    Hyper-V VM after a waitForTextWithNudge login timeout and before another
+    attempt), stepsAfterVmRestart (optional recursive step array run only
+    after that cold restart succeeds; use it to restore or settle boot state).
+
+  startVm: >
+    Wait for a guest-requested clean shutdown, then start the VM through the
+    host driver. On host.windows.hyper-v, arm64HyperVProcessorCount optionally
+    changes the processor count while the VM is off; the Hyper-V helper is a
+    no-op on AMD64. Parameters: timeoutSeconds (integer, default 120 -- maximum
+    time to wait for the VM to become stopped), arm64HyperVProcessorCount
+    (positive integer or substituted string, optional).
 
   inputText: >
     Type a text string. Parameters: text (string), sensitive
@@ -146,6 +159,8 @@ actions:
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds), freshMatch (boolean),
     freshMatchTailLines (number, default 12), sinceStepStart (boolean),
+    noSegmentMatch (boolean, default true; require bounded per-line matching
+    so installer text cannot assemble a prompt from scattered words),
     failurePatterns (string
     or string-array), text (string), tabCount (number, Tab presses
     before typing to navigate focus, default 0), charDelayMs (number,
@@ -257,11 +272,14 @@ actions:
     timeoutSeconds (number, default = vmCommunication.timeoutSeconds),
     pollSeconds (number, default = vmCommunication.pollSeconds),
     freshMatch (boolean), freshMatchTailLines (number,
-    default 12), sinceStepStart (boolean),
+    default 12), sinceStepStart (boolean), noSegmentMatch (boolean, default false;
+    require bounded per-line matching, also for skipInputPattern and confirmPattern),
     failurePatterns (string or string-array -- see
     waitForText), text (string), sensitive (boolean), tabCount
     (number, Tab presses before typing to navigate focus, default 0),
-    charDelayMs (number, default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
+    charDelayMs (number, default = vmCommunication.charDelayMs), delaySeconds
+    (number, default 2), skipInputPattern (optional string or string-array;
+    if the matching OCR frame contains it, succeed without typing text).
 
   waitForSeconds: >
     Wait a fixed number of seconds. Parameters: seconds (number).
@@ -271,10 +289,12 @@ actions:
     pattern (string or string-array), timeoutSeconds (number,
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds),
-    freshMatch (boolean, waits for pattern to clear first if already on screen),
+    freshMatch (boolean, restricts matching to the trailing OCR lines),
     freshMatchTailLines (number, default 12),
     sinceStepStart (boolean, matches only lines the guest printed after the
     wait began -- for a prompt whose words also occur in the text above it),
+    noSegmentMatch (boolean, default false; disable unrestricted segment
+    matching while preserving OCR character tolerance; enable for login waits),
     failurePatterns (string
     or string-array of anti-patterns; matching any short-circuits the
     wait and fails the step with a label that names the matched pattern

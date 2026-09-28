@@ -2,7 +2,9 @@
 
 # Yuruna
 
-**O Yuruna assegura que os recursos estejam configurados para verificar componentes diante das cargas de trabalho previstas.**
+Um framework multiplataforma para provisionar laboratórios rapidamente e verificar cenários de uso com confiabilidade.
+
+**O Yuruna assegura que os recursos estejam configurados para verificar componentes diante das cargas de trabalho previstas.** Projetado para fazer a transição entre protótipos frágeis e implantações empresariais robustas, o Yuruna automatiza a infraestrutura complexa necessária para testes determinísticos. Ele permite que as organizações provisionem rapidamente ambientes de hospedeiros isolados em diferentes arquiteturas, eliminando os gargalos da configuração manual e do gerenciamento de dependências. Com uma base consistente estabelecida, as equipes podem executar fluxos automatizados continuamente para garantir que cenários de uso críticos funcionem com confiabilidade sob a pressão de condições operacionais reais.
 
 Três capacidades: configurações reproduzíveis de VMs hospedeiro/convidado para
 espaços de trabalho de desenvolvimento, implantação de Kubernetes em
@@ -101,6 +103,8 @@ trabalho de teste:
 - **[Toda a documentação](../README.md)** -- o que cada documento em `docs/` cobre
 - [Requisitos](../operator.md#b2-preflight-dependencies) - [Soluções alternativas e FAQ](../workarounds.md) - [Roadmap](../opportunities.md#roadmap)
 - Guias do [operador](../operator.md) de máquina e do [operador de laboratório](../lab-operator.md)
+- [Alertas por e-mail de ciclos com falha](../alerts.md) -- configure o Grafana para enviar
+  um e-mail por ciclo de teste com falha observado
 - [Como contribuir](../../CONTRIBUTING.md) - [Contribuidores](../../CONTRIBUTING.md#contributors) - [Oportunidades](../opportunities.md)
 - [Changelog](../../CHANGELOG.md) - [Política de segurança](../../SECURITY.md) - [Licença](../../LICENSE.md)
 
@@ -113,4 +117,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.24
+Última revisão: 2026.09.27

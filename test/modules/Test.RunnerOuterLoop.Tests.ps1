@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,16 @@
     Pester coverage for the per-pool testCycle override merge in Test.RunnerOuterLoop.psm1:
     Get-OuterPoolTestCycleOverride (pure extraction) and the override-WINS precedence in
     Get-OuterAutoRemediation / Get-OuterStepTimeoutSeconds (pool > test.config.yml > default).
+    Also the host-refresh gate at the dispatch and cycle sites, the refresh
+    outcomes of the loop, and its automatic-refresh call sites.
 #>
+
+# The loop resolves Set-RunnerState and the automatic-refresh trigger commands
+# from the global command table at call time (Get-Command-guarded), so their
+# stubs, and the lists those stubs record into, must live in the global scope.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'The global command table is the resolution contract under test: the loop finds Set-RunnerState and the trigger commands there, so the recording stubs and their lists straddle that scope.')]
+param()
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
@@ -297,6 +306,9 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
 
     It 'ends the pause early on a transient failure class when the config ENGAGES remediation' {
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog                { }
+        # The automatic host-refresh calls read and write per-user private
+        # state; this case is about the failure pause, so they stay off.
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha            { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl           { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime          { $null }
@@ -354,5 +366,436 @@ Describe 'Get-OuterStepTimeoutSeconds (pool override WINS over config > default)
     }
     It 'ignores a non-positive override (keeps the config value)' {
         Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutSeconds -ConfigPath $script:CfgTimeout -DefaultSeconds 90 -PoolTestCycleOverride @{ stepTimeoutSeconds = 0 }) -Because 'zero override ignored'
+    }
+}
+
+Describe 'Refresh gate at the cycle dispatch (mocked spawn)' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
+    }
+    BeforeEach {
+        $script:DispatchDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-dispatch-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:DispatchDir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:DispatchDir
+        $script:CycleScriptPath = Join-Path $script:DispatchDir 'cycle.ps1'
+        Set-Content -LiteralPath $script:CycleScriptPath -Value '# fixture' -Encoding utf8
+        $script:Seen = @{}
+        Mock -ModuleName Test.RunnerOuterLoop Start-Process {
+            $script:Seen.Args = [string[]]$ArgumentList
+            $script:Seen.Token = $env:YURUNA_REFRESH_HANDOFF_TOKEN
+            $script:Seen.Preflight = $env:YURUNA_REFRESH_PREFLIGHT
+            $script:Seen.Barrier = $env:YURUNA_REFRESH_BARRIER
+            [pscustomobject]@{ Id = $PID; HasExited = $true; ExitCode = 0 }
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Remove-Item -LiteralPath $script:DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'spawns the preflight chain with its token in the child environment only, and clears it afterwards' {
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $true; RequestId = 'r-1'; Purpose = 'new-outer'; Generation = 'g' } }
+        $state = @{ CycleScript = $script:CycleScriptPath; PwshExe = 'pwsh'; ShutdownState = @{ Requested = $false }
+            RefreshHandoff = @{ TokenId = ('a' * 32); RequestId = 'r-1'; Purpose = 'new-outer' } }
+        $r = Invoke-OuterCycleDispatch -State $state -Cycle 4
+        Assert-Equal -Expected 'preflight' -Actual $r.Refresh
+        Assert-Equal -Expected ('a' * 32) -Actual $script:Seen.Token
+        Assert-Equal -Expected '1' -Actual $script:Seen.Preflight
+        Assert-True ([string]::IsNullOrEmpty($script:Seen.Barrier)) 'no barrier on the preflight'
+        Assert-True ([string]::IsNullOrEmpty($env:YURUNA_REFRESH_HANDOFF_TOKEN)) 'the token does not outlive the spawn'
+        Assert-True ([string]::IsNullOrEmpty($env:YURUNA_REFRESH_PREFLIGHT)) 'the preflight flag does not outlive the spawn'
+        Assert-False (Test-Path -LiteralPath (Join-Path $script:DispatchDir 'runner.cycle.json')) 'the cycle record goes when the cycle exits'
+        Assert-Equal -Expected $PID -Actual $r.Cycle.Pid -Because 'the spawned cycle identity is returned for the resident-outer check'
+        Assert-Equal -Expected ('a' * 32) -Actual $r.Handoff.TokenId
+        Assert-Equal -Expected 'new-outer' -Actual $r.Handoff.Purpose
+    }
+    It 'returns the purpose the gate validated, not the one the handoff record carries' {
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $true; RequestId = 'r-6'; Purpose = 'resident-outer'; Generation = 'g' } }
+        $state = @{ CycleScript = $script:CycleScriptPath; PwshExe = 'pwsh'; ShutdownState = @{ Requested = $false }
+            RefreshHandoff = @{ tokenId = ('e' * 32) } }
+        $r = Invoke-OuterCycleDispatch -State $state -Cycle 5
+        Assert-Equal -Expected 'preflight' -Actual $r.Refresh
+        Assert-Equal -Expected 'resident-outer' -Actual $r.Handoff.Purpose -Because 'a handoff record without a purpose still dispatches as the gate recorded it'
+        Assert-Equal -Expected 'r-6' -Actual $r.Handoff.RequestId
+    }
+    It 'holds without spawning while the gate is closed, with or without a stale handoff' {
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $false; Reason = 'not-handoff' } }
+        Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'closed'; SpawnAllowed = $false; RequestId = 'r-2'; Orphaned = $false; Reason = 'closed' } }
+        foreach ($handoff in @($null, @{ TokenId = ('b' * 32); RequestId = 'r-2'; Purpose = 'new-outer' })) {
+            $state = @{ CycleScript = $script:CycleScriptPath; PwshExe = 'pwsh'; ShutdownState = @{ Requested = $false }; RefreshHandoff = $handoff }
+            $r = Invoke-OuterCycleDispatch -State $state -Cycle 1
+            Assert-Equal -Expected 'refresh-gated' -Actual $r.Outcome
+            Assert-Equal -Expected 'closed' -Actual $r.Gate.State
+            Assert-Null $r.Handoff
+        }
+        Assert-MockCalled -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+    }
+    It 'turns a stale handoff into the barrier once the gate is open, and forwards the cycle generation' {
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $false; Reason = 'not-handoff' } }
+        Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'open'; SpawnAllowed = $true; RequestId = 'r-3' } }
+        $generation = ('c' * 32) + ':9'
+        $state = @{ CycleScript = $script:CycleScriptPath; PwshExe = 'pwsh'; ShutdownState = @{ Requested = $false }
+            RefreshHandoff = @{ TokenId = ('c' * 32); RequestId = 'r-3'; Purpose = 'new-outer' }; CycleGeneration = $generation }
+        $r = Invoke-OuterCycleDispatch -State $state -Cycle 9
+        Assert-Equal -Expected 'barrier' -Actual $r.Refresh
+        Assert-Equal -Expected 'r-3' -Actual $script:Seen.Barrier
+        Assert-Null $state.RefreshHandoff
+        Assert-Equal -Expected 'r-3' -Actual $state.RefreshBarrierRequestId
+        $i = [array]::IndexOf($script:Seen.Args, '-CycleGeneration')
+        Assert-True ($i -ge 0 -and $script:Seen.Args[$i + 1] -eq $generation) 'the generation reaches the cycle process argv'
+        Assert-Equal -Expected $generation -Actual $r.CycleGeneration
+    }
+}
+
+Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inner)' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.RunnerWatchdog.psm1') -Force -Global -DisableNameChecking
+        function New-CycleFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: throwaway runtime and log directories with sentinel files.')]
+            param([string]$InnerScript)
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-site-' + [guid]::NewGuid().ToString('N'))
+            $runtime = Join-Path $root 'runtime'; $log = Join-Path $root 'log'
+            New-Item -ItemType Directory -Path $runtime, $log -Force | Out-Null
+            foreach ($name in @('inner.pid', 'inner.start', 'break-active.json')) { Set-Content -LiteralPath (Join-Path $runtime $name) -Value 'x' -Encoding utf8 }
+            Set-Content -LiteralPath (Join-Path $log 'last_failure.json') -Value '{}' -Encoding utf8
+            $envFile = Join-Path $root 'inner-env.json'
+            $inner = $InnerScript.Replace('ENVFILE', $envFile.Replace("'", "''")).Replace('RUNTIME', $runtime.Replace("'", "''"))
+            $state = @{
+                RepoRoot = $root; ConfigPath = (Join-Path $root 'missing.yml'); InnerScript = 'x'; PwshExe = [Environment]::ProcessPath
+                ArgList = @('-NoProfile', '-NonInteractive', '-Command', $inner); ForwardEnvSnapshot = @{}; ShutdownState = @{ Requested = $false }
+                NoGitPull = $false; FailurePauseMaxSeconds = 1; FailureCommitPollSeconds = 1; OuterPullErrorSleepSeconds = 1
+                InnerSpawnErrorSleepSeconds = 1; StepTimeoutSecondsDefault = 60; WatchdogPollSeconds = 30
+            }
+            return @{ Root = $root; Runtime = $runtime; Log = $log; EnvFile = $envFile; State = $state }
+        }
+        $script:EnvInner = "[ordered]@{ preflight = `$env:YURUNA_REFRESH_PREFLIGHT; token = `$env:YURUNA_REFRESH_HANDOFF_TOKEN; generation = `$env:YURUNA_CYCLE_GENERATION; barrier = `$env:YURUNA_REFRESH_BARRIER } | ConvertTo-Json | Set-Content -LiteralPath 'ENVFILE'; exit 0"
+    }
+    BeforeEach {
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR; $script:SavedLog = $env:YURUNA_LOG_DIR
+        Mock -ModuleName Test.RunnerOuterLoop Start-Watchdog { [pscustomobject]@{ State = 'Running' } }
+        Mock -ModuleName Test.RunnerOuterLoop Stop-Watchdog { }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterGitPull { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        if ($null -eq $script:SavedLog) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+    }
+
+    It 'runs a preflight cycle: no pull, failure record and break marker kept, inner records wiped, token and generation handed to the inner' {
+        $f = New-CycleFixture -InnerScript $script:EnvInner
+        try {
+            $env:YURUNA_RUNTIME_DIR = $f.Runtime; $env:YURUNA_LOG_DIR = $f.Log
+            Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'handoff'; SpawnAllowed = $false; PreflightAllowed = $true; RequestId = 'r' } }
+            $f.State.RefreshPreflightTokenId = ('d' * 32); $f.State.RefreshPreflightRequested = $true
+            $f.State.CycleGeneration = ('e' * 32) + ':2'
+            $r = Invoke-RunnerOuterCycle -State $f.State -Cycle 2 | Select-Object -Last 1
+            Assert-Equal -Expected 'refresh-preflight' -Actual $r.Outcome
+            Assert-Equal -Expected 0 -Actual $r.ExitCode
+            Assert-MockCalled -CommandName Invoke-OuterGitPull -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+            Assert-True (Test-Path -LiteralPath (Join-Path $f.Log 'last_failure.json')) 'the last failure record is kept'
+            Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'break-active.json')) 'the break marker is kept'
+            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.pid')) 'inner.pid wiped'
+            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'inner.start wiped'
+            $seen = Get-Content -LiteralPath $f.EnvFile -Raw | ConvertFrom-Json
+            Assert-Equal -Expected '1' -Actual $seen.preflight
+            Assert-Equal -Expected ('d' * 32) -Actual $seen.token
+            Assert-Equal -Expected (('e' * 32) + ':2') -Actual $seen.generation
+            Assert-True ([string]::IsNullOrEmpty($env:YURUNA_CYCLE_GENERATION)) 'cleared after the spawn'
+        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'holds a cycle before the pull and changes nothing while the gate is closed' {
+        $f = New-CycleFixture -InnerScript $script:EnvInner
+        try {
+            $env:YURUNA_RUNTIME_DIR = $f.Runtime; $env:YURUNA_LOG_DIR = $f.Log
+            Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'closed'; SpawnAllowed = $false; PreflightAllowed = $false } }
+            $r = Invoke-RunnerOuterCycle -State $f.State -Cycle 3 | Select-Object -Last 1
+            Assert-Equal -Expected 'refresh-gated' -Actual $r.Outcome
+            Assert-MockCalled -CommandName Invoke-OuterGitPull -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+            foreach ($name in @('inner.pid', 'inner.start', 'break-active.json')) {
+                Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime $name)) "$name untouched"
+            }
+            Assert-True (Test-Path -LiteralPath (Join-Path $f.Log 'last_failure.json')) 'the failure record is untouched'
+            Assert-False (Test-Path -LiteralPath $f.EnvFile) 'no inner ran'
+        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports refresh-gated when its own inner was held at an inner site, and carries the barrier to the inner' {
+        $gatedInner = "`$parent = (Get-Process -Id `$PID).Parent.Id; [ordered]@{ schemaVersion = 1; site = 'git-pull'; innerParentPid = `$parent; observedUtc = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.refresh-gated.json'); " + $script:EnvInner
+        $f = New-CycleFixture -InnerScript $gatedInner
+        try {
+            $env:YURUNA_RUNTIME_DIR = $f.Runtime; $env:YURUNA_LOG_DIR = $f.Log
+            Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'open'; SpawnAllowed = $true; PreflightAllowed = $false } }
+            $f.State.NoGitPull = $true
+            $f.State.RefreshBarrierRequestId = 'r-9'
+            $r = Invoke-RunnerOuterCycle -State $f.State -Cycle 5 | Select-Object -Last 1
+            Assert-Equal -Expected 'refresh-gated' -Actual $r.Outcome
+            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'runner.refresh-gated.json')) 'the sidecar is consumed'
+            Assert-Equal -Expected 'r-9' -Actual (Get-Content -LiteralPath $f.EnvFile -Raw | ConvertFrom-Json).barrier
+            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'break-active.json')) 'an ordinary cycle still clears a stale break marker'
+        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sites (mocked dispatch)' {
+    BeforeAll {
+        function New-LoopState {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: builds an in-memory State hashtable; no system state.')]
+            param([hashtable]$Extra = @{})
+            $state = @{
+                CycleScript = ''; RepoRoot = $here; ConfigPath = (Join-Path $here 'missing.yml'); InnerScript = 'x'; PwshExe = 'pwsh'
+                ArgList = @(); ForwardEnvSnapshot = @{}; ShutdownState = @{ Requested = $false }; NoGitPull = $true
+                FailurePauseMaxSeconds = 1; FailureCommitPollSeconds = 1; OuterPullErrorSleepSeconds = 1; InnerSpawnErrorSleepSeconds = 1
+                StepTimeoutSecondsDefault = 1; WatchdogPollSeconds = 1
+            }
+            foreach ($key in $Extra.Keys) { $state[$key] = $Extra[$key] }
+            return $state
+        }
+    }
+    BeforeEach {
+        $script:LoopDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-loop-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:LoopDir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR; $script:SavedLog = $env:YURUNA_LOG_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:LoopDir; $env:YURUNA_LOG_DIR = $script:LoopDir
+        $script:Logged = [System.Collections.Generic.List[string]]::new()
+        $script:Dispatches = [System.Collections.Generic.List[hashtable]]::new()
+        $script:Outcomes = [System.Collections.Generic.Queue[object]]::new()
+        Mock -ModuleName Test.RunnerOuterLoop Format-YurunaOperatorMessage { "KEY:$Key" }
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { $script:Logged.Add($Message) }
+        Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha' }
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerCrashGating { [pscustomobject]@{ Updated = $false } }
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $script:Dispatches.Add(@{ Generation = $State['CycleGeneration']; Barrier = $State['RefreshBarrierRequestId']; Handoff = $State['RefreshHandoff'] })
+            $next = $script:Outcomes.Dequeue()
+            if ($script:Outcomes.Count -eq 0) { $State.ShutdownState['Requested'] = $true }
+            return $next
+        }
+        $global:__loopStates = [System.Collections.Generic.List[string]]::new()
+        function global:Set-RunnerState { [CmdletBinding(SupportsShouldProcess)] param($To, $Reason) if ($PSCmdlet.ShouldProcess("$To ($Reason)")) { $global:__loopStates.Add($To) } }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        if ($null -eq $script:SavedLog) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Remove-Item -LiteralPath $script:LoopDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item function:global:Set-RunnerState, function:global:Update-HostRefreshAutoEvidence, function:global:Invoke-HostRefreshAutoDecision, `
+            function:global:Stop-HostRefreshAutoQueuedRequest, function:global:Set-HostRefreshCallerAck, function:global:Resolve-StatusServiceStart -ErrorAction SilentlyContinue
+        Remove-Variable __loopStates, __trigger -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'does not count a pre-spawn storage refusal as an inner crash' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'storage-full'; ExitCode = 1 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null 6>$null
+        Assert-MockCalled -CommandName Update-RunnerCrashGating -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+    }
+    It 'holds a gated runner without fault accounting, logging the hold once and the release once' {
+        $gate = [pscustomobject]@{ State = 'closed'; RequestId = 'r1'; Orphaned = $false; SpawnAllowed = $false; Reason = 'closed' }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $gate })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $gate })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null
+        Assert-Equal -Expected 1 -Actual @($script:Logged | Where-Object { $_ -eq 'KEY:runner.refresh_gate_hold' }).Count -Because 'once per transition'
+        Assert-Equal -Expected 1 -Actual @($script:Logged | Where-Object { $_ -eq 'KEY:runner.refresh_gate_released' }).Count
+        Assert-MockCalled -CommandName Wait-OuterInterruptible -ModuleName Test.RunnerOuterLoop -Times 2 -Exactly -Scope It
+        Assert-MockCalled -CommandName Update-RunnerCrashGating -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+        Assert-MockCalled -CommandName Update-RunnerFaultStatus -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+        Assert-False ($global:__loopStates -contains 'fault') 'a held cycle is not a fault'
+    }
+    It 'arms the barrier for exactly one ordinary cycle after a new-outer preflight, and keeps the handoff when the preflight fails' {
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-preflight'; ExitCode = 0; Handoff = @{ TokenId = ('a' * 32); RequestId = 'r2'; Purpose = 'new-outer' } })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $state = New-LoopState -Extra @{ RefreshHandoff = @{ TokenId = ('a' * 32); RequestId = 'r2'; Purpose = 'new-outer' } }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null
+        Assert-Equal -Expected 'r2' -Actual $script:Dispatches[1].Barrier
+        Assert-Null $script:Dispatches[2].Barrier
+        Assert-Null $state.RefreshHandoff
+        $script:Dispatches.Clear()
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-preflight'; ExitCode = 1; Handoff = @{ TokenId = ('b' * 32); RequestId = 'r3'; Purpose = 'new-outer' } })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0 })
+        $failed = New-LoopState -Extra @{ RefreshHandoff = @{ TokenId = ('b' * 32); RequestId = 'r3'; Purpose = 'new-outer' } }
+        $null = Invoke-RunnerOuterLoop -State $failed 3>$null
+        Assert-NotNull $failed.RefreshHandoff
+        Assert-Null $script:Dispatches[1].Barrier
+    }
+    It 'verifies a resident-outer preflight itself, completes the handoff as the designated outer and reports readiness' {
+        Mock -ModuleName Test.RunnerOuterLoop Wait-YurunaRunnerReadiness { [pscustomobject]@{ State = 'ready'; Reason = 'ok' } }
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $false; Generation = 'gen-1' } }
+        Mock -ModuleName Test.RunnerOuterLoop Complete-YurunaRunnerHandoff { [pscustomobject]@{ Completed = $true; State = 'released'; Reason = 'completed' } }
+        $global:__trigger = [System.Collections.Generic.List[string]]::new()
+        function global:Set-HostRefreshCallerAck { [CmdletBinding(SupportsShouldProcess)] param($RequestId, $Readiness, $CallerPid, $CallerStartTimeUnixMs, $Reason) $null = $CallerPid, $CallerStartTimeUnixMs, $Reason; if ($PSCmdlet.ShouldProcess($RequestId)) { $global:__trigger.Add("$RequestId|$Readiness") } }
+        # The handoff record the trigger returned carries no purpose; the
+        # purpose the gate validated at dispatch is what decides.
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-preflight'; ExitCode = 0; Cycle = [pscustomobject]@{ Pid = 5; StartTimeUnixMs = [long]6 }
+            Handoff = @{ TokenId = ('c' * 32); RequestId = 'r4'; Purpose = 'resident-outer' } })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $state = New-LoopState -Extra @{ RefreshHandoff = @{ tokenId = ('c' * 32); requestId = 'r4' } }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null 6>$null
+        Assert-MockCalled -CommandName Complete-YurunaRunnerHandoff -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter {
+            $AsDesignatedOuter -and $Verdict -eq 'released' -and $ExpectedGeneration -eq 'gen-1' -and $TokenId -eq ('c' * 32) }
+        Assert-MockCalled -CommandName Wait-YurunaRunnerReadiness -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter { $ExpectedCycle.Pid -eq 5 }
+        Assert-Equal -Expected 'r4|ready' -Actual ($global:__trigger -join ',')
+        Assert-Equal -Expected 'r4' -Actual $script:Dispatches[1].Barrier
+    }
+    It 'completes an unverifiable resident-outer preflight as recovery-pending and holds' {
+        Mock -ModuleName Test.RunnerOuterLoop Wait-YurunaRunnerReadiness { [pscustomobject]@{ State = 'identity-mismatch'; Reason = 'cycle-mismatch' } }
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRunnerHandoffToken { [pscustomobject]@{ Valid = $false; Generation = 'gen-2' } }
+        Mock -ModuleName Test.RunnerOuterLoop Complete-YurunaRunnerHandoff { [pscustomobject]@{ Completed = $true; State = 'recovery-pending'; Reason = 'completed' } }
+        $global:__trigger = [System.Collections.Generic.List[string]]::new()
+        function global:Set-HostRefreshCallerAck { [CmdletBinding(SupportsShouldProcess)] param($RequestId, $Readiness, $CallerPid, $CallerStartTimeUnixMs, $Reason) $null = $CallerPid, $CallerStartTimeUnixMs; if ($PSCmdlet.ShouldProcess($RequestId)) { $global:__trigger.Add("$RequestId|$Readiness|$Reason") } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-preflight'; ExitCode = 0; Cycle = [pscustomobject]@{ Pid = 5; StartTimeUnixMs = [long]6 }
+            Handoff = @{ TokenId = ('d' * 32); RequestId = 'r5'; Purpose = 'resident-outer' } })
+        $state = New-LoopState -Extra @{ RefreshHandoff = @{ TokenId = ('d' * 32); RequestId = 'r5'; Purpose = 'resident-outer' } }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null
+        Assert-MockCalled -CommandName Complete-YurunaRunnerHandoff -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It -ParameterFilter { $Verdict -eq 'recovery-pending' -and $AsDesignatedOuter }
+        Assert-Equal -Expected 'r5|failed|cycle-mismatch' -Actual ($global:__trigger -join ',')
+        Assert-MockCalled -CommandName Wait-OuterInterruptible -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It
+        Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_handoff_unverified') 'logged'
+    }
+    It 'ends an expired resident-outer handoff designating this outer, reports it failed, and names the resume path' {
+        Mock -ModuleName Test.RunnerOuterLoop Complete-YurunaRunnerExpiredHandoff { [pscustomobject]@{ Completed = $true; Reason = 'completed'; RequestId = 'r7'; State = 'recovery-pending' } }
+        Mock -ModuleName Test.RunnerOuterLoop Get-YurunaRefreshGateState {
+            [pscustomobject]@{ State = 'recovery-pending'; RequestId = 'r7'; Orphaned = $false; SpawnAllowed = $false; Reason = 'recovery-pending'
+                Owner = @{ pid = $PID; startTimeUnixMs = [long]12345; role = 'resident-outer' } }
+        }
+        $global:__trigger = [System.Collections.Generic.List[string]]::new()
+        function global:Set-HostRefreshCallerAck { [CmdletBinding(SupportsShouldProcess)] param($RequestId, $Readiness, $CallerPid, $CallerStartTimeUnixMs, $Reason) $null = $CallerPid, $CallerStartTimeUnixMs; if ($PSCmdlet.ShouldProcess($RequestId)) { $global:__trigger.Add("$RequestId|$Readiness|$Reason") } }
+        $expired = [pscustomobject]@{ State = 'handoff'; Purpose = 'resident-outer'; RequestId = 'r7'; Orphaned = $false; SpawnAllowed = $false; Reason = 'handoff'
+            DesignatedOuter = @{ pid = $PID; startTimeUnixMs = [long]12345 } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $expired })
+        $state = New-LoopState -Extra @{ RefreshHandoff = @{ tokenId = ('f' * 32); requestId = 'r7'; purpose = 'resident-outer' }; OuterStartTimeUnixMs = [long]12345 }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null
+        Assert-MockCalled -CommandName Complete-YurunaRunnerExpiredHandoff -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It
+        Assert-Null $state.RefreshHandoff
+        Assert-Equal -Expected 'r7|failed|handoff-expired' -Actual ($global:__trigger -join ',')
+        Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_handoff_unverified') 'the expired handoff is logged'
+        Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_gate_orphaned') 'the hold names the resume path, not a plain hold'
+        Assert-False (@($script:Logged) -contains 'KEY:runner.refresh_gate_hold') 'no plain hold line'
+    }
+    It 'leaves a live resident-outer handoff alone and holds' {
+        Mock -ModuleName Test.RunnerOuterLoop Complete-YurunaRunnerExpiredHandoff { [pscustomobject]@{ Completed = $false; Reason = 'token-live' } }
+        $live = [pscustomobject]@{ State = 'handoff'; Purpose = 'resident-outer'; RequestId = 'r8'; Orphaned = $false; SpawnAllowed = $false; Reason = 'handoff'
+            DesignatedOuter = @{ pid = $PID; startTimeUnixMs = [long]12345 }; Owner = @{ pid = $PID; startTimeUnixMs = [long]12345 } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $live })
+        $handoff = @{ tokenId = ('9' * 32); requestId = 'r8'; purpose = 'resident-outer' }
+        $state = New-LoopState -Extra @{ RefreshHandoff = $handoff; OuterStartTimeUnixMs = [long]12345 }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null
+        Assert-MockCalled -CommandName Complete-YurunaRunnerExpiredHandoff -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It
+        Assert-Equal -Expected ('9' * 32) -Actual $state.RefreshHandoff.tokenId -Because 'a usable handoff is kept'
+        Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_gate_hold') 'a handoff in flight is a plain hold'
+    }
+    It 'never completes a handoff designating another outer, or a new-outer handoff' {
+        Mock -ModuleName Test.RunnerOuterLoop Complete-YurunaRunnerExpiredHandoff { [pscustomobject]@{ Completed = $true; Reason = 'completed' } }
+        $other = [pscustomobject]@{ State = 'handoff'; Purpose = 'resident-outer'; RequestId = 'r9'; Orphaned = $false; DesignatedOuter = @{ pid = ($PID + 1); startTimeUnixMs = [long]1 } }
+        $newOuter = [pscustomobject]@{ State = 'handoff'; Purpose = 'new-outer'; RequestId = 'r9'; Orphaned = $false; DesignatedOuter = $null }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $other })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $newOuter })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null
+        Assert-MockCalled -CommandName Complete-YurunaRunnerExpiredHandoff -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
+    }
+    It 'reports a gate this outer owns itself as orphaned, and another owner''s as a hold' {
+        $own = [pscustomobject]@{ State = 'recovery-pending'; RequestId = 'r10'; Orphaned = $false; SpawnAllowed = $false; Reason = 'recovery-pending'
+            Owner = @{ pid = $PID; startTimeUnixMs = [long]12345; role = 'resident-outer' } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $own })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState -Extra @{ OuterStartTimeUnixMs = [long]12345 }) 3>$null
+        Assert-Equal -Expected 'KEY:runner.refresh_gate_orphaned' -Actual (@($script:Logged) -join ',')
+        $script:Logged.Clear()
+        $recycled = [pscustomobject]@{ State = 'recovery-pending'; RequestId = 'r11'; Orphaned = $false; SpawnAllowed = $false; Reason = 'recovery-pending'
+            Owner = @{ pid = $PID; startTimeUnixMs = [long]99999999; role = 'resident-outer' } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; Gate = $recycled })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState -Extra @{ OuterStartTimeUnixMs = [long]12345 }) 3>$null
+        Assert-Equal -Expected 'KEY:runner.refresh_gate_hold' -Actual (@($script:Logged) -join ',') -Because 'an owner with this PID but another start time is not this outer'
+    }
+    It 'issues one generation per cycle and runs each automatic-refresh call site' {
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $true }
+        $global:__trigger = [System.Collections.Generic.List[string]]::new()
+        function global:Update-HostRefreshAutoEvidence { [CmdletBinding(SupportsShouldProcess)] param($RuntimeDir, $Generation, $Outcome) if ($PSCmdlet.ShouldProcess($RuntimeDir)) { $global:__trigger.Add("evidence|$Generation|$Outcome") }; [pscustomobject]@{ Counted = $false } }
+        function global:Invoke-HostRefreshAutoDecision { [CmdletBinding(SupportsShouldProcess)] param($State, $Cycle, $Branch, $Accounting) $null = $State, $Accounting; if ($PSCmdlet.ShouldProcess("$Cycle")) { $global:__trigger.Add("decision|$Cycle|$Branch") }; [pscustomobject]@{ Action = 'none' } }
+        function global:Stop-HostRefreshAutoQueuedRequest { [CmdletBinding(SupportsShouldProcess)] param($Reason, $Cycle) if ($PSCmdlet.ShouldProcess("$Cycle")) { $global:__trigger.Add("stop|$Cycle|$Reason") }; $true }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 })
+        $state = New-LoopState -Extra @{ RunnerInstanceId = 'not-valid' }
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null
+        Assert-Match -Pattern '^[0-9a-f]{32}$' -Actual $state.RunnerInstanceId
+        Assert-Equal -Expected "$($state.RunnerInstanceId):1,$($state.RunnerInstanceId):2,$($state.RunnerInstanceId):3" -Actual (($script:Dispatches | ForEach-Object { $_.Generation }) -join ',')
+        $calls = @($global:__trigger)
+        Assert-Equal -Expected "evidence|$($state.RunnerInstanceId):1|completed" -Actual $calls[0]
+        Assert-Equal -Expected 'decision|1|success' -Actual $calls[1]
+        Assert-Equal -Expected "evidence|$($state.RunnerInstanceId):2|refresh-gated" -Actual $calls[2]
+        Assert-Equal -Expected 'decision|2|gated' -Actual $calls[3]
+        Assert-Equal -Expected "evidence|$($state.RunnerInstanceId):3|drain" -Actual $calls[4]
+        Assert-Equal -Expected 'stop|3|pool-drain' -Actual $calls[5]
+        Assert-Equal -Expected 6 -Actual $calls.Count
+        $kept = New-LoopState -Extra @{ RunnerInstanceId = ('f' * 32) }
+        $script:Dispatches.Clear()
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'shutdown'; ExitCode = 0 })
+        $null = Invoke-RunnerOuterLoop -State $kept 3>$null
+        Assert-Equal -Expected (('f' * 32) + ':1') -Actual $script:Dispatches[0].Generation -Because 'a valid instance id is kept'
+    }
+    It 'continues straight to the preflight on a handoff, skips the failure pause on a repair, and skips the status re-ensure while the gate holds' {
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Test-YurunaRefreshSpawnAllowed { $false }
+        $global:__trigger = [System.Collections.Generic.List[string]]::new()
+        function global:Update-HostRefreshAutoEvidence { [CmdletBinding(SupportsShouldProcess)] param($RuntimeDir, $Generation, $Outcome) $null = $Generation, $Outcome; if ($PSCmdlet.ShouldProcess($RuntimeDir)) { $null } }
+        function global:Invoke-HostRefreshAutoDecision {
+            [CmdletBinding(SupportsShouldProcess)] param($State, $Cycle, $Branch, $Accounting) $null = $State, $Accounting, $Branch
+            if (-not $PSCmdlet.ShouldProcess("$Cycle")) { return $null }
+            if ($Cycle -eq 1) { return [pscustomobject]@{ Action = 'attempted'; Handoff = @{ tokenId = ('a' * 32); purpose = 'resident-outer' } } }
+            if ($Cycle -eq 2) { return [pscustomobject]@{ Action = 'attempted'; SkipFailurePause = $true } }
+            return [pscustomobject]@{ Action = 'none' }
+        }
+        function global:Resolve-StatusServiceStart { param($Config) $null = $Config; $global:__trigger.Add('status-start'); @{ ShouldStart = $false } }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterAutoRemediation { [pscustomobject]@{ Enabled = $false; MaxAttempts = 0 } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 })
+        $state = New-LoopState
+        $null = Invoke-RunnerOuterLoop -State $state 3>$null 6>$null
+        Assert-Equal -Expected ('a' * 32) -Actual $script:Dispatches[1].Handoff.tokenId -Because 'the handoff reaches the next dispatch'
+        Assert-MockCalled -CommandName Get-OuterCommitSha -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly -Scope It
+        Assert-True (@($script:Logged) -contains 'KEY:runner.host_refresh_auto_pause_skipped') 'the skipped pause is logged'
+        Assert-True (@($script:Logged) -contains 'KEY:runner.refresh_status_ensure_skipped') 'the re-ensure was skipped'
+        Assert-False ($global:__trigger -contains 'status-start') 'the status starter was not consulted'
+    }
+    It 'logs a failing trigger call and carries on unchanged' {
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $true }
+        function global:Update-HostRefreshAutoEvidence { [CmdletBinding(SupportsShouldProcess)] param($RuntimeDir, $Generation, $Outcome) $null = $Generation, $Outcome; if ($PSCmdlet.ShouldProcess($RuntimeDir)) { throw 'evidence store unavailable' } }
+        function global:Invoke-HostRefreshAutoDecision { [CmdletBinding(SupportsShouldProcess)] param($State, $Cycle, $Branch, $Accounting) $null = $State, $Branch, $Accounting; if ($PSCmdlet.ShouldProcess("$Cycle")) { throw 'decision failed' } }
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $script:Outcomes.Enqueue([pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 })
+        $null = Invoke-RunnerOuterLoop -State (New-LoopState) 3>$null
+        Assert-Equal -Expected 2 -Actual $script:Dispatches.Count -Because 'the loop kept dispatching'
+        Assert-True (@($script:Logged | Where-Object { $_ -eq 'KEY:runner.refresh_trigger_call_failed' }).Count -ge 2) 'each failure is logged'
+    }
+}
+
+Describe 'Notifier job isolation' {
+    It 'loads its dependencies in a fresh thread runspace and returns a no-op summary without configured storage' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerOuterLoop.psm1'), [ref]$null, [ref]$null)
+        $command = $ast.Find({param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-ThreadJob' -and $n.Extent.Text.Contains('pool-notifier-')}, $true)
+        $body = @($command.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })[0]
+        $notifierModulesDir = $here
+        $notifierCfg = @{ poolStorage = @{ enabled = $false } }
+        $null = $notifierModulesDir, $notifierCfg # Captured by the extracted production job.
+        $job = Start-ThreadJob -ScriptBlock $body.ScriptBlock.GetScriptBlock()
+        try {
+            Assert-NotNull (Wait-Job -Job $job -Timeout 20) 'notifier completed within its budget'
+            $result = Receive-Job -Job $job -ErrorAction Stop
+            Assert-NotNull $result
+            Assert-False $result.ran
+            Assert-Equal 0 $result.delivered
+        } finally { Remove-Job -Job $job -Force }
     }
 }

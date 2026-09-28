@@ -2,7 +2,7 @@
 
 # Scripts de instalação
 
-Um instalador de bootstrap por hospedeiro. Cada um é idempotente, pede
+Um instalador inicial por hospedeiro. Cada um é idempotente, solicita
 elevação uma única vez com um aviso antecipado e clona o repositório em
 `~/git/yuruna` (ou `%USERPROFILE%\git\yuruna` no Windows).
 
@@ -11,7 +11,7 @@ Por padrão, o clone acompanha o branch `main`, de modo que o hospedeiro
 congelar um hospedeiro em uma versão fixa, veja **Fixar em um release** abaixo.
 
 Habilitar o hospedeiro para testes do Yuruna (ajustes de suspensão de
-vídeo / bloqueio de tela / grupo de armazenamento) intencionalmente NÃO é
+tela / bloqueio de tela / pool de armazenamento) intencionalmente NÃO é
 feito automaticamente. Execute [setup.ps1](../../../install/setup.ps1) após a instalação --
 veja **Configuração guiada** abaixo -- ou, apenas para as configurações do
 hospedeiro, `host/<platform>/Enable-TestAutomation.ps1`.
@@ -41,7 +41,7 @@ pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children 
 | Modo | O que ele configura |
 |------|-----------------|
 | **Hospedeiro autônomo** (Standalone host) | Uma máquina que executa os testes sozinha: configurações do hospedeiro, armazenamento, o caching-proxy-service e o serviço stash. |
-| **Laboratório** (Lab) | Um beacon ao qual outras máquinas se juntam: armazenamento compartilhado, o caching-proxy-service, os serviços stash e pool-control, este hospedeiro inscrito e um grupo `default`. |
+| **Laboratório** (Lab) | Um ponto de descoberta ao qual outras máquinas se conectam: armazenamento compartilhado, o caching-proxy-service, os serviços stash e pool-control, este hospedeiro cadastrado e um pool `default`. |
 
 O armazenamento é uma das perguntas, não uma suposição: **esta máquina**
 (compartilhamentos SMB locais, o padrão no modo autônomo), **um
@@ -52,8 +52,8 @@ modo autônomo e dispensa o armazenamento compartilhado e o serviço stash.
 Ele não instala nada e não clona nada -- ele orquestra os scripts que já
 fazem cada tarefa. O armazenamento é configurado **antes** das VMs de
 serviço nos dois modos, porque o serviço stash sai com código 1 sem ele e o
-caching-proxy-service incorpora o armazenamento na seed do seu convidado no
-momento da compilação.
+caching-proxy-service incorpora a configuração de armazenamento na configuração
+inicial do convidado durante sua criação.
 
 Reexecutar é seguro: cada etapa detecta o que já está feito e a pula, então
 uma execução interrompida no meio é retomada bastando executá-la de novo.
@@ -76,7 +76,7 @@ dizem ali. É a [cascata compartilhada](../../loglevels.md): de `Error` a
 `Debug`, obtida de `logLevel:` em `test/test.config.yml` quando o parâmetro
 é omitido, e repassada a todos os scripts que a execução inicia --
 incluindo os construtores de imagem e de VM de cada convidado -- de modo
-que `-logLevel Debug` é a configuração indicada para um bring-up que falhou
+que `-logLevel Debug` é a configuração indicada para uma preparação que falhou
 em algum ponto dentro de um script filho.
 
 Para saber o que é um laboratório e como os hospedeiros entram em um, veja
@@ -106,7 +106,7 @@ hospedeiro habilitado por uma compilação anterior à captura, só é removido 
 ICMP do Yuruna no Windows, a regra `ufw` da porta de status no Ubuntu, e
 **absolutamente nada no macOS**, que não acrescenta objetos próprios. Todas
 as demais configurações são deixadas intactas e apenas relatadas, porque
-restaurar um padrão adivinhado continua sendo uma mudança que ninguém
+restaurar um padrão presumido continua sendo uma mudança que ninguém
 pediu.
 
 Ele se recusa a executar enquanto um executor de testes for dono do
@@ -122,7 +122,7 @@ instalação acontece uma única vez por hospedeiro novo, e um instalador
 desatualizado em cache é o pior tipo de desatualização (o operador não
 tem como perceber, e reexecutar a partir do README é o caminho de
 recuperação documentado). Para o cache-buster `YurunaCacheContent`,
-válido para todo o sistema e honrado por todos os OUTROS one-liners do
+válido para todo o sistema e respeitado por todos os OUTROS one-liners do
 Yuruna (fetch-and-execute, instalações de carga de trabalho no
 convidado), veja [docs/caching.md](../../caching.md).
 
@@ -149,10 +149,10 @@ A linha do Ubuntu usa substituição de processo (`bash <(curl ...)`) em vez
 do formato `bash -c "$(curl ...)"` do macOS. Ambas chegam ao mesmo script,
 mas a substituição de processo o mantém como um argumento de arquivo real
 para o bash, o que contorna um caso limite de stdin/prompt do sudo em que
-alguns terminais do Ubuntu tropeçam.
+alguns terminais do Ubuntu apresentam falhas.
 
 > Os one-liners acima são o **caminho de conveniência** e são **NÃO
-> VERIFICADOS** por construção (um único pipe executa os bytes antes que
+> VERIFICADOS** por definição (um único pipe executa os bytes antes que
 > qualquer coisa possa checá-los). Eles buscam a referência móvel
 > `refs/heads/main`, e o clone resultante **acompanha `main` e se atualiza
 > automaticamente a cada ciclo** (veja **Fixar em um release** abaixo).
@@ -232,24 +232,34 @@ independente** (veja [install/keys/README.md](../../../install/keys/README.md)):
 SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef4571c5c337
 ```
 
-**Windows Hyper-V** (PowerShell 5.1+; usa .NET, sem ferramentas extras):
+Os dois trechos recusam a execução, a menos que todos os downloads tenham
+sucesso, a assinatura do manifesto seja verificada e o SHA-256 do instalador
+seja igual ao da única linha do manifesto cujo caminho é exatamente o arquivo
+baixado -- um hash que aparece em outra linha, ou em qualquer outro ponto do
+manifesto, não conta.
+
+**Windows Hyper-V** (PowerShell 5.1+; usa .NET, sem ferramentas extras). O
+bloco é uma única instrução, então uma verificação que falha o interrompe mesmo
+quando o console executa as linhas coladas uma de cada vez:
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.24'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.27'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
-$h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(-not(Select-String -Path "$t\install.sha256" -SimpleMatch $h)){throw 'INSTALLER HASH MISMATCH -- do not run'}
-& "$t\windows.hyper-v.ps1"
+$h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); $w=@(Get-Content "$t\install.sha256" | %{ if($_ -cmatch '^([0-9a-f]{64})  install/windows\.hyper-v\.ps1$'){ $Matches[1] } }); if($w.Count -ne 1 -or $h -cnotmatch '^[0-9a-f]{64}$' -or $w[0] -cne $h){throw 'INSTALLER HASH MISMATCH -- do not run'}
+$ErrorActionPreference='Continue'; & "$t\windows.hyper-v.ps1" }
 ```
 
-**macOS UTM / Ubuntu KVM** (usa o `openssl`, presente em ambos):
+**macOS UTM / Ubuntu KVM** (usa o `openssl`, presente em ambos). No Ubuntu,
+defina `S=install/ubuntu.kvm.sh` na primeira linha:
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.24'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
-t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.27'; S=install/macos.utm.sh
+t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")" || { echo "DOWNLOAD FAILED: $f -- do not run"; exit 1; }; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
-grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
+got=$(openssl dgst -sha256 -r "$t/$(basename "$S")" | cut -d' ' -f1); want=$(awk -v p="$S" 'NF == 2 && $2 == p { print $1; n++ } END { if (n != 1) exit 1 }' "$t/install.sha256") || want=''
+printf '%s\n' "$got" | grep -Eqx '[0-9a-f]{64}' && [ "$got" = "$want" ] || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
 bash "$t/$(basename "$S")"
 ```
 
@@ -259,6 +269,60 @@ A assinatura destacada é produzida no momento do release pelo
 Cada link na tabela acima leva ao README específico do hospedeiro, com as etapas
 pós-instalação (participação em grupos, configurações de protetor de tela,
 concessões TCC, etc.).
+
+<a id="420f54a5-0008"></a>
+
+## Refresh de um hospedeiro macOS instalado
+
+`macos.utm.sh --refresh` não instala nada. Ele repassa a execução ao script de
+entrada de refresh do checkout que já está na máquina,
+`test/lab/Invoke-HostRefresh.ps1`, que sonda o hipervisor e repara o que
+conseguir dentro de um limite de tempo. Verificar a assinatura do instalador
+autentica apenas este despachante, não o checkout e os módulos que ele executa
+em seguida; portanto, esta não é uma forma de reparar um checkout em que você
+não confia -- para isso, reinstale.
+
+Os dois sinais são obrigatórios: o argumento `--refresh` e `YURUNA_REFRESH=1`.
+Qualquer um deles sozinho é recusado e nada é alterado, de modo que uma
+variável esquecida no ambiente não transforma uma instalação comum em um
+refresh, nem um refresh em uma instalação.
+
+Forma de conveniência (não verificada), fixada em uma tag de release. O `_`
+ocupa a posição de `$0` que o `bash -c` dá ao texto do script, para que
+`--refresh` chegue como argumento:
+
+```
+YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.27/install/macos.utm.sh')" _ --refresh
+```
+
+Forma verificada: execute o bloco **macOS UTM / Ubuntu KVM** de **Instalação
+verificada** acima com `S=install/macos.utm.sh`, substituindo a última linha
+por:
+
+```
+YURUNA_REFRESH=1 bash "$t/$(basename "$S")" --refresh
+```
+
+> Use a tag mostrada aqui ou uma mais recente. Um instalador de um release
+> anterior ao primeiro com suporte a refresh não conhece `--refresh`: ele
+> ignora o argumento e executa uma **instalação completa**, incluindo a
+> redefinição que remove as VMs de teste.
+
+O código de saída é o do script de entrada: `0` quando o hospedeiro estava
+saudável ou foi reparado, `1` quando o refresh foi recusado ou falhou antes de
+alterar qualquer coisa (incluindo as recusas do próprio despachante) e `2`
+quando o hospedeiro ainda precisa de atenção. Qualquer outro código é uma falha
+que o próprio script de entrada não relatou. Um despachante que não consegue
+iniciar o `pwsh`, por exemplo, termina com o código do próprio shell, como
+`126` ou `127`, antes de qualquer alteração. Para ver o que um refresh faria
+sem alterar nada, execute o script de entrada a partir da raiz do checkout:
+
+```
+pwsh -NoProfile -File test/lab/Invoke-HostRefresh.ps1 -WhatIf
+```
+
+O despachante existe apenas no macOS; nos outros hospedeiros, execute o script
+de entrada diretamente.
 
 <a id="420f54a5-0007"></a>
 
@@ -283,6 +347,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.24
+Última revisão: 2026.09.27
 
 Voltar para [Yuruna](../../../README.md)

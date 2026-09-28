@@ -7,6 +7,20 @@ package catalog
 // DataptBRautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRautomation = `{
+  "automation.host_setup_module_install_skipped": [
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não está instalado, e esta execução não pode instalar módulos. Instale-o com: Install-Module ",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " -Scope CurrentUser"
+  ],
   "automation.memory_plan": {
     "kind": "plural",
     "selector": "count",
@@ -5165,6 +5179,27 @@ const DataptBRautomation = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "automation.setup_service_vm_reason_intended_stopped": "foi parado de propósito; recriando porque o setup recebeu o pedido de iniciá-lo",
+  "automation.setup_service_vm_reason_lock_unavailable": "não foi possível obter o bloqueio de operação",
+  "automation.setup_service_vm_reason_operation_busy": "outra inicialização ou parada deste serviço ainda está em execução",
+  "automation.setup_service_vm_reason_state_unknown": [
+    "não foi possível confirmar o estado da VM (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "automation.system_diagnostic_utmctl_list_incomplete": [
+    "  utmctl list não retornou uma resposta completa em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos; a listagem acima pode estar incompleta (o UTM pode não estar respondendo a Apple Events)."
   ]
 }
 `

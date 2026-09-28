@@ -1,12 +1,13 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package pool is the read client for the pool-aggregator service. See
+// Package pool is the client for the pool-aggregator service. See
 // ../../../../docs/extensions-api.md#2-the-go-sdk----talking-to-the-pool-and-gating-writes
 // for the TLS, sanitization and fallback decisions every call carries. -- pool.go
 package pool
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -61,6 +63,177 @@ const (
 	ControlUnknown  = "unknown"
 )
 
+// Host refresh capability, as the aggregator carries it ON THE WIRE. Every
+// value is lowercase with underscores because it crosses the listener,
+// aggregator, pool-control and UI boundaries, where one spelling per code is
+// what lets each surface branch on it.
+//
+// Refresh is a separate typed field rather than another Control state on
+// purpose: Control keeps its last-known verdict across a missed probe, and a
+// disruptive capability must not. A refresh observation that is stale,
+// unreadable or absent reads as unavailable.
+const (
+	// RefreshProtocolVersion is the only capability protocol this SDK can act
+	// on; a host advertising another reads as unavailable.
+	RefreshProtocolVersion = 1
+
+	RefreshAvailable   = "available"
+	RefreshUnavailable = "unavailable"
+
+	// Whether the host holds a verifier key for remote requests.
+	RefreshRemoteProvisioned = "provisioned"
+	RefreshRemoteMissing     = "missing"
+	RefreshRemoteInvalid     = "invalid"
+	RefreshRemoteUnqualified = "unqualified"
+	RefreshRemoteUnknown     = "unknown"
+
+	RefreshStateIdle            = "idle"
+	RefreshStateActive          = "active"
+	RefreshStateRecoveryPending = "recovery_pending"
+	RefreshStateUnknown         = "unknown"
+
+	// Why the aggregator reports a host's refresh as unavailable when the host
+	// itself did not say so.
+	RefreshReasonNotAdvertised           = "not_advertised"
+	RefreshReasonProtocolUnsupported     = "protocol_unsupported"
+	RefreshReasonCapabilityMalformed     = "capability_malformed"
+	RefreshReasonControlStatusUnreadable = "control_status_unreadable"
+	RefreshReasonHostUnreachable         = "host_unreachable"
+	RefreshReasonObservationExpired      = "observation_expired"
+	RefreshReasonNeverObserved           = "never_observed"
+)
+
+// Repair rung names. They are parameter vocabulary shared with the host's rung
+// declaration, not codes, so they keep their hyphenated spelling everywhere.
+const (
+	RungProbe           = "probe"
+	RungReclaim         = "reclaim"
+	RungStartIfStopped  = "start-if-stopped"
+	RungRestartIfHung   = "restart-if-hung"
+	RungRestartBroker   = "restart-broker"
+	RungReapplySettings = "reapply-settings"
+	RungReinstall       = "reinstall"
+	RungReboot          = "reboot"
+)
+
+// refreshRungNames is the whole ladder in Order: the index of a name is its
+// Order. The host's rung declaration is the authority for this list, and a
+// suite on the host side reads this literal and compares it with that
+// declaration, so the two cannot drift silently.
+var refreshRungNames = [...]string{"probe", "reclaim", "start-if-stopped", "restart-if-hung", "restart-broker", "reapply-settings", "reinstall", "reboot"}
+
+// RefreshRungNames returns the eight rung names in Order. A copy, so no
+// importer can reorder the ladder another importer compares against.
+func RefreshRungNames() []string {
+	out := make([]string, len(refreshRungNames))
+	copy(out, refreshRungNames[:])
+	return out
+}
+
+// RefreshRungOrder is a rung's Order, and whether the name is a rung at all.
+// Callers compare Order, never the name.
+func RefreshRungOrder(name string) (int, bool) {
+	for i, n := range refreshRungNames {
+		if n == name {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// refreshReasonRE bounds a host-supplied reason code: a label-safe token short
+// enough that no host can grow a metric or a table cell with it.
+var refreshReasonRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
+
+// HostRefresh is one host's refresh capability as the aggregator last judged
+// it. It carries no key, tag, proof or request id: the capability says whether
+// a remote request could be accepted, never how to make one.
+type HostRefresh struct {
+	Protocol     int    `json:"protocol,omitempty"`
+	Availability string `json:"availability"`
+	// Ceiling is the highest rung the host can execute in the restart tier,
+	// empty when nothing is available.
+	Ceiling string `json:"ceiling,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Remote  string `json:"remote,omitempty"`
+	State   string `json:"state,omitempty"`
+	// ObservedUnixMs is when the aggregator last read this capability from the
+	// host itself; AgeSeconds is how old that reading was when served.
+	ObservedUnixMs int64 `json:"observedUnixMs,omitempty"`
+	AgeSeconds     int64 `json:"ageSeconds,omitempty"`
+}
+
+// UnobservedRefresh is the capability of a host nobody has read one from:
+// unavailable, with every enumerated field at its unknown value.
+func UnobservedRefresh() HostRefresh {
+	return HostRefresh{
+		Availability: RefreshUnavailable,
+		Reason:       RefreshReasonNeverObserved,
+		Remote:       RefreshRemoteUnknown,
+		State:        RefreshStateUnknown,
+	}
+}
+
+// RemoteUsable reports whether a remote refresh request may be sent to the
+// host at all: a compatible protocol, an available capability, and a verifier
+// key on the host. An aggregator that predates the field decodes to the zero
+// value, which is never usable.
+func (r HostRefresh) RemoteUsable() bool {
+	return r.Protocol == RefreshProtocolVersion && r.Availability == RefreshAvailable && r.Remote == RefreshRemoteProvisioned
+}
+
+// Normalized clamps every field to its bounded vocabulary. The value arrives
+// over unauthenticated reads, so an unknown availability, an out-of-shape
+// reason or an available capability with no rung to climb reads as
+// unavailable rather than being passed through to a UI or a decision. An
+// absent capability (an aggregator that predates it) reads as never observed.
+func (r HostRefresh) Normalized() HostRefresh {
+	if r.Availability == "" {
+		return UnobservedRefresh()
+	}
+	out := r
+	if out.ObservedUnixMs < 0 {
+		out.ObservedUnixMs = 0
+	}
+	if out.AgeSeconds < 0 {
+		out.AgeSeconds = 0
+	}
+	if _, ok := RefreshRungOrder(out.Ceiling); !ok {
+		out.Ceiling = ""
+	}
+	switch out.Remote {
+	case RefreshRemoteProvisioned, RefreshRemoteMissing, RefreshRemoteInvalid, RefreshRemoteUnqualified, RefreshRemoteUnknown:
+	default:
+		out.Remote = RefreshRemoteUnknown
+	}
+	switch out.State {
+	case RefreshStateIdle, RefreshStateActive, RefreshStateRecoveryPending, RefreshStateUnknown:
+	default:
+		out.State = RefreshStateUnknown
+	}
+	demote := func(reason string) HostRefresh {
+		out.Availability, out.Reason = RefreshUnavailable, reason
+		return out
+	}
+	if out.Protocol != RefreshProtocolVersion {
+		return demote(RefreshReasonProtocolUnsupported)
+	}
+	if out.Reason != "" && !refreshReasonRE.MatchString(out.Reason) {
+		return demote(RefreshReasonCapabilityMalformed)
+	}
+	switch out.Availability {
+	case RefreshAvailable:
+		if out.Ceiling == "" {
+			return demote(RefreshReasonCapabilityMalformed)
+		}
+		out.Reason = ""
+	case RefreshUnavailable:
+	default:
+		return demote(RefreshReasonCapabilityMalformed)
+	}
+	return out
+}
+
 // hostTypePrefix is how the aggregator serializes a host type in pool-status.
 const hostTypePrefix = "host."
 
@@ -68,7 +241,7 @@ var (
 	// ErrNotConfigured means no aggregator URL was supplied. A host with no
 	// caching-proxy service has no aggregator to ask and no pool: that is a
 	// normal state, not a fault, and it is reported rather than guessed around.
-	ErrNotConfigured = errors.New("no pool-aggregator URL configured")
+	ErrNotConfigured = errors.New("pool aggregator address unset")
 
 	// ErrAreaNotServed is the aggregator's documented 404 for an area no live
 	// host serves -- the answer that lets a caller tell "not there" from "here
@@ -177,14 +350,18 @@ type Host struct {
 	PoolGUID       string `json:"poolGuid"`
 	// Control is the remote-control verdict: one of the Control* constants.
 	Control string `json:"control"`
+	// Refresh is the host's refresh capability. Status normalizes it, so an
+	// aggregator that predates the field yields UnobservedRefresh.
+	Refresh HostRefresh `json:"refresh"`
 	// ActiveExtensions are the areas this host is ACTIVELY running, and
 	// ExtensionTargets the deep-link it advertises for each.
 	ActiveExtensions []string          `json:"activeExtensions"`
 	ExtensionTargets map[string]string `json:"extensionTargets"`
 	// StashBaseURL is the stash-service address the pool resolves for this host,
 	// through the same source merge the dashboard and /go/stash use.
-	StashBaseURL string      `json:"stashBaseUrl"`
-	Status       *HostStatus `json:"status"`
+	StashBaseURL    string      `json:"stashBaseUrl"`
+	PreviousHostIDs []string    `json:"previousHostIds,omitempty"`
+	Status          *HostStatus `json:"status"`
 }
 
 // HostType is the host type with the "host." prefix stripped
@@ -250,6 +427,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	// scripts as fetch targets, and a value that is not an absolute http(s) URL
 	// is not one either consumer can use.
 	for i := range s.Hosts {
+		s.Hosts[i].Refresh = s.Hosts[i].Refresh.Normalized()
 		s.Hosts[i].BaseURL = SanitizeBaseURL(s.Hosts[i].BaseURL)
 		s.Hosts[i].StashBaseURL = SanitizeBaseURL(s.Hosts[i].StashBaseURL)
 		for area, target := range s.Hosts[i].ExtensionTargets {
@@ -262,6 +440,77 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	}
 	c.cacheStatus(s)
 	return s, nil
+}
+
+// HandoverHost retires an old identity after re-keying. Mutation requests use
+// only the configured URL: a TLS failure must never downgrade a bearer token.
+func (c *Client) HandoverHost(ctx context.Context, oldID, newID, token string) error {
+	if !c.Configured() {
+		return ErrNotConfigured
+	}
+	if token == "" {
+		return errors.New("internal authentication token missing")
+	}
+	body, err := json.Marshal(struct {
+		OldHostID string `json:"oldHostId"`
+		NewHostID string `json:"newHostId"`
+	}{oldID, newID})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/handover-host", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.authenticatedDo(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("host handover: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(message)))
+	}
+	c.mu.Lock()
+	c.cached = nil
+	c.mu.Unlock()
+	return nil
+}
+
+// GetAuthenticated reads a bearer-gated aggregator route without ever
+// downgrading an HTTPS URL after a transport error.
+func (c *Client) GetAuthenticated(ctx context.Context, path, token string, out any) error {
+	if !c.Configured() {
+		return ErrNotConfigured
+	}
+	if token == "" {
+		return errors.New("internal authentication token missing")
+	}
+	if !strings.HasPrefix(path, "/") {
+		return errors.New("aggregator path must be absolute")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.authenticatedDo(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("aggregator history: HTTP %d", resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out)
+}
+
+func (c *Client) authenticatedDo(req *http.Request) (*http.Response, error) {
+	client := *c.client
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	return client.Do(req)
 }
 
 // ExtensionTarget is the address hostID advertises for area, or "" when the

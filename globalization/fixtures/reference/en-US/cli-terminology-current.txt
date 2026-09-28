@@ -1,0 +1,5 @@
+exit: 0
+Test-Terminology [he-IL]: 15 term(s), 4 protected ruling(s), 12 style rule(s).
+Test-Terminology [pt-BR]: 15 term(s), 4 protected ruling(s), 11 style rule(s).
+Test-Terminology [zh-CN]: 15 term(s), 4 protected ruling(s), 12 style rule(s).
+Test-Terminology: he-IL, pt-BR, zh-CN; 45 term(s), 12 protected ruling(s), 35 style rule(s).

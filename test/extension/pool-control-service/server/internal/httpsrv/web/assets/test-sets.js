@@ -74,8 +74,9 @@
       if (!window.confirm(window.YurunaI18n.t("pool.delete_test_set_value1_this_cannot_be_undone", {value1: (t.name)}))) { return; }
       delBtn.disabled = true;
       Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }).then(function () {
-        Y.notice('ok', window.YurunaI18n.t("pool.deleted_value1", {value1: (t.name)}));
-        load();
+        return load().then(function () {
+          Y.notice('ok', window.YurunaI18n.t("pool.deleted_value1", {value1: (t.name)}));
+        });
       }, function (e) {
         Y.notice('error', window.YurunaI18n.t("pool.delete_failed_value1", {value1: (e.message)}));
         delBtn.disabled = false;
@@ -102,8 +103,9 @@
     var proj = document.getElementById('ts-project').value.trim();
     if (!name || !fw || !proj) { Y.notice('error', window.YurunaI18n.t("pool.name_frameworkurl_and_projecturl_are_all_required")); return; }
     Y.mutate('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } }).then(function () {
-      Y.notice('ok', window.YurunaI18n.t("pool.saved_test_set_value1", {value1: (name)}));
-      load();
+      return load().then(function () {
+        Y.notice('ok', window.YurunaI18n.t("pool.saved_test_set_value1", {value1: (name)}));
+      });
     }, function (e) {
       Y.notice('error', window.YurunaI18n.t("pool.save_failed_value1", {value1: (e.message)}));
     });

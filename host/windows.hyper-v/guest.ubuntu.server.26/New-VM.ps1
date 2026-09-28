@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -478,12 +478,12 @@ if ($Cores) {
     }
     $vmCores = $coresInt
 }
-# No-op on AMD64. On ARM64 a Linux guest's virtual processors trap into the
-# hypervisor at a rate that grows with their number, and the trapped time comes
-# out of guest execution rather than adding to it -- so the count divides the
-# speed of every serial path without raising delivered compute. A boot is such
-# a path, which is why it is what shows the cost.
-$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
+# No-op on AMD64. On ARM64 provision with one vCPU: a Linux guest's virtual
+# processors trap into the hypervisor at a rate that grows with their number,
+# and the trapped time comes out of guest execution rather than adding to it.
+# start.guest.ubuntu.server.26 powers the installed guest off and restores the
+# two-vCPU Kubernetes minimum immediately after this serial provisioning path.
+$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores -MaximumCores 1
 # Virtualization extensions only on request (validated in the environment
 # checks above): the flag is unsupported on ARM64 hosts and unnecessary for
 # guests that run no hypervisor of their own.

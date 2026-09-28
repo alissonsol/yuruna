@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,6 +270,12 @@ function Get-ExtensionServiceMarkerPath {
     Additional service-specific fields, appended in the order given. For the
     facts only one service has -- a host-side launcher's pid and port -- rather
     than a union of every service's fields in the common shape.
+.PARAMETER HostingMode
+    'vm' or 'host-process': where the service runs. Written after baseUrl only
+    when given, so a marker from a caller that does not pass it stays
+    byte-identical. Recovery reads it to tell a guest it may restore from a
+    host process it must leave alone; a marker without it is inferred from
+    its pid field (Get-ExtensionServiceDeploymentIdentity).
 .OUTPUTS
     [string] the path written, or '' when there was no runtime dir.
 #>
@@ -284,14 +290,15 @@ function Write-ExtensionServiceMarker {
         [AllowEmptyString()][string]$HostType = '',
         [AllowEmptyString()][string]$BaseUrl = '',
         [AllowEmptyString()][string]$StartedAtUtc = '',
-        [System.Collections.IDictionary]$Extra
+        [System.Collections.IDictionary]$Extra,
+        [ValidateSet('', 'vm', 'host-process')][string]$HostingMode = ''
     )
     $path = Get-ExtensionServiceMarkerPath -Area $Area -RuntimeDir $RuntimeDir
     if (-not $path) { return '' }
     $manifest = Get-ExtensionServiceManifest -Area $Area
     if ([string]::IsNullOrWhiteSpace($VMName) -and $manifest) { $VMName = [string]$manifest.VMName }
     if ([string]::IsNullOrWhiteSpace($StartedAtUtc)) {
-        $StartedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $StartedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
     $marker = [ordered]@{
         active       = $Active
@@ -301,6 +308,7 @@ function Write-ExtensionServiceMarker {
         startedAtUtc = $StartedAtUtc
         baseUrl      = $BaseUrl
     }
+    if ($HostingMode) { $marker['hostingMode'] = $HostingMode }
     if ($manifest -and -not [string]::IsNullOrWhiteSpace($manifest.MarkerBaseUrlKey)) {
         $marker[$manifest.MarkerBaseUrlKey] = $BaseUrl
     }
@@ -377,6 +385,177 @@ function Get-ExtensionServiceMarkerBaseUrl {
         if (-not [string]::IsNullOrWhiteSpace($value)) { return $value.Trim() }
     }
     return ''
+}
+
+<#
+.SYNOPSIS
+    Where a service is deployed on this host, read from its runtime marker
+    alone.
+.DESCRIPTION
+    Manifest names are defaults, not an inventory: a service started with a
+    custom VM name records that name here, and pool-control can run as a
+    host process whose marker still carries the manifest's VM name because
+    the marker writer supplies it. Recovery needs both facts before it
+    decides that a marker stands for a guest it may restore.
+
+    HostingMode comes from the marker's own hostingMode when present
+    ('marker'); a marker written before that key existed is host-process when
+    it records a pid ('inferred-pid') and vm otherwise ('inferred-default').
+    An unrecognized hostingMode value is 'unknown'. No marker at all is
+    'unknown' with source 'none'.
+
+    File-only and never throws, like Read-ExtensionServiceMarker.
+.PARAMETER Area
+    Extension area name.
+.PARAMETER RuntimeDir
+    Runtime directory holding the marker. Defaults to $env:YURUNA_RUNTIME_DIR.
+.OUTPUTS
+    [pscustomobject] Area; MarkerPresent; Active ($null when unrecorded);
+    VMName; HostType; BaseUrl; HostingMode vm|host-process|unknown;
+    HostingModeSource marker|inferred-pid|inferred-default|none; Pid; Port;
+    ProcessStartUnixMs; StartedAtUtc.
+#>
+function Get-ExtensionServiceDeploymentIdentity {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [AllowEmptyString()][string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    $identity = [ordered]@{
+        PSTypeName = 'Yuruna.ExtensionServiceDeploymentIdentity'
+        Area = $Area; MarkerPresent = $false; Active = $null; VMName = ''; HostType = ''; BaseUrl = ''
+        HostingMode = 'unknown'; HostingModeSource = 'none'; Pid = $null; Port = $null
+        ProcessStartUnixMs = $null; StartedAtUtc = ''
+    }
+    $marker = $null
+    try { $marker = Read-ExtensionServiceMarker -Area $Area -RuntimeDir $RuntimeDir } catch { $marker = $null }
+    if (-not $marker) { return [pscustomobject]$identity }
+    $identity.MarkerPresent = $true
+    $readProperty = {
+        param([string]$Name)
+        $property = $marker.PSObject.Properties[$Name]
+        if ($property) { $property.Value } else { $null }
+    }
+    $active = & $readProperty 'active'
+    if ($active -is [bool]) { $identity.Active = $active }
+    $identity.VMName = [string](& $readProperty 'vmName')
+    $identity.HostType = [string](& $readProperty 'hostType')
+    $identity.StartedAtUtc = [string](& $readProperty 'startedAtUtc')
+    try { $identity.BaseUrl = Get-ExtensionServiceMarkerBaseUrl -Marker $marker -Area $Area } catch { $identity.BaseUrl = '' }
+    $toInteger = {
+        param($Value)
+        $parsed = [long]0
+        if ($null -ne $Value -and [long]::TryParse([string]$Value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+        return $null
+    }
+    $processId = & $toInteger (& $readProperty 'pid')
+    if ($null -ne $processId -and $processId -le [int]::MaxValue) { $identity.Pid = [int]$processId }
+    $port = & $toInteger (& $readProperty 'port')
+    if ($null -ne $port -and $port -le 65535) { $identity.Port = [int]$port }
+    $identity.ProcessStartUnixMs = & $toInteger (& $readProperty 'processStartUnixMs')
+    $declared = & $readProperty 'hostingMode'
+    if ($null -ne $declared) {
+        $identity.HostingModeSource = 'marker'
+        $identity.HostingMode = if ([string]$declared -in @('vm', 'host-process')) { [string]$declared } else { 'unknown' }
+    } elseif ($null -ne $identity.Pid) {
+        $identity.HostingMode = 'host-process'
+        $identity.HostingModeSource = 'inferred-pid'
+    } else {
+        $identity.HostingMode = 'vm'
+        $identity.HostingModeSource = 'inferred-default'
+    }
+    return [pscustomobject]$identity
+}
+
+<#
+.SYNOPSIS
+    Whether the process a marker names is still the service it launched.
+.DESCRIPTION
+    A pid in a marker outlives its process, and the operating system hands
+    the number to something else; stopping "the pid in the marker" without
+    checking would kill an unrelated process. The process must still be
+    running, carry the service's executable name, and -- when the marker
+    recorded one -- have started within two seconds of the recorded start
+    time. Linux truncates the kernel's command name to fifteen characters,
+    so a truncated prefix of the expected name also matches.
+.PARAMETER ProcessId
+    The pid the marker records.
+.PARAMETER ProcessStartUnixMs
+    The start time the marker records, when it has one.
+.PARAMETER ExpectedName
+    The service executable's name without extension.
+.PARAMETER ProcessLookup
+    Test seam: a scriptblock taking the pid and returning $null (no such
+    process) or an object with Name, Path and StartUnixMs.
+.OUTPUTS
+    [pscustomobject] ProcessId; Alive; Name; NameMatches; StartUnixMs;
+    StartTimeMatches ($null when no start time was recorded);
+    IdentityVerified; Reason ok|not-running|name-mismatch|
+    start-time-mismatch|start-time-unreadable|lookup-failed.
+#>
+function Get-ExtensionServiceHostProcessState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$ProcessId,
+        [long]$ProcessStartUnixMs = 0,
+        [ValidateNotNullOrEmpty()][string]$ExpectedName = 'pool-control-service',
+        [scriptblock]$ProcessLookup
+    )
+    $state = [ordered]@{
+        PSTypeName = 'Yuruna.ExtensionServiceHostProcessState'
+        ProcessId = $ProcessId; Alive = $false; Name = ''; NameMatches = $false; StartUnixMs = $null
+        StartTimeMatches = $null; IdentityVerified = $false; Reason = 'lookup-failed'
+    }
+    $found = $null
+    try {
+        if ($ProcessLookup) {
+            $found = & $ProcessLookup $ProcessId
+        } else {
+            $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+            if ($process) {
+                $startUnixMs = $null
+                try { $startUnixMs = [DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds() } catch { $startUnixMs = $null }
+                $processPath = ''
+                try { $processPath = [string]$process.Path } catch { $processPath = '' }
+                $found = [pscustomobject]@{ Name = [string]$process.ProcessName; Path = $processPath; StartUnixMs = $startUnixMs }
+            }
+        }
+    } catch {
+        Write-Verbose "Get-ExtensionServiceHostProcessState($ProcessId): $($_.Exception.Message)"
+        return [pscustomobject]$state
+    }
+    if ($null -eq $found) {
+        $state.Reason = 'not-running'
+        return [pscustomobject]$state
+    }
+    $state.Alive = $true
+    $state.Name = [string]$found.Name
+    $pathLeaf = if ($found.Path) { [System.IO.Path]::GetFileNameWithoutExtension([string]$found.Path) } else { '' }
+    $name = [string]$found.Name
+    $state.NameMatches = ($name -ceq $ExpectedName) -or ($pathLeaf -ceq $ExpectedName) -or
+        ($name.Length -eq 15 -and $ExpectedName.StartsWith($name, [StringComparison]::Ordinal))
+    if ($null -ne $found.StartUnixMs) { $state.StartUnixMs = [long]$found.StartUnixMs }
+    if (-not $state.NameMatches) {
+        $state.Reason = 'name-mismatch'
+        return [pscustomobject]$state
+    }
+    if ($ProcessStartUnixMs -gt 0) {
+        if ($null -eq $state.StartUnixMs) {
+            $state.StartTimeMatches = $false
+            $state.Reason = 'start-time-unreadable'
+            return [pscustomobject]$state
+        }
+        $state.StartTimeMatches = ([Math]::Abs([long]$state.StartUnixMs - $ProcessStartUnixMs) -le 2000)
+        if (-not $state.StartTimeMatches) {
+            $state.Reason = 'start-time-mismatch'
+            return [pscustomobject]$state
+        }
+    }
+    $state.IdentityVerified = $true
+    $state.Reason = 'ok'
+    return [pscustomobject]$state
 }
 
 <#
@@ -485,4 +664,5 @@ function Get-ExtensionServiceReadyTimeoutSeconds {
 Export-ModuleMember -Function Get-ExtensionServiceManifest, Get-ExtensionServiceManifestAll, `
     Get-ExtensionServiceVmRoster, Get-ExtensionServiceMarkerPath, Write-ExtensionServiceMarker, `
     Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, `
-    Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds
+    Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds, `
+    Get-ExtensionServiceDeploymentIdentity, Get-ExtensionServiceHostProcessState

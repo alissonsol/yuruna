@@ -102,3 +102,37 @@ func TestRebuildFromSidecarsMissingRoot(t *testing.T) {
 		t.Fatalf("restored %d, want 0", n)
 	}
 }
+
+func TestRebuildSkipsUnreadableSubtreeButRejectsUnreadableRoot(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "a-unreadable")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(blocked, 0700)
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("host identity bypasses directory permissions")
+	}
+	sidecar := filepath.Join(root, "z-readable"+config.SidecarExtension)
+	if err := os.WriteFile(sidecar, []byte(`{"id":"restored","username":"u","status":"complete"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Open(filepath.Join(t.TempDir(), "stash.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	count, err := m.RebuildFromSidecars(root)
+	if err != nil || count != 1 {
+		t.Fatalf("rebuilt %d: %v", count, err)
+	}
+	if _, err := m.Get("restored"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RebuildFromSidecars(blocked); err == nil {
+		t.Fatal("unreadable root must fail visibly")
+	}
+}

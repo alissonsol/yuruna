@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,14 +165,8 @@ function Read-TestConfig {
         $script:TestConfigCacheOrder.RemoveAt(0)
         [void]$script:TestConfigCache.Remove($evict)
     }
-    # Auto-publish the snapshot on every successful parse. The publish
-    # is a best-effort atomic write; failure is silently logged at
-    # Verbose level. Subsequent same-process reads hit the in-process
-    # cache above; cross-process consumers (inner -- spawned after
-    # outer publishes) call Read-TestConfigOrSnapshot which compares
-    # the snapshot envelope's (mtime, hash) against the live yml and
-    # only uses it when both still match.
-    Publish-TestConfigSnapshot -Config $parsed -SourcePath $resolved -SourceMtime $mtime -SourceHash $hash -Confirm:$false | Out-Null
+    # A parsed config can contain repository tokens and other credentials.
+    # Keep this read in memory; it must not create another credential file.
     return $parsed
 }
 

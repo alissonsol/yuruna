@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode"
 
 	"yuruna.com/test/extension/caching-proxy-service/internal/catalog"
 	"yuruna.com/test/extension/extension-sdk/i18n"
@@ -45,7 +46,7 @@ func TestGeneratedPageLocaleHeadersAndConditionalCache(t *testing.T) {
 		if !strings.Contains(w.Body.String(), `lang="`+locale+`"`) || !strings.Contains(w.Body.String(), "YurunaI18n.init(document)") {
 			t.Fatal("generated page missing locale or runtime")
 		}
-		if locale == "qps-Plocm" && !strings.Contains(w.Body.String(), `dir="rtl"`) {
+		if i18n.DefaultManifest().Data[locale].Direction == "rtl" && !strings.Contains(w.Body.String(), `dir="rtl"`) {
 			t.Fatal("generated page missing direction")
 		}
 		etag := w.Header().Get("ETag")
@@ -59,5 +60,43 @@ func TestGeneratedPageLocaleHeadersAndConditionalCache(t *testing.T) {
 		if strings.Contains(w.Body.String(), `<script src=`) {
 			t.Fatal("self-contained generated page added external script request")
 		}
+	}
+}
+
+func TestLandingNegotiatesChineseAndHebrewDrafts(t *testing.T) {
+	prior := localizedPages()
+	defer func() { localizedPageStore = prior }()
+	pages, err := i18n.NewPages(catalog.Catalogs, catalog.BrowserCatalogs, catalog.BrowserKernel, "auto", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localizedPageStore = pages
+	d := &daemon{}
+	for _, tc := range []struct {
+		header, locale, direction string
+		script                    *unicode.RangeTable
+	}{
+		{"zh-CN", "zh-CN", "ltr", unicode.Han},
+		{"zh-Hans,pt-BR;q=0.8,en;q=0.5", "zh-CN", "ltr", unicode.Han},
+		{"he-IL", "he-IL", "rtl", unicode.Hebrew},
+		{"he,pt-BR;q=0.8,en;q=0.5", "he-IL", "rtl", unicode.Hebrew},
+		{"iw-IL", "he-IL", "rtl", unicode.Hebrew},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/landing", nil)
+			r.Header.Set("Accept-Language", tc.header)
+			w := httptest.NewRecorder()
+			d.handleLanding(w, r)
+			if w.Code != http.StatusOK || w.Header().Get("Content-Language") != tc.locale || !strings.Contains(w.Header().Get("Vary"), "Accept-Language") {
+				t.Fatalf("status=%d headers=%v", w.Code, w.Header())
+			}
+			body := w.Body.String()
+			if !strings.Contains(body, `lang="`+tc.locale+`"`) || !strings.Contains(body, `dir="`+tc.direction+`"`) {
+				t.Fatal("landing page lost its negotiated language or direction")
+			}
+			if strings.Contains(body, "Everything this lab serves, and whether it is reachable right now.") || !strings.ContainsFunc(body, func(r rune) bool { return unicode.Is(tc.script, r) }) {
+				t.Fatal("landing page did not render the requested translation")
+			}
+		})
 	}
 }

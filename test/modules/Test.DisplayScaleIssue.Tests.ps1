@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d9fd1b-9965-414d-a198-47696cfff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -238,6 +238,45 @@ Describe 'the Windows reader and the applier' {
             Assert-NotNull $fn "$name has to exist for the two to be comparable"
             Assert-Match 'RecommendedDpiValue' $fn.Extent.Text `
                 "$name has to decide 100% from the monitor's recommended offset"
+        }
+    }
+}
+
+Describe 'display-scale registry application' {
+    BeforeEach {
+        Mock -ModuleName Test.HostCondition.Windows Test-Path { $true }
+        Mock -ModuleName Test.HostCondition.Windows Get-ChildItem {
+            [pscustomobject]@{ PSIsContainer = $true; PSPath = 'HKCU:\fixture-monitor'; PSChildName = 'fixture-monitor' }
+        }
+        Mock -ModuleName Test.HostCondition.Windows Get-ItemProperty {
+            if ($LiteralPath -eq 'HKCU:\fixture-monitor') {
+                return [pscustomobject]@{ DpiValue = $script:RawDpiValue; RecommendedDpiValue = 2 }
+            }
+            return [pscustomobject]@{ LogPixels = 96; Win8DpiScaling = 0; TextScaleFactor = 100 }
+        }
+        Mock -ModuleName Test.HostCondition.Windows Set-ItemProperty { throw 'A monitor already at 100 percent must not be rewritten.' }
+    }
+
+    It 'preserves 100 percent for signed and unsigned registry offsets' {
+        foreach ($raw in @(-2, 4294967294)) {
+            $script:RawDpiValue = $raw
+            $changed = Set-YurunaDisplayScale100 -Confirm:$false -ErrorAction Stop
+            Assert-False $changed "DpiValue $raw must retain its signed meaning without a registry rewrite"
+        }
+        Should -Invoke -ModuleName Test.HostCondition.Windows Set-ItemProperty -Times 0 -Exactly
+    }
+
+    It 'lets the installer preflight read either registry representation' {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $fn = Get-YurunaTestFunctionAst -Path (Join-Path $repoRoot 'install/windows.hyper-v.ps1') -Name Test-DisplayScaling
+        $conversion = $fn.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$asSignedDword'
+        }, $true)
+        Assert-NotNull $conversion
+        . ([scriptblock]::Create($conversion.Extent.Text))
+        foreach ($raw in @(-2, 4294967294)) {
+            Assert-Equal -2 (& $asSignedDword $raw) 'the installer must agree with the scale applier'
         }
     }
 }

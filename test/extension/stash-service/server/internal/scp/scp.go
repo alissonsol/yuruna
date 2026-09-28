@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	"stash-service/internal/config"
+	"stash-service/internal/fsutil"
 )
 
 // Result is what the SCP receive returned to the caller (sshsrv).
@@ -217,20 +218,20 @@ func parseCLine(line string) (mode string, size int64, name string, err error) {
 // actual byte count and whether the 100 MB cap clipped the write.
 // When clipped, the function still drains the remaining payload bytes
 // from br so the wire stays in sync for the trailing \x00.
-func streamFile(br *bufio.Reader, target string, size int64) (int64, bool, error) {
+func streamFile(br *bufio.Reader, target string, size int64) (written int64, truncated bool, err error) {
 	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, false, err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, fsutil.SyncClose(f)) }()
 	cap := int64(config.PerFileSizeLimit)
 	toWrite := size
-	truncated := false
+	truncated = false
 	if toWrite > cap {
 		toWrite = cap
 		truncated = true
 	}
-	written, err := io.CopyN(f, br, toWrite)
+	written, err = io.CopyN(f, br, toWrite)
 	if err != nil {
 		return written, truncated, err
 	}

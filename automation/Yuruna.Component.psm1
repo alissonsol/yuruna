@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,7 @@ function Publish-ComponentList {
         # runner's transcript still shows what docker did. Sets the global
         # $LASTEXITCODE so the caller's `if (-Not (0 -eq $LASTEXITCODE))`
         # checks see this phase's exit code.
-        param([string]$Phase, [string]$Command)
+        param([string]$Phase, [string]$Command, [switch]$Sensitive)
         $out = Invoke-DynamicExpression -Command $Command *>&1
         # Pure-PowerShell command sequences (no native exe in the chain)
         # leave $LASTEXITCODE at its prior value -- $null in a freshly-
@@ -111,7 +111,17 @@ function Publish-ComponentList {
         # then evaluates `0 -eq $null` to $false and treats the phase as a
         # tool failure. Coerce so "no native command ran" reads as success.
         $rc  = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-        Add-Content -LiteralPath $dockerLogFile -Value "== [$Phase] $Command (exit=$rc) =="
+        $loggedCommand = if ($Sensitive) { '<command withheld>' } else { $Command }
+        if ($Sensitive) {
+            $out = @($out | ForEach-Object {
+                $line = [string]$_
+                foreach ($secret in @($env:YURUNA_REGISTRY_PASSWORD, $env:YURUNA_DOCKER_HUB_PASSWORD)) {
+                    if (-not [string]::IsNullOrEmpty($secret)) { $line = $line.Replace($secret, '<redacted>') }
+                }
+                $line
+            })
+        }
+        Add-Content -LiteralPath $dockerLogFile -Value "== [$Phase] $loggedCommand (exit=$rc) =="
         $out | ForEach-Object { Add-Content -LiteralPath $dockerLogFile -Value ([string]$_) }
         Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
         $out | ForEach-Object { Write-Output ([string]$_) }
@@ -163,7 +173,8 @@ function Publish-ComponentList {
             Write-Debug "$projectName[Env:$key] is $(Get-Content -Path Env:$key)"
         }
 
-        Push-Location $componentsPath
+        Push-Location $componentsPath -ErrorAction Stop
+        try {
         $preProcessor = $componentVars['preProcessor']
         if ([string]::IsNullOrEmpty($preProcessor)) { $preProcessor = $componentsYaml.globalVariables['preProcessor'] }
         if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
@@ -201,7 +212,10 @@ function Publish-ComponentList {
                 return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
-        Pop-Location
+        }
+        finally {
+            Pop-Location
+        }
 
         $tagCommand = $component['tagCommand']
         if ([string]::IsNullOrEmpty($tagCommand)) { $tagCommand = $componentsYaml.globalVariables['tagCommand']; }
@@ -225,11 +239,14 @@ function Publish-ComponentList {
         $registryLocation = $([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))
         $loginCommand = Resolve-ComponentRegistryLogin -RegistryLocation $registryLocation
         if ($loginCommand) {
-            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("$loginCommand *>&1")
-            Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand | Write-Verbose
+            # Providers leave credential environment references intact for the
+            # PowerShell pipeline; interpolating them into source both executes
+            # secret text as code and exposes it through command diagnostics.
+            $executionCommand = "$loginCommand *>&1"
+            Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand -Sensitive | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0966db03993b9bcb' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$executionCommand" })
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0966db03993b9bcb' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = '<command withheld>' })
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: <command withheld>" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 

@@ -4,11 +4,15 @@
 package sshsrv
 
 import (
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/pkg/sftp"
 	"stash-service/internal/config"
 	"stash-service/internal/meta"
 )
@@ -113,5 +117,144 @@ func TestSFTPUploadBuffersWhenShareOffline(t *testing.T) {
 	}
 	if listed, _ := s.Meta.ListBuffered(); len(listed) != 1 {
 		t.Fatalf("ListBuffered=%d; want 1", len(listed))
+	}
+}
+
+func TestSFTPDisconnectedUploadRemainsPartial(t *testing.T) {
+	s := newTestServer(t, true)
+	serverConn, clientConn := net.Pipe()
+	h := &stashSFTP{srv: s, username: "alice", clientIP: "127.0.0.1"}
+	rs := sftp.NewRequestServer(serverConn, sftp.Handlers{FileGet: h, FilePut: h, FileCmd: h, FileList: h})
+	done := make(chan error, 1)
+	go func() { done <- rs.Serve() }()
+	t.Cleanup(func() { _ = clientConn.Close(); _ = serverConn.Close(); _ = rs.Close() })
+	client, err := sftp.NewClientPipe(clientConn, clientConn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := client.Create("/upload/interrupted.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("incomplete payload")); err != nil {
+		t.Fatal(err)
+	}
+	// Close the transport without the SFTP CLOSE that proves completion.
+	_ = clientConn.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SFTP server did not observe the closed transport")
+	}
+	records, err := s.Meta.ListBuffered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatal("interrupted upload was queued as a completed buffered artifact")
+	}
+	// The pending ID is the only metadata row in this isolated server.
+	entries, err := s.Meta.Search(&meta.SearchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Status != meta.StatusPartial {
+		t.Fatalf("records after disconnect = %+v; want one partial upload", entries)
+	}
+}
+
+func TestSFTPCloseReturnsMetadataFailure(t *testing.T) {
+	s := newTestServer(t, true)
+	up, err := s.newSFTPUpload("/scratch/report.txt", "alice", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := up.WriteAt([]byte("complete bytes"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Meta.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := up.Close(); err == nil {
+		t.Fatal("Close hid the metadata commit failure")
+	}
+}
+
+func TestSFTPTransferErrorBeforeClose(t *testing.T) {
+	s := newTestServer(t, true)
+	up, err := s.newSFTPUpload("/scratch/partial.txt", "alice", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := up.WriteAt([]byte("partial"), 0); err != nil {
+		t.Fatal(err)
+	}
+	up.TransferError(io.ErrUnexpectedEOF)
+	if err := up.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.Meta.Get(up.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != meta.StatusPartial {
+		t.Fatalf("status = %s; want partial", rec.Status)
+	}
+}
+
+func TestSFTPReservedArtifactNamesKeepPayload(t *testing.T) {
+	for _, name := range []string{"x.yuruna.meta.json", "app.staging", "x.yuruna.archive.zip"} {
+		t.Run(name, func(t *testing.T) {
+			s := newTestServer(t, true)
+			up, err := s.newSFTPUpload("/scratch/"+name, "alice", "127.0.0.1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			const payload = "original upload, never sidecar metadata"
+			if _, err := up.WriteAt([]byte(payload), 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := up.Close(); err != nil {
+				t.Fatal(err)
+			}
+			record, err := s.Meta.Get(up.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(record.StoredPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != payload {
+				t.Fatalf("artifact overwritten: %q", data)
+			}
+			if record.OriginalFilename != name || record.IsArchive {
+				t.Fatalf("original metadata changed: %+v", record)
+			}
+		})
+	}
+}
+
+func TestSFTPWritebackFailureIsPartial(t *testing.T) {
+	s := newTestServer(t, true)
+	up, err := s.newSFTPUpload("/scratch/failure.txt", "alice", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := up.WriteAt([]byte("buffered data"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := up.f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := up.Close(); err == nil {
+		t.Fatal("writeback failure was hidden")
+	}
+	record, err := s.Meta.Get(up.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != meta.StatusPartial || record.StoredPath != "" {
+		t.Fatalf("failed upload finalized: %+v", record)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423b72a7-afb9-44a7-8fef-2acb7cbf69b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,9 +124,9 @@ function Test-RunnerElevationReady {
         True when passwordless sudo is ALREADY in effect for every supplied
         command, so an unattended cycle can never be stopped by a prompt.
     .DESCRIPTION
-        `sudo -n -l <cmd>` exits 0 when the invoking user may run <cmd> and,
-        because of -n, never prompts -- safe on the unattended path as well as
-        the interactive one. Biased toward $false: anything that is not a clean
+        Execute each supported command's harmless version probe with sudo -n -k.
+        The -k ignores cached credentials, so PASSWD permission cannot masquerade
+        as durable unattended access; -n prevents a prompt. Biased toward $false: anything that is not a clean
         0 reports "not ready", because a false "already configured" leaves the
         runner exactly as stoppable as before while a redundant re-install only
         costs one prompt.
@@ -151,9 +151,9 @@ function Test-RunnerElevationReady {
 
     foreach ($c in $Command) {
         if ([string]::IsNullOrWhiteSpace($c.Command)) { continue }
-        & sudo -n -l $c.Command 2>$null | Out-Null
+        & sudo -n -k $c.Command --version 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Verbose "Elevation not ready for '$($c.Command)' (sudo -n -l exit $LASTEXITCODE)."
+            Write-Verbose "Elevation not ready for '$($c.Command)' (uncached sudo version probe exit $LASTEXITCODE)."
             return $false
         }
     }

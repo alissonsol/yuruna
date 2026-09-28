@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4269e850-8f14-4f24-8d83-52240f2bc8e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,18 +77,57 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# --- REGION: Record the stop intent
+# The stop is on record, and this service's operation lock held, before the
+# first change: the reboot sweep and a host refresh then honor the request
+# instead of restarting the guest, and a concurrent Start cannot rebuild it
+# mid-teardown. A request that cannot be recorded changes nothing. The marker
+# is read first so the intent names how the service is deployed.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$runtimeDir = Initialize-YurunaRuntimeDir
+$deployment = Get-ExtensionServiceDeploymentIdentity -Area 'pool-control-service' -RuntimeDir $runtimeDir
+$hostingMode = if ($deployment.HostingMode -eq 'host-process') { 'host-process' } else { 'vm' }
+$serviceOp = Enter-YurunaServiceOperation -Key 'pool-control' -VMName $VMName -Operation Stop -HostingMode $hostingMode -Script 'Stop-PoolControlServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit $ExitFailure
+}
+# Every exit below runs the finally at the end of this file, which records the
+# result and releases the operation lock even inside a long-lived shell.
+$serviceOpResult = 'failed'
+$serviceOpFinalState = 'unknown'
+try {
+
 # --- REGION: Clear the service marker
 # Read the marker BEFORE removing it. A -HostSideProof run records the host-side
 # daemon's pid here; stop that process so the host-side proof is fully torn down.
-Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
-Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
-$runtimeDir = Initialize-YurunaRuntimeDir
+# The pid is stopped only once it is shown to still be that daemon (its name,
+# and its start time when the marker recorded one): a pid outlives its process
+# and is handed to something else, which must be left running. A live process
+# that is left running keeps the marker: it is the only record of that pid,
+# and without it a later stop would find nothing and call the stop complete.
 $m = Read-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir
+$hostProcessLeftRunning = $false
 if ($m) {
-    if ($m.pid -and $PSCmdlet.ShouldProcess("pid $($m.pid)", 'Stop host-side pool-control-service')) {
-        Stop-Process -Id ([int]$m.pid) -Force -ErrorAction SilentlyContinue
+    if ($deployment.Pid) {
+        $hostProcess = Get-ExtensionServiceHostProcessState -ProcessId ([int]$deployment.Pid) `
+            -ProcessStartUnixMs ([long]$deployment.ProcessStartUnixMs) -ExpectedName 'pool-control-service'
+        if ($hostProcess.IdentityVerified) {
+            if ($PSCmdlet.ShouldProcess("pid $($deployment.Pid)", 'Stop host-side pool-control-service')) {
+                Stop-Process -Id ([int]$deployment.Pid) -Force -ErrorAction SilentlyContinue
+            } else {
+                $hostProcessLeftRunning = $true
+            }
+        } elseif ($hostProcess.Alive) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_poolcontrol_pid_unverified' -Arguments @{
+                    pid = [string]$deployment.Pid; reason = [string]$hostProcess.Reason })
+            $hostProcessLeftRunning = $true
+        }
     }
-    if (Remove-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir -Confirm:$false) {
+    if (-not $hostProcessLeftRunning -and (Remove-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir -Confirm:$false)) {
         Write-Information "  Cleared pool-control-service marker (host will drop from Extension hosts)." -InformationAction Continue
     }
 }
@@ -126,10 +165,23 @@ Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationA
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
 # --- REGION: Verify the final VM state
+# Confirmed only by a final reading of absent, and only when no host-side
+# process was left running: either one means the service is not stopped, and
+# the stop request still stands.
 $finalState = Get-VMState -VMName $VMName
+$serviceOpFinalState = [string]$finalState
+if ($hostProcessLeftRunning) {
+    $serviceOpFinalState = 'host-process-running'
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_poolcontrol_stop_incomplete' -Arguments @{ pid = [string]$deployment.Pid })
+    exit $ExitFailure
+}
 if ($finalState -eq 'absent') {
+    $serviceOpResult = 'confirmed'
     Write-Information "Pool-control service stopped; marker cleared; VM '$VMName' and its files removed." -InformationAction Continue
     exit $ExitOk
 }
 Write-Warning "VM '$VMName' final state: $finalState (expected absent after removal). Inspect via the host's tooling, then re-run or use Remove-TestVMFiles.ps1."
 exit $ExitFailure
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -FinalState $serviceOpFinalState -Confirm:$false)
+}

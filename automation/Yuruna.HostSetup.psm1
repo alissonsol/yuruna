@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f9c804-966c-4de0-8a8d-1919e7a84b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,6 +97,13 @@ function Initialize-HostSetupModule {
         banner so the operator sees WHAT will need sudo before they
         consent. Linux only; pass on the others and Initialize-SudoCache
         becomes a no-op anyway, but the explicit guard documents intent.
+    .PARAMETER SkipModuleInstall
+        Install nothing from PSGallery: each of the two modules that is
+        missing gets a warning naming the command that installs it, and
+        nothing else happens. For a caller that must finish without a
+        network download or a repository-trust prompt -- a run with nobody
+        watching, or one that has to stay inside a bounded budget. The
+        contract import still happens; it changes nothing on the host.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -104,7 +111,8 @@ function Initialize-HostSetupModule {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [hashtable]$BoundParameters = @{},
-        [string[]]$SudoCacheReason
+        [string[]]$SudoCacheReason,
+        [switch]$SkipModuleInstall
     )
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'automation.operator_1718072c6cf398d4'), (Format-YurunaOperatorMessage -Key 'automation.operator_60e4e2f2dbcc4366'))) {
         return
@@ -135,6 +143,17 @@ function Initialize-HostSetupModule {
     # GuestOS runs with an empty sequence list and is recorded as
     # "skipped" with no log trace. PSScriptAnalyzer is the pre-commit
     # lint gate so the same enable step bootstraps both runtime and CI.
+    if ($SkipModuleInstall) {
+        # The same two modules the install pair below ensures. Only the
+        # discovery half of their policy runs here: a missing module is
+        # reported with the command that installs it, never installed.
+        foreach ($galleryModule in @('powershell-yaml', 'PSScriptAnalyzer')) {
+            if (-not (Get-Module -ListAvailable -Name $galleryModule -ErrorAction SilentlyContinue)) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'automation.host_setup_module_install_skipped' -Arguments @{ module = "$galleryModule" })
+            }
+        }
+        return
+    }
     $yamlArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PowerShellYamlIfMissing'
     [void](Install-PowerShellYamlIfMissing @yamlArgs)
     $analyzerArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PSScriptAnalyzerIfMissing'

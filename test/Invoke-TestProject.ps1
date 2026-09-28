@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,6 +77,10 @@ param(
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
+
+# A Windows console code page prints Chinese and Hebrew catalog text as
+# question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
+if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
 
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 # Test.HostCondition.psm1 for the per-platform split rationale.
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Global -DisableNameChecking
 function Test-YurunaUsbmmiddDevice {
     <#
     .SYNOPSIS
@@ -1021,16 +1022,13 @@ function Set-YurunaDisplayScale100 {
     # Rationale and registry keys: https://yuruna.link/42dc5bb9
     $scaleChanged = $false
 
-    # REG_DWORD -> signed int32: Windows writes DpiValue as signed (e.g.
-    # -2 for "two steps below recommended") but PowerShell surfaces
-    # REG_DWORD as UInt32 -- -2 arrives as 4294967294 and a bare [int]
-    # cast throws OverflowException. Reinterpret bits: values with the
-    # high bit set map to their two's-complement signed equivalent.
+    # REG_DWORD can arrive signed (-2) or unsigned (4294967294). Widen
+    # first so neither form overflows before reinterpreting the high bit.
     $asSignedDword = {
         param($raw)
         if ($null -eq $raw) { return 0 }
-        $u = [uint32]$raw
-        if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
+        $n = [int64]$raw
+        if ($n -gt [int32]::MaxValue) { return [int32]($n - 0x100000000) } else { return [int32]$n }
     }
 
     # --- REGION: Per-monitor DPI
@@ -1401,12 +1399,13 @@ function Set-WindowsHostConditionSet {
     }
 
     # --- REGION: Display timeout -> Never
-    $acTimeout = powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
-        Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
-        Select-Object -First 1
-    $currentAc = if ($acTimeout) { [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16) } else { 0 }
+    $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null)
+    $currentAc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
+    $currentDc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme DC } else { $null }
 
-    if ($currentAc -ne 0) {
+    if ($null -eq $currentAc -or $null -eq $currentDc) {
+        $unmet.Add('Display timeout could not be read from powercfg.')
+    } elseif ($currentAc -ne 0 -or $currentDc -ne 0) {
         $minutes = [math]::Round($currentAc / 60)
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e7d251348e22eeb5' -Arguments @{ minutes = "$minutes" }), (Format-YurunaOperatorMessage -Key 'runner.operator_af80cb8b9805df26'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d7ba04fc3114a17e')
@@ -1438,12 +1437,13 @@ function Set-WindowsHostConditionSet {
 
     # --- REGION: Lock screen on resume -> disabled
     # power-plan consolelock via powercfg
-    $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
-        Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
-        Select-Object -First 1
-    $consoleLockVal = if ($consoleLock) { [Convert]::ToInt32($consoleLock.Matches[0].Groups[1].Value, 16) } else { $null }
+    $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null)
+    $consoleLockVal = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
+    $consoleLockDc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme DC } else { $null }
 
-    if ($consoleLockVal -and $consoleLockVal -ne 0) {
+    if ($null -eq $consoleLockVal -or $null -eq $consoleLockDc) {
+        $unmet.Add('Resume lock setting could not be read from powercfg.')
+    } elseif ($consoleLockVal -ne 0 -or $consoleLockDc -ne 0) {
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_9ac9c7e924316ac3'), "Disable")) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e23879fc293cffdb')
             & powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
@@ -1759,11 +1759,13 @@ function Assert-WindowsHostConditionSet {
 
     # --- REGION: Screen lock / display timeout -- warn if display will turn off
     try {
-        $acTimeout = (powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
-            Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
-            Select-Object -First 1)
-        if ($acTimeout) {
-            $seconds = [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16)
+        $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null)
+        $seconds = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
+        if ($null -eq $seconds) {
+            Write-Warning 'Display timeout could not be read from powercfg.'
+            return $false
+        }
+        if ($null -ne $seconds) {
             if ($seconds -ne 0) {
                 $minutes = [math]::Round($seconds / 60)
                 Write-Warning "========"

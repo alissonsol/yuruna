@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@
 BeforeAll {
     $here     = Split-Path -Parent $PSCommandPath
     $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+    Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.StateFile.psm1')               -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1')         -Force -DisableNameChecking
@@ -99,20 +100,19 @@ Describe 'Invoke-BoundedNativeCommand' {
     }
 
     It 'does not block past its own cap when the immediate child exits but a descendant keeps both pipes open' {
-        # The exact bug this primitive was rewritten to fix: a child that
-        # backgrounds work and exits itself leaves a descendant holding the
-        # inherited pipe, and the old implementation blocked on that
-        # descendant's exit regardless of TimeoutSeconds by reading an async
-        # task's .Result before confirming, through a bounded wait, that it
-        # had actually finished. Reproduced against this exact shape before
-        # the fix: a 1-second cap took 6.1 seconds, ExitCode=0, TimedOut=false.
+        # A descendant that inherits the pipes outlives its parent: the child
+        # exits at once, but stdout/stderr stay open for the descendant's whole
+        # lifetime. Reading an unfinished read task's result would block for
+        # that lifetime; the call must instead end at its cap and say the
+        # drain was cut short.
         $sw = [Diagnostics.Stopwatch]::StartNew()
         $r  = Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', 'sleep 6 & exit 0') -TimeoutSeconds 1
         $sw.Stop()
-        $sw.ElapsedMilliseconds | Should -BeLessThan 3000 -Because 'the fixed primitive must return close to its own cap, never anywhere near the descendant''s 6-second lifetime'
+        $sw.ElapsedMilliseconds | Should -BeLessThan 1750 -Because 'the call must return close to its own cap, never anywhere near the descendant''s 6-second lifetime'
         $r.TimedOut       | Should -Be $false -Because 'the process this call launched (bash) really did exit inside the cap'
         $r.ExitCode       | Should -Be 0
         $r.DrainTimedOut  | Should -Be $true -Because 'stdout/stderr had not reached EOF when the call returned -- the descendant is still holding them'
+        (Test-BoundedNativeResultComplete -Result $r) | Should -Be $false
     }
 
     It 'kills the tree and reports 124 for a child that fills both pipes and never exits' {
@@ -122,7 +122,122 @@ Describe 'Invoke-BoundedNativeCommand' {
         $sw.Stop()
         $r.TimedOut | Should -Be $true
         $r.ExitCode | Should -Be 124
-        $sw.ElapsedMilliseconds | Should -BeLessThan 10000 -Because 'killing the tree must free both pipes well inside the bounded cleanup allowance'
+        $r.KillFailed | Should -Be $false
+        $sw.ElapsedMilliseconds | Should -BeLessThan 2750 -Because 'the kill and the last drain happen inside the cap, not after it'
+    }
+
+    It 'confirms the kill of a child that outlived even a one-second cap' {
+        # Kill($true) walks the whole process table to find descendants. A
+        # cleanup reserve shorter than that walk reports a child it did kill
+        # as a failed kill and returns after the cap.
+        $r = Invoke-BoundedNativeCommand -FilePath 'sleep' -ArgumentList @('60') -TimeoutSeconds 1
+        $r.TimedOut   | Should -Be $true
+        $r.ExitCode   | Should -Be 124
+        $r.KillFailed | Should -Be $false -Because 'the child was killed and seen to exit inside the cleanup reserve'
+        $r.ElapsedMs  | Should -BeLessThan 1500
+    }
+
+    It 'ends by its cap when a descendant escaped the tree kill and still holds both pipes' {
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-bounded'
+        $pidFile = Join-Path $dir 'escaped.pid'
+        try {
+            # The subshell backgrounds sleep and exits, so sleep is re-parented
+            # and no longer a descendant the kill can enumerate.
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $r  = Invoke-BoundedNativeCommand -FilePath 'bash' `
+                -ArgumentList @('-c', "( sleep 30 & echo `$! > '$pidFile' ); sleep 60") -TimeoutSeconds 2
+            $sw.Stop()
+            $r.TimedOut      | Should -Be $true
+            $r.ExitCode      | Should -Be 124
+            $r.DrainTimedOut | Should -Be $true
+            $r.KillFailed    | Should -Be $false -Because 'the direct child was killed and seen to exit; only the escaped descendant survives'
+            $sw.ElapsedMilliseconds | Should -BeLessThan 2750
+        } finally {
+            if (Test-Path -LiteralPath $pidFile) {
+                $escapedPid = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
+                $escaped = Get-Process -Id $escapedPid -ErrorAction SilentlyContinue
+                if ($escaped -and $escaped.ProcessName -eq 'sleep') { $escaped.Kill() }
+            }
+            Remove-YurunaTestTempDir $dir
+        }
+    }
+
+    It 'reports KillFailed and still returns by the cap when the kill itself fails' {
+        Mock -ModuleName Yuruna.Common Invoke-BoundedNativeTreeKill { throw 'simulated kill failure' }
+        $r = $null
+        try {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $r  = Invoke-BoundedNativeCommand -FilePath 'sleep' -ArgumentList @('60') -TimeoutSeconds 2
+            $sw.Stop()
+            $r.KillFailed | Should -Be $true
+            $r.TimedOut   | Should -Be $true
+            $r.ExitCode   | Should -Be 124
+            $sw.ElapsedMilliseconds | Should -BeLessThan 2750
+            Should -Invoke -ModuleName Yuruna.Common Invoke-BoundedNativeTreeKill -Times 1 -Exactly
+        } finally {
+            if ($r -and $r.ProcessId -gt 0) {
+                $survivor = Get-Process -Id $r.ProcessId -ErrorAction SilentlyContinue
+                if ($survivor -and $survivor.ProcessName -eq 'sleep') { $survivor.Kill() }
+            }
+        }
+    }
+
+    It 'launches nothing and reports DeadlineExhausted, not a timeout, when the deadline has under a second left' {
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-bounded'
+        try {
+            $marker = Join-Path $dir 'ran.marker'
+            $tick  = [ref]1000L
+            $clock = { $tick.Value }.GetNewClosure()
+            $deadline = New-YurunaDeadline -TotalMilliseconds 500 -ClockTicks $clock
+            $r = Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', "touch '$marker'") -TimeoutSeconds 30 -Deadline $deadline
+            $r.DeadlineExhausted | Should -Be $true
+            $r.Started           | Should -Be $false
+            $r.TimedOut          | Should -Be $false -Because 'a call that was never issued must not read as a tool that failed to answer'
+            $r.ExitCode          | Should -Be -1
+            $r.ProcessId         | Should -Be 0
+            [IO.File]::Exists($marker) | Should -Be $false
+        } finally { Remove-YurunaTestTempDir $dir }
+    }
+
+    It 'caps the call at the deadline''s remaining time when that is shorter than TimeoutSeconds' {
+        $deadline = New-YurunaDeadline -TotalMilliseconds 2000
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $r  = Invoke-BoundedNativeCommand -FilePath 'sleep' -ArgumentList @('30') -TimeoutSeconds 60 -Deadline $deadline
+        $sw.Stop()
+        $r.TimedOut          | Should -Be $true
+        $r.DeadlineExhausted | Should -Be $false
+        $sw.ElapsedMilliseconds | Should -BeLessThan 2750
+    }
+
+    It 'drains both pipes past the capture cap concurrently without blocking the writer' {
+        $writer = '(head -c 200000 /dev/zero | tr "\0" x) & (head -c 200000 /dev/zero | tr "\0" y 1>&2) & wait'
+        $r = Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', $writer) -TimeoutSeconds 20 -MaxCapturedChars 4096
+        $r.TimedOut        | Should -Be $false
+        $r.ExitCode        | Should -Be 0
+        $r.OutputTruncated | Should -Be $true
+        $r.StdOut.Length   | Should -Be 4096
+        $r.StdErr.Length   | Should -Be 4096
+        (Test-BoundedNativeResultComplete -Result $r) | Should -Be $false -Because 'truncated output is not a complete answer'
+    }
+
+    It 'reports the direct child''s process id' {
+        $r = Invoke-BoundedNativeCommand -FilePath 'bash' -ArgumentList @('-c', 'echo $$') -TimeoutSeconds 10
+        $r.ProcessId | Should -BeGreaterThan 0
+        [int]($r.StdOut.Trim()) | Should -Be $r.ProcessId
+        (Test-BoundedNativeResultComplete -Result $r) | Should -Be $true
+    }
+
+    It 'classifies a result as complete only when it started and no incompleteness flag is set' {
+        $complete = @{ Started = $true; TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false; DeadlineExhausted = $false }
+        (Test-BoundedNativeResultComplete -Result $complete) | Should -Be $true
+        foreach ($flag in @('TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed', 'DeadlineExhausted')) {
+            $incomplete = $complete.Clone()
+            $incomplete[$flag] = $true
+            (Test-BoundedNativeResultComplete -Result $incomplete) | Should -Be $false -Because "$flag set means the answer may be partial"
+        }
+        (Test-BoundedNativeResultComplete -Result @{ Started = $false }) | Should -Be $false
+        (Test-BoundedNativeResultComplete -Result @{ Started = $true }) | Should -Be $true -Because 'an absent key counts as false, so an older result shape still classifies'
+        (Test-BoundedNativeResultComplete -Result $null) | Should -Be $false
     }
 
     It 'caps captured output per stream and keeps draining past the cap instead of blocking the writer' {
@@ -318,3 +433,31 @@ Describe 'Get-RunnerPreambleStallStreak' {
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'crash gating timestamp interpretation' {
+    It 'accounts only for saves before spawn across cultures and local time zones' {
+        $dir = Initialize-TempRuntimeDir
+        $beforeCulture = [Threading.Thread]::CurrentThread.CurrentCulture
+        $beforeTimezone = $env:TZ
+        try {
+            foreach ($zone in @('Pacific/Honolulu', 'Europe/Berlin')) {
+                $env:TZ = $zone
+                [TimeZoneInfo]::ClearCachedData()
+                foreach ($culture in @('en-US', 'pt-BR')) {
+                    [Threading.Thread]::CurrentThread.CurrentCulture = [cultureinfo]::GetCultureInfo($culture)
+                    foreach ($minutes in @(-55, 30)) {
+                        $spawn = [datetime]::UtcNow.AddHours(-1)
+                        [IO.File]::WriteAllText((Join-Path $dir 'runner.gating.json'), (@{ savedAt = $spawn.AddMinutes($minutes).ToString('o'); alertArmed = $false; consecutiveFailures = 0; consecutiveCrashes = 0 } | ConvertTo-Json))
+                        $result = Update-RunnerCrashGating -RuntimeDir $dir -SpawnedAtUtc $spawn -Config $null -ExitCode 137 -Confirm:$false
+                        $result.Updated | Should -Be ($minutes -lt 0)
+                    }
+                }
+            }
+        } finally {
+            [Threading.Thread]::CurrentThread.CurrentCulture = $beforeCulture
+            if ($null -eq $beforeTimezone) { Remove-Item Env:TZ -ErrorAction SilentlyContinue } else { $env:TZ = $beforeTimezone }
+            [TimeZoneInfo]::ClearCachedData()
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
+    }
+}

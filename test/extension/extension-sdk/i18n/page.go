@@ -19,6 +19,16 @@ var elementMarker = regexp.MustCompile(`<[^>]+\bdata-i18n-(?:title|aria-label|pl
 var htmlLanguage = regexp.MustCompile(`<html(?:\s[^>]*)?>`)
 var inertMarkup = regexp.MustCompile(`(?is)<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>`)
 var argumentMarker = regexp.MustCompile(`\bdata-i18n-args="([^"]*)"`)
+var attributeMarkers = [...]struct {
+	name      string
+	marker    *regexp.Regexp
+	attribute *regexp.Regexp
+}{
+	{"title", regexp.MustCompile(`\bdata-i18n-title="([a-zA-Z0-9_.-]+)"`), regexp.MustCompile(`(^|\s)title="[^"]*"`)},
+	{"aria-label", regexp.MustCompile(`\bdata-i18n-aria-label="([a-zA-Z0-9_.-]+)"`), regexp.MustCompile(`(^|\s)aria-label="[^"]*"`)},
+	{"placeholder", regexp.MustCompile(`\bdata-i18n-placeholder="([a-zA-Z0-9_.-]+)"`), regexp.MustCompile(`(^|\s)placeholder="[^"]*"`)},
+	{"alt", regexp.MustCompile(`\bdata-i18n-alt="([a-zA-Z0-9_.-]+)"`), regexp.MustCompile(`(^|\s)alt="[^"]*"`)},
+}
 
 // RenderHTML replaces explicit author-owned message slots only. Catalog values
 // are text: a translation cannot introduce markup, attributes or script. It is
@@ -48,18 +58,16 @@ func renderMarkup(body []byte, locale Context, catalog *Catalog) []byte {
 		return parts[1] + html.EscapeString(catalog.Render(parts[2], args, locale.ResolvedTag)) + parts[3]
 	})
 	source = elementMarker.ReplaceAllStringFunc(source, func(element string) string {
-		for _, name := range []string{"title", "aria-label", "placeholder", "alt"} {
-			marker := regexp.MustCompile(`\bdata-i18n-` + name + `="([a-zA-Z0-9_.-]+)"`)
-			parts := marker.FindStringSubmatch(element)
+		for _, slot := range attributeMarkers {
+			parts := slot.marker.FindStringSubmatch(element)
 			if len(parts) == 0 {
 				continue
 			}
 			value := html.EscapeString(catalog.Render(parts[1], nil, locale.ResolvedTag))
-			attribute := regexp.MustCompile(`(^|\s)` + name + `="[^"]*"`)
-			if attribute.MatchString(element) {
-				element = attribute.ReplaceAllStringFunc(element, func(old string) string { return " " + name + `="` + value + `"` })
+			if slot.attribute.MatchString(element) {
+				element = slot.attribute.ReplaceAllStringFunc(element, func(old string) string { return " " + slot.name + `="` + value + `"` })
 			} else {
-				element = strings.TrimSuffix(element, ">") + " " + name + `="` + value + `">`
+				element = strings.TrimSuffix(element, ">") + " " + slot.name + `="` + value + `">`
 			}
 		}
 		return element

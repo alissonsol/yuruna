@@ -6,6 +6,7 @@ package httpsrv
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -184,11 +185,12 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "poolId and action are required")
 		return
 	}
-	// Checked independently of hostctl.KnownAction, and ahead of it: a per-host
-	// refresh action belongs to a single explicitly authorized host, never to
-	// this pool-wide fan-out, so this refusal must hold even after "refresh"
-	// becomes a KnownAction for that separate, individually authorized path.
-	// This handler also backs the MCP pool-control tool (same func, no
+	// Checked independently of hostctl.KnownAction, and ahead of it: a refresh
+	// belongs to one explicitly authorized host, never to this pool-wide
+	// fan-out. It is the separate typed per-host method hostctl.Refresh behind
+	// POST /api/host/refresh and its own credential gate, and it is never a
+	// KnownAction, so this refusal does not depend on that list staying as it
+	// is. This handler also backs the MCP pool-control tool (same func, no
 	// separate input-schema enforcement at dispatch time), so both entry
 	// points are covered by the one check.
 	if strings.EqualFold(body.Action, "refresh") {
@@ -266,7 +268,8 @@ func (s *Server) controlProof(ctx context.Context, members []string, addr map[st
 	}
 	base := s.pool.BaseURL()
 	if base == "" {
-		return "", fmt.Errorf("no control proof: this service holds no internal authentication key (%s) and has no pool aggregator to ask for one", s.authTokenFile())
+		return "", &controlProofError{reason: controlProofNoInternalKey,
+			text: fmt.Sprintf("no control proof: this service holds no internal authentication key (%s) and has no pool aggregator to ask for one", s.authTokenFile())}
 	}
 	// Only the aggregator's own token signs the proof, so any host it can
 	// resolve yields the same one; asking about a member it has never seen just
@@ -285,7 +288,35 @@ func (s *Server) controlProof(ctx context.Context, members []string, addr map[st
 		}
 		lastErr = err
 	}
-	return "", fmt.Errorf("no control proof: this service holds no internal authentication key (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)
+	return "", &controlProofError{reason: controlProofAggregatorRefused,
+		text: fmt.Sprintf("no control proof: this service holds no internal authentication key (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)}
+}
+
+// Why no control proof could be obtained, as bounded tokens.
+const (
+	controlProofNoInternalKey     = "no_internal_key"
+	controlProofAggregatorRefused = "aggregator_refused"
+	controlProofUnavailable       = "control_proof_unavailable"
+)
+
+// controlProofError is a failure to obtain the legacy transport proof. Its
+// text is for an operator reading the pool-wide reply or the log: it names the
+// token file to provision and quotes the aggregator's failure. A localized
+// reply carries reason instead, because that quoted failure comes from a
+// service this one reads without authentication.
+type controlProofError struct {
+	reason, text string
+}
+
+func (e *controlProofError) Error() string { return e.text }
+
+// controlProofFailureReason is the bounded token for a controlProof error.
+func controlProofFailureReason(err error) string {
+	var cpe *controlProofError
+	if errors.As(err, &cpe) && cpe.reason != "" {
+		return cpe.reason
+	}
+	return controlProofUnavailable
 }
 
 // proofAttemptLimit caps how many members are asked about before the aggregator

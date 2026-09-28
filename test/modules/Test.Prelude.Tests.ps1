@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,5 +219,76 @@ Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
         Assert-True ($src -match 'Register-EntryPointCancelHandler') "$Entry must call Register-EntryPointCancelHandler"
         Assert-True ($src -match 'Unregister-EntryPointCancelHandler') "$Entry must call Unregister-EntryPointCancelHandler"
         Assert-True (-not ($src -match '-EventName CancelKeyPress')) "$Entry must not hand-roll an inline CancelKeyPress registration"
+    }
+}
+
+Describe 'Assert-NoOtherRunner returns exactly one boolean' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -Global -DisableNameChecking
+    }
+    BeforeEach {
+        $script:NoOtherDir = New-YurunaTestTempDir -Prefix 'yrn-noother'
+        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
+    }
+    AfterEach { Remove-YurunaTestTempDir $script:NoOtherDir }
+
+    It 'is a single $true on an unowned runtime' {
+        $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' 6>$null)
+        Assert-Equal -Expected 1 -Actual $out.Count -Because 'the success stream carries only the verdict'
+        Assert-True ($out[0] -is [bool] -and $out[0]) 'a single $true'
+    }
+    It 'is a single $false, with the banner off the success stream, beside a live runner' {
+        $runner = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -PassThru
+        try {
+            Start-Sleep -Milliseconds 300
+            Set-Content -LiteralPath (Join-Path $script:NoOtherDir 'runner.pid') -Value "$($runner.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath (Join-Path $script:NoOtherDir 'runner.start') -Value ((Get-Process -Id $runner.Id).StartTime.ToUniversalTime().ToString('o')) -Encoding utf8NoBOM
+            $info = $null
+            $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' -InformationVariable info 6>$null)
+            Assert-Equal -Expected 1 -Actual $out.Count
+            Assert-True ($out[0] -is [bool] -and -not $out[0]) 'a single $false'
+            Assert-True (@($info).Count -ge 5) 'the banner went to the Information stream'
+        } finally {
+            if (-not $runner.HasExited) { $runner.Kill() }
+        }
+    }
+    It 'is a single $false while a host refresh holds the runner, even with no runner record' {
+        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $false; State = 'closed'; RequestId = 'r' } }
+        $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' 6>$null)
+        Assert-Equal -Expected 1 -Actual $out.Count
+        Assert-True ($out[0] -is [bool] -and -not $out[0]) 'a single $false'
+    }
+}
+
+Describe 'Initialize-YurunaEntryPointModuleSet -- the Refresh set' {
+    BeforeAll {
+        $fn = Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.Prelude.psm1') -Name 'Initialize-YurunaEntryPointModuleSet'
+        $table = @($fn.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true) |
+            Where-Object { @($_.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text }) -contains 'Refresh' })[0]
+        $script:Sets = @{}
+        foreach ($pair in $table.KeyValuePairs) {
+            $script:Sets[$pair.Item1.Extent.Text] = @($pair.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) |
+                ForEach-Object { $_.Value })
+        }
+        $script:ForParam = @($fn.Body.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'For' })[0]
+    }
+    It 'lists the host-refresh closure in dependency order' {
+        $expected = @('Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
+            'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1')
+        Assert-Equal -Expected ($expected -join ',') -Actual ($script:Sets['Refresh'] -join ',')
+        foreach ($excluded in @('Test.RunnerOuterLoop.psm1', 'Test.Log.psm1', 'Test.EventSchema.psm1', 'Test.SequenceFailureState.psm1')) {
+            Assert-False ($script:Sets['Refresh'] -contains $excluded) "$excluded stays out of the Refresh set"
+        }
+        $validate = @($script:ForParam.Attributes | Where-Object { $_.TypeName.Name -eq 'ValidateSet' })[0]
+        Assert-True (@($validate.PositionalArguments | ForEach-Object { $_.Value }) -contains 'Refresh') '-For accepts Refresh'
+    }
+    It 'loads the outer.log writer before the outer loop in the Outer set' {
+        $outer = $script:Sets['Outer']
+        $i = [array]::IndexOf([string[]]$outer, 'Test.OuterLog.psm1')
+        Assert-True ($i -ge 0) 'Test.OuterLog is in the Outer set'
+        Assert-Equal -Expected 'Test.RunnerWatchdog.psm1' -Actual $outer[$i + 1]
+        Assert-Equal -Expected 'Test.RunnerOuterLoop.psm1' -Actual $outer[$i + 2]
     }
 }

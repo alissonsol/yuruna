@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,8 +118,10 @@ function Initialize-YurunaEntryPointModuleSet {
         -Global -Force is applied so re-running the function across
         cycle boundaries refreshes mid-run git-pull'd code changes.
     .PARAMETER For
-        Which entry-point kind is calling. Outer/Inner/Project/Sequence/
-        StatusService/CachingProxyService.
+        Which entry-point kind is calling: Outer, Inner, Project, Sequence,
+        StatusService, CachingProxyService, PoolAdmin or Refresh (the
+        host-refresh entry point and its worker, which must not load the
+        outer loop's tree-kill helpers).
     .PARAMETER ModulesDir
         Absolute path to test/modules/. Caller passes
         $paths.ModulesDir from Initialize-YurunaEntryPoint.
@@ -128,7 +130,7 @@ function Initialize-YurunaEntryPointModuleSet {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Module-import side effects only; the operator has no -WhatIf intent here.')]
     param(
-        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin')][string]$For,
+        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin','Refresh')][string]$For,
         [Parameter(Mandatory)][string]$ModulesDir
     )
     # Canonical per-kind module lists. Order matters where a downstream
@@ -160,8 +162,9 @@ function Initialize-YurunaEntryPointModuleSet {
             # are unit-testable independent of Start-TestRunner.ps1.
             # Test.RunnerWatchdog before Test.RunnerOuterLoop because
             # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
-            # at the cycle boundary.
-            'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1',
+            # at the cycle boundary. Test.OuterLog carries the outer.log
+            # writer the loop re-exports, so it loads first.
+            'Test.OuterLog.psm1', 'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1',
             # Test.PoolSync: the optional, default-off pool-intent PULL the outer
             # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
             # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolIntent /
@@ -371,6 +374,18 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.YurunaDir.psm1', 'Test.Config.psm1',
             'Test.ConfigValidator.psm1', 'Test.PoolSync.psm1', 'Test.PoolAdmin.psm1'
         )
+        # The host-refresh entry point and its worker. Dependencies before
+        # dependents. Test.RunnerOuterLoop is deliberately absent: it brings
+        # Stop-ProcessTree, the unpruned tree kill a refresh must never reach.
+        # So are Test.Log, Test.EventSchema and Test.SequenceFailureState -- the
+        # worker writes no cycle events and no last_failure.json -- and
+        # Test.ExtensionService, which Test.ServiceVm and Test.ServiceCensus
+        # import themselves.
+        Refresh = @(
+            'Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
+            'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1'
+        )
     }
     foreach ($modName in $sets[$For]) {
         $modPath = Join-Path $ModulesDir $modName
@@ -503,21 +518,25 @@ function Initialize-SequenceEngineRegistry {
 function Assert-NoOtherRunner {
     <#
     .SYNOPSIS
-        Return $false (and emit a banner) when a live Start-TestRunner
-        already owns runner.pid in the given runtime dir.
+        Return $false (and print a banner) when a live Start-TestRunner
+        already owns runner.pid in the given runtime dir, or a host refresh
+        holds this host's runner.
     .DESCRIPTION
         Start-TestRunner ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1))
         owns runner.pid for its whole lifetime and takes over an
         OtherRunner via Stop-StaleRunner. The dev / project entry
         points (Debug-TestSequence, Invoke-TestProject) need the opposite
         contract: refuse to start so they do not interfere with a
-        cycle in progress.
-        Surfaces a banner naming the live runner's PID and the
-        caller, then returns $false so the caller can exit with the
-        canonical failure code.
+        cycle in progress, or with a host refresh that is holding every
+        runner spawn.
+
+        The banner goes to the Information stream, so the success stream
+        carries exactly one [bool] and `-not (Assert-NoOtherRunner ...)`
+        means what it says; a banner on the success stream would turn the
+        result into a non-empty array that no caller could refuse on.
     .OUTPUTS
-        [bool] $true when the runtime dir is unowned or owned by us;
-        $false when an OtherRunner is live (caller should exit).
+        [bool] $true when the runtime dir is unowned or owned by us and no
+        refresh holds the runner; $false otherwise (caller should exit).
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -525,6 +544,16 @@ function Assert-NoOtherRunner {
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter(Mandatory)][string]$CallerName
     )
+    if (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue) {
+        $gate = Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir
+        if (-not $gate.SpawnAllowed) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.no_other_runner_refresh_active' -Arguments @{
+                callerName = "$CallerName"; requestId = "$($gate.RequestId)"; state = "$($gate.State)" }) -InformationAction Continue
+            return $false
+        }
+    } else {
+        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping the host-refresh gate check."
+    }
     if (-not (Get-Command Get-RunnerInstanceState -ErrorAction SilentlyContinue)) {
         Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping no-other-runner check."
         return $true
@@ -533,14 +562,18 @@ function Assert-NoOtherRunner {
     $runnerStartFile = Join-Path $RuntimeDir 'runner.start'
     $state = Get-RunnerInstanceState -RunnerPidFile $runnerPidFile -RunnerStartFile $runnerStartFile
     if ($state.status -ne 'OtherRunner') { return $true }
-    Write-Output ''
-    Write-Output '========'
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5375f3983fa12ae6')
-    Write-Output "  PID:    $($state.pid)"
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_225c9051c6604c3b' -Arguments @{ callerName = "$CallerName" })
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_bc15af7415320b3e')
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_134f1bf954b9d352')
-    Write-Output '========'
+    foreach ($line in @(
+        ''
+        '========'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_5375f3983fa12ae6')
+        "  PID:    $($state.pid)"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_225c9051c6604c3b' -Arguments @{ callerName = "$CallerName" })
+        (Format-YurunaOperatorMessage -Key 'runner.operator_bc15af7415320b3e')
+        (Format-YurunaOperatorMessage -Key 'runner.operator_134f1bf954b9d352')
+        '========'
+    )) {
+        Write-Information $line -InformationAction Continue
+    }
     return $false
 }
 

@@ -218,6 +218,27 @@ Every `-interval` (default 30s) it:
    cannot persist); a host that does not answer keeps the last one, since the row
    already reports it unreachable. See
    [control-routes.md](../../../docs/control-routes.md#get-controlcontrol-status).
+5f. **Reports whether each host can take a remote refresh.** The same
+   `control-status` answer carries a small `refresh` object (protocol,
+   availability, ceiling rung, reason, whether the host holds a remote verifier
+   key, and its request state). The aggregator clamps every field to its
+   vocabulary and publishes it as the `refresh` object of each
+   `/api/v1/pool-status` host, next to the unchanged `control` string, stamped
+   with `observedUnixMs` and `ageSeconds`. Unlike `control`, the reading is
+   **never carried forward**: a host whose control-status fails to read (a
+   transport error, an error status, or an answer over the 4096-byte cap, which
+   is refused rather than truncated) reads `unavailable` with reason
+   `control_status_unreadable`; an answering host without the field reads
+   `not_advertised`; an unreachable host reads `host_unreachable`; and an
+   `available` reading older than `max(2 min, 3 x -interval)` reads
+   `observation_expired`. The last detail is kept for display only. `/metrics`
+   exports one bounded gauge,
+   `yuruna_pool_host_refresh_available{pool,hostId,hostIdDashed,state}` (1 or 0;
+   `state` is one of `idle`, `active`, `recovery_pending`, `unknown`), and
+   `yuruna_pool_host_info` gains no label. This service never mints, stores or
+   forwards a refresh proof and has no refresh route or MCP tool: remote refresh
+   is authorized only by pool-control's credential-gated per-host route. See
+   [pool-admin.md](../../../docs/pool-admin.md#remote-host-refresh).
 6. **Survives its own restart:** on startup it rehydrates the cycle counters (and
    the seen/counted dedup state) from Loki -- the durable transition record --
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
@@ -277,8 +298,8 @@ Every `-interval` (default 30s) it:
 The pool view is rendered by **Grafana** (`grafana-pool-dashboard.json`, uid
 `yuruna-pool`) over Prometheus + Loki: a six-tile summary row (**Lab token** -
 **Hosts total** - **Success%** - **Failed cycles** - **Total cycles** -
-**Addresses/day**), where **Total cycles** is the per-host table's Pass + Fail
-columns summed over the selected time range and **Success%** is
+**Addresses/day**), where **Total cycles** counts terminal cycles lab-wide,
+including hosts no longer in the live table, and **Success%** is
 `100 * Pass / (Pass + Fail)` over that same Loki transition log, to two
 decimals -- `n/a` when the range holds no terminal cycle, so an idle pool
 cannot read as healthy, and **Addresses/day** is the distinct client addresses
@@ -313,14 +334,14 @@ unaffected (graceful degradation).
 
 ## Files
 
-- `main.go` -- the collector. Stdlib only (a static binary, no Go toolchain at
+- `main.go` and `handover.go` -- the collector and its durable host-identity ledger. Stdlib only (a static binary, no Go toolchain at
   runtime), cross-platform (no host-specific syscalls; builds + vets on the
   Windows harness toolchain identically to the Linux target).
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
   carries `-auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h
-  -lab-token-rotate 60s`).
+  -lab-token-rotate 60s -handover-state-file /var/lib/pool-aggregator-service/handovers.json`).
 - `pool-aggregator-service.config.yml` / `pool-aggregator-service.contract.yml` -- the Yuruna
   extension area scaffolding (mirrors `caching-proxy-parser-service`).
 - `default.psm1` -- `Get-PoolAggregatorServiceManifest` (metadata; nothing runs on the
@@ -375,11 +396,13 @@ unaffected (graceful degradation).
 `-incident-window` (default `2h`) - `-cross-host-fails` (default `3`) -
 `-cross-host-window` (default `15m`) - `-host-ttl` (default `24h`) - `-announce-ttl` (default `45m`; `0`
 disables `POST /announce`) - `-auth-token-file` (file holding the shared
-internal authentication key that bearer-gates `/ingest` + `/api/v1/forget-host`; the unit
+internal authentication key that bearer-gates `/ingest` + `/api/v1/forget-host` + `/api/v1/handover-host` + `/api/v1/host-history`; the unit
 points it at `/etc/yuruna/internal-auth.key`) - `-lab-token-rotate` (default
 `60s`; `0` disables the Lab token tile and the `/api/v1/lab-token` exchange) -
 `-pool-archive-root` (empty; the pool share's `hosts/` directory on this
 machine -- empty leaves the `/archive` route unregistered) -
+`-handover-state-file` (empty disables handover; the provisioned unit stores
+the ledger in its systemd `StateDirectory`) -
 `-host-metrics-port` (default `9182`; the port each Windows host's metrics
 exporter listens on, as published in `/api/v1/prometheus-targets`) - `-tls-cert` /
 `-tls-key` (PEM paths; the listener is HTTPS when both name readable files,
@@ -405,6 +428,9 @@ the leaf is absent.
 | `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` -> `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}` -- redeems the dashboard's **Lab token** code for the internal authentication key, sealed under that code so only the redeemer can open it (called by `test/lab/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the internal authentication key (`-auth-token-file`). `503` when the proxy holds no key -- a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps -> gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll -- stop/drain it first. Called by `test/pool/Remove-PoolHost.ps1` |
+| `/api/v1/handover-host` | POST | Bearer | body `{oldHostId,newHostId}`. Requires an unreachable old ID and reachable new ID at the same status-service address. Persists the alias before removing the old live row; repeated requests for the same pair succeed. Fails if the ledger cannot be written, and refuses conflicting pairs. The old ID remains available in archived cycle paths and Loki records |
+| `/api/v1/host-aliases?hostId=<42-hex>` | GET | none | current canonical host ID and all historical IDs attached to it. The live host also carries `previousHostIds` in `/api/v1/pool-status` |
+| `/api/v1/host-history?hostId=<42-hex>&range=30d` | GET | Bearer | merged cycle, event, and incident lines for the current and retired IDs. `range` accepts `1h`, `24h`, `7d`, or `30d`; at most 1,000 newest lines are returned with their original host IDs and a `truncated` flag. Raw log bodies require the internal authentication key. The pool-control service exposes the same history to unlocked operators at `/api/hosts/history` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 | `/api/v1/pool-stats` | GET | none | per-**host** terminal-cycle counts over a preset window -- the numbers behind the pool-control board's cards. Per-host rather than per-pool because pool membership lives in the intent store this service never reads; the control service does the join. Read-only and open, like `pool-status` |
 | `/api/v1/host-announce` | POST | none (self-identity-bound) | host-presence beacon, the host-level counterpart to `/announce`. Same open, self-identity-bound posture, but the confirm is an identity check against the announced address's own `status.json` rather than a `/healthz` probe. Self-gates on `-announce-ttl` (503 when `0`) |

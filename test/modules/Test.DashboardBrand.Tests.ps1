@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.09.24',
+        [string]$Version = '2026.09.27',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -275,7 +275,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.24' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.27' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -284,7 +284,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.24`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.27`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -387,7 +387,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.09.24'
+        $version = '2026.09.27'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
@@ -514,13 +514,21 @@ Describe 'the panel autofit stacks below the banner' {
         $dir  = Get-DashboardFixture -Dashboard @{ 'pool' = $script:RealDashboards['pool'] }
         $pool = Join-Path $dir 'pool.json'
         Invoke-Brander -DashboardDir $dir | Out-Null
-        Invoke-Fitter -DashboardPath $pool | Out-Null
+        $fitOutput = Invoke-Fitter -DashboardPath $pool
+        Assert-Equal 0 $LASTEXITCODE $fitOutput
+        Assert-Match 'hosts=3' $fitOutput
 
         $doc   = Get-Content -Raw $pool | ConvertFrom-Json
         $brand = Get-BrandPanel -Dashboard $doc
         Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because 'the autofit must not move the banner'
         $clashes = @(Get-GridOverlap -Dashboard $doc)
         Assert-Equal -Expected 0 -Actual $clashes.Count -Because "the fitted dashboard overlaps: $($clashes -join '; ')"
+
+        foreach ($id in @(6, 7, 17)) {
+            $panel = @($doc.panels | Where-Object id -EQ $id)
+            Assert-Equal 1 $panel.Count 'the fitted panel exists'
+            Assert-Equal 6 $panel[0].gridPos.h "panel $id reflects three hosts"
+        }
 
         # The stack begins where the tiles end, wherever the banner has put them.
         $tiles = @($doc.panels | Where-Object { $_.type -eq 'stat' } |

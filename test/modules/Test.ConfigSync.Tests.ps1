@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -451,5 +451,46 @@ Describe 'ConvertTo-DocumentedConfigYaml' {
             Assert-Equal -Expected $r1 -Actual $r2 -Because 'the writer runs every cycle; it must converge'
             Assert-True ($r1 -match 'logLevel: Debug') 'operator value survived the round trip'
         }
+    }
+}
+
+Describe 'config preservation across documented reconciliation' {
+    It 'preserves secrets and parked fields when Update adds template fields, then converges' {
+        $d = New-TempDir
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            $tmpl = Join-Path $d 'template.yml'
+            [IO.File]::WriteAllText($tmpl, "# Operator settings`nnode:`n  value: default`n  added: true`n")
+            [IO.File]::WriteAllText($cfg, "node:`n  value: chosen`nsecrets:`n  apiKey: preserve-me`n")
+            $first = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
+            Assert-Equal 'preserve-me' $first.secrets.apiKey
+            $text = [IO.File]::ReadAllText($cfg)
+            Assert-Match '# Operator settings' $text
+            $obsolete = [ordered]@{ 'old.setting' = 'keep-value' }
+            $parked = ConvertTo-DocumentedConfigYaml -TemplateText ([IO.File]::ReadAllText($tmpl)) -Config $first -ObsoleteEntry $obsolete
+            [IO.File]::WriteAllText($cfg, $parked)
+            $stamp = (Get-Item $cfg).LastWriteTimeUtc
+            $second = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
+            Assert-Equal 'preserve-me' $second.secrets.apiKey
+            Assert-Equal $parked ([IO.File]::ReadAllText($cfg))
+            Assert-Equal $stamp (Get-Item $cfg).LastWriteTimeUtc 'unchanged documented content is not rewritten'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force }
+    }
+    It 'compares dictionaries independent of order and preserves case-sensitive changes' {
+        $a = [ordered]@{ z = 'Mixed'; a = 1 }
+        $b = [ordered]@{ a = 1; z = 'Mixed' }
+        $same = & (Get-Module Test.ConfigSync) { param($left,$right) Test-ConfigDiffersOutsideSecretNode $left $right } $a $b
+        Assert-False $same
+        $b.z = 'mixed'
+        $different = & (Get-Module Test.ConfigSync) { param($left,$right) Test-ConfigDiffersOutsideSecretNode $left $right } $a $b
+        Assert-True $different
+    }
+    It 'redacts credential leaves inside dictionaries and arrays without changing ordinary settings' {
+        $cfg = [ordered]@{ repositories = @{ ghToken = 'private-token'; frameworkUrl = 'https://example.test/repo' }; nested = @(@{ password = 'private-password'; apiKey = 'private-key' }); secrets = @{ secret = 'private-secret' } }
+        Hide-SecretsInConfig $cfg
+        $json = $cfg | ConvertTo-Json -Depth 10
+        Assert-False ($json -match 'private-(token|password|key|secret)')
+        Assert-Equal 'https://example.test/repo' $cfg.repositories.frameworkUrl
+        Assert-Equal 0 $cfg.secrets.Count
     }
 }

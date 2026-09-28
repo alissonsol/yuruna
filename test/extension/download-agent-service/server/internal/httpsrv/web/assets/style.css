@@ -235,11 +235,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   Logical properties would express this in one declaration, but they are
-   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
-   the offset silently disappears. So each physical side is restated here for
-   the direction the page actually has. Only the sides are mirrored: sizes,
-   colors and the tick glyph are the same in both directions.
+   The chrome states each physical side and restates it here for the
+   direction the page actually has. Logical properties would say it once, and
+   the Safari 16 floor has them, but the block is compared byte for byte
+   across the stylesheets that carry it, so switching it means changing every
+   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
+   are the same in both directions.
 
    These rules live inside the chrome block because the chrome is shared. Every
    stylesheet carrying the block carries them byte for byte, which the chrome
@@ -272,7 +273,7 @@ main {
 }
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th, td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 /* Scoped to thead: the body now carries a <th scope="row"> per row so the
    image key names its own row, and that cell is data, not a column heading --
    it must not inherit the uppercase muted treatment. */
@@ -286,7 +287,7 @@ tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--li
    embeds its own stylesheet (//go:embed cannot reach outside its module), so
    the two copies must move together. */
 th.rownum, td.rownum {
-  width: 1%; text-align: right; white-space: nowrap;
+  width: 1%; text-align: end; white-space: nowrap;
   color: var(--muted); font-variant-numeric: tabular-nums;
 }
 /* Banded rows. The image table is wide enough that the eye loses its row
@@ -302,9 +303,9 @@ tbody tr:nth-child(odd) { background: var(--band-odd); }
 tbody tr:nth-child(even) { background: var(--band-even); }
 /* A sortable header is a real button wearing the header's own typography, so
    the column still reads as a label while being reachable by keyboard. */
-th button.th-sort { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; border: 0; border-radius: 0; padding: 0; cursor: pointer; text-align: left; }
+th button.th-sort { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; border: 0; border-radius: 0; padding: 0; cursor: pointer; text-align: start; }
 th button.th-sort:hover { color: var(--fg); background: none; }
-.sort-arrow { margin-left: .25rem; }
+.sort-arrow { margin-inline-start: .25rem; }
 button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
 button:hover { background: var(--btn-hover); }
 button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); border-color: var(--accent-fill); }
@@ -312,7 +313,7 @@ button.danger { color: var(--err); }
 button:disabled { opacity: .5; cursor: default; }
 input { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-.row > * + * { margin-left: .5rem; }
+.row > * + * { margin-inline-start: .5rem; }
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
@@ -352,7 +353,7 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
    rather than as three interface elements. */
 .hint { color: var(--warn); font-size: .8rem; word-break: break-word; }
 .hint a { color: inherit; }
-.actions button { margin: 0 .25rem .25rem 0; }
+.actions button { margin-block: 0 .25rem; margin-inline: 0 .25rem; }
 
 /* Horizontal-scroll container, the same idiom the stash UI uses. The wrapper
    scrolls -- never the <table> itself: `display: block` on a table drops the

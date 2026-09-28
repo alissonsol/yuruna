@@ -9,6 +9,7 @@ intent store -- plus the sample intent files under [`examples/`](examples/).
 | `Remove-Pool.ps1` | delete one |
 | `Add-HostToPool.ps1` | add a host to a pool's members |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members |
+| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one pool-intent commit |
 | `Remove-PoolHost.ps1` | purge a stale host: delete its NAS records and strip ALL memberships |
 | `Set-PoolTestSet.ps1` | assign the pool's one test-set (framework + project repo pair); replaces any previous one |
 | `Set-PoolTestSetDefinition.ps1` | upsert or delete a library test-set |

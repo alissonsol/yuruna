@@ -3,6 +3,18 @@
   "domain": "automation",
   "locale": "en-US",
   "messages": {
+    "automation.host_setup_module_install_skipped": {
+      "message": "{module} is not installed, and this run may not install modules. Install it with: Install-Module {module} -Scope CurrentUser",
+      "description": "Write-Warning in automation/Yuruna.HostSetup.psm1 (Initialize-HostSetupModule -SkipModuleInstall) for each PSGallery module that is missing; preserve the Install-Module command line and the module name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "module": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "powershell-yaml"
+        }
+      }
+    },
     "automation.memory_plan": {
       "description": "Complete service-memory report wording; preserve configuration identifiers and resolve count grammar from the typed count.",
       "lifecycle": "active",
@@ -7260,6 +7272,45 @@
           "type": "detail",
           "trust": "external",
           "example": "$sourceContext"
+        }
+      }
+    },
+    "automation.setup_service_vm_reason_intended_stopped": {
+      "message": "it was stopped on purpose; rebuilding because setup was asked to bring it up",
+      "description": "Reason clause in install/setup.ps1 (Test-ServiceVMAdoptable) when the service was stopped by an explicit Stop request and setup rebuilds it; shown inside a sentence, keep it lowercase.",
+      "lifecycle": "active"
+    },
+    "automation.setup_service_vm_reason_lock_unavailable": {
+      "message": "its operation lock could not be taken",
+      "description": "Reason clause in install/setup.ps1 (Test-ServiceVMAdoptable) when the service's operation lock cannot be taken for a reason other than another holder, so setup preserves the VM; shown inside a sentence, keep it lowercase.",
+      "lifecycle": "active"
+    },
+    "automation.setup_service_vm_reason_operation_busy": {
+      "message": "another start or stop of this service is still running",
+      "description": "Reason clause in install/setup.ps1 (Test-ServiceVMAdoptable) when another start or stop script holds the service operation lock, so setup preserves the VM; shown inside a sentence, keep it lowercase.",
+      "lifecycle": "active"
+    },
+    "automation.setup_service_vm_reason_state_unknown": {
+      "message": "its VM state could not be confirmed ({reason})",
+      "description": "Reason clause in install/setup.ps1 (Test-ServiceVMAdoptable) when the service VM state could not be confirmed, so setup preserves it; reason is the probe reason code token; shown after the service name and inside a sentence, keep it lowercase.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "timeout"
+        }
+      }
+    },
+    "automation.system_diagnostic_utmctl_list_incomplete": {
+      "message": "  utmctl list did not return a complete answer within {seconds} seconds; the listing above may be incomplete (UTM may not be answering Apple Events).",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (macOS tool section) when the bounded utmctl list call did not return a complete answer: it timed out, could not be started, its output could not be read to the end or was cut at the capture cap, or it could not be stopped. Keep the command name utmctl and the term Apple Events.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "20"
         }
       }
     }

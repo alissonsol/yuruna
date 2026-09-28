@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -470,13 +470,25 @@ function Get-SnippetMap {
     #>
     param([Parameter(Mandatory)][string]$SequencePath)
 
-    $norm    = ($SequencePath -replace '\\', '/')
     $modeDir = Split-Path -Parent $SequencePath
-    # Locate the repo root from the flat sequence path: framework paths look
-    # like test/sequences/<file>, project paths like project/<...>/test/<file>.
+    # Walk directory boundaries rather than matching a directory name inside
+    # an absolute path: a checkout itself may have an ancestor named project.
     $repoRoot = $null
-    if     ($norm -match '(?i)/project/.+/test/[^/]+$') { $repoRoot = ($norm -replace '(?i)/project/.+$', '') }
-    elseif ($norm -match '(?i)/test/sequences/[^/]+$')  { $repoRoot = ($norm -replace '(?i)/test/sequences/[^/]+$', '') }
+    $projectRootCandidate = $null
+    $candidate = $modeDir
+    while ($candidate) {
+        if (Test-Path -LiteralPath (Join-Path $candidate 'test/sequences') -PathType Container) {
+            $repoRoot = $candidate
+            break
+        }
+        $parent = Split-Path -Parent $candidate
+        # Standalone project-only fixtures may omit the framework directory.
+        # Keep this as a fallback; a real framework marker above it wins.
+        if (-not $projectRootCandidate -and (Split-Path -Leaf $candidate) -eq 'project') { $projectRootCandidate = $parent }
+        if ($parent -eq $candidate) { break }
+        $candidate = $parent
+    }
+    if (-not $repoRoot) { $repoRoot = $projectRootCandidate }
 
     $frameworkLibs = New-Object System.Collections.Generic.List[string]
     $projectLibs   = New-Object System.Collections.Generic.List[string]

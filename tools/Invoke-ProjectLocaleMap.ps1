@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d9c4d7-98cf-45ca-b32b-026a805da91a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna globalization project locale map source hash reviewer
+.TAGS yuruna globalization project locale map source hash
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -27,24 +27,26 @@
     scalar hash recorded by path, field path and locale.
 
     A source edit cannot bless its own translation. The only write mode is
-    -AcceptReviewedTranslation, which requires an exact path/field/locale,
-    reviewer and review date and advances only that sidecar row.
+    -AcceptTranslation, which requires an exact path/field/locale and
+    advances only that sidecar row. An accepted row carries no origin; with
+    -Machine the row is recorded as a machine draft ("origin": "machine").
 .PARAMETER ProjectRoot
     Project checkout or staged public project tree.
-.PARAMETER AcceptReviewedTranslation
+.PARAMETER AcceptTranslation
     Explicitly accept one translation against its current English scalar.
+.PARAMETER Machine
+    With -AcceptTranslation, record the row as a machine draft.
 .PARAMETER PseudoFixturePath
     Write a deterministic test-only fixture whose qps-Ploc and qps-Plocm map
     values are derived from the current official English scalars. The fixture
     is written only after the maps and source-hash sidecar pass validation; it
-    never copies or promotes an unreviewed translation.
+    never copies or promotes a project translation.
 .EXAMPLE
     pwsh tools/Invoke-ProjectLocaleMap.ps1 -ProjectRoot ../yuruna-project -Quiet
 .EXAMPLE
     pwsh tools/Invoke-ProjectLocaleMap.ps1 -ProjectRoot ../yuruna-project
-      -AcceptReviewedTranslation -ProjectPath test/test.runner.yml
+      -AcceptTranslation -ProjectPath test/test.runner.yml
       -FieldPath /testSets/name=smoke/displayName -Locale pt-BR
-      -Reviewer 'Reviewer name' -ReviewedAt 2026-09-03
 #>
 
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Check')]
@@ -53,12 +55,11 @@ param(
     [string]$SidecarPath,
     [switch]$Quiet,
     [Parameter(ParameterSetName = 'Check')][string]$PseudoFixturePath,
-    [Parameter(Mandatory, ParameterSetName = 'Accept')][switch]$AcceptReviewedTranslation,
+    [Parameter(Mandatory, ParameterSetName = 'Accept')][switch]$AcceptTranslation,
     [Parameter(Mandatory, ParameterSetName = 'Accept')][string]$ProjectPath,
     [Parameter(Mandatory, ParameterSetName = 'Accept')][string]$FieldPath,
     [Parameter(Mandatory, ParameterSetName = 'Accept')][string]$Locale,
-    [Parameter(Mandatory, ParameterSetName = 'Accept')][string]$Reviewer,
-    [Parameter(Mandatory, ParameterSetName = 'Accept')][ValidatePattern('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')][string]$ReviewedAt
+    [Parameter(ParameterSetName = 'Accept')][switch]$Machine
 )
 
 $ErrorActionPreference = 'Stop'
@@ -356,6 +357,7 @@ foreach ($relative in $yamlFiles) {
 $sidecar = $null
 $acceptedSidecarJson = ''
 $acceptedIdentity = ''
+$acceptedRow = $null
 if (-not (Test-Path -LiteralPath $SidecarPath -PathType Leaf)) {
     if ($script:Expected.Count -gt 0) {
         Add-MapFinding "required source-hash sidecar is missing: $SidecarPath"
@@ -378,7 +380,7 @@ if (-not (Test-Path -LiteralPath $SidecarPath -PathType Leaf)) {
     }
 }
 
-if ($AcceptReviewedTranslation) {
+if ($AcceptTranslation) {
     $ProjectPath = $ProjectPath -replace '\\', '/'
     $canonicalLocale = ConvertTo-CanonicalProjectTag -Tag $Locale
     if ($canonicalLocale -cne $Locale) {
@@ -388,24 +390,26 @@ if ($AcceptReviewedTranslation) {
     if (-not $script:Expected.Contains($identity)) {
         Add-MapFinding "no project translation has identity $identity"
     } elseif (-not $sidecar) {
-        Add-MapFinding 'the sidecar could not be read, so no review can be accepted'
-    } elseif ($Reviewer.Trim().Length -eq 0) {
-        Add-MapFinding 'a reviewer name is required'
+        Add-MapFinding 'the sidecar could not be read, so no translation can be accepted'
     } else {
+        # The row is spelled the way the map spells it, and matched ordinally,
+        # because the writer matches ordinally too: a lookup that folded case
+        # here would validate a replacement the writer then appends as a second
+        # row.
+        $expectedRow = $script:Expected[$identity]
+        $identity = "$($expectedRow.path)|$($expectedRow.fieldPath)|$($expectedRow.locale)"
         $replacement = [ordered]@{
-            path = $ProjectPath
-            fieldPath = $FieldPath
-            locale = $canonicalLocale
-            sourceHash = $script:Expected[$identity].sourceHash
-            reviewStatus = 'reviewed'
-            reviewer = $Reviewer.Trim()
-            reviewedAt = $ReviewedAt
+            path = [string]$expectedRow.path
+            fieldPath = [string]$expectedRow.fieldPath
+            locale = [string]$expectedRow.locale
+            sourceHash = $expectedRow.sourceHash
         }
+        if ($Machine) { $replacement['origin'] = 'machine' }
         $newEntries = [Collections.Generic.List[object]]::new()
         $replaced = $false
         foreach ($entry in @($sidecar.entries)) {
             $entryIdentity = "$($entry.path)|$($entry.fieldPath)|$($entry.locale)"
-            if ($entryIdentity -eq $identity) {
+            if ($entryIdentity -ceq $identity) {
                 $newEntries.Add($replacement)
                 $replaced = $true
             } else { $newEntries.Add($entry) }
@@ -426,6 +430,7 @@ if ($AcceptReviewedTranslation) {
             # sibling. A failed acceptance must leave the authority bytes alone.
             $acceptedSidecarJson = $json
             $acceptedIdentity = $identity
+            $acceptedRow = $replacement
         }
     }
 }
@@ -459,10 +464,13 @@ if ($acceptedSidecarJson -and $script:Finding.Count -eq 0 -and
     $PSCmdlet.ShouldProcess($acceptedIdentity, 'accept translation against current English scalar')) {
     $parent = Split-Path -Parent $SidecarPath
     if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-    $temp = "$SidecarPath.tmp"
-    [IO.File]::WriteAllText($temp, $acceptedSidecarJson, [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $SidecarPath -Force
-    if (-not $Quiet) { Write-Output "ACCEPTED $acceptedIdentity" }
+    # The sidecar row writer is shared with the localization exchange, so every
+    # writer of a project row produces the same bytes. Imported only here: the
+    # read-only check runs in trees that carry this tool without the module.
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.LocalizationExchange.psm1') -Force -Global -DisableNameChecking
+    Set-ProjectSidecarRow -SidecarPath $SidecarPath -Path $acceptedRow.path -FieldPath $acceptedRow.fieldPath `
+        -Locale $acceptedRow.locale -SourceHash $acceptedRow.sourceHash -Machine:$Machine
+    if (-not $Quiet) { Write-Output ("ACCEPTED $acceptedIdentity" + $(if ($Machine) { ' as a machine draft' } else { '' })) }
 }
 
 if ($PseudoFixturePath -and $script:Finding.Count -eq 0) {

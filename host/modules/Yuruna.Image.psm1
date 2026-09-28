@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -964,13 +964,12 @@ function Save-UbuntuExtensionImage {
                     "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
                 ) -join [Environment]::NewLine
                 Write-Information $msg -InformationAction Continue
-                Write-Output $msg
                 return $true
             } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
                 $agentServed       = $true
                 $agentSourceUrl    = [string]$agentResult.sourceUrl
                 $agentLastModified = [string]$agentResult.lastModified
-                Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" })
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_1050eecd3dbb16e4' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; downloadFile = "$downloadFile" }) -InformationAction Continue
             } elseif ($agentResult) {
                 $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eacd62147f05f2a6' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; outcome = "$($agentResult.outcome)"; detail = "$detail" })
@@ -992,7 +991,6 @@ function Save-UbuntuExtensionImage {
                 "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
             ) -join [Environment]::NewLine
             Write-Information $msg -InformationAction Continue
-            Write-Output $msg
             return $true
         }
 
@@ -1048,7 +1046,7 @@ function Save-UbuntuExtensionImage {
     Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $Image.BaseImageFile) {
         Move-Item -LiteralPath $Image.BaseImageFile -Destination $previousFile
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" }) -InformationAction Continue
     }
     Move-Item -LiteralPath $stagedFile -Destination $Image.BaseImageFile
 
@@ -1063,8 +1061,8 @@ function Save-UbuntuExtensionImage {
     } else {
         Write-ImageSentinel -SourceUrl $Image.SourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -Confirm:$false
     }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e3b5217631d5fe3a' -Arguments @{ originFile = "$($Image.OriginFile)" })
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_792874fab1f72f85' -Arguments @{ baseImageFile = "$($Image.BaseImageFile)" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e3b5217631d5fe3a' -Arguments @{ originFile = "$($Image.OriginFile)" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_792874fab1f72f85' -Arguments @{ baseImageFile = "$($Image.BaseImageFile)" }) -InformationAction Continue
     return $true
 }
 
@@ -1092,7 +1090,7 @@ function Expand-ExtensionVmDisk {
         [ValidateSet('qcow2', 'vhdx')][string]$Format = 'qcow2'
     )
     $sizeGb = [math]::Round($SizeBytes / 1GB)
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44c647cd2746b1f3' -Arguments @{ format = "$Format"; sizeGb = "${sizeGb}" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_44c647cd2746b1f3' -Arguments @{ format = "$Format"; sizeGb = "${sizeGb}" }) -InformationAction Continue
     if ($Format -eq 'vhdx') {
         # Copying a VHDX can carry the NTFS sparse attribute along, and
         # Resize-VHD refuses a sparse file with 0xC03A001A.
@@ -1120,6 +1118,7 @@ function Expand-ExtensionVmDisk {
     }
     return $true
 }
+
 
 function Assert-YurunaBaseImage {
     <#
@@ -1185,7 +1184,7 @@ function Assert-YurunaBaseImage {
     if (Test-Path -LiteralPath $getImageScript) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_0a493b2ca3956f0e' -Arguments @{ artifactLabel = "$ArtifactLabel"; join = "$($missing -join ', ')" }) -InformationAction Continue
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_89de245b64be3673' -Arguments @{ getImageScript = "$getImageScript" }) -InformationAction Continue
-        & pwsh -NoProfile -File $getImageScript
+        & pwsh -NoProfile -File $getImageScript | Out-Host
         $getImageExit = $LASTEXITCODE
         if ($getImageExit -ne 0) {
             Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5d14282cecc17295' -Arguments @{ getImageExit = "$getImageExit" })

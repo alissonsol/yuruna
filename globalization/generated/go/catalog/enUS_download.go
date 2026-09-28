@@ -562,7 +562,6 @@ const DataenUSdownload = `{
   "download.unavailable": "unavailable",
   "download.unlock_actions": "Unlock actions",
   "download.unlock_actions_first_enter_the_lab_token_above": "Unlock actions first -- enter the Lab token above.",
-  "download.v": "v",
   "download.value1_failed_for_value2_value3": [
     {
       "arg": "value1",

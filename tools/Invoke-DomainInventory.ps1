@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,42 +193,112 @@ function Get-ScannedStringLiteral {
         it, and a backslash escapes the next character, so an apostrophe in a
         double-quoted string -- or in a comment -- cannot shift everything after
         it by one literal. Line comments are skipped for the same reason.
+
+        An escape that names a character by its code -- backslash-u with four
+        hex digits or a braced code point, backslash-U with eight, backslash-x
+        with two -- decodes to that character when it is visible. The
+        generated locale bundles spell every accented letter that way, and
+        keeping the digits would record text like "N 00e3o" in every manifest
+        built from this scan. Any other escape stands for one space, which is
+        all the prose test needs: a newline, a tab, an escaped quote, a control
+        character, and an invisible format character such as the bidi override
+        of the mirrored pseudo-locale, which a manifest must not carry because
+        an unclosed one leaks direction into whatever renders after it.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
     param([Parameter(Mandatory)][string]$Text, [switch]$BacktickRaw)
 
-    $out = [Collections.Generic.List[string]]::new()
-    $i = 0
-    $n = $Text.Length
-    while ($i -lt $n) {
-        $c = $Text[$i]
-        if ($c -eq '/' -and ($i + 1) -lt $n -and $Text[$i + 1] -eq '/') {
-            while ($i -lt $n -and $Text[$i] -ne "`n") { $i++ }
-            continue
-        }
-        if ($c -eq '/' -and ($i + 1) -lt $n -and $Text[$i + 1] -eq '*') {
-            $i += 2
-            while (($i + 1) -lt $n -and -not ($Text[$i] -eq '*' -and $Text[$i + 1] -eq '/')) { $i++ }
-            $i += 2
-            continue
-        }
-        if ($c -eq '"' -or $c -eq "'" -or ($BacktickRaw -and $c -eq '`')) {
-            $quote = $c
-            $i++
-            $sb = [Text.StringBuilder]::new()
-            while ($i -lt $n -and $Text[$i] -ne $quote) {
-                if ($Text[$i] -eq '\' -and $quote -ne '`' -and ($i + 1) -lt $n) { $i += 2; [void]$sb.Append(' '); continue }
-                [void]$sb.Append($Text[$i])
-                $i++
+    if (-not ('Yuruna.DomainLiteralScanner' -as [type])) {
+        # Embedded catalogs contain megabytes of escaped source. Keep the scan
+        # in native code so its cost is proportional to the source length.
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace Yuruna {
+    public static class DomainLiteralScanner {
+        private static readonly Regex Numeric = new Regex(
+            @"\G\\(?:u\{([0-9A-Fa-f]{1,6})\}|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|x([0-9A-Fa-f]{2}))");
+
+        public static string[] Scan(string text, bool backtickRaw) {
+            var output = new List<string>();
+            int i = 0, n = text.Length;
+            while (i < n) {
+                char c = text[i];
+                if (c == '/' && i + 1 < n && text[i + 1] == '/') {
+                    int end = text.IndexOf('\n', i + 2);
+                    i = end < 0 ? n : end;
+                    continue;
+                }
+                if (c == '/' && i + 1 < n && text[i + 1] == '*') {
+                    int end = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = end < 0 ? n : end + 2;
+                    continue;
+                }
+                if (c != (char)34 && c != (char)39 && !(backtickRaw && c == (char)96)) {
+                    i++;
+                    continue;
+                }
+                char quote = c;
+                i++;
+                var value = new StringBuilder();
+                var boundaries = new[] { quote, (char)92 };
+                while (i < n && text[i] != quote) {
+                    int next = quote == (char)96 ? text.IndexOf(quote, i) : text.IndexOfAny(boundaries, i);
+                    if (next < 0) next = n;
+                    if (next > i) {
+                        value.Append(text, i, next - i);
+                        i = next;
+                        continue;
+                    }
+                    if (text[i] == (char)92 && quote != (char)96 && i + 1 < n) {
+                        string decoded = " ";
+                        Match escape = null;
+                        char kind = text[i + 1];
+                        if (kind == 'u' || kind == 'U' || kind == 'x') {
+                            // Ten code units cover the longest supported escape.
+                            escape = Numeric.Match(text.Substring(i, Math.Min(10, n - i)));
+                        }
+                        if (escape != null && escape.Success) {
+                            long code = Convert.ToInt64(escape.Groups[1].Value + escape.Groups[2].Value +
+                                escape.Groups[3].Value + escape.Groups[4].Value, 16);
+                            string character;
+                            if (escape.Groups[2].Success || escape.Groups[4].Success) {
+                                character = ((char)code).ToString();
+                            } else if (code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF)) {
+                                character = Char.ConvertFromUtf32((int)code);
+                            } else {
+                                character = "";
+                            }
+                            UnicodeCategory category = character.Length == 0 ? UnicodeCategory.Control :
+                                Char.GetUnicodeCategory(character, 0);
+                            if (category != UnicodeCategory.Control && category != UnicodeCategory.Format &&
+                                category != UnicodeCategory.LineSeparator && category != UnicodeCategory.ParagraphSeparator) {
+                                decoded = character;
+                            }
+                            i += escape.Length;
+                        } else {
+                            i += 2;
+                        }
+                        value.Append(decoded);
+                        continue;
+                    }
+                    value.Append(text[i++]);
+                }
+                i++;
+                output.Add(value.ToString());
             }
-            $i++
-            $out.Add($sb.ToString())
-            continue
+            return output.ToArray();
         }
-        $i++
     }
-    return $out.ToArray()
+}
+'@
+    }
+    return [Yuruna.DomainLiteralScanner]::Scan($Text, [bool]$BacktickRaw)
 }
 
 function Test-IsSentenceFragment {
@@ -364,8 +434,21 @@ function Get-ProjectConfigCount {
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
         Import-Module powershell-yaml -ErrorAction Stop -Verbose:$false
     }
+    # The project is its own repository. A commit hook running in the
+    # framework exports that repository's index (and, in a linked worktree,
+    # its git directory), which git would otherwise read here.
+    # Removed rather than set to $null: PowerShell passes $null to the .NET
+    # setter as an empty string, and git reads an empty GIT_DIR as a path.
+    $gitEnvironment = @{}
+    foreach ($name in 'GIT_INDEX_FILE', 'GIT_DIR', 'GIT_WORK_TREE') {
+        $gitEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
     Push-Location $ProjectRoot
-    try { $tracked = @(& git ls-files --cached --others --exclude-standard -- '*.yml' '*.yaml') } finally { Pop-Location }
+    try { $tracked = @(& git ls-files --cached --others --exclude-standard -- '*.yml' '*.yaml') } finally {
+        Pop-Location
+        foreach ($name in $gitEnvironment.Keys) { if ($null -ne $gitEnvironment[$name]) { Set-Item -LiteralPath "Env:$name" -Value $gitEnvironment[$name] } }
+    }
     if ($LASTEXITCODE -ne 0) { throw "git could not enumerate YAML in $ProjectRoot" }
     $tracked = @($tracked | Sort-Object -Unique)
 

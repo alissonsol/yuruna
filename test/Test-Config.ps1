@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,10 @@ param(
     [switch]$ApplyConfigMigration,
     [switch]$ExpectStorageConfigured
 )
+
+# A Windows console code page prints Chinese and Hebrew catalog text as
+# question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
+if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
 
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $TestRoot = $PSScriptRoot
@@ -637,7 +641,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -
     }
 
     foreach ($grantState in Get-MacOperatorGrantState) {
-        $compactFix = (Get-MacOperatorGrantInstruction -Grant $grantState.Grant -Compact)[0]
+        $compactFix = @(Get-MacOperatorGrantInstruction -Grant $grantState.Grant -Compact)[0]
         switch ($grantState.State) {
             'granted' {
                 Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_f1955d86617ebb46' -Arguments @{ title = "$($grantState.Title)"; grantSubject = "$grantSubject" })
@@ -1068,9 +1072,36 @@ if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycl
 }
 
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("autoRefreshAfterStalls")) {
-    $arasVal = [int]$Config.testCycle.autoRefreshAfterStalls
-    if ($arasVal -ge 0) { Write-Pass "'testCycle.autoRefreshAfterStalls' = $arasVal" }
-    else                { Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_fffaa1debcc46863' -Arguments @{ arasVal = "$arasVal" }) }
+    # TryParse, not an [int] cast: a cast throws on a non-number and ends the
+    # whole check over one knob, while the runner reads the same value as 0
+    # and keeps cycling -- so this reports what the runner will do instead.
+    $arasRaw = $Config.testCycle.autoRefreshAfterStalls
+    $arasVal = 0
+    if (-not [int]::TryParse("$arasRaw".Trim(), [System.Globalization.NumberStyles]::Integer, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$arasVal)) {
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_value_not_integer' -Arguments @{ value = "$arasRaw" })
+    } elseif ($arasVal -lt 0) {
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_fffaa1debcc46863' -Arguments @{ arasVal = "$arasVal" })
+    } else {
+        Write-Pass "'testCycle.autoRefreshAfterStalls' = $arasVal"
+        if ($arasVal -eq 1) {
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_threshold_raised')
+        }
+        # The knob is honored only where automatic repair has been qualified
+        # on real hardware; elsewhere the runner counts the evidence and says
+        # why it does not act, and this check says so up front.
+        $triggerModule = Join-Path $ModulesDir 'Test.HostRefreshTrigger.psm1'
+        if ($arasVal -gt 0 -and $HostType -and (Test-Path -LiteralPath $triggerModule)) {
+            try {
+                Import-Module -Name $triggerModule -Global -Force -DisableNameChecking -ErrorAction Stop
+                $arasSupport = Get-HostRefreshAutoTriggerSupport -HostType $HostType
+                if (-not $arasSupport.Available) {
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_unavailable_on_host' -Arguments @{ value = "$arasVal"; reason = "$($arasSupport.Reason)" })
+                }
+            } catch {
+                Write-Verbose "autoRefreshAfterStalls availability check skipped: $($_.Exception.Message)"
+            }
+        }
+    }
 } else {
     Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_677303e3823afe8d')
 }
@@ -1518,7 +1549,7 @@ function Invoke-PoolStorageVaultCredentialOffer {
         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_c3ac8715e2a04f7c')
         return $false
     }
-    if ($plain -ne $confirm) {
+    if ($plain -cne $confirm) {
         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_8d6716d9de6b4e1f')
         return $false
     }
@@ -2144,7 +2175,7 @@ Add subscribers under subscribers.config.smoke in
 test/status/extension/notification/transports.yml to receive these.
 With no subscribers, this run is a verbose no-op (which is fine).
 
-Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
+Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", [Globalization.CultureInfo]::InvariantCulture)) UTC
 "@
 
         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_6c8b0e098ab8cc27')

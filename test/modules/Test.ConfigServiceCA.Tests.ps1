@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42845e56-1775-4a56-8dcc-254ef57bcd50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@ $here = Split-Path -Parent $PSCommandPath
 # The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
 # variable. Both are load-bearing -- see the doc before changing either.
 $CaTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-configca-$PID"
+$script:PreviousRuntimeDir = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
 $env:YURUNA_RUNTIME_DIR = $CaTestRuntime
 Remove-Item -LiteralPath $CaTestRuntime -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $CaTestRuntime | Out-Null
@@ -52,6 +53,7 @@ Describe 'Test.ConfigServiceCA' {
     # the file's own variables; the name check keeps this off a real runtime dir.
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
+        [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $script:PreviousRuntimeDir, 'Process')
         if ($dir -and (Split-Path -Leaf $dir) -like 'yrn-configca-*') {
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }

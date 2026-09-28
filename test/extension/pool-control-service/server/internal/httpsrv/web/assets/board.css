@@ -34,7 +34,7 @@
   border: 1px solid var(--line, #d0d7de); background: transparent;
   font-size: 1rem; cursor: pointer;
 }
-.periods button + button { margin-left: 0.5rem; }
+.periods button + button { margin-inline-start: 0.5rem; }
 .periods button.on { background: var(--accent-fill, #1d4ed8); color: var(--accent-fill-fg, #fff); border-color: var(--accent-fill, #1d4ed8); font-weight: 700; }
 
 .stats-banner {
@@ -61,7 +61,7 @@
 
 .counts { display: flex; text-align: center; margin-bottom: 0.9rem; }
 .counts div { flex: 1 1 0; }
-.counts div + div { margin-left: 0.75rem; }
+.counts div + div { margin-inline-start: 0.75rem; }
 .counts .n { display: block; font-size: 1.25rem; font-weight: 600; }
 .counts .k { font-size: 0.8rem; opacity: 0.7; }
 
@@ -83,13 +83,13 @@
 /* `display:flex` here would beat the user-agent `[hidden] { display: none }`,
    which is why style.css carries the `!important` [hidden] guard: without it
    this full-viewport overlay renders on load and swallows every tap. */
-.sheet { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
+.sheet { position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
 .sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
 .sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
 .sheet-box p { margin: 0 0 1.1rem; line-height: 1.45; }
 .sheet-actions { display: flex; }
 .sheet-actions button { flex: 1 1 0; min-height: 46px; font-size: 1rem; border-radius: 10px; cursor: pointer; }
-.sheet-actions button + button { margin-left: 0.75rem; }
+.sheet-actions button + button { margin-inline-start: 0.75rem; }
 .sheet-actions .ghost { background: transparent; border: 1px solid var(--line, #d0d7de); color: inherit; }
 
 @media (min-width: 46rem) {
@@ -132,13 +132,3 @@
   .hero.warn .pct { color: #fcd34d; }
   .hero.bad  .pct { color: #fca5a5; }
 }
-
-/* --------------------------------------------------------------------------
-   Right-to-left mirror. Logical properties would say this once, but they are
-   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
-   offset silently disappears -- so each side is restated for the direction the
-   page has. Sides only: sizes and colors are the same either way.
-   -------------------------------------------------------------------------- */
-[dir="rtl"] .periods button + button { margin-left: 0; margin-right: 0.5rem; }
-[dir="rtl"] .counts div + div { margin-left: 0; margin-right: 0.75rem; }
-[dir="rtl"] .sheet-actions button + button { margin-left: 0; margin-right: 0.75rem; }

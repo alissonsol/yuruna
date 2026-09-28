@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultManifest is the world the shipped binaries resolve in, built from the
@@ -76,6 +77,19 @@ func PluralCategory(count float64, tag string, m *Manifest) (string, error) {
 		}
 		if absolute > 0 && math.Mod(absolute, 1000000) == 0 {
 			return "many", nil
+		}
+		return "other", nil
+	case "zh-cardinal-cldr46":
+		return "other", nil
+	case "he-cardinal-cldr46":
+		absolute := math.Abs(count)
+		integer := math.Floor(absolute)
+		hasFraction := absolute != integer
+		if (integer == 1 && !hasFraction) || (integer == 0 && hasFraction) {
+			return "one", nil
+		}
+		if integer == 2 && !hasFraction {
+			return "two", nil
 		}
 		return "other", nil
 	default:
@@ -158,6 +172,35 @@ func FormatDuration(seconds float64) string {
 // than a pre-formatted string: a caller that formatted its own number would
 // bake one locale's separators into every locale's output.
 func FormatArgument(value any, argType, tag string, m *Manifest) string {
+	text := formatArgumentText(value, argType, tag, m)
+	// In a right-to-left locale every argument is isolated, so the bidi
+	// algorithm cannot reorder a number or an external string into the
+	// sentence around it. A number, duration or timestamp reads left to right
+	// (LRI); an external string decides its own direction (FSI). An empty
+	// argument stays empty: an isolate around nothing is two invisible
+	// characters a reader cannot delete. The PowerShell catalog and the
+	// browser kernel write the same bytes.
+	// A value the caller isolated already opens with an isolate and ends
+	// with its close; a second pair would only nest.
+	if m.dataFor(tag).Direction != "rtl" || text == "" || isIsolated(text) {
+		return text
+	}
+	open := "\u2068"
+	switch argType {
+	case "integer", "decimal", "duration", "datetime":
+		open = "\u2066"
+	}
+	return open + text + "\u2069"
+}
+
+// isIsolated reports whether text opens with LRI, RLI or FSI and ends with
+// PDI, the shape a caller's own isolation leaves.
+func isIsolated(text string) bool {
+	first, _ := utf8.DecodeRuneInString(text)
+	return first >= 0x2066 && first <= 0x2068 && strings.HasSuffix(text, "\u2069")
+}
+
+func formatArgumentText(value any, argType, tag string, m *Manifest) string {
 	if value == nil {
 		return ""
 	}

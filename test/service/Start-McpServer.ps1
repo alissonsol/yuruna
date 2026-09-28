@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,21 +210,34 @@ function Invoke-McpEntryPoint {
         # travels without changing any entry point's argument vector -- and an
         # entry point that writes no transcript simply ignores it.
         $env:YURUNA_TRANSCRIPT_PATH = $transcriptFile
-        $proc = Start-Process -FilePath $pwsh -ArgumentList $argv -NoNewWindow -Wait -PassThru `
-            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        $psi = [Diagnostics.ProcessStartInfo]::new($pwsh)
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        foreach ($argument in $argv) { $psi.ArgumentList.Add([string]$argument) }
+        $proc = [Diagnostics.Process]::Start($psi)
+        try {
+            $stdout = $proc.StandardOutput.ReadToEndAsync()
+            $stderr = $proc.StandardError.ReadToEndAsync()
+            $proc.WaitForExit()
+            $nativeExit = $proc.ExitCode
+            [IO.File]::WriteAllText($outFile, $stdout.GetAwaiter().GetResult())
+            [IO.File]::WriteAllText($errFile, $stderr.GetAwaiter().GetResult())
+        } finally { $proc.Dispose() }
         # Kept, and reported, only for a failed run that actually wrote there.
         # A path to a file that does not exist is worse than no pointer -- it
         # reads as a transcript the caller failed to open -- and a successful
         # run's record is one nothing will ever ask for, so keeping it would
         # leave a file behind on every call.
         $written = ''
-        if ($proc.ExitCode -ne 0 -and
+        if ($nativeExit -ne 0 -and
             (Test-Path -LiteralPath $transcriptFile -PathType Leaf) -and
             (Get-Item -LiteralPath $transcriptFile).Length -gt 0) {
             $written = $transcriptFile
         }
         return @{
-            ExitCode       = $proc.ExitCode
+            ExitCode       = $nativeExit
             Stdout         = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue)
             Stderr         = (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
             TranscriptPath = $written

@@ -1434,7 +1434,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_another_start_cycle_request_is_in_progress_3f51d139"
@@ -2106,11 +2106,1553 @@
       "lifecycle": "active",
       "means": "Typed planner exception classification. The separate YurunaMessageCode identifies its localized diagnostic; message prose never controls plan fallback.",
       "producedBy": [
-        "test/modules/Test.SequenceResolve.psm1"
+        "test/modules/Test.SequenceResolve.psm1",
+        "test/modules/Test.SequencePlanner.psm1"
       ],
       "consumedBy": [
         "test/modules/Test.SequenceResolve.psm1"
       ],
+      "rendersAs": ""
+    },
+    {
+      "code": "available",
+      "wireCode": "host_refresh.available",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host can run a host refresh now: a rung above the probe is qualified here, every listener route dependency resolves, and the protocol matches. The Config page shows its refresh control only for this value.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "unavailable",
+      "wireCode": "host_refresh.unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host cannot run a host refresh; the capability reason says why. Also what an answering server without a refresh field means.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": "status.host_refresh_unavailable"
+    },
+    {
+      "code": "no_qualified_rung",
+      "wireCode": "host_refresh.no_qualified_rung",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "No rung above the probe is qualified on this host type, so nothing a refresh could do would act.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "protocol_unreadable",
+      "wireCode": "host_refresh.protocol_unreadable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host-refresh protocol version file is missing, unreadable or not the version this listener speaks.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "journal_unreadable",
+      "wireCode": "host_refresh.journal_unreadable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The private request journal could not be read, so admission cannot be decided safely.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "unsupported_host",
+      "wireCode": "host_refresh.unsupported_host",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The listener does not know its host type, so it cannot name a rung ladder to advertise.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "capability_unavailable",
+      "wireCode": "host_refresh.capability_unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The capability could not be computed at all; it is reported as unavailable rather than guessed.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "listener_dependency_missing",
+      "wireCode": "host_refresh.listener_dependency_missing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A command a worker-backed listener route calls does not resolve in the listener runspace; the route refuses (503) and the capability reads unavailable. Machine-facing reason; the reply sentence comes from its key.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_listener_dependency_missing"
+    },
+    {
+      "code": "provisioned",
+      "wireCode": "host_refresh.provisioned",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "This host holds a valid remote-refresh verifier key, so pool-control can request a refresh with a proof.",
+      "producedBy": [
+        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "missing",
+      "wireCode": "host_refresh.missing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "No remote-refresh verifier key is installed on this host; only local and loopback refresh are possible.",
+      "producedBy": [
+        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "invalid",
+      "wireCode": "host_refresh.invalid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A remote-refresh verifier key is present but unusable (malformed, wrong host, or not private).",
+      "producedBy": [
+        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "unqualified",
+      "wireCode": "host_refresh.unqualified",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Remote refresh is not qualified on this platform, whatever keys exist.",
+      "producedBy": [
+        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "idle",
+      "wireCode": "host_refresh.idle",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "No host-refresh request holds the host.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "active",
+      "wireCode": "host_refresh.active",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh request is queued or running on the host.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "recovery_pending",
+      "wireCode": "host_refresh.recovery_pending",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host refresh ended with restoration still owed (services, runner, listener or controls); the same request can be resumed and a new one is refused meanwhile.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_recovery_pending"
+    },
+    {
+      "code": "unknown",
+      "wireCode": "host_refresh.unknown",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The listener could not tell whether a host refresh holds the host; the capability is unavailable in that case.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "queued",
+      "wireCode": "host_refresh.queued",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Accepted and waiting for its worker; also the start-cycle reply action for an accepted start.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.start_cycle_queued"
+    },
+    {
+      "code": "running",
+      "wireCode": "host_refresh.running",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A worker holds the request and is repairing the host. Also the host-diagnostic worker phase while its run is in progress.",
+      "producedBy": [
+        "test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1"
+      ],
+      "consumedBy": [
+        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "completed",
+      "wireCode": "host_refresh.completed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request reached a verdict and holds no outstanding obligation; also the replay action and the start-cycle and diagnostic terminal phase.",
+      "producedBy": [
+        "test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "refused",
+      "wireCode": "host_refresh.refused",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host refresh refused before changing anything (state and verdict).",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_refused"
+    },
+    {
+      "code": "abandoned",
+      "wireCode": "host_refresh.abandoned",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host refresh gave up after repeated attempts; its recovery record is retained.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_abandoned"
+    },
+    {
+      "code": "repaired",
+      "wireCode": "host_refresh.repaired",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh changed something and the host converged: probe responsive, services, listener and runner restored.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1"
+      ],
+      "consumedBy": [
+        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_repaired"
+    },
+    {
+      "code": "already_healthy",
+      "wireCode": "host_refresh.already_healthy",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh found nothing to repair and changed nothing.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_already_healthy"
+    },
+    {
+      "code": "failed",
+      "wireCode": "host_refresh.failed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh, or a start-cycle or diagnostic worker, failed with nothing left armed; also the diagnostic phase a failed run ends in.",
+      "producedBy": [
+        "test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.HostRefreshTrigger.psm1"
+      ],
+      "consumedBy": [
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_failed"
+    },
+    {
+      "code": "partial",
+      "wireCode": "host_refresh.partial",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh acted but restoration or readiness is incomplete.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRefreshIntent.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_partial"
+    },
+    {
+      "code": "still_unresponsive",
+      "wireCode": "host_refresh.still_unresponsive",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh ended with the hypervisor still not answering its probe.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_verdict_still_unresponsive"
+    },
+    {
+      "code": "starting",
+      "wireCode": "host_refresh.starting",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker process started and is loading its module set.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "claimed",
+      "wireCode": "host_refresh.claimed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker holds the lifetime lock and has claimed the request.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "capturing",
+      "wireCode": "host_refresh.capturing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker is recording the recovery snapshot before any change.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "probing",
+      "wireCode": "host_refresh.probing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker is probing the hypervisor.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "climbing",
+      "wireCode": "host_refresh.climbing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker is running repair rungs.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "converging",
+      "wireCode": "host_refresh.converging",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker is restoring services, the listener and the runner.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "reporting",
+      "wireCode": "host_refresh.reporting",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh worker is recording its verdict.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "terminal",
+      "wireCode": "host_refresh.terminal",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh request reached its final state; the Config page stops polling on it.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "resume_request",
+      "wireCode": "host_refresh.resume_request",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operator should resume the same request on the host.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_resume_request"
+    },
+    {
+      "code": "start_runner",
+      "wireCode": "host_refresh.start_runner",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operator should start the runner; no recorded launch could be reused.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_start_runner"
+    },
+    {
+      "code": "grant_automation",
+      "wireCode": "host_refresh.grant_automation",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operator should grant the automation permission the hypervisor client needs.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_grant_automation"
+    },
+    {
+      "code": "gui_session",
+      "wireCode": "host_refresh.gui_session",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operator should sign in to a desktop session on the host.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_gui_session"
+    },
+    {
+      "code": "dispose_obligations",
+      "wireCode": "host_refresh.dispose_obligations",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operator should review and dispose of outstanding recovery obligations.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_dispose_obligations"
+    },
+    {
+      "code": "elevate",
+      "wireCode": "host_refresh.elevate",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The repair needs administrator rights the worker does not have.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_elevate"
+    },
+    {
+      "code": "install_client",
+      "wireCode": "host_refresh.install_client",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The hypervisor's command-line client is missing on the host.",
+      "producedBy": [
+        "test/modules/Test.HostRefresh.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_action_install_client"
+    },
+    {
+      "code": "not_advertised",
+      "wireCode": "host_refresh.not_advertised",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "An answering host omitted the refresh capability, which reads as unavailable (an older listener).",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "protocol_unsupported",
+      "wireCode": "host_refresh.protocol_unsupported",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host advertised a refresh protocol this aggregator does not speak.",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "capability_malformed",
+      "wireCode": "host_refresh.capability_malformed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host advertised a refresh capability outside the allowed vocabulary.",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "control_status_unreadable",
+      "wireCode": "host_refresh.control_status_unreadable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host's control-status reply could not be read (too large, not JSON).",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "host_unreachable",
+      "wireCode": "host_refresh.host_unreachable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator could not reach the host to read its capability.",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "observation_expired",
+      "wireCode": "host_refresh.observation_expired",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The last observation of a host's refresh capability is too old to trust.",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "never_observed",
+      "wireCode": "host_refresh.never_observed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The aggregator has never read this host's refresh capability.",
+      "producedBy": [
+        "test/extension/extension-sdk/pool/pool.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "busy",
+      "wireCode": "host_refresh.busy",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Another host operation (a host refresh or a start-cycle) holds the host; the reply names which in activeKind. Also the start-cycle worker reason when a refresh became active.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.api_host_refresh_busy"
+    },
+    {
+      "code": "request_conflict",
+      "wireCode": "host_refresh.request_conflict",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A known host-refresh request id arrived with a different tier or ceiling.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_conflict"
+    },
+    {
+      "code": "request_closed",
+      "wireCode": "host_refresh.request_closed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh request id that was refused, expired or abandoned; it is never run again.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_closed"
+    },
+    {
+      "code": "launcher_failed",
+      "wireCode": "host_refresh.launcher_failed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The listener could not launch the detached worker; a host-refresh request stays queued and can be retried, a start-cycle reservation is removed.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_refresh_launcher_failed"
+    },
+    {
+      "code": "listener_busy",
+      "wireCode": "host_refresh.listener_busy",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Four request bodies are already being read; the caller retries after Retry-After.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_listener_busy"
+    },
+    {
+      "code": "admission_unavailable",
+      "wireCode": "host_refresh.admission_unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh journal or reservation store could not record the request.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_admission_unavailable"
+    },
+    {
+      "code": "refresh_unavailable",
+      "wireCode": "host_refresh.refresh_unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host advertises no refresh it can run; nothing was admitted.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_host_refresh_unavailable"
+    },
+    {
+      "code": "private_state_unavailable",
+      "wireCode": "host_refresh.private_state_unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The private state root or a worker directory under it could not be secured; the route fails closed.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_private_state_unavailable"
+    },
+    {
+      "code": "payload_too_large",
+      "wireCode": "host_refresh.payload_too_large",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body exceeded 4096 bytes, declared or counted.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_payload_too_large_4_kb"
+    },
+    {
+      "code": "body_timeout",
+      "wireCode": "host_refresh.body_timeout",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body did not complete within two seconds of the request.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_request_body_timeout"
+    },
+    {
+      "code": "invalid_json",
+      "wireCode": "host_refresh.invalid_json",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body was not a strict JSON object.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_request_body_invalid"
+    },
+    {
+      "code": "unsupported_field",
+      "wireCode": "host_refresh.unsupported_field",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body named a key outside requestId, tier and maxRung.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_request_body_invalid"
+    },
+    {
+      "code": "forbidden_field",
+      "wireCode": "host_refresh.forbidden_field",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body named a local-only safety switch (force, hard stop, service selection, config path).",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_request_body_invalid"
+    },
+    {
+      "code": "invalid_value",
+      "wireCode": "host_refresh.invalid_value",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh body carried a value outside its field domain.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_request_body_invalid"
+    },
+    {
+      "code": "unsupported_media_type",
+      "wireCode": "host_refresh.unsupported_media_type",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host-refresh request did not declare application/json.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.api_unsupported_media_type"
+    },
+    {
+      "code": "internal_error",
+      "wireCode": "host_refresh.internal_error",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A worker-backed route or worker failed unexpectedly; the listener answered 500 instead of tearing the connection.",
+      "producedBy": [
+        "test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.api_internal_error"
+    },
+    {
+      "code": "refresh_verifier_unavailable",
+      "wireCode": "host_refresh.refresh_verifier_unavailable",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The listener could not load the refresh-proof verifier for a non-loopback caller; it refuses.",
+      "producedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "host_reply_invalid",
+      "wireCode": "host_refresh.host_reply_invalid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A host answered a pool-control refresh with a reply outside the documented table.",
+      "producedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "spawned",
+      "wireCode": "host_refresh.spawned",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The detached worker was launched (host-refresh admission, or the runner a start-cycle started).",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.start_cycle_runner_started"
+    },
+    {
+      "code": "already_claimed",
+      "wireCode": "host_refresh.already_claimed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The same request is already claimed by a live or unknown worker; nothing new was launched.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/hostctl/hostctl.go"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "pending",
+      "wireCode": "host_refresh.pending",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host diagnostic is still running; ask again after Retry-After.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Start-StatusService.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_diagnostic_pending"
+    },
+    {
+      "code": "host_refresh",
+      "wireCode": "host_refresh.host_refresh",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operation holding the host is a host refresh.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "start_cycle",
+      "wireCode": "host_refresh.start_cycle",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The operation holding the host is a start-cycle.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "refresh_proof_missing",
+      "wireCode": "host_refresh.refresh_proof_missing",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A non-loopback refresh carried no refresh proof.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_malformed",
+      "wireCode": "host_refresh.refresh_proof_malformed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof is not the eight-field wire shape.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_version_unsupported",
+      "wireCode": "host_refresh.refresh_proof_version_unsupported",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof names a version this verifier does not accept.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_invalid",
+      "wireCode": "host_refresh.refresh_proof_invalid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof MAC does not verify.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_host_mismatch",
+      "wireCode": "host_refresh.refresh_proof_host_mismatch",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof is for another host.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_request_mismatch",
+      "wireCode": "host_refresh.refresh_proof_request_mismatch",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof is for another request id.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_policy_mismatch",
+      "wireCode": "host_refresh.refresh_proof_policy_mismatch",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof binds another tier or ceiling.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_lifetime_invalid",
+      "wireCode": "host_refresh.refresh_proof_lifetime_invalid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof lifetime is longer than allowed or inverted.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_not_yet_valid",
+      "wireCode": "host_refresh.refresh_proof_not_yet_valid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof is issued in the future beyond the skew allowance.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_proof_expired",
+      "wireCode": "host_refresh.refresh_proof_expired",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The refresh proof expired.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_remote_unqualified",
+      "wireCode": "host_refresh.refresh_remote_unqualified",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Remote refresh is not qualified on this platform.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_tier_not_remote",
+      "wireCode": "host_refresh.refresh_tier_not_remote",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The requested tier or ceiling is not allowed remotely (restart tier, Order 0-4 only).",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_remote_unprovisioned",
+      "wireCode": "host_refresh.refresh_remote_unprovisioned",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "No remote-refresh verifier key is installed on the host.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_remote_key_invalid",
+      "wireCode": "host_refresh.refresh_remote_key_invalid",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host's remote-refresh verifier key is unusable.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_verifier_failed",
+      "wireCode": "host_refresh.refresh_verifier_failed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The verifier itself failed (including a listener that does not know its host id); refused.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "test/modules/Test.HostRefreshAuth.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_refresh_authorization_refused"
+    },
+    {
+      "code": "refresh_auth_unconfigured",
+      "wireCode": "host_refresh.refresh_auth_unconfigured",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "pool-control holds no refresh authority or credential, so it cannot request a refresh.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/gate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "refresh_credential_required",
+      "wireCode": "host_refresh.refresh_credential_required",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The pool-control refresh route needs the separately provisioned refresh credential.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/gate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "refresh_auth_throttled",
+      "wireCode": "host_refresh.refresh_auth_throttled",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Too many failed refresh-credential attempts; retry later.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrefresh/gate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "succeeded",
+      "wireCode": "host_refresh.succeeded",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker cleared the controls, cleaned up and started or woke the runner.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "incomplete",
+      "wireCode": "host_refresh.incomplete",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker made its decision but the cleanup failed or the runner state was unknown.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "restarted",
+      "wireCode": "host_refresh.restarted",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker woke a live runner through the restart request instead of starting another.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.start_cycle_cycle_restarted"
+    },
+    {
+      "code": "not_spawned",
+      "wireCode": "host_refresh.not_spawned",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker left the runner alone (its state was unknown, or its launch failed).",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.start_cycle_not_spawned"
+    },
+    {
+      "code": "lock_busy",
+      "wireCode": "host_refresh.lock_busy",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Another operation held the lifetime repair lock; the start-cycle worker changed nothing.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "reservation_lost",
+      "wireCode": "host_refresh.reservation_lost",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker's reservation was no longer its own; it changed nothing.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "runner_unknown",
+      "wireCode": "host_refresh.runner_unknown",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The runner's state could not be positively established after cleanup; no runner was started.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "cleanup_failed",
+      "wireCode": "host_refresh.cleanup_failed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The bounded VM cleanup exited non-zero or did not complete; the runner decision still followed.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "cleanup_timeout",
+      "wireCode": "host_refresh.cleanup_timeout",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The bounded VM cleanup reached its time limit; the runner decision still followed.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "spawn_failed",
+      "wireCode": "host_refresh.spawn_failed",
+      "namespace": "host_refresh",
+      "owner": "host_refresh",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The start-cycle worker could not launch the runner.",
+      "producedBy": [
+        "test/modules/Invoke-StartCycleWorker.ps1"
+      ],
+      "consumedBy": [],
       "rendersAs": ""
     }
   ]

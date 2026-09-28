@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42398c5e-c859-4bdc-9114-f9b19317cd8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,7 @@ param(
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$ErrorActionPreference = 'Stop'
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003

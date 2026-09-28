@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f363d0-c7d5-4dcc-941a-c4422523b7e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,6 +159,57 @@ Describe 'guest resolver (yuruna-host-locate.sh)' {
             }
             $out = Invoke-LocateShell -Fixture $fx -Body "__yhl_plausible 'http://10.99.99.5:8080'; echo `"rc=`$?`""
             $out | Should -Match 'rc=0'
+        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'rejects hostile origins even on the final directory attempt and never persists shell syntax' {
+        $fx = New-LocateFixture
+        try {
+            $marker = (Join-Path $fx 'executed') -replace '\\', '/'
+            $probed = (Join-Path $fx 'probed') -replace '\\', '/'
+            $before = @{}
+            foreach ($name in @('host.env', 'hosts', 'wgetrc')) { $before[$name] = [IO.File]::ReadAllText((Join-Path $fx $name)) }
+            $answers = @(
+                ('http://a$(touch${IFS}' + $marker + ')b@192.0.2.10:8080'),
+                ('http://192.0.2.10:8080?$(touch${IFS}' + $marker + ')'),
+                'http://192.0.2.10:0', 'http://192.0.2.10:65536',
+                'http://999.0.2.10:8080', 'http://192.0.2.10:8080/path',
+                'http://192.0.2.10:8080#fragment'
+            )
+            $body = @"
+__yhl_livecheck() { case "`$1" in http://10.99.99.99:8080) return 1;; *) printf x >> '$probed'; return 0;; esac; }
+yuruna_host_locate; echo "rc=`$?"
+. "`$YURUNA_HOST_ENV_FILE"
+"@
+            foreach ($answer in $answers) {
+                $out = Invoke-LocateShell -Fixture $fx -DirectoryAnswer $answer -Body $body -Env @{
+                    YURUNA_LOCATE_RETRY_ATTEMPTS = '1'; YURUNA_LOCATE_RETRY_DELAY = '0'
+                }
+                $out | Should -Match 'rc=1'
+                foreach ($name in $before.Keys) { [IO.File]::ReadAllText((Join-Path $fx $name)) | Should -BeExactly $before[$name] }
+                Test-Path -LiteralPath $marker | Should -BeFalse
+                Test-Path -LiteralPath $probed | Should -BeFalse
+            }
+        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'persists a validated literal endpoint and rejects unsafe direct persistence' {
+        $fx = New-LocateFixture
+        try {
+            $body = @'
+__yhl_livecheck() { [ "$1" = 'http://192.0.2.10:8443' ]; }
+yuruna_host_locate; echo "rc=$?"
+'@
+            $out = Invoke-LocateShell -Fixture $fx -DirectoryAnswer 'http://192.0.2.10:8443' -Body $body -Env @{
+                YURUNA_LOCATE_RETRY_ATTEMPTS = '1'; YURUNA_LOCATE_RETRY_DELAY = '0'
+            }
+            $out | Should -Match 'rc=0'
+            (Get-Content -Raw (Join-Path $fx 'host.env')) | Should -Match 'YURUNA_STATUS_SERVICE_IP=192\.0\.2\.10'
+            (Get-Content -Raw (Join-Path $fx 'host.env')) | Should -Match 'YURUNA_STATUS_SERVICE_PORT=8443'
+            $before = [IO.File]::ReadAllText((Join-Path $fx 'host.env'))
+            $out = Invoke-LocateShell -Fixture $fx -Body '__yhl_persist "192.0.2.10" "80;false"; echo "rc=$?"'
+            $out | Should -Match 'rc=1'
+            [IO.File]::ReadAllText((Join-Path $fx 'host.env')) | Should -BeExactly $before
         } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,8 @@
 # layers so a single definition cannot drift between hand-copied blocks. Each
 # consumer imports it -Global -Force at its top (the same pattern the operation
 # modules use for Yuruna.Result / Yuruna.VariableExpansion), so the helpers resolve
-# at operation time and the module holds no per-run state of its own.
+# at operation time and the module holds no per-run state of its own; the one
+# cached value is this process's own identity, which cannot change under it.
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 function New-YurunaTimestampedBackup {
@@ -379,6 +380,52 @@ function Invoke-YurunaSudo {
     throw $msg
 }
 
+function Test-YurunaNonInteractiveHostArgument {
+<#
+.SYNOPSIS
+    Whether a pwsh command line carries -NonInteractive in any spelling pwsh
+    itself accepts.
+.DESCRIPTION
+    pwsh matches its own switches by prefix: -NonInteractive, -noni and every
+    length in between, in any letter case, after one or two dashes (or a
+    slash on Windows). Only those spellings count; a longer word that merely
+    starts with "noni" is not the switch.
+
+    Every token after the executable is examined, including the ones after
+    -Command or -File that belong to the script rather than to pwsh. Reading
+    such a token as a request for no prompts errs toward the non-prompt path,
+    which is safe; missing the real switch is not, because the first prompt
+    then throws.
+.PARAMETER ArgumentList
+    The process command line, executable first, as
+    [Environment]::GetCommandLineArgs() returns it.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][AllowEmptyCollection()][string[]]$ArgumentList)
+    $switchName = 'noninteractive'
+    # pwsh accepts the en dash, em dash and horizontal bar as a switch dash too.
+    $dashes = [char[]]@('-', [char]0x2013, [char]0x2014, [char]0x2015)
+    $tokens = @($ArgumentList)
+    for ($i = 1; $i -lt $tokens.Count; $i++) {
+        $token = ([string]$tokens[$i]).Trim()
+        if ($token.Length -lt 2) { continue }
+        $first = $token[0]
+        $key = $null
+        if ($dashes -contains $first) {
+            $key = $token.Substring(1)
+            if ($key.Length -gt 0 -and $key[0] -eq $first) { $key = $key.Substring(1) }
+        } elseif ($first -eq '/' -and $IsWindows) {
+            $key = $token.Substring(1)
+        }
+        if ($null -eq $key -or $key.Length -lt 4 -or $key.Length -gt $switchName.Length) { continue }
+        if ($switchName.StartsWith($key, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
 function Test-YurunaCanPrompt {
 <#
 .SYNOPSIS
@@ -402,6 +449,13 @@ function Test-YurunaCanPrompt {
     on a keystroke nobody knows to press, and that is a worse outcome than an
     honest failure because nothing on screen says what it is waiting for.
 
+    A pwsh started with -NonInteractive cannot prompt even on a live terminal:
+    Read-Host and every other prompt throw "PowerShell is in NonInteractive
+    mode" instead of asking. Such a process is often exactly the one on a
+    console (the libvirt group relaunch runs its child that way), so the host's
+    own command line is read as well, and a call site takes its non-prompt
+    path instead of crashing at its first question.
+
     On macOS and Linux [Environment]::UserInteractive is unconditionally $true, so
     the redirect probes and the environment contract carry the whole decision
     there; the UserInteractive clause earns its keep on Windows.
@@ -412,6 +466,13 @@ function Test-YurunaCanPrompt {
     [OutputType([bool])]
     param()
     if ($env:YURUNA_NONINTERACTIVE -eq '1') { return $false }
+    try {
+        if (Test-YurunaNonInteractiveHostArgument -ArgumentList ([Environment]::GetCommandLineArgs())) { return $false }
+    } catch {
+        # A host that cannot report its command line gives no evidence
+        # either way; the console probes below still decide.
+        Write-Verbose "Test-YurunaCanPrompt: command line unreadable: $($_.Exception.Message)"
+    }
     try {
         if ([Console]::IsInputRedirected)        { return $false }
         if ([Console]::IsOutputRedirected)       { return $false }
@@ -2228,6 +2289,115 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
+function Initialize-BoundedNativeCleanup {
+<#
+.SYNOPSIS
+    Load runspace-independent delegates for bounded native-process cleanup.
+#>
+    [CmdletBinding()]
+    param()
+    if ('Yuruna.NativeCleanup' -as [type]) { return }
+    # Native process cleanup can block inside the runtime. C# delegates run
+    # independently of PowerShell's runspace, so the caller can keep its cap
+    # even when tree enumeration or a redirected stream's disposal stalls.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+namespace Yuruna {
+    public static class NativeCleanup {
+        public static Task ObserveExit(Process process) {
+            var source = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            process.Exited += (sender, args) => source.TrySetResult(true);
+            process.EnableRaisingEvents = true;
+            if (process.HasExited) source.TrySetResult(true);
+            return source.Task;
+        }
+        public static Task<bool> KillTree(Process process) {
+            return Task.Run(() => {
+                try { process.Kill(true); return true; }
+                catch {
+                    try { return process.HasExited; }
+                    catch { return false; }
+                }
+            });
+        }
+        public static Task DisposeAsync(Process process, CancellationTokenSource cancellation, Task kill) {
+            return Task.Run(async () => {
+                try { cancellation.Cancel(); } catch { }
+                // Kill and Dispose must not race over the same process handle.
+                if (kill != null) { try { await kill.ConfigureAwait(false); } catch { } }
+                try { process.Dispose(); } catch { }
+                try { cancellation.Dispose(); } catch { }
+            });
+        }
+        public static Task KillDirect(int id, long startTicks) {
+            return Task.Run(() => {
+                try {
+                    using (var process = Process.GetProcessById(id)) {
+                        // A reused PID must never turn cleanup into a signal to
+                        // a process this invocation did not start.
+                        if (process.StartTime.ToUniversalTime().Ticks == startTicks)
+                            process.Kill();
+                    }
+                } catch { }
+            });
+        }
+    }
+}
+'@
+}
+
+function Invoke-BoundedNativeTreeKill {
+<#
+.SYNOPSIS
+    Kill the process tree a bounded native command started.
+.DESCRIPTION
+    The single place Invoke-BoundedNativeCommand issues its kill, so a test
+    can substitute a kill that fails without needing a process the current
+    user cannot signal.
+
+    Deliberately not SupportsShouldProcess and not named with a
+    state-changing verb: an ambient -WhatIf would otherwise turn the kill
+    into a no-op and leave a timed-out child running past the cap its
+    caller was promised (feedback_whatif-preference-is-process-ambient.md).
+
+    Process.Kill($true) signals the child and every descendant it can still
+    enumerate. A descendant that already detached itself (a double fork
+    re-parents it to init) is not reached, and an application the tool asked
+    a window server or service manager to launch was never a descendant at
+    all, so a successful kill is not proof that everything the tool started
+    has stopped.
+.PARAMETER Process
+    The started child process.
+.OUTPUTS
+    Task[bool], completed with whether the kill succeeded. It never waits for
+    process-tree enumeration on the calling thread.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Threading.Tasks.Task])]
+    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+    return [Yuruna.NativeCleanup]::KillTree($Process)
+}
+
+function Invoke-BoundedNativeCleanup {
+<#
+.SYNOPSIS
+    Cancel pending reads and dispose native-process resources off the caller.
+.OUTPUTS
+    System.Threading.Tasks.Task
+#>
+    [CmdletBinding()]
+    [OutputType([System.Threading.Tasks.Task])]
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [Parameter(Mandatory)][System.Threading.CancellationTokenSource]$Cancellation,
+        [AllowNull()][System.Threading.Tasks.Task]$KillTask
+    )
+    return [Yuruna.NativeCleanup]::DisposeAsync($Process, $Cancellation, $KillTask)
+}
+
 function Invoke-BoundedNativeCommand {
 <#
 .SYNOPSIS
@@ -2266,15 +2436,43 @@ function Invoke-BoundedNativeCommand {
     process (or simply forks) can exit itself while a descendant keeps both
     pipes open. `WaitForExit` returning `$true` only proves the direct child
     is gone. This function tracks stream end-of-file as a separate condition
-    from process exit and never blocks past its own deadline waiting for
-    either -- in particular it never touches an async read task's result
-    before confirming, through a bounded wait, that the task has actually
-    finished; doing so blocks the calling thread for as long as the task
-    takes to complete, which can be far longer than any cap the caller
-    thought they were getting. `DrainTimedOut` reports exactly that
-    situation: the process produced a real exit code, but its streams did
-    not reach EOF inside the deadline, so the captured output may be
+    from process exit and never blocks past its own cap waiting for either --
+    in particular it never touches an async read task's result before
+    confirming, through a bounded wait, that the task has actually finished;
+    doing so blocks the calling thread for as long as the task takes to
+    complete, which can be far longer than any cap the caller thought they
+    were getting. `DrainTimedOut` reports exactly that situation: the streams
+    did not reach EOF inside the cap, so the captured output may be
     incomplete and must not be read as a complete answer.
+
+    The cap covers the whole call, cleanup included. A child still running
+    when only a cleanup reserve of the cap is left -- a tenth of the cap, at
+    least half a second and at most one second -- is killed, and the kill,
+    the confirmation that the child exited and the last drain of both pipes
+    are only awaited inside that reserve. Cleanup delegates run independently
+    of the caller, so a stalled runtime cleanup cannot extend the cap. The
+    floor is sized for the kill itself:
+    Process.Kill($true) walks the whole process table to find descendants,
+    which takes well over 100 ms on an idle Linux host and longer under load,
+    and a reserve smaller than that reports a child it did kill as a failed
+    kill and returns after the cap. A descendant that escaped the kill (it
+    detached before the kill enumerated the tree) can hold both pipes open
+    for as long as it lives; the call still returns by the cap and reports
+    DrainTimedOut. The price is that a tool gets the cap minus the reserve to
+    run: 14 seconds of the default 15, half a second of a one-second cap.
+
+    Process.Kill($true) does not prove that every descendant, or an
+    application the tool launched through a window server, has stopped.
+    Validate ownership and postconditions separately. A killed or timed-out
+    mutation has an unknown outcome -- the tool may have acted before it was
+    killed -- so resolve it with a fresh postcondition probe instead of
+    replaying the action from its exit code.
+
+    Never wrap a detached spawn in this primitive: `open -a UTM`, an
+    osascript dialog watchdog, a port forwarder, or anything else that is
+    meant to outlive the call. The timeout kills the process tree, which is
+    the very process the caller meant to leave running. Bound only its launch
+    acknowledgment and verify the launched process by identity afterward.
 
     Captured output is capped at `MaxCapturedChars` per stream. Once a stream
     hits the cap this function keeps reading (and discarding) from it rather
@@ -2288,46 +2486,81 @@ function Invoke-BoundedNativeCommand {
 .PARAMETER ArgumentList
     Arguments passed through verbatim -- no shell, so no quoting to undo.
 .PARAMETER TimeoutSeconds
-    Wall-clock cap covering the entire call: launch, execution, and draining
-    both streams to EOF. Default 15s: long enough that a merely busy host
-    still answers, short enough that a wedged one is reported inside a
-    preamble rather than by the watchdog. A confirmed timeout may still cost
-    a short, separately bounded allowance beyond this cap while the process
-    tree is killed and its pipes given a last chance to close; that allowance
-    never re-runs or extends the operation itself.
+    Wall-clock cap covering the entire call: launch, execution, the kill of a
+    child that outlives it, and draining both streams. Default 15s: long
+    enough that a merely busy host still answers, short enough that a wedged
+    one is reported inside a preamble rather than by the watchdog. Longer
+    provisioning callers may use up to 2147483 seconds, the largest whole
+    second cap whose milliseconds fit a bounded Task.Wait call.
 .PARAMETER Environment
     Extra environment variables for the child only.
 .PARAMETER MaxCapturedChars
     Per-stream cap on retained output. Defaults to 256K characters, generous
     for any diagnostic tool this wraps while keeping a runaway or malicious
     writer from growing this call's memory without bound.
+.PARAMETER StreamEncoding
+    Optional encoding for both output streams. SSH callers use UTF-8 for
+    guest output; other native tools retain their platform encoding.
+.PARAMETER Deadline
+    A shared deadline from New-YurunaDeadline. The cap becomes the lesser of
+    TimeoutSeconds and the deadline's remaining time. With less than one
+    second remaining nothing is resolved or launched: Started and TimedOut
+    stay $false and DeadlineExhausted is $true, because a call that was never
+    issued must not read as a tool that failed to answer.
 .OUTPUTS
     [hashtable] @{ ExitCode; StdOut; StdErr; TimedOut; Started; DrainTimedOut;
-    KillFailed; OutputTruncated; ElapsedMs }. The first five keys and their
-    values are unchanged from before this primitive was rewritten -- Started
-    is $false when the command could not be found or launched at all, where
-    ExitCode stays -1 and both streams are empty; TimedOut with ExitCode 124
-    means the wall-clock cap was reached. The four new keys add facts this
-    version can now detect without changing what existing callers already
-    read: DrainTimedOut means a stream had not reached EOF when this call
-    returned, so StdOut/StdErr may be incomplete even though ExitCode is
-    real; KillFailed means the tree-kill itself threw after a timeout;
-    OutputTruncated means a stream was cut at MaxCapturedChars.
+    KillFailed; OutputTruncated; ElapsedMs; DeadlineExhausted; ProcessId;
+    StartError; CleanupPending }.
+    Started is $false when the command could not be found or launched, or
+    when the deadline left no time to issue it; ExitCode then stays -1 and
+    both streams are empty. TimedOut with ExitCode 124 means the child was
+    still running at the cap and was killed. DrainTimedOut means a stream had
+    not reached EOF when this call returned, so StdOut/StdErr may be
+    incomplete even though ExitCode is real. KillFailed means the kill threw,
+    or the child was not observed to exit before the cap. OutputTruncated
+    means a stream was cut at MaxCapturedChars. DeadlineExhausted means
+    nothing was launched because the shared deadline had under one second
+    left. ProcessId is the direct child's PID, 0 when nothing started. Gate
+    StartError retains the launch exception detail. CleanupPending reports
+    asynchronous resource disposal still in progress; it does not invalidate
+    fully drained output from a process that exited normally. Gate
+    any reading of the output as a complete answer on
+    Test-BoundedNativeResultComplete.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [string[]]$ArgumentList = @(),
-        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 15,
+        [ValidateRange(1, 2147483)][int]$TimeoutSeconds = 15,
         [hashtable]$Environment,
-        [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 262144
+        [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 262144,
+        [System.Text.Encoding]$StreamEncoding,
+        [ValidateNotNull()][psobject]$Deadline
     )
     $result = @{
         ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
         DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 0
+        DeadlineExhausted = $false; ProcessId = 0; StartError = ''; CleanupPending = $false
     }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $capMs = [long]$TimeoutSeconds * 1000
+    if ($PSBoundParameters.ContainsKey('Deadline')) {
+        $deadlineRemainingMs = [long](Get-YurunaDeadlineRemainingMs -Deadline $Deadline)
+        if ($deadlineRemainingMs -lt 1000) {
+            Write-Verbose "Invoke-BoundedNativeCommand: '$FilePath' not launched; the shared deadline has ${deadlineRemainingMs} ms left."
+            $result.DeadlineExhausted = $true
+            $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
+            return $result
+        }
+        $capMs = [Math]::Min($capMs, $deadlineRemainingMs)
+    }
+    # The reserve is carved out of the cap, never added to it: the kill, the
+    # exit confirmation and the last drain must all fit before the cap. The
+    # 500 ms floor covers the process-table walk Kill($true) performs.
+    $reserveMs = [long][Math]::Min(1000, [Math]::Max(500, [Math]::Floor($capMs / 10)))
+    $execMs    = $capMs - $reserveMs
+
     $resolved = (Get-Command -CommandType Application -Name $FilePath -ErrorAction SilentlyContinue |
         Select-Object -First 1).Source
     if (-not $resolved -and (Test-Path -LiteralPath $FilePath -PathType Leaf)) { $resolved = $FilePath }
@@ -2344,24 +2577,32 @@ function Invoke-BoundedNativeCommand {
     $psi.RedirectStandardInput  = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
+    if ($StreamEncoding) {
+        $psi.StandardOutputEncoding = $StreamEncoding
+        $psi.StandardErrorEncoding = $StreamEncoding
+    }
     if ($Environment) {
         foreach ($key in $Environment.Keys) { $psi.Environment["$key"] = [string]$Environment[$key] }
     }
+    Initialize-BoundedNativeCleanup
     $proc = $null
     try {
         $proc = [System.Diagnostics.Process]::Start($psi)
     } catch {
         Write-Verbose "Invoke-BoundedNativeCommand: could not start '$resolved': $($_.Exception.Message)"
+        $result.StartError = $_.Exception.Message
         $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
         return $result
     }
-    $result.Started = $true
+    $result.Started   = $true
+    $result.ProcessId = [int]$proc.Id
+    $processStartTicks = 0L
+    try { $processStartTicks = $proc.StartTime.ToUniversalTime().Ticks } catch { $null = $_ }
     # Closed rather than left open and empty: a child that reads stdin gets EOF
     # and gives up, where an open pipe leaves it waiting on input never coming.
     try { $proc.StandardInput.Close() } catch { $null = $_ }
 
-    $capMs = [long]$TimeoutSeconds * 1000
-    $cts   = [System.Threading.CancellationTokenSource]::new()
+    $cts = [System.Threading.CancellationTokenSource]::new()
 
     $outBuf     = [char[]]::new(8192)
     $errBuf     = [char[]]::new(8192)
@@ -2372,7 +2613,9 @@ function Invoke-BoundedNativeCommand {
     $outEof     = $false
     $errEof     = $false
     $exited     = $false
-    $killFailed = $false
+    $killIssued = $false
+    $killThrew  = $false
+    $killTask   = $null
 
     # Appends at most enough of Buffer to fill Builder to MaxChars, then keeps
     # silently discarding: the caller's own next ReadAsync call is what
@@ -2391,22 +2634,47 @@ function Invoke-BoundedNativeCommand {
     # WaitAny, never a background thread: PowerShell scriptblocks are
     # runspace-affinitized and cannot safely run on an arbitrary .NET
     # thread-pool thread the way a raw Task.Run delegate would need to.
-    # Task.WaitAny/.Wait(timeoutMs) below never block past the millisecond
-    # count given them; only a task those calls have already confirmed
-    # finished ever has its GetAwaiter().GetResult() (equivalently .Result)
-    # read -- that is the exact guard the prior implementation lacked.
+    # Task.WaitAny below never blocks past the millisecond count it is given,
+    # and only a task that call has already confirmed finished ever has its
+    # GetAwaiter().GetResult() (equivalently .Result) read; reading an
+    # unfinished task's result would block this thread for as long as a
+    # descendant holds the pipe.
     $outTask  = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
     $errTask  = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
-    $exitTask = $proc.WaitForExitAsync()
+    $exitTask = [Yuruna.NativeCleanup]::ObserveExit($proc)
 
+    # One loop covers execution and cleanup. Until the kill the loop runs to
+    # the execution window; once the child has exited or been killed it runs
+    # to the cap, pumping whichever of exit, stdout and stderr is still
+    # pending, so the post-kill join is bounded by the same cap.
     while (-not ($outEof -and $errEof -and $exited)) {
-        $remaining = $capMs - $stopwatch.ElapsedMilliseconds
+        $elapsed = $stopwatch.ElapsedMilliseconds
+        if (-not $exited -and -not $killIssued -and $elapsed -ge $execMs) {
+            $killIssued = $true
+            try {
+                $killTask = Invoke-BoundedNativeTreeKill -Process $proc
+            } catch {
+                # A child that exited in the instant before the kill is not a
+                # failed kill; anything else is.
+                $alreadyGone = $false
+                try { $alreadyGone = $proc.HasExited } catch { $alreadyGone = $false }
+                if (-not $alreadyGone) {
+                    $killThrew = $true
+                    Write-Verbose "Invoke-BoundedNativeCommand: killing '$resolved' (pid $($result.ProcessId)) failed: $($_.Exception.Message)"
+                }
+            }
+            continue
+        }
+        $limit     = if ($exited -or $killIssued) { $capMs } else { $execMs }
+        $remaining = $limit - $elapsed
         if ($remaining -le 0) { break }
         $pending = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
         if (-not $outEof) { [void]$pending.Add($outTask) }
         if (-not $errEof) { [void]$pending.Add($errTask) }
         if (-not $exited) { [void]$pending.Add($exitTask) }
-        $slice = [Math]::Min(500, [int]$remaining)
+        # Short slices after the kill so the join notices the cap promptly.
+        $sliceCap = if ($killIssued) { 100 } else { 500 }
+        $slice = [int][Math]::Min($sliceCap, $remaining)
         if ($slice -le 0) { break }
         $idx = [System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), $slice)
         if ($idx -lt 0) { continue }
@@ -2435,72 +2703,102 @@ function Invoke-BoundedNativeCommand {
         }
     }
 
-    if (-not $exited) {
-        # The tree, not just the child: the tools this guards are thin clients
-        # that leave the actual work sitting in a helper process of their own,
-        # and killing only the client orphans it still holding the resource.
-        # This cleanup allowance is separate from, and does not extend, the
-        # caller's own TimeoutSeconds cap -- it only bounds how long we wait
-        # for the kill itself to take effect and for already-open pipes to
-        # close, matching this function's behavior before this rewrite.
-        try { $proc.Kill($true) } catch { $killFailed = $true }
-        $joinDeadline = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($joinDeadline.ElapsedMilliseconds -lt 5000 -and -not ($outEof -and $errEof)) {
-            if (-not $outEof -and $outTask.Wait(200)) {
-                $n = 0
-                try { $n = $outTask.GetAwaiter().GetResult() } catch { $outEof = $true }
-                if ($n -le 0) { $outEof = $true } else {
-                    Add-BoundedNativeChunk -Builder $outSb -Buffer $outBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$outTrunc)
-                    $outTask = $proc.StandardOutput.ReadAsync([Memory[char]]::new($outBuf), $cts.Token).AsTask()
-                }
-            }
-            if (-not $errEof -and $errTask.Wait(200)) {
-                $n = 0
-                try { $n = $errTask.GetAwaiter().GetResult() } catch { $errEof = $true }
-                if ($n -le 0) { $errEof = $true } else {
-                    Add-BoundedNativeChunk -Builder $errSb -Buffer $errBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$errTrunc)
-                    $errTask = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
-                }
-            }
-        }
-        try { $cts.Cancel() } catch { $null = $_ }
-        try { $null = $proc.WaitForExit(1000) } catch { $null = $_ }
-        try { $proc.Dispose() } catch { $null = $_ }
-        try { $cts.Dispose() } catch { $null = $_ }
-        $result.TimedOut        = $true
-        $result.ExitCode        = 124
-        $result.KillFailed      = $killFailed
-        $result.DrainTimedOut   = -not ($outEof -and $errEof)
-        $result.OutputTruncated = ($outTrunc -or $errTrunc)
-        $result.StdOut          = $outSb.ToString()
-        $result.StdErr          = $errSb.ToString()
-        $result.ElapsedMs       = $stopwatch.ElapsedMilliseconds
-        return $result
-    }
-
-    # The process itself exited inside the caller's own deadline, and the loop
-    # above already drained both streams for as long as that same deadline
-    # allowed, concurrently with waiting for exit. Do not grant extra time
-    # here just because the process finished -- a lingering descendant still
-    # holding a pipe open must show up as DrainTimedOut, not push this call
-    # past the cap the caller asked for.
-    $result.DrainTimedOut = -not ($outEof -and $errEof)
-    if ($result.DrainTimedOut) { try { $cts.Cancel() } catch { $null = $_ } }
-    $result.ExitCode        = [int]$proc.ExitCode
+    $result.DrainTimedOut   = -not ($outEof -and $errEof)
     $result.OutputTruncated = ($outTrunc -or $errTrunc)
     $result.StdOut          = $outSb.ToString()
     $result.StdErr          = $errSb.ToString()
-    try { $proc.Dispose() } catch { $null = $_ }
-    try { $cts.Dispose() } catch { $null = $_ }
+    # A kill that returned just as the cap ran out leaves the loop before a
+    # WaitAny slice could observe the exit; one non-blocking look keeps a
+    # child that really is gone from being reported as a failed kill.
+    if (-not $exited) {
+        try { $exited = $exitTask.IsCompleted -or $proc.HasExited } catch { $null = $_ }
+    }
+    if ($killIssued) {
+        $result.TimedOut   = $true
+        $result.ExitCode   = 124
+        # Tree enumeration may be the operation that stalled. An independently
+        # opened, identity-checked handle can still stop the direct client.
+        if (-not $exited -and $processStartTicks -gt 0) {
+            $null = [Yuruna.NativeCleanup]::KillDirect($result.ProcessId, $processStartTicks)
+        }
+    } else {
+        # Reaching here without a kill means the loop only ended after the
+        # child's exit was observed, so ExitCode is safe to read.
+        $result.ExitCode = [int]$proc.ExitCode
+    }
+    $cleanupTask = Invoke-BoundedNativeCleanup -Process $proc -Cancellation $cts -KillTask $killTask
+    $cleanupRemaining = [int][Math]::Max(0, $capMs - $stopwatch.ElapsedMilliseconds)
+    if ($cleanupRemaining -gt 0) { $null = $cleanupTask.Wait($cleanupRemaining) }
+    $result.CleanupPending = -not $cleanupTask.IsCompleted
+    if ($killIssued) {
+        # The exit notification can beat the kill delegate's return. Assess
+        # completion after the bounded cleanup join, not that earlier race.
+        $killFinished = $null -ne $killTask -and $killTask.IsCompletedSuccessfully
+        $killSucceeded = $killFinished -and $killTask.Result
+        $result.KillFailed = ($killThrew -or -not $exited -or -not $killSucceeded)
+    }
     $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
     return $result
+}
+
+function Test-BoundedNativeResultComplete {
+<#
+.SYNOPSIS
+    $true only when an Invoke-BoundedNativeCommand result is a complete
+    answer: the tool was launched, exited on its own inside the cap, and both
+    streams were read to the end without truncation.
+.DESCRIPTION
+    A probe or classifier that reads a tool's output as "responsive",
+    "absent", "stopped" or "nothing running" must first know it has all of
+    the output. A timed-out, killed, drain-incomplete, truncated or
+    never-issued call has an unknown answer, and treating its partial output
+    as complete turns "could not tell" into a positive verdict. An absent key
+    counts as false, so a result hashtable from an older mock or wrapper that
+    predates a flag still classifies.
+.PARAMETER Result
+    The hashtable returned by Invoke-BoundedNativeCommand.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][System.Collections.IDictionary]$Result)
+    if ($null -eq $Result) { return $false }
+    if (-not [bool]$Result['Started']) { return $false }
+    foreach ($flag in @('TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed', 'DeadlineExhausted')) {
+        if ([bool]$Result[$flag]) { return $false }
+    }
+    return $true
+}
+
+function Get-YurunaSaturatedTick {
+<#
+.SYNOPSIS
+    Base plus Offset clamped to the [long] range instead of overflowing.
+.DESCRIPTION
+    PowerShell widens an overflowing [long] sum to [double] silently, and a
+    later [long] cast of that double throws. A deadline built from a huge
+    budget, or reserved below a tiny expiry, must saturate instead.
+.OUTPUTS
+    [long]
+#>
+    [CmdletBinding()]
+    [OutputType([long])]
+    param(
+        [Parameter(Mandatory)][long]$Base,
+        [Parameter(Mandatory)][long]$Offset
+    )
+    if ($Offset -gt 0 -and $Base -gt ([long]::MaxValue - $Offset)) { return [long]::MaxValue }
+    if ($Offset -lt 0 -and $Base -lt ([long]::MinValue - $Offset)) { return [long]::MinValue }
+    return [long]($Base + $Offset)
 }
 
 function New-YurunaDeadline {
 <#
 .SYNOPSIS
     Build a boot-relative deadline from a budget in milliseconds, comparable
-    across process boundaries on this host.
+    across process boundaries on this host, or carve a child deadline out of
+    a parent one.
 .DESCRIPTION
     [System.Diagnostics.Stopwatch] resets whenever the process that started it
     exits, so it cannot describe a deadline that must survive the sg group
@@ -2517,26 +2815,53 @@ function New-YurunaDeadline {
     Only ExpiryTick is meant to cross a process boundary; reconstruct a
     deadline object from it with New-YurunaDeadlineFromExpiry rather than
     passing this object itself, which pwsh -File cannot transport anyway.
+
+    The Child set carves phases out of one monotonic budget so no phase can
+    outlive the whole: the child expires ReserveMilliseconds before its
+    parent, and no later than TotalMilliseconds from now when that is given.
+    A child is never later than its parent and may already be expired; that
+    is a zero remaining time, not an error. It inherits the parent's clock.
 .PARAMETER TotalMilliseconds
-    Budget from the current tick.
+    Budget set: the budget from the current tick. Child set: an optional
+    upper bound on the child's own length, measured from now.
 .PARAMETER ClockTicks
     Injected clock for tests: a scriptblock returning the current tick as a
     [long]. Defaults to { [Environment]::TickCount64 }.
+.PARAMETER Parent
+    Child set: the deadline this one is carved from.
+.PARAMETER ReserveMilliseconds
+    Child set: time held back from the parent for the phases that follow.
 .OUTPUTS
     [pscustomobject] @{ ExpiryTick; ClockTicks }. Treat ExpiryTick as
     immutable once returned; nothing in this module mutates it.
 #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Builds an in-memory record only; nothing on disk or in process state changes, so ShouldProcess would be theater.')]
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Budget')]
     [OutputType([pscustomobject])]
     param(
-        [Parameter(Mandatory)][ValidateRange(0, [long]::MaxValue)][long]$TotalMilliseconds,
-        [scriptblock]$ClockTicks
+        [Parameter(Mandatory, ParameterSetName = 'Budget')]
+        [Parameter(ParameterSetName = 'Child')]
+        [ValidateRange(0, [long]::MaxValue)][long]$TotalMilliseconds,
+        [Parameter(ParameterSetName = 'Budget')][scriptblock]$ClockTicks,
+        [Parameter(Mandatory, ParameterSetName = 'Child')]
+        [ValidateScript({ $null -ne $_.PSObject.Properties['ExpiryTick'] })]
+        [psobject]$Parent,
+        [Parameter(ParameterSetName = 'Child')]
+        [ValidateRange(0, [long]::MaxValue)][long]$ReserveMilliseconds = 0
     )
+    if ($PSCmdlet.ParameterSetName -eq 'Child') {
+        $clock  = if ($Parent.ClockTicks) { $Parent.ClockTicks } else { { [Environment]::TickCount64 } }
+        $expiry = Get-YurunaSaturatedTick -Base ([long]$Parent.ExpiryTick) -Offset (-$ReserveMilliseconds)
+        if ($PSBoundParameters.ContainsKey('TotalMilliseconds')) {
+            $now = [long](& $clock)
+            $expiry = [Math]::Min($expiry, (Get-YurunaSaturatedTick -Base $now -Offset $TotalMilliseconds))
+        }
+        return New-YurunaDeadlineFromExpiry -ExpiryTick $expiry -ClockTicks $clock
+    }
     $clock = if ($ClockTicks) { $ClockTicks } else { { [Environment]::TickCount64 } }
     $now = [long](& $clock)
-    return New-YurunaDeadlineFromExpiry -ExpiryTick ($now + $TotalMilliseconds) -ClockTicks $clock
+    return New-YurunaDeadlineFromExpiry -ExpiryTick (Get-YurunaSaturatedTick -Base $now -Offset $TotalMilliseconds) -ClockTicks $clock
 }
 
 function New-YurunaDeadlineFromExpiry {
@@ -2548,9 +2873,12 @@ function New-YurunaDeadlineFromExpiry {
     Test-YurunaDeadlineExpired surface as New-YurunaDeadline.
 .PARAMETER ExpiryTick
     A value from [Environment]::TickCount64 on this same host, plus whatever
-    budget the original caller applied. Clamping a caller-supplied value to
-    an entry's own allowed maximum is the caller's policy, not this
-    function's: it stores exactly what it is given.
+    budget the original caller applied.
+.PARAMETER MaximumMilliseconds
+    The receiving entry's own allowance. The stored expiry is the earlier of
+    ExpiryTick and now plus this value, so a value supplied over a command
+    line can shorten the budget but never enlarge it, and a value already in
+    the past stays expired.
 .PARAMETER ClockTicks
     Injected clock for tests; see New-YurunaDeadline.
 .OUTPUTS
@@ -2562,12 +2890,18 @@ function New-YurunaDeadlineFromExpiry {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][long]$ExpiryTick,
+        [ValidateRange(0, [long]::MaxValue)][long]$MaximumMilliseconds,
         [scriptblock]$ClockTicks
     )
     $clock = if ($ClockTicks) { $ClockTicks } else { { [Environment]::TickCount64 } }
+    $expiry = $ExpiryTick
+    if ($PSBoundParameters.ContainsKey('MaximumMilliseconds')) {
+        $now = [long](& $clock)
+        $expiry = [Math]::Min($expiry, (Get-YurunaSaturatedTick -Base $now -Offset $MaximumMilliseconds))
+    }
     return [pscustomobject]@{
         PSTypeName = 'Yuruna.Deadline'
-        ExpiryTick = $ExpiryTick
+        ExpiryTick = [long]$expiry
         ClockTicks = $clock
     }
 }
@@ -2587,7 +2921,7 @@ function Get-YurunaDeadlineRemainingMs {
     param([Parameter(Mandatory)][ValidateNotNull()]$Deadline)
     $clock = if ($Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
     $now = [long](& $clock)
-    return [Math]::Max([long]0, [long]$Deadline.ExpiryTick - $now)
+    return [Math]::Max([long]0, (Get-YurunaSaturatedTick -Base ([long]$Deadline.ExpiryTick) -Offset (-$now)))
 }
 
 function Test-YurunaDeadlineExpired {
@@ -2621,6 +2955,9 @@ function Get-YurunaDeadlineBoundedSeconds {
 .PARAMETER Ceiling
     The target parameter's own upper bound (600 for Invoke-UtmctlProbe /
     Invoke-MacBoundedTool, 3600 for Invoke-BoundedNativeCommand itself).
+.PARAMETER ReserveMilliseconds
+    Time to keep back for the work that follows the call -- a poll's next
+    probe, a cleanup step -- subtracted before the whole seconds are counted.
 .OUTPUTS
     [Nullable[int]]
 #>
@@ -2630,12 +2967,654 @@ function Get-YurunaDeadlineBoundedSeconds {
     [OutputType([int])]
     param(
         [Parameter(Mandatory)][ValidateNotNull()]$Deadline,
-        [ValidateRange(1, 3600)][int]$Ceiling = 3600
+        [ValidateRange(1, 3600)][int]$Ceiling = 3600,
+        [ValidateRange(0, [long]::MaxValue)][long]$ReserveMilliseconds = 0
     )
     $remainingMs = Get-YurunaDeadlineRemainingMs -Deadline $Deadline
-    $seconds = [Math]::Floor($remainingMs / 1000.0)
+    $usableMs = Get-YurunaSaturatedTick -Base $remainingMs -Offset (-$ReserveMilliseconds)
+    $seconds = [Math]::Floor($usableMs / 1000.0)
     if ($seconds -lt 1) { return $null }
-    return [Math]::Min([int]$seconds, $Ceiling)
+    return [int][Math]::Min([double]$seconds, [double]$Ceiling)
+}
+
+function Wait-YurunaDeadlineInterval {
+<#
+.SYNOPSIS
+    Sleep for a poll or backoff interval without sleeping past a deadline.
+.DESCRIPTION
+    A fixed Start-Sleep inside a deadline-bounded loop is how a loop that
+    checks its deadline on every iteration still overruns it: the last sleep
+    begins with a second left and ends thirty seconds later. This sleeps the
+    lesser of the interval and the deadline's remaining time, and reports
+    whether any time is left afterwards so the caller's loop can stop.
+.PARAMETER Deadline
+    A deadline from New-YurunaDeadline.
+.PARAMETER Milliseconds
+    The interval the caller wanted to wait.
+.PARAMETER Sleep
+    Injected sleeper for tests: a scriptblock taking the milliseconds to
+    sleep. Defaults to Start-Sleep.
+.OUTPUTS
+    [bool] $true when the deadline still has time left after the wait.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNull()]$Deadline,
+        [Parameter(Mandatory)][ValidateRange(0, 3600000)][int]$Milliseconds,
+        [scriptblock]$Sleep
+    )
+    $remainingMs = Get-YurunaDeadlineRemainingMs -Deadline $Deadline
+    $sleepMs = [int][Math]::Min([long]$Milliseconds, $remainingMs)
+    if ($sleepMs -gt 0) {
+        if ($Sleep) { $null = & $Sleep $sleepMs } else { Start-Sleep -Milliseconds $sleepMs }
+    }
+    return ((Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -gt 0)
+}
+
+function Get-YurunaPlatformName {
+<#
+.SYNOPSIS
+    The current OS as the lowercase platform token the private-state and
+    I/O helpers key their tables on: linux, macos or windows.
+.OUTPUTS
+    [string]
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if ($IsWindows) { return 'windows' }
+    if ($IsMacOS) { return 'macos' }
+    return 'linux'
+}
+
+function Get-YurunaIoFailureKind {
+<#
+.SYNOPSIS
+    Classify a file-system exception into the small set of outcomes a caller
+    can act on differently.
+.DESCRIPTION
+    A lock or record writer has to tell "someone else holds this" (retry
+    within a bounded wait) apart from permanent failures (a missing parent,
+    a full or read-only disk, denied access) that no amount of retrying
+    fixes. .NET raises most of these as a plain IOException -- a missing
+    directory is a DirectoryNotFoundException, which is itself an
+    IOException -- so a catch on the IOException type alone reports a
+    missing directory as contention and spins on it.
+
+    Classification is by exception type first, then by HResult, never by
+    message text: messages are localized and reworded between runtime
+    versions (feedback_transient-classifier-is-regex-over-english.md). On
+    Unix .NET puts the raw errno in an IOException's HResult, and errno
+    numbers differ between Linux and macOS, so the platform selects the
+    table. On Windows the HResult is the Win32 error in HRESULT form.
+
+    PowerShell wraps exceptions thrown by a .NET method call in a
+    MethodInvocationException; that wrapper, a TargetInvocationException and
+    a single-inner AggregateException are unwrapped first.
+.PARAMETER Exception
+    The caught exception ($_.Exception in a catch block).
+.PARAMETER Platform
+    linux, macos or windows; defaults to the current OS. A test passes it to
+    classify another platform's codes.
+.OUTPUTS
+    [string] sharing-violation, access-denied, parent-missing, not-found,
+    disk-full, read-only or io-error.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNull()][System.Exception]$Exception,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    $current = $Exception
+    for ($depth = 0; $depth -lt 16; $depth++) {
+        $inner = $null
+        if ($current -is [System.Management.Automation.MethodInvocationException] -or
+            $current -is [System.Reflection.TargetInvocationException]) {
+            $inner = $current.InnerException
+        } elseif ($current -is [System.AggregateException] -and $current.InnerExceptions.Count -eq 1) {
+            $inner = $current.InnerExceptions[0]
+        }
+        if ($null -eq $inner) { break }
+        $current = $inner
+    }
+    if ($current -is [System.UnauthorizedAccessException]) { return 'access-denied' }
+    if ($current -is [System.IO.DirectoryNotFoundException]) { return 'parent-missing' }
+    if ($current -is [System.IO.FileNotFoundException]) { return 'not-found' }
+    if ($current -isnot [System.IO.IOException]) { return 'io-error' }
+
+    $hr = [int]$current.HResult
+    if ($Platform -eq 'windows') {
+        # HRESULT_FROM_WIN32: facility 7 in the high word, the Win32 error in
+        # the low word.
+        if (($hr -band -65536) -ne -2147024896) { return 'io-error' }
+        switch ($hr -band 0xFFFF) {
+            32      { return 'sharing-violation' }  # ERROR_SHARING_VIOLATION
+            33      { return 'sharing-violation' }  # ERROR_LOCK_VIOLATION
+            112     { return 'disk-full' }          # ERROR_DISK_FULL
+            39      { return 'disk-full' }          # ERROR_HANDLE_DISK_FULL
+            5       { return 'access-denied' }      # ERROR_ACCESS_DENIED
+            19      { return 'read-only' }          # ERROR_WRITE_PROTECT
+            3       { return 'parent-missing' }     # ERROR_PATH_NOT_FOUND
+            2       { return 'not-found' }          # ERROR_FILE_NOT_FOUND
+            default { return 'io-error' }
+        }
+    }
+    $wouldBlock = if ($Platform -eq 'macos') { 35 } else { 11 }
+    $quota      = if ($Platform -eq 'macos') { 69 } else { 122 }
+    if ($hr -eq $wouldBlock) { return 'sharing-violation' }
+    if ($hr -eq 28 -or $hr -eq $quota) { return 'disk-full' }
+    if ($hr -eq 30) { return 'read-only' }
+    if ($hr -eq 13 -or $hr -eq 1) { return 'access-denied' }
+    if ($hr -eq 20) { return 'parent-missing' }
+    if ($hr -eq 2) { return 'not-found' }
+    return 'io-error'
+}
+
+function Resolve-YurunaCanonicalPath {
+<#
+.SYNOPSIS
+    Resolve every symbolic link and junction in a path, component by
+    component, without launching a process.
+.DESCRIPTION
+    Two spellings of one directory -- a checkout reached through a symlink,
+    a home directory under a linked volume -- must compare equal before a
+    containment check (is this private root inside a served tree?) or a lock
+    namespace decision can be trusted. GetFullPath only collapses `.` and
+    `..` lexically; it never looks at the disk.
+
+    Each existing component is checked for a link target; a relative target
+    resolves against the directory that holds the link, and `..` applies to
+    the already-resolved path, so a link followed by `..` lands where the
+    kernel would. Components that do not exist yet are appended as written,
+    so a path about to be created still canonicalizes. More than MaxLinks
+    link hops reports a loop instead of spinning.
+.PARAMETER Path
+    Absolute or relative (to the current file-system location) path.
+.PARAMETER MaxLinks
+    Link hops allowed before the walk is declared a loop (the POSIX
+    SYMLOOP_MAX default is 40).
+.OUTPUTS
+    [pscustomobject] @{ Resolved; Path; Reason ok|link-loop|error; LinkCount }
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [ValidateRange(1, 128)][int]$MaxLinks = 40
+    )
+    $linkCount = 0
+    try {
+        $full = $Path
+        if (-not [System.IO.Path]::IsPathRooted($full)) {
+            $base = (Get-Location -PSProvider FileSystem).ProviderPath
+            $full = [System.IO.Path]::Combine($base, $full)
+        }
+        $separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        $root = [System.IO.Path]::GetPathRoot($full)
+        $queue = [System.Collections.Generic.List[string]]::new()
+        foreach ($part in $full.Substring($root.Length).Split($separators)) { [void]$queue.Add($part) }
+        $current = $root
+        $missing = $false
+        while ($queue.Count -gt 0) {
+            $component = $queue[0]
+            $queue.RemoveAt(0)
+            if ([string]::IsNullOrEmpty($component) -or $component -eq '.') { continue }
+            if ($component -eq '..') {
+                $parent = [System.IO.Path]::GetDirectoryName($current)
+                $current = if ($parent) { $parent } else { $root }
+                continue
+            }
+            $candidate = [System.IO.Path]::Combine($current, $component)
+            if ($missing) { $current = $candidate; continue }
+            $info = [System.IO.FileInfo]::new($candidate)
+            $target = $info.LinkTarget
+            if ($target) {
+                $linkCount++
+                if ($linkCount -gt $MaxLinks) {
+                    return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'link-loop'; LinkCount = $linkCount }
+                }
+                $rest = @($queue)
+                $queue.Clear()
+                if ([System.IO.Path]::IsPathRooted($target)) {
+                    $current = [System.IO.Path]::GetPathRoot($target)
+                    $target = $target.Substring($current.Length)
+                }
+                foreach ($part in $target.Split($separators)) { [void]$queue.Add($part) }
+                foreach ($part in $rest) { [void]$queue.Add($part) }
+                continue
+            }
+            if ([System.IO.Directory]::Exists($candidate) -or [System.IO.File]::Exists($candidate)) {
+                $current = $candidate
+            } else {
+                $missing = $true
+                $current = $candidate
+            }
+        }
+        $resolvedPath = $current
+        if ($resolvedPath.Length -gt $root.Length) { $resolvedPath = $resolvedPath.TrimEnd($separators) }
+        return [pscustomobject]@{ Resolved = $true; Path = $resolvedPath; Reason = 'ok'; LinkCount = $linkCount }
+    } catch {
+        Write-Verbose "Resolve-YurunaCanonicalPath: '$Path' could not be resolved: $($_.Exception.Message)"
+        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'error'; LinkCount = $linkCount }
+    }
+}
+
+function Test-YurunaPathWithin {
+<#
+.SYNOPSIS
+    $true when Path equals Container or lies under it, compared the way the
+    platform's default file system compares names.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Container,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    $comparison = if ($Platform -eq 'linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $p = $Path.TrimEnd($separators)
+    $c = $Container.TrimEnd($separators)
+    if ([string]::IsNullOrEmpty($c)) { return $true }
+    if ([string]::Equals($p, $c, $comparison)) { return $true }
+    foreach ($sep in $separators) {
+        if ($p.StartsWith($c + $sep, $comparison)) { return $true }
+    }
+    return $false
+}
+
+function Get-YurunaPathDriveInfo {
+<#
+.SYNOPSIS
+    The mount that holds a path, with its drive type and file-system name.
+.DESCRIPTION
+    Lock exclusion and record durability are properties of the file system
+    that holds the file, and a network file system gives neither the
+    exclusion nor the durability a local one does. Only the names of the
+    mounts are enumerated; the type and format are then read for the single
+    mount with the longest prefix of the path, so a hung, unrelated network
+    mount elsewhere on the host is never queried.
+.PARAMETER Path
+    Any path; it is canonicalized first so a link into another mount is
+    attributed to the mount it really lives on.
+.OUTPUTS
+    [pscustomobject] @{ Resolved; MountPoint; DriveType; FileSystem; Reason ok|no-mount|error }
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path)
+    $record = [ordered]@{ Resolved = $false; MountPoint = $null; DriveType = $null; FileSystem = $null; Reason = 'error' }
+    try {
+        $canonical = Resolve-YurunaCanonicalPath -Path $Path
+        if (-not $canonical.Resolved) { return [pscustomobject]$record }
+        $platform = Get-YurunaPlatformName
+        $best = $null
+        foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+            $name = [string]$drive.Name
+            if (-not (Test-YurunaPathWithin -Path $canonical.Path -Container $name -Platform $platform)) { continue }
+            if ($null -eq $best -or $name.TrimEnd('/', '\').Length -gt ([string]$best.Name).TrimEnd('/', '\').Length) { $best = $drive }
+        }
+        if ($null -eq $best) { $record.Reason = 'no-mount'; return [pscustomobject]$record }
+        $record.MountPoint = [string]$best.Name
+        $record.DriveType  = [string]$best.DriveType
+        try { $record.FileSystem = [string]$best.DriveFormat } catch { $record.FileSystem = $null }
+        $record.Resolved = $true
+        $record.Reason   = 'ok'
+    } catch {
+        Write-Verbose "Get-YurunaPathDriveInfo: '$Path': $($_.Exception.Message)"
+    }
+    return [pscustomobject]$record
+}
+
+function Get-YurunaUnixPathStat {
+<#
+.SYNOPSIS
+    Owner, group, mode and identity of a Unix path from PowerShell's own
+    stat surface, or $null when it cannot be read.
+.DESCRIPTION
+    The file-system provider's UnixStat gives the owning uid and gid without
+    a `stat` process, and without GNU (-c) versus BSD (-f) flag differences.
+    It is read through Get-Item -Force (Get-Item hides dotfiles otherwise,
+    feedback_get-item-hides-dotfiles-on-unix.md; raw DirectoryInfo carries no
+    UnixStat) with a short retry, because the provider can briefly miss a
+    path this process just created
+    (feedback_sandbox-filesystem-provider-visibility-lag.md).
+.OUTPUTS
+    [pscustomobject] @{ UserId; GroupId; Inode; DeviceId } or $null
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Path)
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        try {
+            $item = Get-Item -Force -LiteralPath $Path -ErrorAction Stop
+            $stat = $item.UnixStat
+            if ($null -ne $stat) {
+                return [pscustomobject]@{
+                    UserId = [long]$stat.UserId; GroupId = [long]$stat.GroupId
+                    Inode = [string]$stat.Inode; DeviceId = [string]$stat.DeviceId
+                }
+            }
+        } catch { $null = $_ }
+        Start-Sleep -Milliseconds 20
+    }
+    return $null
+}
+
+function Get-YurunaPathOwnerId {
+<#
+.SYNOPSIS
+    The owner of a path: the numeric uid on Unix, the owner SID on Windows.
+.DESCRIPTION
+    Read in-process first (UnixStat on Unix, the ACL owner on Windows). On
+    Unix a bounded `stat` is the fallback, with the flag spelling of the
+    platform's stat: BSD stat rejects GNU's `-c`, and an owner check that
+    silently skips itself when that call fails passes a directory it never
+    examined. When neither source answers the result is unresolved; callers
+    refuse rather than treat an unknown owner as a match.
+.PARAMETER Path
+    The file or directory to examine. A symbolic link is examined itself,
+    not its target.
+.PARAMETER TimeoutSeconds
+    Cap for the fallback `stat` process.
+.PARAMETER Platform
+    linux, macos or windows; defaults to the current OS. A test passes it to
+    exercise the other platform's fallback flags.
+.OUTPUTS
+    [pscustomobject] @{ Resolved; OwnerId [string]; Reason ok|not-found|lookup-failed }
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 5,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    $present = [System.IO.Directory]::Exists($Path) -or [System.IO.File]::Exists($Path) -or
+        [bool]([System.IO.FileInfo]::new($Path).LinkTarget)
+    if (-not $present) { return [pscustomobject]@{ Resolved = $false; OwnerId = $null; Reason = 'not-found' } }
+
+    if ($Platform -eq 'windows') {
+        try {
+            $sid = (Get-Acl -LiteralPath $Path -ErrorAction Stop).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+            if ($sid) { return [pscustomobject]@{ Resolved = $true; OwnerId = [string]$sid; Reason = 'ok' } }
+        } catch {
+            Write-Verbose "Get-YurunaPathOwnerId: ACL owner of '$Path' unreadable: $($_.Exception.Message)"
+        }
+        return [pscustomobject]@{ Resolved = $false; OwnerId = $null; Reason = 'lookup-failed' }
+    }
+
+    $stat = Get-YurunaUnixPathStat -Path $Path
+    if ($null -ne $stat) {
+        return [pscustomobject]@{ Resolved = $true; OwnerId = [string]$stat.UserId; Reason = 'ok' }
+    }
+    $format = if ($Platform -eq 'macos') { '-f' } else { '-c' }
+    $native = Invoke-BoundedNativeCommand -FilePath 'stat' -ArgumentList @($format, '%u', $Path) -TimeoutSeconds $TimeoutSeconds
+    if ((Test-BoundedNativeResultComplete -Result $native) -and $native.ExitCode -eq 0) {
+        $text = ([string]$native.StdOut).Trim()
+        if ($text -match '^\d+$') {
+            return [pscustomobject]@{ Resolved = $true; OwnerId = $text; Reason = 'ok' }
+        }
+    }
+    return [pscustomobject]@{ Resolved = $false; OwnerId = $null; Reason = 'lookup-failed' }
+}
+
+function Get-YurunaCurrentOwnerId {
+<#
+.SYNOPSIS
+    The identity this process runs as, in the same form Get-YurunaPathOwnerId
+    reports owners: the effective uid on Unix, the user SID on Windows.
+.DESCRIPTION
+    On Unix one bounded `id` call (run with LC_ALL=C, since GNU id translates
+    its field labels) gives the effective uid, the primary gid and both
+    names. Its leading uid= and gid= fields are the REAL ids; when the
+    effective ids differ (a setuid or setgid launch) it adds euid= and egid=
+    fields, and those win, because file ownership and access checks use the
+    effective ids. The answer is cached for the life of the process once it
+    succeeds, since a process cannot change its own identity here. A failed
+    lookup is never cached and never guessed: callers refuse on Resolved
+    $false.
+.PARAMETER TimeoutSeconds
+    Cap for the `id` process.
+.OUTPUTS
+    [pscustomobject] @{ Resolved; OwnerId [string]; UserName; IsRoot; Elevated;
+    PrimaryGroupId; PrimaryGroupName; Reason ok|lookup-failed }
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    if ($script:YurunaCurrentOwnerCache) { return $script:YurunaCurrentOwnerCache }
+    $record = [ordered]@{
+        Resolved = $false; OwnerId = $null; UserName = $null; IsRoot = $false; Elevated = $false
+        PrimaryGroupId = $null; PrimaryGroupName = $null; Reason = 'lookup-failed'
+    }
+    if ($IsWindows) {
+        try {
+            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $record.OwnerId  = [string]$identity.User.Value
+            $record.UserName = [string]$identity.Name
+            $record.IsRoot   = ($record.OwnerId -eq 'S-1-5-18')
+            $record.Elevated = [bool](Test-IsAdministrator)
+            $record.Resolved = $true
+            $record.Reason   = 'ok'
+        } catch {
+            Write-Verbose "Get-YurunaCurrentOwnerId: Windows identity unreadable: $($_.Exception.Message)"
+        }
+    } else {
+        $native = Invoke-BoundedNativeCommand -FilePath 'id' -TimeoutSeconds $TimeoutSeconds -Environment @{ LC_ALL = 'C' }
+        $text = [string]$native.StdOut
+        if ((Test-BoundedNativeResultComplete -Result $native) -and $native.ExitCode -eq 0 -and
+            $text -match '^uid=(\d+)(?:\(([^)]*)\))?\s+gid=(\d+)(?:\(([^)]*)\))?') {
+            $userId    = [string]$Matches[1]
+            $userName  = [string]$Matches[2]
+            $groupId   = [string]$Matches[3]
+            $groupName = [string]$Matches[4]
+            if ($text -match '(?:^|\s)euid=(\d+)(?:\(([^)]*)\))?') {
+                $userId   = [string]$Matches[1]
+                $userName = [string]$Matches[2]
+            }
+            if ($text -match '(?:^|\s)egid=(\d+)(?:\(([^)]*)\))?') {
+                $groupId   = [string]$Matches[1]
+                $groupName = [string]$Matches[2]
+            }
+            $record.OwnerId          = $userId
+            $record.UserName         = if ($userName) { $userName } else { [Environment]::UserName }
+            $record.PrimaryGroupId   = $groupId
+            $record.PrimaryGroupName = if ($groupName) { $groupName } else { $null }
+            $record.IsRoot           = ($record.OwnerId -eq '0')
+            $record.Elevated         = $record.IsRoot
+            $record.Resolved         = $true
+            $record.Reason           = 'ok'
+        }
+    }
+    $output = [pscustomobject]$record
+    if ($output.Resolved) { $script:YurunaCurrentOwnerCache = $output }
+    return $output
+}
+
+function Get-YurunaPasswdHome {
+<#
+.SYNOPSIS
+    The home directory the account database records for the current user,
+    or $null when it cannot be looked up.
+.DESCRIPTION
+    $HOME is an inherited environment variable: `sudo` without -H, a service
+    manager or an operator's shell can each hand a process a HOME that is not
+    the account's. Two processes of one account with different HOME values
+    would resolve two different private roots and two lock namespaces for
+    one hypervisor. Linux reads `getent passwd <uid>`, macOS reads the
+    directory service's NFSHomeDirectory, both bounded; Windows reads the
+    profile folder the OS reports.
+.OUTPUTS
+    [string] or $null
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 5
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    if ($Platform -eq 'windows') {
+        $profileDir = [Environment]::GetFolderPath('UserProfile')
+        if ([string]::IsNullOrWhiteSpace($profileDir)) { return $null }
+        return $profileDir
+    }
+    $owner = Get-YurunaCurrentOwnerId -TimeoutSeconds $TimeoutSeconds
+    if (-not $owner.Resolved) { return $null }
+    if ($Platform -eq 'macos') {
+        if (-not $owner.UserName) { return $null }
+        $native = Invoke-BoundedNativeCommand -FilePath 'dscl' -TimeoutSeconds $TimeoutSeconds `
+            -ArgumentList @('.', '-read', "/Users/$($owner.UserName)", 'NFSHomeDirectory')
+        if ((Test-BoundedNativeResultComplete -Result $native) -and $native.ExitCode -eq 0 -and
+            ([string]$native.StdOut) -match '(?m)^NFSHomeDirectory:\s*(\S.*?)\s*$') {
+            return [string]$Matches[1]
+        }
+        return $null
+    }
+    $native = Invoke-BoundedNativeCommand -FilePath 'getent' -ArgumentList @('passwd', $owner.OwnerId) -TimeoutSeconds $TimeoutSeconds
+    if ((Test-BoundedNativeResultComplete -Result $native) -and $native.ExitCode -eq 0) {
+        $fields = ([string]$native.StdOut).Trim() -split ':'
+        if ($fields.Count -ge 7 -and $fields[5]) { return [string]$fields[5] }
+    }
+    return $null
+}
+
+function Test-YurunaPrivateOwnerMatch {
+<#
+.SYNOPSIS
+    Whether a private-state directory's owner is the current identity.
+.DESCRIPTION
+    One rule for the root and every subdirectory under it, so the two checks
+    cannot drift apart. On Windows a directory an elevated process creates is
+    owned by the Administrators group (S-1-5-32-544) rather than by the user,
+    so that owner is accepted exactly when the current process is elevated.
+    An unknown owner or identity never matches.
+.PARAMETER OwnerId
+    Get-YurunaPathOwnerId's OwnerId for the directory.
+.PARAMETER CurrentOwner
+    The Get-YurunaCurrentOwnerId record.
+.PARAMETER Platform
+    linux, macos or windows.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$OwnerId,
+        [Parameter(Mandatory)][psobject]$CurrentOwner,
+        [Parameter(Mandatory)][ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if ([string]::IsNullOrEmpty($OwnerId) -or -not $CurrentOwner.Resolved -or [string]::IsNullOrEmpty([string]$CurrentOwner.OwnerId)) {
+        return $false
+    }
+    if ([string]::Equals($OwnerId, [string]$CurrentOwner.OwnerId, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return ($Platform -eq 'windows' -and
+        [string]::Equals($OwnerId, 'S-1-5-32-544', [StringComparison]::OrdinalIgnoreCase) -and
+        [bool]$CurrentOwner.Elevated)
+}
+
+function Test-YurunaUserPrivateGroup {
+<#
+.SYNOPSIS
+    Whether a group is this user's private group: the user's primary group,
+    carrying the user's own name, with no other listed member.
+.DESCRIPTION
+    A group-writable .yuruna is safe only when nobody else is in the group;
+    another member could otherwise swap host-refresh for a directory of
+    their own between check and use. The name convention alone does not
+    prove that, so the group is read with a bounded `getent group <gid>`: its
+    name must equal the user name and its member list must be empty or name
+    only this user. A lookup that does not answer completely is a refusal.
+
+    Accounts whose primary group is this gid are not enumerated: listing
+    every account is unbounded on a host backed by a directory service, and
+    the name convention stands in for that part. Linux is the only platform
+    read this way; elsewhere the answer is $false, so a group-writable
+    .yuruna there is refused.
+.PARAMETER GroupId
+    The numeric group id that owns the directory.
+.PARAMETER CurrentOwner
+    The Get-YurunaCurrentOwnerId record.
+.PARAMETER Platform
+    linux, macos or windows; defaults to the current OS.
+.PARAMETER TimeoutSeconds
+    Cap for the `getent` process.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$GroupId,
+        [Parameter(Mandatory)][psobject]$CurrentOwner,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 5
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    if ($Platform -ne 'linux') { return $false }
+    $userName = [string]$CurrentOwner.UserName
+    if (-not $CurrentOwner.Resolved -or [string]::IsNullOrEmpty($userName) -or $GroupId -notmatch '^\d+$' -or
+        -not [string]::Equals([string]$CurrentOwner.PrimaryGroupId, $GroupId, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$CurrentOwner.PrimaryGroupName, $userName, [StringComparison]::Ordinal)) {
+        return $false
+    }
+    $native = Invoke-BoundedNativeCommand -FilePath 'getent' -ArgumentList @('group', $GroupId) -TimeoutSeconds $TimeoutSeconds
+    if (-not (Test-BoundedNativeResultComplete -Result $native) -or $native.ExitCode -ne 0) { return $false }
+    $lines = @(([string]$native.StdOut) -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -ne 1) { return $false }
+    $fields = $lines[0].Trim() -split ':', 4
+    if ($fields.Count -lt 3) { return $false }
+    if (-not [string]::Equals($fields[0], $userName, [StringComparison]::Ordinal) -or
+        -not [string]::Equals($fields[2], $GroupId, [StringComparison]::Ordinal)) {
+        return $false
+    }
+    $members = if ($fields.Count -ge 4) { @($fields[3] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
+    foreach ($member in $members) {
+        if (-not [string]::Equals($member, $userName, [StringComparison]::Ordinal)) { return $false }
+    }
+    return $true
+}
+
+function Test-YurunaCallerWhatIf {
+<#
+.SYNOPSIS
+    Whether a preview is in force for the advanced function that passed its
+    own $PSCmdlet.
+.DESCRIPTION
+    A function in this module resolves $WhatIfPreference through this
+    module's scopes and the global one only. A -WhatIf given to an advanced
+    function in another module sets the variable in that module's session
+    state, so a call from there into this module would read $false and
+    create what the preview promised to leave alone
+    (feedback_whatif-preference-is-process-ambient.md). The calling
+    function's $PSCmdlet.SessionState is its caller's session state, so the
+    variable is read there as well.
+.PARAMETER Cmdlet
+    The calling advanced function's $PSCmdlet.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([System.Management.Automation.PSCmdlet]$Cmdlet)
+    if ($WhatIfPreference) { return $true }
+    if ($null -eq $Cmdlet) { return $false }
+    try {
+        return [bool]$Cmdlet.SessionState.PSVariable.GetValue('WhatIfPreference')
+    } catch {
+        Write-Verbose "Test-YurunaCallerWhatIf: caller preference unreadable: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 function Get-YurunaPrivateStateRoot {
@@ -2648,66 +3627,186 @@ function Get-YurunaPrivateStateRoot {
 .DESCRIPTION
     Everything the host-refresh protocol treats as authoritative -- the
     lifetime single-flight lock, the request journal, the recovery snapshot
-    -- has to live outside every HTTP-served root. The status server serves
+    -- has to live outside every HTTP-served root. The status service serves
     runtime/, log/, test/status/ and the whole repository by deny-list, not
     allow-list, so anything written under a served tree is public unless its
     name shape happens to be denied; this root is never inside one of those
-    trees regardless of naming.
+    trees regardless of naming. A single owning runtime is registered under
+    this root by the refresh journal; this function only resolves and
+    secures the directory.
 
-    Refuses, rather than silently degrading to an OS-temp fallback or a
-    weaker location, when the resolved path:
-      * cannot be created;
-      * is a symbolic link or reparse point at any component from $HOME
-        down to the leaf -- there is no legitimate reason for this specific
-        path to be an alias for something else, and chasing a link only
-        reopens the redirect risk it exists to close;
-      * is owned (on Unix, via a bounded `stat` call compared against the
-        current effective UID) by a user other than the one running this
-        process;
-      * cannot be locked to owner-only access -- 0700 on Unix, or an ACL
-        granting only the current Windows identity full control and
-        removing inherited access on Windows.
+    Every check fails closed. The root is refused, rather than degraded to an
+    OS-temp fallback or a weaker location, when:
+      * HOME is unset (no-home), or -VerifyHome finds it differs from the
+        account's home (home-mismatch): two HOME values for one account
+        would give two lock namespaces for one hypervisor;
+      * .yuruna or host-refresh is a symbolic link or reparse point
+        (reparse-point) -- there is no legitimate reason for this path to be
+        an alias, and chasing a link reopens the redirect risk it closes;
+      * the canonical root is inside, or contains, a served tree
+        (served-tree), or sits on a network file system (network-filesystem),
+        where neither the lock's exclusion nor the record's durability holds;
+      * the mount that would hold the root cannot be identified
+        (resolve-failed): a file system that cannot be named cannot be shown
+        to be local -- a Windows home on a UNC share matches no drive letter;
+      * either directory's owner is not this user (owner-mismatch), or the
+        owner cannot be read at all (owner-unverified) -- an unknown owner is
+        a refusal, never a pass;
+      * .yuruna is writable by other users (parent-untrusted), who could
+        swap host-refresh for their own directory between check and use.
+        Group write is accepted only on Linux and only for a user-private
+        group: this user's primary group, carrying the user's own name, with
+        no other member in the account database (a lookup that does not
+        answer refuses). The directory is shared with other tools, so it is
+        never re-moded;
+      * host-refresh cannot be locked to owner-only access, 0700 on Unix or
+        an ACL granting only the current identity on Windows
+        (permission-failed), or, without create rights, is looser than that
+        (permission-loose);
+      * a directory cannot be created (create-failed) or found again right
+        after creation (resolve-failed).
 
-    A single owning runtime/configuration is registered under this root by
-    the request/lock code that package 4 adds; this function only resolves
-    and secures the directory itself.
+    With -NoCreate, and whenever $WhatIfPreference is set -- globally, in
+    this module, or for the caller, including an advanced function in
+    another module that was given -WhatIf -- nothing is created or re-moded:
+    a missing root is 'absent' and a loose one 'permission-loose'. A preview
+    therefore observes without writing.
+.PARAMETER NoCreate
+    Observe only: create nothing, change no permission.
+.PARAMETER VerifyHome
+    Compare $HOME with the account database's home directory. A lookup that
+    cannot answer leaves HomeVerified 'unverified' without refusing; a caller
+    about to do disruptive work refuses on that itself.
+.PARAMETER ServedRoot
+    Directories an HTTP server exposes (repository, runtime, log). The root
+    must be neither inside one nor contain one; aliases are compared by
+    their canonical paths.
+.PARAMETER HomePath
+    Test seam: the home directory to use instead of $HOME.
 .OUTPUTS
-    [pscustomobject] @{ Resolved; Path; Reason }. Trust Path only when
-    Resolved is $true. Reason is one of: ok, no-home, create-failed,
-    resolve-failed, reparse-point, owner-mismatch, permission-failed.
+    [pscustomobject] @{ Resolved; Path; Reason; CanonicalPath; IoKind;
+    FileSystem; DriveType; OwnerVerified; HomeVerified }. Trust Path only
+    when Resolved is $true; Path keeps the textual $HOME/.yuruna/host-refresh
+    spelling and CanonicalPath the resolved one. Reason is one of: ok,
+    absent, no-home, home-mismatch, create-failed, resolve-failed,
+    reparse-point, owner-mismatch, owner-unverified, parent-untrusted,
+    permission-failed, permission-loose, network-filesystem, served-tree.
+    HomeVerified is verified, mismatch, unverified or not-requested.
 #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param()
-
-    if ([string]::IsNullOrWhiteSpace($HOME)) {
-        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'no-home' }
+    param(
+        [switch]$NoCreate,
+        [switch]$VerifyHome,
+        [string[]]$ServedRoot,
+        [Parameter(DontShow)][string]$HomePath
+    )
+    $record = [ordered]@{
+        Resolved = $false; Path = $null; Reason = $null; CanonicalPath = $null; IoKind = $null
+        FileSystem = $null; DriveType = $null; OwnerVerified = $false
+        HomeVerified = if ($VerifyHome) { 'unverified' } else { 'not-requested' }
     }
-    $stateDir = Join-Path $HOME '.yuruna'
+    $platform = Get-YurunaPlatformName
+    $createAllowed = -not ($NoCreate -or (Test-YurunaCallerWhatIf -Cmdlet $PSCmdlet))
+    $homeDir = if ($PSBoundParameters.ContainsKey('HomePath')) { $HomePath } else { $HOME }
+    if ([string]::IsNullOrWhiteSpace($homeDir)) {
+        $record.Reason = 'no-home'
+        return [pscustomobject]$record
+    }
+    $stateDir = Join-Path $homeDir '.yuruna'
     $root     = Join-Path $stateDir 'host-refresh'
+    $comparison = if ($platform -eq 'linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
 
-    try {
-        if (-not (Test-Path -LiteralPath $stateDir)) {
-            New-Item -ItemType Directory -Path $stateDir -Force -ErrorAction Stop | Out-Null
+    if ($VerifyHome) {
+        $accountHome = Get-YurunaPasswdHome -Platform $platform
+        if ($accountHome) {
+            $given    = Resolve-YurunaCanonicalPath -Path $homeDir
+            $recorded = Resolve-YurunaCanonicalPath -Path $accountHome
+            if ($given.Resolved -and $recorded.Resolved) {
+                if ([string]::Equals($given.Path, $recorded.Path, $comparison)) {
+                    $record.HomeVerified = 'verified'
+                } else {
+                    $record.HomeVerified = 'mismatch'
+                    $record.Reason = 'home-mismatch'
+                    return [pscustomobject]$record
+                }
+            }
         }
-        if (-not (Test-Path -LiteralPath $root)) {
-            New-Item -ItemType Directory -Path $root -Force -ErrorAction Stop | Out-Null
-        }
-    } catch {
-        Write-Verbose "Get-YurunaPrivateStateRoot: could not create '$root': $($_.Exception.Message)"
-        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'create-failed' }
     }
 
-    # Every component from $HOME to the leaf must be a plain directory: a
-    # symlink or reparse point anywhere in that chain could otherwise
-    # redirect this "private" root into a served tree or another user's
-    # data, and this path has no legitimate reason to be an alias. Uses the
-    # raw .NET FileSystemInfo rather than Get-Item/Test-Path: on this class
-    # of sandboxed filesystem a directory just created in this same process
-    # can occasionally take a few milliseconds to become visible through
-    # PowerShell's own provider layer even though the OS-level view (and
-    # System.IO directly) is already consistent, so a single provider-level
-    # existence check is not reliable immediately after New-Item.
+    # A link at either component is refused before anything is created
+    # inside it, and again after creation below.
+    foreach ($component in @($stateDir, $root)) {
+        if ([System.IO.FileInfo]::new($component).LinkTarget) {
+            $record.Reason = 'reparse-point'
+            return [pscustomobject]$record
+        }
+    }
+
+    # Containment and file-system checks run on the path as it would be
+    # created, so a root that would land in a served tree or on a network
+    # mount is refused before a directory appears there.
+    $canonical = Resolve-YurunaCanonicalPath -Path $root
+    if (-not $canonical.Resolved) {
+        $record.Reason = 'resolve-failed'
+        return [pscustomobject]$record
+    }
+    $record.CanonicalPath = $canonical.Path
+    foreach ($served in @($ServedRoot | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $servedCanonical = Resolve-YurunaCanonicalPath -Path $served
+        $servedPath = if ($servedCanonical.Resolved) { $servedCanonical.Path } else { $served }
+        if ((Test-YurunaPathWithin -Path $canonical.Path -Container $servedPath -Platform $platform) -or
+            (Test-YurunaPathWithin -Path $servedPath -Container $canonical.Path -Platform $platform)) {
+            $record.Reason = 'served-tree'
+            return [pscustomobject]$record
+        }
+    }
+    # An unidentified mount is refused like a network one: skipping the check
+    # would accept exactly the location it exists to exclude.
+    $drive = Get-YurunaPathDriveInfo -Path $canonical.Path
+    if (-not $drive.Resolved) {
+        Write-Verbose "Get-YurunaPrivateStateRoot: no mount identified for '$($canonical.Path)' ($($drive.Reason))."
+        $record.Reason = 'resolve-failed'
+        return [pscustomobject]$record
+    }
+    $record.FileSystem = $drive.FileSystem
+    $record.DriveType  = $drive.DriveType
+    if ($drive.DriveType -eq 'Network') {
+        $record.Reason = 'network-filesystem'
+        return [pscustomobject]$record
+    }
+
+    $ownerOnly = [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute'
+    foreach ($component in @($stateDir, $root)) {
+        if ([System.IO.Directory]::Exists($component)) { continue }
+        if ([System.IO.File]::Exists($component)) {
+            $record.Reason = 'resolve-failed'
+            return [pscustomobject]$record
+        }
+        if (-not $createAllowed) {
+            $record.Reason = 'absent'
+            return [pscustomobject]$record
+        }
+        try {
+            if ($platform -eq 'windows') {
+                $null = [System.IO.Directory]::CreateDirectory($component)
+            } else {
+                # Created owner-only in one call, so no window exists in which
+                # the new directory is reachable by the group or others.
+                $null = [System.IO.Directory]::CreateDirectory($component, $ownerOnly)
+            }
+        } catch {
+            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+            Write-Verbose "Get-YurunaPrivateStateRoot: could not create '$component': $($_.Exception.Message)"
+            $record.Reason = 'create-failed'
+            return [pscustomobject]$record
+        }
+    }
+
+    # Every component must now be a plain directory. Raw DirectoryInfo with a
+    # short retry rather than Get-Item/Test-Path: the provider layer can miss
+    # a directory this process just created for a few milliseconds
+    # (feedback_sandbox-filesystem-provider-visibility-lag.md).
     foreach ($component in @($stateDir, $root)) {
         $info = $null
         for ($attempt = 0; $attempt -lt 5; $attempt++) {
@@ -2716,63 +3815,256 @@ function Get-YurunaPrivateStateRoot {
             Start-Sleep -Milliseconds 20
         }
         if (-not $info) {
-            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'resolve-failed' }
+            $record.Reason = 'resolve-failed'
+            return [pscustomobject]$record
         }
-        if ($info.LinkTarget) {
-            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'reparse-point' }
+        if ($info.LinkTarget -or ($info.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            $record.Reason = 'reparse-point'
+            return [pscustomobject]$record
         }
     }
 
-    if ($IsWindows) {
+    $currentOwner = Get-YurunaCurrentOwnerId
+    if (-not $currentOwner.Resolved) {
+        $record.Reason = 'owner-unverified'
+        return [pscustomobject]$record
+    }
+    foreach ($component in @($stateDir, $root)) {
+        $owner = Get-YurunaPathOwnerId -Path $component -Platform $platform
+        if (-not $owner.Resolved) {
+            $record.Reason = 'owner-unverified'
+            return [pscustomobject]$record
+        }
+        if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $currentOwner -Platform $platform)) {
+            $record.Reason = 'owner-mismatch'
+            return [pscustomobject]$record
+        }
+    }
+    $record.OwnerVerified = $true
+
+    if ($platform -ne 'windows') {
         try {
-            $acl = Get-Acl -LiteralPath $root
-            $acl.SetAccessRuleProtection($true, $false)
-            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-            $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
-            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-                $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-            $acl.AddAccessRule($rule)
-            Set-Acl -LiteralPath $root -AclObject $acl -ErrorAction Stop
+            $parentMode = [System.IO.File]::GetUnixFileMode($stateDir)
         } catch {
-            Write-Verbose "Get-YurunaPrivateStateRoot: ACL hardening failed for '$root': $($_.Exception.Message)"
-            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'permission-failed' }
+            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+            $record.Reason = 'parent-untrusted'
+            return [pscustomobject]$record
         }
-        return [pscustomobject]@{ Resolved = $true; Path = $root; Reason = 'ok' }
+        if ($parentMode -band [System.IO.UnixFileMode]::OtherWrite) {
+            $record.Reason = 'parent-untrusted'
+            return [pscustomobject]$record
+        }
+        if ($parentMode -band [System.IO.UnixFileMode]::GroupWrite) {
+            $parentStat = Get-YurunaUnixPathStat -Path $stateDir
+            $privateGroup = ($null -ne $parentStat) -and
+                (Test-YurunaUserPrivateGroup -GroupId ([string]$parentStat.GroupId) -CurrentOwner $currentOwner -Platform $platform)
+            if (-not $privateGroup) {
+                $record.Reason = 'parent-untrusted'
+                return [pscustomobject]$record
+            }
+        }
+        try {
+            $mode = [System.IO.File]::GetUnixFileMode($root)
+            if ($mode -ne $ownerOnly) {
+                if (-not $createAllowed) {
+                    $record.Reason = 'permission-loose'
+                    return [pscustomobject]$record
+                }
+                [System.IO.File]::SetUnixFileMode($root, $ownerOnly)
+                $mode = [System.IO.File]::GetUnixFileMode($root)
+            }
+            if ($mode -ne $ownerOnly) {
+                $record.Reason = 'permission-failed'
+                return [pscustomobject]$record
+            }
+        } catch {
+            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+            Write-Verbose "Get-YurunaPrivateStateRoot: could not secure '$root': $($_.Exception.Message)"
+            $record.Reason = 'permission-failed'
+            return [pscustomobject]$record
+        }
+    } else {
+        try {
+            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl = Get-Acl -LiteralPath $root -ErrorAction Stop
+            $foreign = @($acl.Access | Where-Object {
+                    $sid = $null
+                    try { $sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { $sid = $null }
+                    $sid -ne $identity.Value
+                })
+            $ownerOnlyAcl = $acl.AreAccessRulesProtected -and $foreign.Count -eq 0
+            if (-not $ownerOnlyAcl) {
+                if (-not $createAllowed) {
+                    $record.Reason = 'permission-loose'
+                    return [pscustomobject]$record
+                }
+                $acl.SetAccessRuleProtection($true, $false)
+                foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+                $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                    $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+                $acl.AddAccessRule($rule)
+                Set-Acl -LiteralPath $root -AclObject $acl -ErrorAction Stop
+            }
+        } catch {
+            $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+            Write-Verbose "Get-YurunaPrivateStateRoot: ACL hardening failed for '$root': $($_.Exception.Message)"
+            $record.Reason = 'permission-failed'
+            return [pscustomobject]$record
+        }
     }
 
-    # Unix: verify ownership with a bounded `stat`, since .NET exposes
-    # permission bits but not the owning UID without native interop, then
-    # lock the directory to owner-only access.
-    $statResult = Invoke-BoundedNativeCommand -FilePath 'stat' -ArgumentList @('-c', '%u', $root) -TimeoutSeconds 5
-    if ($statResult.Started -and -not $statResult.TimedOut -and $statResult.ExitCode -eq 0) {
-        $ownerUid = ($statResult.StdOut | Select-Object -First 1).Trim()
-        $idResult = Invoke-BoundedNativeCommand -FilePath 'id' -ArgumentList @('-u') -TimeoutSeconds 5
-        $currentUid = if ($idResult.Started -and $idResult.ExitCode -eq 0) { $idResult.StdOut.Trim() } else { $null }
-        if ($currentUid -and $ownerUid -and $ownerUid -ne $currentUid) {
-            return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'owner-mismatch' }
+    $record.Resolved = $true
+    $record.Path     = $root
+    $record.Reason   = 'ok'
+    return [pscustomobject]$record
+}
+
+function Get-YurunaPrivateStatePath {
+<#
+.SYNOPSIS
+    The path of one file, optionally inside one subdirectory, under the
+    private state root, with the same checks the root gets.
+.DESCRIPTION
+    One helper for every channel, hop and service script, so nothing composes
+    its own path under $HOME/.yuruna/host-refresh and nothing introduces a
+    second application-data location. Names are restricted to a plain
+    file-name shape, so no caller value can climb out of the root or name a
+    hidden file. The subdirectory is created owner-only (unless -NoCreate or
+    an ambient $WhatIfPreference), link- and owner-checked; the leaf file is
+    never created, and a leaf that is already a link is refused.
+.PARAMETER Name
+    File name: a letter or digit, then up to 127 letters, digits, dots,
+    underscores or hyphens.
+.PARAMETER Subdirectory
+    Optional directory name under the root, same shape as Name.
+.PARAMETER NoCreate
+    Observe only; see Get-YurunaPrivateStateRoot.
+.PARAMETER VerifyHome
+    See Get-YurunaPrivateStateRoot.
+.PARAMETER ServedRoot
+    See Get-YurunaPrivateStateRoot.
+.PARAMETER HomePath
+    Test seam: the home directory to use instead of $HOME.
+.OUTPUTS
+    [pscustomobject] with the Get-YurunaPrivateStateRoot fields; Path and
+    CanonicalPath name the leaf. Reason adds invalid-name.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Name,
+        [AllowEmptyString()][string]$Subdirectory,
+        [switch]$NoCreate,
+        [switch]$VerifyHome,
+        [string[]]$ServedRoot,
+        [Parameter(DontShow)][string]$HomePath
+    )
+    $namePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+    $invalid = ($Name -cnotmatch $namePattern) -or
+        ($PSBoundParameters.ContainsKey('Subdirectory') -and $Subdirectory -cnotmatch $namePattern)
+    if ($invalid) {
+        return [pscustomobject][ordered]@{
+            Resolved = $false; Path = $null; Reason = 'invalid-name'; CanonicalPath = $null; IoKind = $null
+            FileSystem = $null; DriveType = $null; OwnerVerified = $false
+            HomeVerified = if ($VerifyHome) { 'unverified' } else { 'not-requested' }
         }
     }
-    $chmodResult = Invoke-BoundedNativeCommand -FilePath 'chmod' -ArgumentList @('0700', $root) -TimeoutSeconds 5
-    if (-not $chmodResult.Started -or $chmodResult.TimedOut -or $chmodResult.ExitCode -ne 0) {
-        return [pscustomobject]@{ Resolved = $false; Path = $null; Reason = 'permission-failed' }
+    $createAllowed = -not ($NoCreate -or (Test-YurunaCallerWhatIf -Cmdlet $PSCmdlet))
+    $rootArguments = @{ NoCreate = (-not $createAllowed); VerifyHome = $VerifyHome }
+    if ($PSBoundParameters.ContainsKey('ServedRoot')) { $rootArguments.ServedRoot = $ServedRoot }
+    if ($PSBoundParameters.ContainsKey('HomePath')) { $rootArguments.HomePath = $HomePath }
+    $root = Get-YurunaPrivateStateRoot @rootArguments
+    if (-not $root.Resolved) { return $root }
+
+    $record = [ordered]@{}
+    foreach ($property in $root.PSObject.Properties) { $record[$property.Name] = $property.Value }
+    $platform = Get-YurunaPlatformName
+    $directory = $root.Path
+    $canonicalDirectory = $root.CanonicalPath
+    $fail = {
+        param([string]$Reason)
+        $record.Resolved = $false
+        $record.Path = $null
+        $record.CanonicalPath = $null
+        $record.Reason = $Reason
+        [pscustomobject]$record
     }
-    return [pscustomobject]@{ Resolved = $true; Path = $root; Reason = 'ok' }
+
+    if ($PSBoundParameters.ContainsKey('Subdirectory')) {
+        $directory = Join-Path $root.Path $Subdirectory
+        $canonicalDirectory = Join-Path $root.CanonicalPath $Subdirectory
+        if ([System.IO.FileInfo]::new($directory).LinkTarget) { return (& $fail 'reparse-point') }
+        if (-not [System.IO.Directory]::Exists($directory)) {
+            if ([System.IO.File]::Exists($directory)) { return (& $fail 'resolve-failed') }
+            if (-not $createAllowed) { return (& $fail 'absent') }
+            try {
+                if ($platform -eq 'windows') {
+                    $null = [System.IO.Directory]::CreateDirectory($directory)
+                } else {
+                    $null = [System.IO.Directory]::CreateDirectory($directory, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+                }
+            } catch {
+                $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+                return (& $fail 'create-failed')
+            }
+        }
+        $info = $null
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            $candidate = [System.IO.DirectoryInfo]::new($directory)
+            if ($candidate.Exists) { $info = $candidate; break }
+            Start-Sleep -Milliseconds 20
+        }
+        if (-not $info) { return (& $fail 'resolve-failed') }
+        if ($info.LinkTarget -or ($info.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { return (& $fail 'reparse-point') }
+        $currentOwner = Get-YurunaCurrentOwnerId
+        $owner = Get-YurunaPathOwnerId -Path $directory -Platform $platform
+        if (-not $currentOwner.Resolved -or -not $owner.Resolved) { return (& $fail 'owner-unverified') }
+        if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $currentOwner -Platform $platform)) {
+            return (& $fail 'owner-mismatch')
+        }
+        if ($platform -ne 'windows') {
+            $ownerOnly = [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute'
+            try {
+                $mode = [System.IO.File]::GetUnixFileMode($directory)
+                if ($mode -ne $ownerOnly) {
+                    if (-not $createAllowed) { return (& $fail 'permission-loose') }
+                    [System.IO.File]::SetUnixFileMode($directory, $ownerOnly)
+                    $mode = [System.IO.File]::GetUnixFileMode($directory)
+                }
+                if ($mode -ne $ownerOnly) { return (& $fail 'permission-failed') }
+            } catch {
+                $record.IoKind = Get-YurunaIoFailureKind -Exception $_.Exception
+                return (& $fail 'permission-failed')
+            }
+        }
+    }
+
+    $leaf = Join-Path $directory $Name
+    if ([System.IO.FileInfo]::new($leaf).LinkTarget) { return (& $fail 'reparse-point') }
+    $record.Resolved      = $true
+    $record.Path          = $leaf
+    $record.CanonicalPath = Join-Path $canonicalDirectory $Name
+    $record.Reason        = 'ok'
+    return [pscustomobject]$record
 }
 
 function Get-BoundedNativeOutputLine {
 <#
 .SYNOPSIS
     Split an Invoke-BoundedNativeCommand result's captured streams into the
-    line array a `& tool` call site used to receive.
+    line array a bare `& tool` call returns.
 .DESCRIPTION
-    Native output arrives from the bounded runner as one string, while the
-    call sites it replaces were written against PowerShell's line-per-element
-    array. Converting in one place keeps each of those sites a one-line change
-    and keeps "what counts as a line" from drifting between them.
+    Native output arrives from the bounded runner as one string, while code
+    that parses tool output expects PowerShell's line-per-element array.
+    Converting in one place keeps "what counts as a line" from drifting
+    between the callers.
 
     A timed-out or unlaunched command yields an empty array: there is no
     output to interpret, and inventing an empty string as a line would let a
-    caller's first-element read succeed with nothing in it.
+    caller's first-element read succeed with nothing in it. A drained-short
+    or truncated result still yields the lines it has, since returning none
+    would turn partial output into "nothing running"; a caller that needs a
+    complete answer checks Test-BoundedNativeResultComplete first.
 .PARAMETER Result
     The hashtable returned by Invoke-BoundedNativeCommand.
 .PARAMETER IncludeError
@@ -2803,4 +4095,4 @@ function Get-BoundedNativeOutputLine {
     return [string[]]$lines.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Get-YurunaPrivateStateRoot
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421654e8-21f9-45e4-9613-5c67d4e4290f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,10 +75,10 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 
 # --- REGION: Caching-proxy-service (aggregator) address
 $proxyIp = ''
-if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
-    try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
-}
-if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
+try {
+    $base = Get-PoolAggregatorServiceSeedUrl -WhatIf:$false
+    if ($base) { $proxyIp = ([uri]$base).Host }
+} catch { Write-Verbose "pool push: aggregator discovery failed: $($_.Exception.Message)" }
 if ([string]::IsNullOrWhiteSpace($proxyIp)) {
     Write-Verbose "pool push: no caching-proxy-service IP; cannot reach the aggregator."
     return
@@ -114,7 +114,8 @@ function Test-PushLockHeldLive {
     # No recorded start time -> the PID's identity can't be verified, so a reused PID could
     # masquerade as the holder; treat as stale (reclaimable) rather than held.
     if (-not $j.startTicks) { return $false }
-    if ([long]$liveStart -ne [long]$j.startTicks) { return $false }
+    # Process.StartTime on Unix has sub-millisecond cross-process rounding.
+    if ([Math]::Abs([long]$liveStart - [long]$j.startTicks) -gt [TimeSpan]::TicksPerSecond) { return $false }
     return $true
 }
 function Add-PushLockFile {

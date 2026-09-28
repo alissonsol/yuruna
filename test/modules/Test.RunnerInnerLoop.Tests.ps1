@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.ConfigSync.psm1')      -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.LogLevel.psm1')        -Force -DisableNameChecking -Global
 # -Global: the runner resolves these two through the global command table, and
 # an InModuleScope body falls back to the global session state -- not to this
 # file's. Without -Global, Resolve-CleanupVmNamePrefix / Get-TestVMName are
@@ -985,9 +986,12 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # early exit or a step-failure arm. The helper signals the caller through
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
-    It 'runs the cycle body once via do{...}while($false): 13 unlabeled breaks, 0 continues' {
+    It 'runs the cycle body once via do{...}while($false): 16 unlabeled breaks, 0 continues' {
+        # Three of the sixteen are the host-refresh gate sites (cycle start,
+        # before the pull, before the cycle-start VM sweep): each ends the
+        # cycle before any change while a host refresh holds the runner.
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.DoWhileBreaks -eq 13) "do/while must have 13 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileBreaks -eq 16) "do/while must have 16 break arms, found $($f.DoWhileBreaks)"
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }
@@ -1206,6 +1210,16 @@ Describe 'The cycle reports the guest set it resolved, not the fallback key' {
                 'the fallback path must say so, or the two paths read alike'
         }
 
+        It 'never logs credentials even when YAML parsing fails' {
+            foreach ($text in @("repositories:`n  ghToken: PRIVATE_FIXTURE_TOKEN`nsecrets:`n  secret: PRIVATE_FIXTURE_SECRET", "secrets: [PRIVATE_FIXTURE_SECRET")) {
+                Set-Content -LiteralPath $script:Cfg -Value $text
+                $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p) Write-CycleConfigLog -ConfigPath $p 3>&1
+                }) -join "`n"
+                Assert-False ($out -match 'PRIVATE_FIXTURE') 'neither config nor parser diagnostics may disclose secrets'
+            }
+        }
+
         It 'adds nothing when the caller has no cycle to describe' {
             $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
                     param($p) Write-CycleConfigLog -ConfigPath $p 3>$null
@@ -1225,5 +1239,63 @@ Describe 'The cycle reports the guest set it resolved, not the fallback key' {
         Assert-True ($callIdx -gt 0) 'the config echo must receive the resolved guest set'
         Assert-True ($resolveIdx -gt 0 -and $callIdx -gt $resolveIdx) `
             'the guest-set report must run after the plan is resolved and the transcript is open'
+    }
+}
+
+Describe 'Runner config and exit safety' {
+    It 'keeps the last usable configuration when an edit temporarily empties the file' {
+        $path = New-TempConfigFile -Content "testCycle:`n  recentDisplayCount: 17`n  guestQuarantine:`n    enabled: false`n"
+        try {
+            $state = New-RunnerConfigState -CycleDelaySecondsFallback 0
+            Sync-RunnerStepConfig -State $state -ConfigPath $path
+            Assert-False $state.GuestQuarantineEnabled
+            Set-Content -LiteralPath $path -Value ' ' -NoNewline
+            $state.CachedConfigMtime = $null
+            Assert-Equal 'failed' (Sync-RunnerCycleConfig -State $state -ConfigPath $path)
+            Assert-Equal 17 $state.Config.testCycle.recentDisplayCount
+            Assert-False $state.GuestQuarantineEnabled
+        } finally { Remove-Item -LiteralPath $path -Force }
+    }
+    It 'does not expose malformed configuration content in reload warnings' {
+        $path = New-TempConfigFile -Content "secrets: [PRIVATE_FIXTURE_SECRET"
+        try {
+            $state = New-RunnerConfigState -CycleDelaySecondsFallback 0
+            $logged = (Sync-RunnerCycleConfig -State $state -ConfigPath $path 3>&1 | Out-String)
+            Assert-False ($logged.Contains('PRIVATE_FIXTURE_SECRET'))
+            Assert-True ($logged.Contains('failed'))
+        } finally { Remove-Item -LiteralPath $path -Force }
+    }
+    It 'retains a useful history limit for missing, empty and invalid configurations' {
+        InModuleScope Test.RunnerInnerLoop {
+            foreach ($config in @($null, @{}, @{testCycle=@{}}, @{testCycle=@{recentDisplayCount=0}}, @{testCycle=@{recentDisplayCount=-1}}, @{testCycle=@{recentDisplayCount='bad'}})) {
+                Assert-Equal 30 (Get-RunnerHistoryLimit -Config $config)
+            }
+            Assert-Equal 17 (Get-RunnerHistoryLimit -Config @{testCycle=@{recentDisplayCount=17}})
+        }
+    }
+    It 'refreshes the watchdog heartbeat on each inter-cycle delay tick' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $wait = $ast.Find({param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Wait-WithProgress' -and $n.Extent.Text.Contains('-TotalSeconds $effectiveDelay')}, $true)
+        Assert-NotNull $wait
+        $callback = @($wait.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })[0]
+        $body = [scriptblock]::Create($callback.ScriptBlock.Extent.Text.Trim().Substring(1).TrimEnd('}'))
+        $StepHeartbeatFile = Join-Path $TestDrive 'heartbeat'
+        $cycleRestartFlagFile = Join-Path $TestDrive 'restart'
+        $null = $cycleRestartFlagFile # Read by the extracted production callback.
+        $ShutdownState = @{Requested=$false}
+        [IO.File]::WriteAllText($StepHeartbeatFile, [datetime]::UtcNow.AddHours(-2).ToString('o'))
+        Assert-False (& $body)
+        Assert-True (([datetime](Get-Content -Raw $StepHeartbeatFile)).ToUniversalTime() -gt [datetime]::UtcNow.AddSeconds(-10))
+        $ShutdownState.Requested=$true
+        Assert-Equal 'shutdown' (& $body)
+    }
+    It 'marks a previously passing cycle failed before handling an unexpected exception' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $branch = $ast.Find({param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '-not $script:CycleRestartHandled'}, $true)
+        Assert-NotNull $branch
+        $first = $branch.Clauses[0].Item2.Statements[0]
+        $OverallPassed = $true
+        . ([scriptblock]::Create($first.Extent.Text))
+        Assert-False $OverallPassed
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,7 @@ function Send-SoftCycleEvent {
     )
     if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
     $record = @{
-        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         event        = $EventName
         failureClass = $FailureClass
         severity     = 'soft'
@@ -1114,7 +1114,7 @@ function Save-VisionOcrCompileDiagnostic {
     try {
         $lines = @(
             "vision OCR helper compile failure"
-            "timestamp (UTC) : " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            "timestamp (UTC) : " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             "swiftc exit code: $ExitCode"
         )
         $swiftcCmd = Get-Command swiftc -ErrorAction SilentlyContinue

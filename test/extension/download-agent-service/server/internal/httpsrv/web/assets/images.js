@@ -325,7 +325,7 @@
       var active = sort && sort.col === th.getAttribute('data-sort');
       th.setAttribute('aria-sort', active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none');
       var arrow = th.querySelector('.sort-arrow');
-      if (arrow) { arrow.textContent = active ? sort.dir > 0 ? '^' : window.YurunaI18n.t("download.v") : ''; }
+      if (arrow) { arrow.textContent = active ? sort.dir > 0 ? '^' : 'v' : ''; }
     }
   }
 

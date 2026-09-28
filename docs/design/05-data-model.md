@@ -1,83 +1,37 @@
 # Configuration data model
 
-This page maps the current project files, deployment keys, generated outputs, and authentication records to their consumers.
+These views describe the project configuration records, generated outputs, and separate test identities consumed by the current engine.
 
-The [architecture](../architecture.md) supplies the system-level concepts. These
-ER views describe directories, YAML maps, and runtime lookups, not database
-tables: solid edges denote file containment; dashed edges denote derived or
-lookup relationships. No edge implies a database foreign-key constraint.
+The entities represent filesystem scopes and YAML records, not database tables.
+Paths and dynamic mapping keys are identified in the prose below; cardinalities
+show containment and references. See [Architecture](../architecture.md) for the
+phase model.
 
-## Project and configuration files
-
-The deployment examples live at `yuruna-project/example/<project>/`; the
-scaffold itself is `yuruna-project/template/`, without an extra project-name
-directory. The website example supplies `localhost`, `aws`, and `azure`
-configuration directories. The text-to-sql example and template supply
-`localhost`. `example/nested.host/` instead supplies a test sequence; not every
-example is a three-phase deployment project. No GCP configuration is present.
+## Project deployment records
 
 ```mermaid
 erDiagram
-    project-root["Project root"] {
-        string project_root "CLI path"
+    project ||--o{ config : selects
+    config ||--o{ resources : declares
+    config ||--o{ components : declares
+    config ||--o{ workloads : declares
+    config ||--o| resources-output-yml : generates
+    workloads ||--o{ deployments : orders
+    %% optional: later phases consume resource outputs when the file exists.
+    resources-output-yml |o..o{ components : supplies
+    resources-output-yml |o..o{ workloads : supplies
+    project {
+        path project_root
     }
-    config-subfolder["Configuration folder"] {
-        string config_subfolder "CLI selector"
+    config {
+        path config_subfolder
     }
-    resources-yml["resources.yml"] {
-        map globalVariables
-        list resources
-    }
-    components-yml["components.yml"] {
-        map globalVariables
-        list components
-    }
-    workloads-yml["workloads.yml"] {
-        map globalVariables
-        list workloads
-    }
-    project-root ||--|{ config-subfolder : contains
-    config-subfolder ||--|| resources-yml : contains
-    config-subfolder ||--|| components-yml : contains
-    config-subfolder ||--|| workloads-yml : contains
-```
-
-`project_root` and `config_subfolder` are script arguments, not additional YAML
-fields. The three files are required by `Confirm-Configuration`; their contents
-are validated by PowerShell code, not by a project JSON Schema. This view groups
-the parallel cloud directories into one entity and shows five entities total.
-
-Sources: [website configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config),
-[text-to-sql configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/text-to-sql/config),
-[template configuration](https://github.com/alissonsol/yuruna-project/tree/main/template/config),
-[nested-host sequence](https://github.com/alissonsol/yuruna-project/blob/main/example/nested.host/test/nested.host.yml),
-[Test-Configuration.ps1](../../automation/Test-Configuration.ps1), and
-[Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1).
-
-## Deployment entries and output keys
-
-The six entities below expand the configuration lists and the generated
-`config/<cloud>/resources.output.yml`. `name`, `project`, and `context` are the
-respective entry identifiers; the validator rejects duplicate raw and expanded
-values within the relevant list. They are not foreign keys joining the three
-lists: commands and variable expressions carry their runtime dependencies.
-
-```mermaid
-erDiagram
-    resources["Resource entry"] {
+    resources {
         string name
         string template
         map variables
     }
-    resources-output-yml["Resource outputs"] {
-        map globalVariables
-    }
-    resource-output["Output field"] {
-        bool sensitive
-        object type
-        object value
-    }
-    components["Component entry"] {
+    components {
         string project
         string buildPath
         string buildCommand
@@ -85,138 +39,161 @@ erDiagram
         string pushCommand
         map variables
     }
-    workloads["Workload entry"] {
+    workloads {
         string context
         map variables
+        list deployments
     }
-    deployments["Deployment entry"] {
+    deployments {
         string chart
         string kubectl
         string helm
         string shell
         map variables
     }
-    resources ||..o{ resource-output : produces
-    resources-output-yml ||--o{ resource-output : contains
-    resources-output-yml |o..o{ components : supplies
-    resources-output-yml |o..o{ workloads : supplies
-    workloads ||--o{ deployments : contains
+    resources-output-yml {
+        map globalVariables
+        map resourceName
+    }
 ```
 
-An output field is persisted beneath the expanded resource name and output name:
-`<resourceName>: { <outputName>: { sensitive, type, value } }`. Neither name is an
-extra leaf field. The file also retains expanded `globalVariables`. Consumers
-expose each output value as the environment key `<resourceName>.<outputName>`;
-global variable keys remain unprefixed. Output values are imported verbatim,
-without evaluating them as PowerShell expressions. Components read the selected
-configuration's output file; workloads additionally support a parent-directory
-output file when the selected one is absent. The optional cardinality reflects
-that consumers permit an absent output file, although expressions can still
-require its values to perform useful work.
+This seven-entity view groups each phase document with its list entries.
+`resources`, `components`, and `workloads` show entry fields; each corresponding
+YAML document can also contain `globalVariables`. A deployment contains one
+registered kind (`chart`, `kubectl`, `helm`, or `shell`), rather than all four.
+`resourceName` denotes a dynamic output key derived from `resources[].name`;
+it is not a literal required field. Each resource's OpenTofu outputs retain
+objects containing their `value`.
 
-The source locations are resolved by these concrete fields:
+Sources: [Yuruna.Resource](../../automation/Yuruna.Resource.psm1),
+[Yuruna.Component](../../automation/Yuruna.Component.psm1),
+[Yuruna.Workload](../../automation/Yuruna.Workload.psm1),
+[Yuruna.Validation](../../automation/Yuruna.Validation.psm1),
+[Yuruna.VariableExpansion](../../automation/Yuruna.VariableExpansion.psm1), and
+[Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1).
+The companion repository supplies the concrete
+[template configuration](https://github.com/alissonsol/yuruna-project/tree/main/template/config/localhost)
+and website
+[resources.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml),
+[components.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/components.yml), and
+[workloads.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml).
 
-| Field | Consumer resolution |
-|---|---|
-| Resource `template` | `<project>/resources/<template>` first, then `yuruna/global/resources/<template>`. |
-| Component `buildPath` | `<project>/components/<buildPath>`; the publisher falls back to `project` when omitted. |
-| Workload `context` | Expanded name of an existing Kubernetes context; it also selects the workload work directory. |
-| Deployment `chart` | `<project>/workloads/<chart>` copied into an `<installName>` folder under the workload work directory. |
-| Deployment `variables.installName` | Required Helm release name for a chart; duplicates within one context are rejected. |
+| Reference | Resolution in the engine |
+| --- | --- |
+| `project_root` | Selects a project root such as `example/website/` or `template/` in the companion repository. The template is itself a project root. |
+| `config_subfolder` | Selects `config/<config_subfolder>/` below that root. Website configurations exist for `localhost`, `aws`, and `azure`; the template contains `localhost`. |
+| `resources[].template` | Resolves project `resources/<template>/` first, then framework `global/resources/<template>/`. An empty template names an existing resource. |
+| `resources[].name` | Becomes the expanded output key and `.yuruna/<config>/resources/<name>/` work-folder name. |
+| `components[].project` / `buildPath` | Identifies the component and selects `components/<buildPath>/`; an omitted `buildPath` defaults to `project`. |
+| Component commands | `buildCommand`, `tagCommand`, and `pushCommand` use direct entry fields with phase-global fallbacks. `preProcessor` and `postProcessor` come from merged variables, including `components[].variables`. |
+| `workloads[].context` | Selects a Kubernetes context; the module restores the caller's original context afterward. |
+| `deployments[].chart` | Selects `workloads/<chart>/`; `variables.installName` names the Helm installation and its work folder. |
 
-Component build, tag, and push commands may be supplied on the entry or inherited
-from its file's `globalVariables`. Its merged variable bag layers resource
-outputs, component globals, and component locals. Workload rendering layers
-resource outputs, workload globals, workload locals, and deployment locals.
-Later layers replace earlier values. The four deployment command fields in the
-diagram are alternatives, not four required fields. The current kind resolver
-selects `chart` when present; otherwise the last populated kind in registration
-order (`kubectl`, `helm`, `shell`) wins. YAML declaration order preserves the
-deployment sequence.
+Component variables combine resource output globals and resource-qualified
+outputs, component-document globals, and component variables, in that order.
+Workload deployments add workload-document globals, workload variables, and
+finally deployment variables over resource outputs. Later layers override
+matching names. Resource output values are exposed through names such as
+`<resource-name>.<output-name>`.
 
-Sources: [website resources](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml),
-[website components](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/components.yml),
-[website workloads](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml),
-[Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1),
-[Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1),
-[Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1),
-[Yuruna.VariableExpansion.psm1](../../automation/Yuruna.VariableExpansion.psm1),
-[Yuruna.DeploymentKind.psm1](../../automation/Yuruna.DeploymentKind.psm1), and
-[Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1).
+`config/<config>/resources.output.yml` records ownership before an apply can
+partially create infrastructure, so a resource entry may initially be empty.
+The [cleanup module](../../automation/Yuruna.Clear.psm1) uses this manifest and
+resource work folders to find managed resources; the existence of the manifest
+alone does not mean all output values are available.
 
-## Secrets and authentication are separate contracts
+The current [resource templates](../../global/resources/) and
+[website configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config)
+cover localhost, AWS, and Azure. GCP deployment templates and project
+configuration are planned, with no implemented resource/configuration path to
+include in this model. Google Artifact Registry authentication is already
+implemented separately, as described below.
 
-Deployment configuration has optional `config/<cloud>/secrets/*.txt` files;
-workload validation also checks `config/secrets/*.txt`. Existing whitespace-only
-files block workload validation, while resource validation only reports them.
-These checks do not turn files into authentication-vault records or implicitly
-inject their contents into every deployment. Project-specific variable
-expressions and commands remain responsible for consuming secret material. For
-example, the website workload explicitly creates Kubernetes TLS and registry
-secrets through its `kubectl` deployment entries.
-
-The harness authentication extension has a separate pair of persisted YAML
-maps, `test/status/extension/authentication/users.yml` and `vault.yml`. The
-committed `test/extension/authentication/users.yml.template` initializes the
-identity map. This five-entity view shows the lookup boundary; the diagram does
-not assert that project deployment entries own these credentials.
+## Test sequences and identities
 
 ```mermaid
 erDiagram
-    sequence-variables["Sequence variables"] {
-        string username
+    yuruna-project ||--|| test-runner-yml : supplies
+    test-runner-yml }o..o{ sequence-yml : selects
+    sequence-yml }o..o{ users-yml : names
+    users-yml }o..o{ vault-yml : resolves
+    yuruna-project {
+        path repository_root
     }
-    users-yml["Identity mappings"] {
-        bool strict
-        map users
+    test-runner-yml {
+        list sequences
+        list testSets
     }
-    user-mapping["User mapping"] {
+    sequence-yml {
+        string sequenceGuid
+        int sequenceRevision
+        string keystrokeMechanism
+        map resource
+        list component
+        list workload
+        map variables
+        map requiresSnapshot
+        map snapshotPolicy
+    }
+    users-yml {
+        string logicalUsername
         string localOsUser
         map corporate
         string vaultKey
         string localOsPasswordRef
     }
-    vault-yml["Credential vault"] {
-        map users
-    }
-    vault-entry["Vault entry"] {
+    vault-yml {
+        string key
         string password
         string previousPassword
         datetime updatedUtc
     }
-    users-yml ||--o{ user-mapping : contains
-    sequence-variables }o..o| user-mapping : resolves
-    user-mapping }o..o{ vault-entry : references
-    vault-yml ||--o{ vault-entry : contains
 ```
 
-The identity-map key is the logical sequence username; the vault-map key is the
-resolved credential key. Both are YAML map keys, not extra fields within an
-entry. The optional mapping edge reflects the non-strict local-user fallback;
-strict configuration validation requires declarations and populated `vaultKey`
-credentials. `corporate` contains `domain`, `sam`, and `upn`; the resolver prefers
-`domain\sam`, then a bare `sam`, then UPN, then the local identity when
-constructing `loginUser`.
-
-`Get-Password` uses `vaultKey`, falling back to the logical username when empty.
-It may create a missing fallback credential but refuses to invent a password for
-an explicit `vaultKey`. `Get-LocalOsPassword` independently uses
-`localOsPasswordRef`, also falling back to the logical username; this function
-can generate a missing local-OS credential even for an explicit reference.
-Consequently one mapping can reference two different entries, and multiple
-users can share an entry. `previousPassword` records a prior value after an
-explicit rotation. The runtime retains the plaintext vault across cycles;
-initialization reuses it rather than wiping it after a successful cycle.
-
-Sources: [project secret validation](../../automation/Yuruna.Validation.psm1),
-[website secret commands](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml),
+This five-entity view separates harness credentials from deployment data.
+Sources: the companion [cycle plan](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
+and [website sequences](https://github.com/alissonsol/yuruna-project/tree/main/example/website/test),
+framework [sequence resolver](../../test/modules/Test.SequenceResolve.psm1),
+[sequence schema](../../test/schemas/sequence.schema.yml),
 [users schema](../../test/schemas/users.schema.yml),
-[vault field schema](../../test/schemas/vault.schema.yml),
-[identity-map template](../../test/extension/authentication/users.yml.template),
-[authentication implementation](../../test/extension/authentication/default.psm1),
-[sequence identity substitution](../../test/modules/Test.SequenceEngine.psm1), and
-[cycle completion](../../test/modules/Test.RunnerInnerLoop.psm1).
+[vault schema](../../test/schemas/vault.schema.yml), and
+[authentication extension](../../test/extension/authentication/default.psm1).
+
+The repository-level `test/test.runner.yml` selects named sequences and groups
+alternative selections in `testSets`. `sequenceGuid` is a persistent identity;
+`sequenceRevision` identifies the sequence's shape. Sequence `resource`,
+`component`, and `workload` sections describe test prerequisites and actions,
+and are distinct from the three deployment configuration files.
+`keystrokeMechanism` chooses `gui` or `ssh`. Optional `requiresSnapshot` selects
+a saved disk snapshot, while `snapshotPolicy` adds age and provenance rules.
+
+`logicalUsername` and `key` denote mapping keys beneath `users`, rather than
+literal record fields. Sequence expressions such as
+`${ext:authentication.GetPassword(${username})}` resolve logical identities
+through the authentication extension. `vaultKey` chooses a login password;
+`localOsPasswordRef` can choose a different secret for the local guest account.
+An explicit reference must resolve to an existing secret. The `strict` setting
+belongs to the users document and controls validation of active identities and
+references.
+
+The extension resolves runtime files under
+`test/status/extension/authentication/users.yml` and `vault.yml` in the framework
+checkout. These files are separate from the companion project's deployment
+configuration. This view describes their schema without including secret values.
+
+Registry authentication is another boundary:
+[Yuruna.Component.Registry](../../automation/Yuruna.Component.Registry.psm1)
+uses [Yuruna.CredentialProvider](../../automation/Yuruna.CredentialProvider.psm1)
+for Azure ACR, AWS ECR, Google Artifact Registry, Docker Hub, or generic Docker
+registries. It uses the selected provider's CLI/environment credentials, without
+implicitly loading the harness vault. Configured workload commands can create
+Kubernetes Secrets, as the website workloads demonstrate.
+
+[Start-ConfigService](../../test/service/Start-ConfigService.ps1) also resolves
+pool and stash storage passwords through the harness vault. It combines them
+with `networkStorage` paths and usernames from `test.config.yml` and serves them
+over the authenticated guest channel shown in [Deployment](06-deployment.md).
 
 ---
 
-Back to [Architecture](../architecture.md) | [Design overview](README.md)
+[Architecture](../architecture.md) | [Design overview](README.md)

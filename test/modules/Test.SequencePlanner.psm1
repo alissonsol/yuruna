@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -323,9 +323,17 @@ function Add-CyclePrereqChainEntry {
         [string]$HostType,
         [Parameter(Mandatory)][string]$OsKey,
         [Parameter(Mandatory)]$Chain,
-        [Parameter(Mandatory)]$Visited
+        [Parameter(Mandatory)]$Visited,
+        [string[]]$Visiting = @()
     )
+    if ($SequenceName -in $Visiting) {
+        $cycle = (@($Visiting) + $SequenceName) -join ' -> '
+        $exception = [InvalidOperationException]::new("PlannerFatal: cyclic sequence prerequisites: $cycle")
+        $exception.Data['YurunaFailureCode'] = 'sequence.plan_invalid'
+        throw $exception
+    }
     if ($Visited.Contains($SequenceName)) { return }
+    $Visiting = @($Visiting) + $SequenceName
     $path = Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
     if (-not $path) {
         # PlannerFatal so the runner's Resolve-CyclePlan catch hits the
@@ -340,7 +348,7 @@ function Add-CyclePrereqChainEntry {
     $seq = Read-SequenceFile -Path $path
     if ($seq.baseline -and $seq.baseline.Contains($OsKey)) {
         foreach ($prereq in $seq.baseline[$OsKey]) {
-            Add-CyclePrereqChainEntry -SequenceName $prereq -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $OsKey -Chain $Chain -Visited $Visited
+            Add-CyclePrereqChainEntry -SequenceName $prereq -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $OsKey -Chain $Chain -Visited $Visited -Visiting $Visiting
         }
     }
     [void]$Visited.Add($SequenceName)

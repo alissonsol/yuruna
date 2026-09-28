@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 426ffdec-7946-4b27-9d2c-487151f04ec7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -358,10 +358,9 @@ Describe 'A diagnostic capture cannot spend a budget it has already used' {
         Import-Module (Join-Path $here 'Test.Diagnostic.psm1') -Force -DisableNameChecking
     }
 
-    It 'reads a budget-exhausted capture as a timeout, not as an absence' {
-        # The wording of the manifest reason is what Get-GuestDiagnosticOutcome
-        # keys on; a stage gate that worded it differently would classify a
-        # capture that ran out of time as merely 'unavailable'.
+    It 'reads a legacy budget-exhausted manifest without typed state as a timeout' {
+        # Historical manifests predate typed timeout fields. Their reason text
+        # remains a compatibility fallback; current captures carry machine state.
         $manifest = @{
             success = $false; outPath = $null; mechanism = 'none'
             skipped = $true;  bytes = 0L; exitCode = 0
@@ -396,15 +395,33 @@ Describe 'A diagnostic capture cannot spend a budget it has already used' {
         $errs = $null
         $ast  = [System.Management.Automation.Language.Parser]::ParseFile(
                     (Join-Path $here 'Test.Diagnostic.psm1'), [ref]$null, [ref]$errs)
+        $errs | Should -BeNullOrEmpty
         $save = $ast.FindAll({
             param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
                       $n.Name -eq 'Save-GuestDiagnostic' }, $true)
         @($save).Count | Should -Be 1
+        $supervisor = $ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                      $n.Name -eq 'Invoke-GuestDiagnosticWorker' }, $true)
+        @($supervisor).Count | Should -Be 1
 
-        # Inside the capture the caps are per stage, so the whole capture's cost
-        # is only knowable from its caller -- including the paths that throw.
-        $text = $save[0].Extent.Text
-        $text | Should -Match 'budgetExceeded'
-        $text | Should -Match 'elapsedSeconds'
+        # The supervisor observes the complete child lifetime, including a stage
+        # that stops returning. Every public capture must pass through that bound.
+        $delegation = $save[0].FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
+                      $n.GetCommandName() -eq 'Invoke-GuestDiagnosticWorker' }, $true)
+        @($delegation).Count | Should -Be 1
+        $boundedCalls = $supervisor[0].FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
+                      $n.GetCommandName() -eq 'Invoke-BoundedNativeCommand' }, $true)
+        @($boundedCalls).Count | Should -Be 1
+        @($boundedCalls[0].CommandElements | Where-Object {
+            $_ -is [System.Management.Automation.Language.CommandParameterAst] -and
+            $_.ParameterName -eq 'Deadline'
+        }).Count | Should -Be 1
+        $measurements = $supervisor[0].FindAll({
+            param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                      $n.Left.Extent.Text -match '^\$manifest\.(budgetExceeded|elapsedSeconds)$' }, $true)
+        @($measurements).Count | Should -Be 2
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -248,11 +248,14 @@ function Invoke-PoolStorageBoundedScript {
         try { return @{ TimedOut = $false; Result = (& $ScriptBlock @ArgumentList); Error = $null } }
         catch { return @{ TimedOut = $false; Result = $null; Error = $_.Exception.Message } }
     }
-    $job = Start-ThreadJob -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    Get-Job -Name YurunaPoolStorageBounded -ErrorAction SilentlyContinue |
+        Where-Object State -In @('Completed', 'Failed', 'Stopped') | Remove-Job -ErrorAction SilentlyContinue
+    $job = Start-ThreadJob -Name YurunaPoolStorageBounded -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
     if (-not (Wait-Job -Job $job -Timeout $TimeoutSeconds)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6887723b4475d137' -Arguments @{ timeoutSeconds = "${TimeoutSeconds}" })
-        try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch { $null = $_ }
-        try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+        # A thread blocked in a filesystem call cannot stop synchronously.
+        # Request cancellation and let a later invocation reap it after it exits.
+        try { $null = $job.StopJobAsync() } catch { $null = $_ }
         return @{ TimedOut = $true; Result = $null; Error = "timeout ${TimeoutSeconds}s" }
     }
     $err = $null
@@ -2065,7 +2068,7 @@ function Copy-PoolStorageCycle {
         }
     }
     try {
-        $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") + "`n"
+        $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) + "`n"
         [System.IO.File]::WriteAllText($sentinel, $stamp, [System.Text.UTF8Encoding]::new($false))
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b65c4a9681a7307e' -Arguments @{ cycleName = "$CycleName"; message = "$($_.Exception.Message)" })
@@ -2292,7 +2295,8 @@ function Test-PoolStorageLockHeldLive {
     $liveStart = Get-PoolStorageProcessStart -ProcId ([int]$j.pid)
     if (-not $liveStart) { return $false }                          # PID not running -> stale
     if (-not $j.startTicks) { return $false }                       # no recorded start -> identity unprovable, treat as stale/reclaimable
-    if ([long]$liveStart -ne [long]$j.startTicks) { return $false } # PID reused -> stale
+    # Process.StartTime on Unix has sub-millisecond cross-process rounding.
+    if ([Math]::Abs([long]$liveStart - [long]$j.startTicks) -gt [TimeSpan]::TicksPerSecond) { return $false } # PID reused -> stale
     return $true
 }
 
@@ -2434,7 +2438,7 @@ function Invoke-PoolStorageDrain {
         }
     }
     try {
-        $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         $ledger = Read-PoolStorageLedger -RuntimeDir $RuntimeDir
         $cycleMap = Get-PoolStorageLocalCycleMap -LogDir $LogDir
         # Move mode never touches a folder whose on-disk leaf is still .incomplete:

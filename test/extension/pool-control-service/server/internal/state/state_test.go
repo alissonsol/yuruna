@@ -4,6 +4,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,5 +68,47 @@ func TestBeatUpdatesHeartbeat(t *testing.T) {
 	st := s.Health()
 	if st.HeartbeatUTC == "" || !st.IntentReadable {
 		t.Fatalf("beat did not update heartbeat/intent-readable: %+v", st)
+	}
+}
+
+func TestAuditFailureSurvivesStatusWritesAndRecoversOnlyAfterAuditWrite(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Now())
+	audit := filepath.Join(dir, "audit.jsonl")
+	if err := os.Mkdir(audit, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s.Record(time.Now(), AuditEntry{Action: "assign", OK: true})
+	s.Beat(time.Now(), true)
+	if st := s.Health(); st.Healthy || !strings.Contains(st.LastError, "audit write:") {
+		t.Fatalf("audit failure was erased: %+v", st)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted Status
+	if err = json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Healthy || !strings.Contains(persisted.LastError, "audit write:") {
+		t.Fatalf("persisted status=%+v", persisted)
+	}
+	if err = os.Remove(audit); err != nil {
+		t.Fatal(err)
+	}
+	s.Record(time.Now(), AuditEntry{Action: "assign", OK: true})
+	if st := s.Health(); !st.Healthy || st.LastError != "" {
+		t.Fatalf("successful audit did not recover: %+v", st)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Healthy {
+		t.Fatalf("recovery was not persisted: %+v", persisted)
 	}
 }

@@ -327,9 +327,8 @@
       }
     },
     "download.v": {
-      "message": "v",
-      "description": "Operator-facing browser message in test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "Decorative control symbols remain literal; their accessible labels are localized separately.",
+      "lifecycle": "tombstone"
     },
     "download.as_of_value1_273588ee": {
       "message": "as of {value1}",

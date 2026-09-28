@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -573,7 +573,7 @@ function Invoke-PoolWorkerServiceTeardown {
             continue
         }
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fd84f55857e825f1' -Arguments @{ displayName = "$($item.DisplayName)"; vMName = "$($item.VMName)"; state = "$($item.State)" }) -InformationAction Continue
-        & $pwshExe -NoProfile -File $script
+        & $pwshExe -NoProfile -File $script | Out-Host
         $code = [int]$LASTEXITCODE
         if ($code -eq 0) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
@@ -946,7 +946,7 @@ function Invoke-PoolWorkerShareWithdrawal {
     # -Force: the conversion took the operator's consent for this already, and a
     # second confirmation for a step they were told about is how an unattended
     # run stops half-way.
-    & $pwshExe -NoProfile -File $script -Force
+    & $pwshExe -NoProfile -File $script -Force | Out-Host
     $code = [int]$LASTEXITCODE
     if ($code -eq 0) {
         return [pscustomobject]@{ Action = 'withdrawn'; ExitCode = 0

@@ -27,6 +27,12 @@ import (
 var version = "dev"
 
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API listen address (empty disables the server)")
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator service base URL for the presence beacon, the auto-seed roster and the UI's lab-token unlock (empty disables all three)")
 	hostID := flag.String("host-id", "", "this host's stable id for the beacon and the pool lease (empty disables the beacon)")
@@ -135,15 +141,18 @@ func main() {
 
 	log.Printf("download-agent-service %s: http=%q pool=%q aggregator=%q area=%s scan=%s freshness=%s lead=%s autoSeed=%t",
 		version, *httpAddr, *poolDir, *aggregatorURL, config.PresenceArea, *scanInterval, *freshness, *prefetchLead, *autoSeed)
+	var serverErr error
 	select {
 	case <-ctx.Done():
 	case err := <-errCh:
+		serverErr = err
 		if err != nil {
 			log.Printf("download-agent-service: http server error: %v", err)
 		}
 	}
 	stop() // trigger the beacon goodbye and the lease release
 	waitBounded(shutdownGrace, agentDone, beaconDone)
+	return serverErr
 }
 
 // shutdownGrace bounds the whole shutdown wait. A hung NAS must not keep the

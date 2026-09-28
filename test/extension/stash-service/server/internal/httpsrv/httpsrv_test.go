@@ -33,7 +33,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.09.24"
+const testVersion = "2026.09.27"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -854,23 +854,6 @@ func TestIndexServesFooter(t *testing.T) {
 	for _, module := range []string{"initFooter", "initMenu", "initHeader"} {
 		if !strings.Contains(js, module) {
 			t.Errorf("the shared runtime is served but does not define %s", module)
-		}
-	}
-}
-
-func TestCommaJoinUnique(t *testing.T) {
-	cases := []struct {
-		in   []string
-		want string
-	}{
-		{nil, ""},
-		{[]string{}, ""},
-		{[]string{"10.0.0.2", "10.0.0.1", "10.0.0.2"}, "10.0.0.1,10.0.0.2"},
-		{[]string{"192.168.7.15"}, "192.168.7.15"},
-	}
-	for _, c := range cases {
-		if got := commaJoinUnique(c.in); got != c.want {
-			t.Fatalf("commaJoinUnique(%v) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

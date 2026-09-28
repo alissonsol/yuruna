@@ -5,10 +5,13 @@ package httpsrv
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"yuruna.com/test/extension/extension-sdk/mcp"
 )
 
 func mcpPost(t *testing.T, base, body string) map[string]any {
@@ -172,4 +175,64 @@ func TestMcpToolSurfacesARouteFailure(t *testing.T) {
 	if !strings.Contains(text, "pool intent read failed") {
 		t.Errorf("the route's own message must survive: %q", text)
 	}
+}
+
+// The refresh tool's argument reader refuses what a map decode would hide --
+// a repeated key keeps only its last value there -- and never echoes a key
+// name that is not shaped like one.
+func TestStrictStringArgsRefusesWhatAMapDecodeHides(t *testing.T) {
+	required, optional := []string{"hostId", "requestId", "tier"}, []string{"maxRung"}
+	longName := strings.Repeat("x", 200)
+	cases := map[string]struct {
+		args    string
+		refused bool
+		inMsg   string
+		notMsg  string
+	}{
+		"valid":                {`{"hostId":"h","requestId":"r","tier":"restart","maxRung":"probe"}`, false, "", ""},
+		"optional omitted":     {`{"hostId":"h","requestId":"r","tier":"restart"}`, false, "", ""},
+		"repeated key":         {`{"hostId":"h","requestId":"r","tier":"full","tier":"restart"}`, true, "tier is given more than once", ""},
+		"repeated optional":    {`{"hostId":"h","requestId":"r","tier":"restart","maxRung":"probe","maxRung":"reclaim"}`, true, "maxRung is given more than once", ""},
+		"unknown key":          {`{"hostId":"h","requestId":"r","tier":"restart","force":"true"}`, true, "unsupported argument force", ""},
+		"unbounded key name":   {`{"hostId":"h","requestId":"r","tier":"restart","` + longName + `":"x"}`, true, "unsupported argument " + refreshFieldNamePlaceholder, longName},
+		"markup in a key name": {`{"<b>force</b>":"x"}`, true, "unsupported argument " + refreshFieldNamePlaceholder, "<b>"},
+		"non-string value":     {`{"hostId":"h","requestId":"r","tier":"restart","maxRung":2}`, true, "maxRung must be a string", ""},
+		"object value":         {`{"hostId":{"a":"b"},"requestId":"r","tier":"restart"}`, true, "hostId must be a string", ""},
+		"not an object":        {`["hostId","h"]`, true, "object of strings", ""},
+		"null":                 {`null`, true, "object of strings", ""},
+		"trailing data":        {`{"hostId":"h","requestId":"r","tier":"restart"} {"force":"true"}`, true, "object of strings", ""},
+		"truncated":            {`{"hostId":"h","requestId":"r","tier":`, true, "object of strings", ""},
+		"missing required":     {`{"hostId":"h","tier":"restart"}`, true, "requestId is required", ""},
+		"no arguments":         {``, true, "hostId is required", ""},
+	}
+	for name, c := range cases {
+		out, err := strictStringArgs(json.RawMessage(c.args), required, optional)
+		if !c.refused {
+			if err != nil {
+				t.Errorf("%s: refused: %v", name, err)
+			} else if out["hostId"] != "h" || out["tier"] != "restart" {
+				t.Errorf("%s: out = %v", name, out)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("%s: accepted %v", name, out)
+			continue
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, c.inMsg) || (c.notMsg != "" && strings.Contains(msg, c.notMsg)) {
+			t.Errorf("%s: message %q", name, msg)
+		}
+		if reason := refusalToken(err); reason != "invalid-arguments" {
+			t.Errorf("%s: reason %q", name, reason)
+		}
+	}
+}
+
+func refusalToken(err error) string {
+	var re *mcp.ReasonError
+	if errors.As(err, &re) {
+		return re.Reason
+	}
+	return ""
 }

@@ -1,85 +1,109 @@
-# Yuruna design overview
+# Yuruna design diagrams
 
-These source-derived diagrams connect Yuruna's component boundaries, runtime flows, state, data, deployment, and globalization.
+This overview connects the source-derived component, runtime, lifecycle, data, deployment, and globalization views.
 
-Start with [Architecture](../architecture.md) for the canonical capability and
-phase definitions. These pages add navigable implementation views rather than
-copying that prose. They describe the checked-in framework and project examples,
-not the health or configuration of a particular running lab.
-
-## Reading the views
+Start with the [canonical architecture](../architecture.md) for the capabilities,
+deployment model, and shared implementation contracts. These pages map those
+concepts to the current `yuruna` and `yuruna-project` source without restating
+the architecture.
 
 | Document | Question answered | Primary source anchors |
 | --- | --- | --- |
-| [01 Context and components](01-context-and-components.md) | Where are the system boundaries? | [install/setup.ps1](../../install/setup.ps1), [automation](../../automation), [test/Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [host](../../host), [guest](../../guest). |
-| [02 Component breakdown](02-component-breakdown.md) | Which artifacts implement each boundary? | [Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1), [Test.SequenceRunner.psm1](../../test/modules/Test.SequenceRunner.psm1), [test/extension](../../test/extension), [global/resources](../../global/resources), [project examples](https://github.com/alissonsol/yuruna-project/tree/main/example). |
-| [03 Data flows](03-data-flows.md) | What moves between callers, tools, services and storage? | [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1), [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1), [service extensions](../../test/extension), [Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1). |
-| [04 Lifecycle state](04-lifecycle-state.md) | What happens on success, failure, timeout or restart? | [Test.RunnerState.psm1](../../test/modules/Test.RunnerState.psm1), [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1). |
-| [05 Data model](05-data-model.md) | Which configuration fields and relationships drive execution? | [project template](https://github.com/alissonsol/yuruna-project/tree/main/template), [website config](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config), [Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1), [authentication extension](../../test/extension/authentication). |
-| [06 Deployment](06-deployment.md) | Where do processes run and which network paths connect them? | [service launchers](../../test/service), [caching-proxy seed](../../host/vmconfig/caching-proxy-service.base.user-data), [pool aggregator](../../test/extension/pool-aggregator-service/main.go), [service metadata](../../test/extension). |
-| [07 Globalization](07-globalization.md) | How are locale, catalogs and localized responses selected? | [globalization](../../globalization), [Test.Locale.psm1](../../test/modules/Test.Locale.psm1), [Test.Message.psm1](../../test/modules/Test.Message.psm1), [status service](../../test/service/Start-StatusService.ps1), [extension SDK](../../test/extension/extension-sdk), [tools](../../tools). |
+| [01 Context and components](01-context-and-components.md) | Where are the seven system boundaries? | [install/setup.ps1](../../install/setup.ps1), [automation/](../../automation/), [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [host/](../../host/), [guest/](../../guest/). |
+| [02 Component breakdown](02-component-breakdown.md) | Which scripts, modules, and directories implement each boundary? | [automation/](../../automation/), [test/modules/](../../test/modules/), [test/extension/](../../test/extension/), [host contract](../../host/Yuruna.Host.Contract.psm1), [tools/](../../tools/). |
+| [03 Data flows](03-data-flows.md) | What crosses each boundary, and where is data stored? | [phase modules](../../automation/), [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [download-agent](../../test/extension/download-agent-service/), [stash](../../test/extension/stash-service/). |
+| [04 Lifecycle state](04-lifecycle-state.md) | How do cycles succeed, fail, pause, and restart? | [Test.RunnerState](../../test/modules/Test.RunnerState.psm1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1). |
+| [05 Configuration data model](05-data-model.md) | Which fields and references do the engines consume? | [project configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config), [template](https://github.com/alissonsol/yuruna-project/tree/main/template), [validation](../../automation/Yuruna.Validation.psm1), [authentication](../../test/extension/authentication/), [schemas](../../test/schemas/). |
+| [06 Deployment topology](06-deployment.md) | Which machines host the code and exchange network traffic? | [host providers](../../host/), [service launchers](../../test/service/), [extension daemons](../../test/extension/), [service guest setup](../../guest/ubuntu.server.26/). |
+| [07 Globalization](07-globalization.md) | How do client and server select and render a locale? | [locale manifest](../../globalization/locale-manifest.json), [Test.Locale](../../test/modules/Test.Locale.psm1), [Go SDK](../../test/extension/extension-sdk/i18n/), [browser kernel](../../globalization/kernel/yuruna.i18n.js). |
 
-Follow component names from 01 into 02, then use 03 for message/data movement
-and 04 for lifecycle decisions. The records in 05 are inputs to those flows.
-The same services appear in 06 as deployed processes rather than logical
-components. Page and API interactions in 03/06 use the locale behavior in 07;
-localization does not rename protocol keys or runner state tokens.
+Every diagram's adjacent prose cites its more specific implementation sources.
+The project links refer to matching files in the sibling
+`yuruna-project` checkout; the framework links are relative so they also
+work in a local clone.
+
+## Reading the views together
+
+The L1 diagram fixes seven responsibility boundaries. L2 expands those same
+boundaries in the same order. The data flows follow messages and files across
+them; the state views describe control flow over time. The data model names
+the configuration records read in those flows, and deployment maps the same
+participants to hosts and service VMs. Globalization applies across these
+components, rather than adding a deployment phase.
+
+Two boundaries need particular care. Runtime
+`test/status/extension/authentication/` belongs to the harness, not the
+project deployment schema. The pool share and stash share also have separate
+settings and writers: pool images, host records, intent, and telemetry are
+distinct from stash artifacts and the stash VM's local index/buffer.
+
+The source currently provides resource templates for localhost, AWS, and
+Azure. GCP registry authentication exists, but GCP deployment templates and
+example configurations do not. `template/` is itself a project root;
+`example/<project>/` and book/test definitions add other project shapes.
+
+The [test-cycle flow](03-data-flows.md#b-test-cycle) places prompt recognition
+before input and separates console/OCR work from SSH actions. The [pool telemetry flow](03-data-flows.md#g-pool-telemetry-and-dashboards)
+separates event ingestion from metrics and SMB archiving. The
+[lifecycle](04-lifecycle-state.md) also distinguishes manual host refresh,
+its runner preflight/barrier, and the currently unqualified automatic trigger.
+
+The deployment views distinguish the host's 8080 status endpoint from its
+8443 mutual-TLS configuration endpoint, expand the caching-proxy VM processes,
+and separate local and cloud deployment targets. The globalization views
+distinguish runtime locale availability from entry provenance and connect the public catalog compiler,
+embedded service assets, HTTP negotiation, and browser rendering.
 
 ## Grouping and notation
 
-| View | Seven-box grouping decision |
+| View | Grouping decision |
 | --- | --- |
-| Context | Seven empty subgraph placeholders render as seven boundary boxes; their children appear only in the breakdown. |
-| Breakdown | One diagram per context boundary, with at most seven boxes total; modules, guest adapters, extensions and tools are named source-family aggregates. |
-| Flows | Separate sequence diagrams bound participants for deployment, testing, cache, stash, pool access and host refresh; a separate storage hierarchy identifies ownership. |
-| Lifecycle | Runner state and guest lifecycle are separate views, so process outcomes are not confused with VM power states. |
-| Data model | Related configuration views are separated rather than combining every directory, record and secret into one ER diagram. |
-| Deployment | Network boundaries and their process/storage detail use separate views so counting group boundaries still stays within seven boxes. |
-| Globalization | Catalog production, HTTP negotiation and localized consumers use separate small diagrams. |
+| L1 | Seven empty subgraphs represent the seven components; implementations appear in L2. |
+| L2 | At most seven siblings per view. Related validators, provider implementations, shared modules, and extension families are named aggregates with membership listed in prose. |
+| Sequences | At most seven participants. Phase-owned tool calls and related remote targets are grouped; the cache, stash, download-agent, and pool-telemetry paths have separate diagrams. |
+| Pool storage | One share boundary plus six children; per-host cycle/service directories share a host box. A separate six-box view distinguishes stash share data from VM-local state. |
+| Lifecycle | Six persisted runner states and a separate seven-state summary of inner VM work. Watchdog and exit conditions are transitions or prose, not invented enum values. |
+| Data model | Seven deployment entities and five test/credential entities. Phase entries share their list names; globals and dynamic map keys are explained in prose. |
+| Deployment | Separate bounded views for test endpoints, pool services/storage, cache VM internals, guest configuration, and local/cloud targets. Co-located endpoints and file reads are identified explicitly. |
+| Globalization | Seven catalog components, six locale-selection nodes, five request/render participants, with PowerShell and Go adapters sharing an explicitly named contract. |
 
-A box or participant maps to a cited artifact or an explicitly named aggregate
-of artifacts. Flowchart IDs use stable kebab-case names derived from source
-paths; labels remain short. State diagrams use single-word source-derived
-aliases because the Mermaid state grammar rejects hyphens in identifiers;
-visible labels keep the exact persisted runner state names. Sequence messages
-and prose carry the details omitted from those labels. Arrows are defined per
-view: dependencies in component
-diagrams, actual exchanges in sequence diagrams, allowed execution transitions
-in state diagrams, and network/data direction in deployment diagrams. Dashed
-edges with Mermaid comments identify optional or planned paths where drawn.
+Only `flowchart`, `sequenceDiagram`, `stateDiagram-v2`, and `erDiagram`
+are used. Node IDs are stable artifact-derived slugs; labels are short.
+State diagrams use underscore aliases for Mermaid parser compatibility while
+preserving source state names in the displayed labels.
+Empty subgraphs count as one box; a populated subgraph and its children all
+count toward the diagram's seven-box limit. Sequence participants and ER
+entities count once, regardless of messages or fields. Long source memberships
+belong in prose rather than additional diagram boxes.
+Declaration order follows the component list, phase order, or runtime
+exchange. Solid arrows have the meaning described beside each diagram;
+dashed flowchart edges mark optional behavior with an `%% optional` comment.
+ER dashed relationships mean non-identifying data references.
 
-The documents use fenced `mermaid` blocks and the standard `flowchart`,
-`sequenceDiagram`, `stateDiagram-v2`, and `erDiagram` types. There is no
-dependency on an experimental component/deployment diagram type,
-external icon pack, custom theme, or embedded script.
+## Regeneration contract
 
-## Source and regeneration boundaries
+Read implementation files and configuration examples before changing a diagram.
+Confirm source paths and runtime fields, then update affected views together.
+Prior diagrams are not evidence for what the code does. Keep stable IDs,
+declaration order, LF line endings, and fixed prose for unchanged behavior;
+do not insert generation timestamps, random identifiers, live hostnames, or
+secret values. Re-running against unchanged source should leave no diff.
 
-Treat source implementations, schemas, templates and checked-in tests as the
-authority when regenerating. Architecture prose supplies the canonical
-vocabulary, not evidence that an optional or planned feature is implemented.
-The diagrams omit GCP deployment because the tree has no GCP resource templates.
-The template layout is `template/{config,resources,components,workloads}`;
-it does not add a project-name directory under `template`. Project links use
-the public project repository so they remain navigable on GitHub.
+Validate every Mermaid block by parsing and rendering it, check the seven-box
+bounds and local/project source links, and preserve inbound section links.
+The overview target is `docs/design/README.md`, including
+[the documentation index](../README.md) and
+[the yuruna.link design redirect](https://yuruna.link/design).
 
-Keep phase/directory ordering, stable artifact IDs, explicit source citations,
-and LF newlines. Do not insert generation timestamps, machine-specific lab
-addresses, live pool counts or screenshots into these pages. Those values are
-runtime evidence and would create diffs unrelated to the source. Preserve the
-inbound architecture anchors for
-[three-phase deployment](03-data-flows.md#a-three-phase-deployment) and
-[tool sidecars](03-data-flows.md#the-stderrlog--rc-sidecar-contract).
-Verify Mermaid parsing/rendering, total box and child/participant counts, short
-labels and links after regeneration. Count a visible subgraph boundary as a
-box, not as free space for another seven boxes. Do not replace stable source
-IDs or reorder unchanged relationships during regeneration.
+Use the documented [GitHub Mermaid fences](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams)
+and the stable diagram types listed above. Local rendering validates Mermaid
+syntax and layout without requiring a commit or publication. Source citations
+use current public paths rather than transient line numbers. The diagrams
+cover the published framework and its companion project repository.
 
-Use `docs/design/README.md` for links to this overview, including the
-[design shortcut](https://yuruna.link/design); individual topic links can still
-target their numbered document. [Naming conventions](naming.md) remains a
-separate maintained reference rather than another generated diagram.
+[Naming conventions](naming.md) remains the companion reference for component,
+configuration, and page names.
 
 ---
 
-Back to [Architecture](../architecture.md) · [Design overview](README.md)
+[Architecture](../architecture.md) | [Design overview](README.md)

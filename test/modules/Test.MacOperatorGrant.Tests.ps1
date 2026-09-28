@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,6 +243,76 @@ Describe 'the host-settings sweep' {
             'a grant still missing afterwards has to raise the unmet count, or the script exits 0 on a host that cannot run a cycle'
     }
 
+    It 'reads the Automation grant never, and asks for it only through the bounded runner' {
+        # The grant cannot be read without raising the dialog, so it stays
+        # unprobed; asking for it is the first Apple Event to UTM, which an
+        # unanswered dialog or a wedged UTM would otherwise hold forever.
+        $grant = @(Get-MacOperatorGrant -Id 'AutomationUtm')[0]
+        Assert-True ($null -eq $grant.Probe) 'the Automation grant stays unprobed'
+        $prompt = $grant.Prompt.Ast
+        $commands = @($prompt.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true))
+        Assert-True (@($commands | Where-Object { "$($_.CommandElements[0].Extent.Text)" -eq 'utmctl' }).Count -eq 0) 'no bare utmctl call'
+        $bounded = @($commands | Where-Object { $_.GetCommandName() -eq 'Invoke-MacBoundedTool' })
+        Assert-True ($bounded.Count -eq 1) 'the request goes through Invoke-MacBoundedTool'
+        Assert-Match '-TimeoutSeconds\s+\d+' $bounded[0].Extent.Text 'with an explicit cap'
+        Assert-Match 'Get-MacUtmctlBundlePath' $prompt.Extent.Text 'the bundle copy stands in when no link is on PATH'
+    }
+
+    It 'raises no dialog, opens no pane and waits for nothing under -NoPrompt, yet still counts what is missing' {
+        if ($IsWindows) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Import-Module (Join-Path $here 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
+        $fake = New-MacUtmFakeHost -Root (Join-Path ([IO.Path]::GetTempPath()) ("yrn-macgrant-" + [guid]::NewGuid().ToString('N')))
+        $savedNonInteractive = $env:YURUNA_NONINTERACTIVE
+        Enter-MacUtmFakeHost -FakeHost $fake
+        try {
+            $env:YURUNA_NONINTERACTIVE = '1'
+            $expected = @(Get-MacOperatorGrantState | Where-Object { $_.Blocking -and $_.State -notin @('granted', 'overridden') } | ForEach-Object { $_.Id })
+            Clear-MacUtmFakeCall -FakeHost $fake
+            $pending = @(Invoke-MacOperatorGrantAssist -NoPrompt -WaitSeconds 1 -InformationAction SilentlyContinue)
+            $quiet = @(Get-MacUtmFakeCall -FakeHost $fake)
+            Assert-Equal 0 @($quiet | Where-Object { $_ -match '^(open|utmctl) ' -or $_ -match 'AXTrustedCheckOptionPrompt|CGRequestScreenCaptureAccess' }).Count `
+                "no consent dialog and no pane: $($quiet -join ' / ')"
+            Assert-Equal ($expected -join ',') ($pending -join ',') 'every blocking grant still missing is still counted'
+            # The switch is what suppresses them: without it the same host
+            # raises the Automation request through the bounded runner.
+            Clear-MacUtmFakeCall -FakeHost $fake
+            $null = @(Invoke-MacOperatorGrantAssist -WaitSeconds 1 -Confirm:$false -InformationAction SilentlyContinue)
+            Assert-True (@(Get-MacUtmFakeCall -FakeHost $fake -Tool 'utmctl').Count -ge 1) 'the prompting path does ask'
+        } finally {
+            Exit-MacUtmFakeHost -FakeHost $fake
+            if ($null -eq $savedNonInteractive) { Remove-Item -Path 'Env:YURUNA_NONINTERACTIVE' -ErrorAction SilentlyContinue }
+            else { $env:YURUNA_NONINTERACTIVE = $savedNonInteractive }
+            Remove-MacUtmFakeHost -FakeHost $fake
+        }
+    }
+
+    It 'leaves the desktop session alone under -NoGuiDisruption' {
+        # A caller repairing a host while someone else's work owns the
+        # desktop must not raise a password prompt, restart Dock or the screen
+        # saver, or raise a consent dialog; every one of those sites is gated.
+        $fn = Get-YurunaTestFunctionAst -Path $script:MacModulePath -Name 'Set-MacHostConditionSet'
+        Assert-True ($fn.Body.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'NoGuiDisruption') 'the switch exists'
+        $gated = {
+            param($Site)
+            $node = $Site.Parent
+            while ($node -and $node -ne $fn) {
+                if ($node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -match 'NoGuiDisruption') { return $true }
+                $node = $node.Parent
+            }
+            return $false
+        }
+        $sites = @($fn.FindAll({ param($n)
+            $n -is [Management.Automation.Language.CommandAst] -and (
+                $n.GetCommandName() -eq 'Initialize-SudoCache' -or
+                ($n.GetCommandName() -eq 'killall' -and $n.Extent.Text -match 'Dock|ScreenSaverEngine'))
+        }, $true))
+        Assert-True ($sites.Count -ge 4) "the prompt and the three restarts are all found ($($sites.Count))"
+        foreach ($site in $sites) { Assert-True (& $gated $site) "gated: $($site.Extent.Text)" }
+        $assist = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-MacOperatorGrantAssist' }, $true))
+        Assert-True ($assist.Count -eq 1) 'the grant assist runs once'
+        Assert-Match '-NoPrompt:\$NoGuiDisruption' $assist[0].Extent.Text 'and inherits the no-prompt mode'
+    }
+
     It 'waits for a click only where somebody can click' {
         # The wait is what turns "run it again to see if it worked" into a
         # confirmed grant. Ungated, it would stall an unattended install for the
@@ -250,5 +320,18 @@ Describe 'the host-settings sweep' {
         $body = (Get-YurunaTestFunctionAst -Path $script:MacModulePath -Name 'Invoke-MacOperatorGrantAssist').Extent.Text
         Assert-Match 'Test-YurunaCanPrompt' $body 'the re-probe loop has to be gated on a reachable operator'
         Assert-Match 'Get-MacSessionKind' $body 'a remote session can neither hold the grant nor raise its dialog, and has to be told so'
+    }
+}
+
+Describe 'Compact grant guidance in Test-Config' {
+    It 'retains the full instruction when the provider emits exactly one string' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:TestConfigPath, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$compactFix'}, $true)
+        Assert-NotNull $assignment
+        function Get-MacOperatorGrantInstruction { param($Grant, [switch]$Compact) $null=$Grant,$Compact; 'Enable Accessibility in System Settings.' }
+        $grantState = @{Grant=@{}}
+        $null = $grantState # Referenced by the production expression below.
+        $actual = & ([scriptblock]::Create($assignment.Right.Extent.Text))
+        Assert-Equal 'Enable Accessibility in System Settings.' $actual
     }
 }

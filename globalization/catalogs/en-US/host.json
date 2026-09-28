@@ -8,6 +8,174 @@
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",
       "lifecycle": "active"
     },
+    "host.enable_automation_no_prompt_confirm_conflict": {
+      "message": "Enable-TestAutomation: -NoOperatorPrompt cannot be combined with -Confirm, which asks before every change; nothing was captured or changed.",
+      "description": "Write-Error in host/macos.utm/Enable-TestAutomation.ps1 when -NoOperatorPrompt and -Confirm are both given; the script then exits 1. Preserve command names and switch names.",
+      "lifecycle": "active"
+    },
+    "host.enable_automation_no_prompt_mode": {
+      "message": "Enable-TestAutomation: running with -NoOperatorPrompt -- no consent dialogs, no Dock or screen saver restart, no module installs, no sudo prompt and no networkStorage questionnaire. Settings that need an operator are reported as still unmet.",
+      "description": "Write-Information in host/macos.utm/Enable-TestAutomation.ps1, printed once when -NoOperatorPrompt is set; preserve command names, switch names and the config key networkStorage.",
+      "lifecycle": "active"
+    },
+    "host.enable_automation_no_prompt_unsupported": {
+      "message": "Enable-TestAutomation: -NoOperatorPrompt needs Set-MacHostConditionSet -NoGuiDisruption, which this checkout does not provide; nothing was captured or changed. Run it without -NoOperatorPrompt from an attended session instead.",
+      "description": "Write-Error in host/macos.utm/Enable-TestAutomation.ps1 when the loaded host-condition module cannot run without disrupting the desktop session; the script then exits 1. Preserve command names and switch names.",
+      "lifecycle": "active"
+    },
+    "host.forwarder_identity_unverified": {
+      "message": "Stop-CachingProxyServiceForwarder: pid {forwarderPid} could not be read within the time limit; the pidfile was kept and nothing was signaled.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-CachingProxyServiceForwarder) when the bounded identity check timed out; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "forwarderPid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        }
+      }
+    },
+    "host.hyperv_dism_timed_out": {
+      "message": "Assert-HyperVEnabled: dism.exe did not report the Hyper-V feature state within {seconds} seconds; the feature state is unknown.",
+      "description": "Write-Information in Assert-HyperVEnabled (host/windows.hyper-v/modules/Yuruna.Host.psm1) when the bounded dism.exe feature query times out; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "120"
+        }
+      }
+    },
+    "host.hyperv_rename_source_not_stopped": {
+      "message": "Rename-VM: '{vMName}' is {state}; a VM is renamed only while Hyper-V positively reports it stopped.",
+      "description": "Write-Warning in Rename-VM (host/windows.hyper-v/modules/Yuruna.Host.psm1) when the source VM exists but is not Off, Saved or OffCritical; the state is the Hyper-V state name such as Running; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        },
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Running"
+        }
+      }
+    },
+    "host.hyperv_start_vmms_action": {
+      "message": "Start the stopped Hyper-V Virtual Machine Management service",
+      "description": "ShouldProcess action text in Start-VirtualizationServiceIfStopped (host/windows.hyper-v/modules/Yuruna.Host.psm1); the target shown beside it is the service name vmms. Preserve the product name Hyper-V.",
+      "lifecycle": "active"
+    },
+    "host.hyperv_vm_removal_unconfirmed": {
+      "message": "Remove-VM: Hyper-V could not confirm that '{vMName}' was unregistered, so its disk directory was kept.",
+      "description": "Write-Warning in Remove-HyperVTestVM (host/windows.hyper-v/modules/Yuruna.Host.psm1) when the post-removal lookup cannot prove the VM is gone; the disk directory is deleted only after positive absence; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        }
+      }
+    },
+    "host.hyperv_vm_state_unknown": {
+      "message": "{operation}: Hyper-V could not establish whether '{vMName}' exists; nothing was changed.",
+      "description": "Write-Warning in Stop-HyperVVMForce, Remove-HyperVTestVM, Request-HyperVVMShutdown and Rename-VM (host/windows.hyper-v/modules/Yuruna.Host.psm1) when the VM lookup failed and the inventory could not prove absence, so the operation refuses before any change; the operation is a command name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Remove-VM"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        }
+      }
+    },
+    "host.kvm_force_stop_pid_unverified": {
+      "message": "Stop-VMForce: process {processId} named in {pidFile} is not the qemu process of '{vMName}', so it was not signaled.",
+      "description": "Write-Warning in Stop-VMForce (host/ubuntu.kvm/modules/Yuruna.Host.psm1) when the libvirt pidfile names a process whose command line is not the qemu process of that domain, so the kill is skipped; preserve command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "pidFile": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/run/libvirt/qemu/test-vm.pid"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        }
+      }
+    },
+    "host.kvm_force_stop_pidfile_invalid": {
+      "message": "Stop-VMForce: {pidFile} does not hold a usable process id, so no qemu process was signaled.",
+      "description": "Write-Warning in Stop-VMForce (host/ubuntu.kvm/modules/Yuruna.Host.psm1) when the libvirt pidfile content is not a process id the function may signal; preserve command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pidFile": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/run/libvirt/qemu/test-vm.pid"
+        }
+      }
+    },
+    "host.kvm_force_stop_signal_refused": {
+      "message": "Stop-VMForce: sudo refused to signal qemu process {processId} of '{vMName}'; install a sudoers rule for /bin/kill or stop the domain by hand.",
+      "description": "Write-Warning in Stop-VMForce (host/ubuntu.kvm/modules/Yuruna.Host.psm1) when non-interactive sudo refuses the kill of a verified qemu process; preserve command names, paths and the word sudoers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        }
+      }
+    },
+    "host.kvm_rename_source_not_stopped": {
+      "message": "Rename-VM: '{vMName}' is {state}; libvirt renames only a domain positively reported as stopped.",
+      "description": "Write-Warning in Rename-VM (host/ubuntu.kvm/modules/Yuruna.Host.psm1) when the source domain state is running or could not be established; the state is a lowercase token such as running or unknown; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        },
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "unknown"
+        }
+      }
+    },
+    "host.kvm_start_network_action": {
+      "message": "Start the inactive libvirt network",
+      "description": "ShouldProcess action text in Start-VirtualizationServiceIfStopped (host/ubuntu.kvm/modules/Yuruna.Host.psm1); the target shown beside it is the libvirt network name default. Keep it a short imperative phrase.",
+      "lifecycle": "active"
+    },
+    "host.kvm_start_unit_action": {
+      "message": "Start the stopped libvirt unit",
+      "description": "ShouldProcess action text in Start-VirtualizationServiceIfStopped (host/ubuntu.kvm/modules/Yuruna.Host.psm1); the target shown beside it is a systemd unit name such as libvirtd.service. Keep it a short imperative phrase.",
+      "lifecycle": "active"
+    },
     "host.operator_005bab80fe0f8f32": {
       "message": "  SSH:      ssh pool-control-service-admin@{dockIp}  (harness key authorized)",
       "description": "Whole Write-Output message in host/windows.hyper-v/guest.pool-control-service/New-VM.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -11936,10 +12104,568 @@
       "description": "Whole Write-Warning message in host/modules/Yuruna.UbuntuImage.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
+    "host.orphan_sweep_registration_unknown": {
+      "message": "Kept {path}: UTM did not answer whether {target} is registered (utmctl status did not finish).",
+      "description": "Write-Warning in host/macos.utm/Remove-OrphanedVMFiles.ps1 when the bounded registration probe for a bundle did not complete, so the bundle is kept rather than treated as orphaned. Keep the command name utmctl.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/Users/operator/yuruna/guest.nosync/example.utm"
+        },
+        "target": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4F1C2B3A-1111-2222-3333-444455556666"
+        }
+      }
+    },
+    "host.orphan_sweep_utmctl_unanswered": {
+      "message": "utmctl {verb} did not finish within {seconds} seconds, so the UTM registrations are unknown; nothing was deleted. Run this again once UTM answers.",
+      "description": "Write-Error in host/macos.utm/Remove-OrphanedVMFiles.ps1 when the bounded utmctl listing timed out or could not be read completely; the script exits 1 before deleting anything. Keep the command name utmctl.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verb": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "list"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "20"
+        }
+      }
+    },
+    "host.rename_vm_inventory_unavailable": {
+      "message": "Rename-VM: the running VM list could not be read ({reason}); UTM was not quit, so no service VM is left suspended. Rename '{vmName}' after UTM answers again.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Rename-VM) when the pre-quit capture failed; preserve command names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "permission-denied"
+        },
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server01"
+        }
+      }
+    },
+    "host.rename_vm_relaunch_unconfirmed": {
+      "message": "Rename-VM: the UTM relaunch was not confirmed ({outcome}); these service VMs were not resumed: {names}. Open UTM, then run: {commands}",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Rename-VM) when the relaunch was not observed, so no resume was attempted; preserve command names and the utmctl commands.",
+      "lifecycle": "active",
+      "placeholders": {
+        "outcome": {
+          "type": "token",
+          "trust": "internal",
+          "example": "not-observed"
+        },
+        "names": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "commands": {
+          "type": "detail",
+          "trust": "external",
+          "example": "utmctl start 'yuruna-stash-service'"
+        }
+      }
+    },
+    "host.rename_vm_stop_unconfirmed": {
+      "message": "Rename-VM: UTM did not stop ({outcome}); '{vmName}' was not renamed and its bundle was not edited.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Rename-VM) when the UTM stop primitive did not confirm exit; preserve command names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "outcome": {
+          "type": "token",
+          "trust": "internal",
+          "example": "partial"
+        },
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server01"
+        }
+      }
+    },
     "host.unified_screen_lock_description": {
       "message": "sysadminctl unified screen lock",
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",
       "lifecycle": "active"
+    },
+    "host.utm_app_census_unknown": {
+      "message": "{operation}: could not establish which UTM processes belong to this user ({reason}); nothing was stopped or started.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) when the same-user process census failed before the quit; preserve command names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-UtmApplication"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "probe-timeout"
+        }
+      }
+    },
+    "host.utm_app_control_refused": {
+      "message": "{operation}: refused ({reason}); UTM was left as it is.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmApplication, Restart-UtmApplication) when the GUI-session, uid or census prerequisite failed; preserve command names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Start-UtmApplication"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "no-session"
+        }
+      }
+    },
+    "host.utm_app_executable_mismatch": {
+      "message": "Stop-UtmApplication: pid {processId} was listed as {processName}, but the executable it runs is not this user's {processName}; it was not signaled.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) when a process the census listed does not run the UTM or QEMU helper executable; preserve command and process names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "processName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "QEMUHelper"
+        }
+      }
+    },
+    "host.utm_app_flush_skipped_census": {
+      "message": "{operation}: the preference-cache flush was skipped because this user's UTM processes could not be counted ({reason}); a flush while UTM runs would let it write its old preferences back.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmApplication) when -FlushPreferenceCache is skipped because the same-user process census failed; the launch still proceeds; preserve command names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Start-UtmApplication"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "probe-timeout"
+        }
+      }
+    },
+    "host.utm_app_flush_skipped_root": {
+      "message": "{operation}: the preference-cache flush was skipped because this process runs as root, where killall would reach every user's cfprefsd.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication, Start-UtmApplication) when -FlushPreferenceCache is refused for root; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-UtmApplication"
+        }
+      }
+    },
+    "host.utm_app_hard_stop_signal": {
+      "message": "Stop-UtmApplication: sending {signal} to {processName} (pid {processId}) because it did not exit after the quit request.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) before each revalidated hard-stop signal; preserve signal and process names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "signal": {
+          "type": "token",
+          "trust": "internal",
+          "example": "TERM"
+        },
+        "processName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "QEMUHelper"
+        },
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        }
+      }
+    },
+    "host.utm_app_identity_changed": {
+      "message": "Stop-UtmApplication: pid {processId} no longer matches the {processName} process observed earlier; it was not signaled.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) when a process identity changed between capture and signal; preserve process names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "processName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "UTM"
+        }
+      }
+    },
+    "host.utm_app_identity_unreadable": {
+      "message": "{operation}: the identity of {processName} (pid {processId}) could not be read ({reason}); it was not signaled.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication, Stop-UtmOwnedProcess) when a process identity read timed out or failed before a hard-stop signal; preserve command names, process names and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-UtmApplication"
+        },
+        "processName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "QEMUHelper"
+        },
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "timeout"
+        }
+      }
+    },
+    "host.utm_app_launch_action": {
+      "message": "Launch UTM for this user",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmApplication, Start-VirtualizationServiceIfStopped) for launching UTM; preserve product names.",
+      "lifecycle": "active"
+    },
+    "host.utm_app_launch_not_observed": {
+      "message": "Start-UtmApplication: UTM was not observed for this user within {waitSeconds}s of 'open -a UTM' (acknowledged: {acknowledged}, exit {exitCode}).",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmApplication) when the launch did not produce a UTM process for this user; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "waitSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
+        },
+        "acknowledged": {
+          "type": "token",
+          "trust": "internal",
+          "example": "True"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "0"
+        }
+      }
+    },
+    "host.utm_app_launch_refused": {
+      "message": "Start-UtmApplication: 'open -a UTM' exited {exitCode} and UTM was not launched: {detail}",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmApplication) when the launcher itself refused; preserve command names and the tool's own text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "1"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Unable to find application named 'UTM'"
+        }
+      }
+    },
+    "host.utm_app_quit_action": {
+      "message": "Quit UTM and wait for its VM helper processes to exit",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) for asking UTM to quit; preserve product names.",
+      "lifecycle": "active"
+    },
+    "host.utm_app_quit_not_confirmed": {
+      "message": "Stop-UtmApplication: UTM did not exit within {waitSeconds}s of the quit request; {utmCount} UTM and {helperCount} QEMUHelper process(es) remain for this user and were left running.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmApplication) when the quit was not confirmed; preserve command and process names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "waitSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
+        },
+        "utmCount": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "helperCount": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "host.utm_app_restart_action": {
+      "message": "Quit and relaunch UTM",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Restart-UtmApplication); preserve product names.",
+      "lifecycle": "active"
+    },
+    "host.utm_app_signal_action": {
+      "message": "Send TERM, then KILL if it remains, after revalidating the process identity",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmOwnedProcess) for the hard-stop signals; preserve signal names.",
+      "lifecycle": "active"
+    },
+    "host.utm_detached_launch_action": {
+      "message": "Launch {tool} without waiting for the application it opens",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmDetachedLaunch) for a launch that is acknowledged but never killed; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "tool": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "open"
+        }
+      }
+    },
+    "host.utm_dialog_watchdog_identity_action": {
+      "message": "Record the identity of the dialog watchdog that was just started",
+      "description": "ShouldProcess action text in host/macos.utm/modules/Yuruna.Host.psm1 (Write-UtmDialogWatchdogIdentity) for writing the watchdog identity record.",
+      "lifecycle": "active"
+    },
+    "host.utm_dialog_watchdog_start_skipped": {
+      "message": "Start-UtmDialogWatchdog: the watchdog recorded in {pidFile} could not be confirmed stopped, so a second one was not started; its record is kept for the next stop.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Start-UtmDialogWatchdog) when the previous watchdog's records survive the stop; preserve command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pidFile": {
+          "type": "detail",
+          "trust": "external",
+          "example": "~/yuruna/image/utm-dialog-watchdog.pid"
+        }
+      }
+    },
+    "host.utm_dialog_watchdog_unverified": {
+      "message": "Stop-UtmDialogWatchdog: pid {processId} recorded in {pidFile} could not be verified as this user's dialog watchdog ({reason}); it was not signaled.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Stop-UtmDialogWatchdog) when the recorded pid fails identity verification; preserve paths and codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "pidFile": {
+          "type": "detail",
+          "trust": "external",
+          "example": "~/yuruna/image/utm-dialog-watchdog.pid"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "start-time-mismatch"
+        }
+      }
+    },
+    "host.utm_restart_evidence_refused": {
+      "message": "Restart-UtmApplication: refused, the evidence is {state}/{reason} (age {ageMs} ms); only a corroborated control timeout observed in the last {maxAgeSeconds}s permits a restart.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Restart-UtmApplication) when the probe evidence does not permit disruption; preserve state and reason tokens.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Undetermined"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "timeout"
+        },
+        "ageMs": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1500"
+        },
+        "maxAgeSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "120"
+        }
+      }
+    },
+    "host.utm_resume_deadline_exhausted": {
+      "message": "Resume-YurunaServiceVM: '{name}' was not resumed because no time remained in the shared deadline; resume it by hand (utmctl start '{name}').",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Resume-YurunaServiceVM) when the shared convergence deadline ran out before this VM; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        }
+      }
+    },
+    "host.utm_start_absent_observed": {
+      "message": "'{vmName}' stayed unregistered with UTM for {waitSeconds}s on attempt {attempt}; no start was issued.",
+      "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when the VM never registered; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "20"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        }
+      }
+    },
+    "host.utm_start_dropped": {
+      "message": "'{vmName}' did not reach 'running' across {attempts} attempt(s); utmctl reported no error, so UTM accepted each request and dropped it.",
+      "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when every start was accepted and dropped; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "attempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        }
+      }
+    },
+    "host.utm_start_exit_code": {
+      "message": "utmctl start exited {exitCode}",
+      "description": "lastError detail built by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when utmctl printed nothing; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "1"
+        }
+      }
+    },
+    "host.utm_start_exit_detail": {
+      "message": "utmctl start exited {exitCode}: {text}",
+      "description": "lastError detail built by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 and embedded in its errorMessage; preserve command names and the tool's own text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "exitCode": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "1"
+        },
+        "text": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Error: Virtual machine not found."
+        }
+      }
+    },
+    "host.utm_start_not_acted": {
+      "message": "UTM would not act on the start request for '{vmName}' across {attempts} attempt(s); the last reported '{lastError}'. utmctl reached UTM.app -- state queries were answered throughout -- but the start itself was never carried out, so the VM was never launched and its disk is untouched. Retry it (utmctl start '{vmName}'); rebuilding fixes nothing here.",
+      "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 after Apple Event refusals on every attempt; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "attempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "lastError": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Error from event: OSStatus error -1712"
+        }
+      }
+    },
+    "host.utm_start_not_running": {
+      "message": "'{vmName}' did not reach 'running' across {attempts} attempt(s): {lastError}",
+      "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when utmctl reported an error; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "attempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "lastError": {
+          "type": "detail",
+          "trust": "external",
+          "example": "utmctl start exited 1"
+        }
+      }
+    },
+    "host.utmctl_lifecycle_deadline": {
+      "message": "utmctl {verb} '{vmName}' was not issued: no time remained in the operation's deadline.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Invoke-UtmctlLifecycle) when the shared deadline had under one second left; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verb": {
+          "type": "token",
+          "trust": "internal",
+          "example": "start"
+        },
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        }
+      }
+    },
+    "host.utmctl_lifecycle_timeout": {
+      "message": "utmctl {verb} '{vmName}' did not return within {timeoutSeconds}s and was stopped; its effect is unknown until the VM state is read again.",
+      "description": "Write-Warning in host/macos.utm/modules/Yuruna.Host.psm1 (Invoke-UtmctlLifecycle) when a bounded start/stop/delete hit its cap; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verb": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "120"
+        }
+      }
     }
   }
 }

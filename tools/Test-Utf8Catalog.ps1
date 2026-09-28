@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c7e015-6b28-4d3f-9a47-1e6c8b02df95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,8 +160,9 @@ foreach ($file in $targets) {
         }
 
         $depth = 0
-        for ($i = 0; $i -lt $text.Length; $i++) {
-            $code = [int]$text[$i]
+        foreach ($match in [regex]::Matches($text, '[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200E\u200F\u202A-\u202E\u2066-\u2069]')) {
+            $i = $match.Index
+            $code = [int]$match.Value[0]
             if ($BidiOpen -contains $code) { $depth++; continue }
             if ($BidiClose -contains $code) { $depth--; continue }
             if ($BidiControl -contains $code) { continue }

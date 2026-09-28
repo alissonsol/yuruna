@@ -1,48 +1,6 @@
 {
   "schema": "yuruna.terminology/v1",
   "locale": "pt-BR",
-  "status": "approved",
-  "sources": {
-    "definitions": {
-      "path": "docs/definition.md",
-      "hashAlgorithm": "sha256-file-bytes-v1",
-      "sha256": "c9901aacefe9fca329711851ed373df1f5dc9909bca3dc218683f2551766e441"
-    },
-    "retiredNames": {
-      "path": "tools/githooks/pre-commit",
-      "startMarker": "retired_names='",
-      "endMarker": "'",
-      "hashAlgorithm": "sha256-utf8-lf-retired-pairs-v1",
-      "sha256": "2aed548ac7985155b975897390a123ad2e03e775718306f1ece74b961d040d2d",
-      "entryCount": 65
-    }
-  },
-  "approvals": {
-    "translator": {
-      "status": "approved",
-      "approvedBy": "Alisson Sol",
-      "approvedAt": "2026-09-24",
-      "evidence": {
-        "releaseVersion": "2026.09.24",
-        "approvedContent": {
-          "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "b456c6bc5836e46ba56a6d2773743b1f6afec6a58fcadaae1dc7d756b99e9b82"
-        }
-      }
-    },
-    "independentReviewer": {
-      "status": "approved",
-      "approvedBy": "Denise Sol",
-      "approvedAt": "2026-09-24",
-      "evidence": {
-        "releaseVersion": "2026.09.24",
-        "approvedContent": {
-          "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "b456c6bc5836e46ba56a6d2773743b1f6afec6a58fcadaae1dc7d756b99e9b82"
-        }
-      }
-    }
-  },
   "terms": [
     {
       "sourceTerm": "host",
@@ -51,7 +9,7 @@
         "Defining fetch-and-execute host environment variables",
         "Defining the VM core-count policy"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "hospedeiro"
       }
@@ -62,7 +20,7 @@
       "sourceHeadings": [
         "Defining the VM memory policy"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "convidado"
       }
@@ -74,7 +32,7 @@
         "Defining the cycle.events.ndjson record shape",
         "Defining the runner-state enum"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "grupo"
       }
@@ -86,7 +44,7 @@
         "Defining the cycle folder identity",
         "Defining the cycle.events.ndjson event-name catalog"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "ciclo"
       }
@@ -97,7 +55,7 @@
       "sourceHeadings": [
         "Canonical yuruna concepts"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "carga de trabalho"
       }
@@ -108,7 +66,7 @@
       "sourceHeadings": [
         "Canonical yuruna concepts"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "componente"
       }
@@ -119,7 +77,7 @@
       "sourceHeadings": [
         "Canonical yuruna concepts"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "recurso"
       }
@@ -130,7 +88,7 @@
       "sourceHeadings": [
         "Defining the VM memory policy"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "retained"
       }
     },
@@ -141,7 +99,7 @@
         "Defining the status-page banner",
         "Defining the runner-state enum"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "pausa"
       }
@@ -152,7 +110,7 @@
       "sourceHeadings": [
         "Defining the tofu external hook shell choice"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "drenar"
       }
@@ -163,7 +121,7 @@
       "sourceHeadings": [
         "Defining containerd hosts.toml cache mirror"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "retained"
       }
     },
@@ -173,7 +131,7 @@
       "sourceHeadings": [
         "Canonical yuruna concepts"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "operação"
       }
@@ -184,7 +142,7 @@
       "sourceHeadings": [
         "Canonical yuruna concepts"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "encaminhador"
       }
@@ -195,7 +153,7 @@
       "sourceHeadings": [
         "Defining the two lab secrets"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "token do laboratório"
       }
@@ -206,7 +164,7 @@
       "sourceHeadings": [
         "Defining the two lab secrets"
       ],
-      "ptBRDecision": {
+      "decision": {
         "status": "translated",
         "targetTerm": "chave de autenticação interna"
       }

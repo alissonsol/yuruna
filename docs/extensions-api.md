@@ -234,13 +234,21 @@ will skip them. The schema constrains the block to a flat mapping of scalars, so
 ### 2. The Go SDK -- talking to the pool, and gating writes
 
 [`test/extension/extension-sdk/`](../test/extension/extension-sdk/) is its own
-Go module with three self-contained packages:
+Go module. The packages a service uses directly:
 
 | Package | What a service gets |
 |---|---|
 | `beacon` | `POST /announce` presence: hello at boot (retried on a doubling catch-up cadence), re-announce every interval, `active:false` goodbye. The aggregator it announces to is seeded once, at `New-VM` time -- see [When the caching proxy is rebuilt](#when-the-caching-proxy-is-rebuilt). |
 | `pool` | The read client for the **information provider**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, and `Get`/`GetURL` for untyped routes. |
 | `labgate` | The write gate: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
+| `hostrefresh` | Remote host refresh authorization: the versioned refresh proof (`Proof`, `Verify` with an explicit clock and a two-sided skew), the `Signer` that mints it from the signing authority, the secret-file loader, and the refresh credential `Gate` that reads only `X-Yuruna-Refresh-Credential`. Only pool-control imports it; see [Remote host refresh](pool-admin.md#remote-host-refresh). |
+
+`pool.Host` also carries `Refresh`, the host's refresh capability as the
+aggregator last judged it (`pool.HostRefresh`: protocol, availability, ceiling,
+reason, remote key state, request state, observation age). `Status` normalizes
+it to its bounded vocabulary, an aggregator that predates it yields the
+never-observed value, and `RemoteUsable()` is the one test a caller applies
+before sending a remote refresh.
 
 Three decisions live in `pool` so they cannot vary per consumer: the trusted-LAN
 TLS posture (the aggregator's leaf is signed by the pool CA, which no guest
@@ -558,7 +566,7 @@ suites assert the two match.
 | `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats` |
 | `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_switches`, `caching_proxy_hostinfo`, and the gated `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
 | `stash-service` | `POST :80/mcp` | `stash_list`, `stash_hostinfo`, `stash_session` |
-| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo` |
+| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, and the gated `pool_control_refresh_host` (listed only while remote refresh is provisioned) |
 | `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_diagnostics`, `download_agent_hostinfo` |
 | core framework | `test/service/Start-McpServer.ps1` (stdio) | the ten `automation/` entry points |
 
@@ -594,6 +602,13 @@ The annotation on each tool is the same claim its route makes:
   three-way answer its HTTP routes give: `503` with reason `auth-unconfigured`
   when the service has no way in configured at all, `401`-equivalent when the
   gate exists and the caller has not passed it, and through otherwise.
+- **A tool can require more than the daemon's gate.** `mcp.Tool.Gate` is a
+  second gate evaluated on the same incoming request, after the server's gate
+  and only when that one admitted it; both must allow, so it can only narrow.
+  The handler runs on a synthesized request that carries no credential, which
+  is why a route-specific credential can only be checked here.
+  `pool_control_refresh_host` uses it for the refresh credential, and a
+  read-only tool cannot carry one.
 - **A domain refusal keeps its own token.** A caching-proxy daemon in remote
   mode refuses `caching_proxy_set_offline` with
   `caching-proxy-remote-readonly`, the same string its `501` body carries, so an

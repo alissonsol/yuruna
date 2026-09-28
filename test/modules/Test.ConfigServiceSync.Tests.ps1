@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -726,6 +726,21 @@ Describe 'the AES-GCM capability gate' {
         Assert-True ($live.Supported -is [bool]) 'the probe answers with a verdict'
         if (-not $live.Supported) {
             Assert-True ($live.Reason.Length -gt 0) 'an unsupported runtime must say so'
+        }
+    }
+}
+
+if (-not $IsWindows) {
+    Describe 'Host alias native output isolation' {
+        It 'returns exactly false when a noisy sudo child fails' {
+            Mock id -ModuleName Test.ConfigServiceSync { '1000' }
+            Mock sudo -ModuleName Test.ConfigServiceSync { 'child startup diagnostic'; Set-Variable -Name LASTEXITCODE -Value 1 -Scope Global }
+            $result = & (Get-Module Test.ConfigServiceSync) {
+                param($fixtureRoot)
+                Invoke-ConfigSyncHostAlias -RepoRoot $fixtureRoot -Name 'fixture.example' -IPAddress '192.0.2.8' -NonInteractive -Confirm:$false
+            } $script:repoRoot 3>$null
+            Assert-True ($result -is [bool])
+            Assert-False $result
         }
     }
 }

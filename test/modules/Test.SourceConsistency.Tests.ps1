@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ BeforeAll {
     }
 
     function Get-NormalizedUbuntuSequence {
-        param([string]$Path, [int]$VersionTimeout = 0, [int]$TimeoutIndent = 0)
+        param([string]$Path, [int]$VersionTimeout = 0, [int]$TimeoutIndent = 0, [switch]$AsObject)
         $text = Get-NormalizedSource -Path $Path
         $text = $text -replace '(?m)^sequenceGuid: .+$', 'sequenceGuid: ID'
         $text = $text -replace '(?m)^sequenceRevision: .+$', 'sequenceRevision: REVISION'
@@ -56,12 +56,38 @@ BeforeAll {
             $indent = ' ' * $TimeoutIndent
             $text = $text -replace ('(?m)^(' + [regex]::Escape($indent) + 'timeoutSeconds: )' + $VersionTimeout + '$'), '${1}VERSION_TIMEOUT'
         }
-        return $text
+        $document = ConvertFrom-Yaml $text -Ordered
+        $structure = Copy-SequenceExecutionStructure -Node $document -SequenceRoot
+        if ($AsObject) { return $structure }
+        return ($structure | ConvertTo-Json -Depth 100 -Compress)
+    }
+
+    function Copy-SequenceExecutionStructure {
+        param($Node, [switch]$SequenceRoot, [switch]$Step)
+        if ($Node -is [Collections.IDictionary]) {
+            $copy = [ordered]@{}
+            foreach ($key in $Node.Keys) {
+                # Descriptions belong to the sequence/step presentation layer.
+                # A same-named key inside args or variables remains execution data.
+                if (($SequenceRoot -or $Step) -and
+                    $key -in @('description', 'descriptionLocalized')) { continue }
+                $isStepList = ($SequenceRoot -and $key -in @('component', 'workload', 'steps')) -or
+                    ($Step -and $key -in @('steps', 'stepsAfterVmRestart'))
+                $copy[$key] = Copy-SequenceExecutionStructure -Node $Node[$key] -Step:$isStepList
+            }
+            return $copy
+        }
+        if ($Node -is [Collections.IEnumerable] -and $Node -isnot [string]) {
+            $items = [Collections.Generic.List[object]]::new()
+            foreach ($item in $Node) { $items.Add((Copy-SequenceExecutionStructure -Node $item -Step:$Step)) }
+            return ,($items.ToArray())
+        }
+        return $Node
     }
 
     function Get-ConsistencySourceFile {
         $roots = @(
-            'host', 'guest', 'test', 'tools', 'automation', 'install' |
+            'host', 'guest', 'test', 'tools', 'automation', 'install', 'dev-only' |
                 ForEach-Object { Join-Path $script:RepoRoot $_ }
         )
         if (Test-Path -LiteralPath $script:ProjectRoot) {
@@ -106,24 +132,95 @@ Describe 'Ubuntu installer parity' {
         $first = Get-NormalizedSource (Join-Path $script:RepoRoot "guest/ubuntu.server.24/ubuntu.server.24.$Workload.sh")
         $second = Get-NormalizedSource (Join-Path $script:RepoRoot "guest/ubuntu.server.26/ubuntu.server.26.$Workload.sh")
         $second | Should -BeExactly $first
+        if ($Workload -eq 'k8s') {
+            $first | Should -Not -Match '(?m)^[ \t]*build-essential(?:[ \t\\]|$)'
+            $second | Should -Not -Match '(?m)^[ \t]*build-essential(?:[ \t\\]|$)'
+        }
     }
 }
 
 Describe 'Ubuntu test-sequence parity' {
     It 'keeps the <Flow> structure aligned across Ubuntu releases' -TestCases @(
-        @{ Flow = 'GUI start'; Path24 = 'start.guest.ubuntu.server.24.yml'; Path26 = 'start.guest.ubuntu.server.26.yml'; Timeout24 = 1800; Timeout26 = 2400; TimeoutIndent = 8 },
-        @{ Flow = 'SSH start'; Path24 = 'start.guest.ubuntu.server.24.ssh.yml'; Path26 = 'start.guest.ubuntu.server.26.ssh.yml'; Timeout24 = 0; Timeout26 = 0; TimeoutIndent = 0 },
         @{ Flow = 'GUI workload'; Path24 = 'workload.guest.ubuntu.server.24.yml'; Path26 = 'workload.guest.ubuntu.server.26.yml'; Timeout24 = 1800; Timeout26 = 3000; TimeoutIndent = 4 },
         @{ Flow = 'SSH workload'; Path24 = 'workload.guest.ubuntu.server.24.ssh.yml'; Path26 = 'workload.guest.ubuntu.server.26.ssh.yml'; Timeout24 = 1800; Timeout26 = 3000; TimeoutIndent = 4 }
     ) {
         param($Flow, $Path24, $Path26, $Timeout24, $Timeout26, $TimeoutIndent)
         $null = $Flow
         $dir = Join-Path $script:RepoRoot 'test/sequences'
-        # Ubuntu 26 needs a larger install budget in the two slow flows; every
-        # other line remains a release-substituted copy.
+        # Install budgets differ by release; execution fields otherwise agree.
         $first = Get-NormalizedUbuntuSequence -Path (Join-Path $dir $Path24) -VersionTimeout $Timeout24 -TimeoutIndent $TimeoutIndent
         $second = Get-NormalizedUbuntuSequence -Path (Join-Path $dir $Path26) -VersionTimeout $Timeout26 -TimeoutIndent $TimeoutIndent
         $second | Should -BeExactly $first
+    }
+
+    It 'keeps <Flow> start steps aligned around the explicit power transition' -TestCases @(
+        @{ Flow = 'GUI'; Suffix = '' },
+        @{ Flow = 'SSH'; Suffix = '.ssh' }
+    ) {
+        param($Flow, $Suffix)
+        $dir = Join-Path $script:RepoRoot 'test/sequences'
+        $first = Get-NormalizedUbuntuSequence -Path (Join-Path $dir "start.guest.ubuntu.server.24$Suffix.yml") -AsObject
+        $second = Get-NormalizedUbuntuSequence -Path (Join-Path $dir "start.guest.ubuntu.server.26$Suffix.yml") -AsObject
+        $start = [ordered]@{ action = 'startVm'; arm64HyperVProcessorCount = 2; timeoutSeconds = 180 }
+        if ($Flow -eq 'GUI') {
+            $second.component[0].action | Should -BeExactly 'retry'
+            $second.component[0].restartVmBeforeRetry | Should -BeExactly 'arm64HyperVInstallerBoot'
+            $second.component[0].maxAttempts | Should -Be 2
+            $second.component[0].steps.Count | Should -Be 1
+            # The boot-stall wrapper retains the same prompt and timeout on
+            # every provider; only native ARM64 Hyper-V can make a second attempt.
+            $second.component[0] = $second.component[0].steps[0]
+            $first.component[1].steps[2].action | Should -BeExactly 'waitForTextWithNudge'
+            $second.component[1].steps[2].action | Should -BeExactly 'waitForTextWithNudge'
+            $first.component[1].steps[2].timeoutSeconds | Should -Be 1800
+            $second.component[1].steps[2].timeoutSeconds | Should -Be 2400
+            $second.component[1].steps[2]['timeoutSeconds'] = 1800
+            $first.workload.Count | Should -Be 5
+            $second.workload.Count | Should -Be 6
+            ($first.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'inputTextAndEnter'; text = 'clear; sudo reboot now' } | ConvertTo-Json -Compress)
+            ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'inputTextAndEnter'; text = 'clear; sudo poweroff' } | ConvertTo-Json -Compress)
+            ($second.workload[3] | ConvertTo-Json -Compress) | Should -BeExactly ($start | ConvertTo-Json -Compress)
+            $second['workload'] = @($second.workload[0], $second.workload[1], $first.workload[2], $second.workload[4], $second.workload[5])
+        } else {
+            $first.workload.Count | Should -Be 2
+            $second.workload.Count | Should -Be 4
+            ($first.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo reboot now'; allowFailure = $true } | ConvertTo-Json -Compress)
+            ($second.workload[1] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshExec'; command = 'sudo poweroff'; allowFailure = $true } | ConvertTo-Json -Compress)
+            ($second.workload[2] | ConvertTo-Json -Compress) | Should -BeExactly ($start | ConvertTo-Json -Compress)
+            ($second.workload[3] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'sshWaitReady'; timeoutSeconds = 600 } | ConvertTo-Json -Compress)
+            $second['workload'] = @($second.workload[0], $first.workload[1])
+        }
+        ($second | ConvertTo-Json -Depth 100 -Compress) | Should -BeExactly ($first | ConvertTo-Json -Depth 100 -Compress)
+    }
+
+    It 'ignores presentation changes while retaining action and argument drift' {
+        $firstPath = Join-Path $TestDrive 'first.yml'
+        $secondPath = Join-Path $TestDrive 'second.yml'
+        $fixture = @'
+description: First wording
+descriptionLocalized:
+  pt-BR: First translation
+component:
+  - action: callExtension
+    description: Step wording
+    descriptionLocalized:
+      pt-BR: Step translation
+    method: example.Run
+    args:
+      action: applicationAction
+      description: Execution value
+      values: [null, 1]
+'@
+        [IO.File]::WriteAllText($firstPath, $fixture)
+        [IO.File]::WriteAllText($secondPath, $fixture.Replace('First wording', 'Other wording').Replace('translation', 'localization').Replace('Step wording', 'Other step wording'))
+        $expected = Get-NormalizedUbuntuSequence -Path $firstPath
+        (Get-NormalizedUbuntuSequence -Path $secondPath) | Should -BeExactly $expected
+        [IO.File]::WriteAllText($secondPath, $fixture.Replace('callExtension', 'waitForText'))
+        (Get-NormalizedUbuntuSequence -Path $secondPath) | Should -Not -BeExactly $expected
+        [IO.File]::WriteAllText($secondPath, $fixture.Replace('Execution value', 'Changed execution value'))
+        (Get-NormalizedUbuntuSequence -Path $secondPath) | Should -Not -BeExactly $expected
+        [IO.File]::WriteAllText($secondPath, $fixture.Replace('[null, 1]', '[1]'))
+        (Get-NormalizedUbuntuSequence -Path $secondPath) | Should -Not -BeExactly $expected
     }
 }
 
@@ -164,6 +261,20 @@ Describe 'KVM replacement ordering' {
 }
 
 Describe 'VM seed overlay contracts' {
+    It 'keeps host.env key order identical across service guests' {
+        $expected = $null
+        foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
+            $seed = ConvertFrom-Yaml (Get-Content (Join-Path $script:SeedRoot "$service.base.user-data") -Raw)
+            $entry = @($seed.write_files | Where-Object { $_.path -eq '/etc/yuruna/host.env' })
+            $entry.Count | Should -Be 1
+            $text = [string]$entry[0].content
+            $text = $text.Replace('YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1',
+                'YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER')
+            if ($null -eq $expected) { $expected = $text }
+            $text | Should -BeExactly $expected -Because "$service uses the shared host.env key order"
+        }
+    }
+
     It 'orders every overlay like its base and renders valid YAML' {
         foreach ($base in Get-ChildItem -LiteralPath $script:SeedRoot -Filter '*.base.user-data') {
             $baseKeys = @([regex]::Matches((Get-Content $base.FullName -Raw),
@@ -244,6 +355,30 @@ Describe 'VM seed overlay contracts' {
 }
 
 Describe 'Project workload parity' {
+    It 'keeps Helm resource blocks aligned with the documented memory exception' {
+        if (-not (Test-Path -LiteralPath $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        $templates = @(
+            @{ Path = 'example/website/workloads/frontend/website/templates/01-website.yml'; Memory = '256Mi' },
+            @{ Path = 'example/text-to-sql/workloads/frontend/text-to-sql-ui/templates/01-text-to-sql-ui.yml'; Memory = '128Mi' }
+        )
+        foreach ($template in $templates) {
+            $text = Get-Content -LiteralPath (Join-Path $script:ProjectRoot $template.Path) -Raw
+            $text | Should -Match '(?m)^        # --- REGION: resources\r?\n        # See https://yuruna\.link/42e220c4-0009\r?\n        resources:'
+            foreach ($block in 'requests', 'limits') {
+                $pattern = '(?m)^          ' + $block + ':\r?\n' +
+                    '            ephemeral-storage: "(?<storage>[^"]+)"\r?\n' +
+                    '            memory: "(?<memory>[^"]+)"\r?\n' +
+                    '            cpu: "(?<cpu>[^"]+)"'
+                $match = [regex]::Match($text, $pattern)
+                $match.Success | Should -BeTrue -Because "$($template.Path) defines $block in the common order"
+                $expectedStorage = if ($block -eq 'requests') { '256Mi' } else { '1Gi' }
+                $match.Groups['storage'].Value | Should -Be $expectedStorage
+                $match.Groups['memory'].Value | Should -Be $template.Memory
+                $match.Groups['cpu'].Value | Should -Be '200m'
+            }
+        }
+    }
+
     It 'keeps the website Ubuntu workload copies identical' {
         if (-not (Test-Path $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
         $first = Get-NormalizedSource (Join-Path $script:ProjectRoot 'example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh')
@@ -273,7 +408,9 @@ Describe 'Project workload parity' {
         @{ Family = 'certificate copy'; Website = 'components/frontend/website/copy-pfx.ps1';
             TextToSql = 'components/frontend/text-to-sql-ui/copy-pfx.ps1' },
         @{ Family = 'base-image seed'; Website = 'components/frontend/website/seed-base-images.ps1';
-            TextToSql = 'components/frontend/text-to-sql-ui/seed-base-images.ps1' }
+            TextToSql = 'components/frontend/text-to-sql-ui/seed-base-images.ps1' },
+        @{ Family = 'bundled build module'; Website = 'components/frontend/website/Example.Build.psm1';
+            TextToSql = 'components/frontend/text-to-sql-ui/Example.Build.psm1' }
     ) {
         param($Family, $Website, $TextToSql)
         if (-not (Test-Path $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
@@ -283,9 +420,92 @@ Describe 'Project workload parity' {
         $second = $second.Replace('text-to-sql-ui', 'PROJECT').Replace('text-to-sql', 'PROJECT') -replace '(?m)^\.GUID .*$', '.GUID ID'
         ($second -replace '\r\n', "`n") | Should -BeExactly ($first -replace '\r\n', "`n") -Because "$Family has the same contract in both examples"
     }
+
+    It 'ships the canonical build module in each independent example context' {
+        if (-not (Test-Path -LiteralPath $script:ProjectRoot)) { Set-ItResult -Skipped -Because 'Sibling project checkout is absent'; return }
+        $canonical = Get-Content -LiteralPath (Join-Path $script:ProjectRoot 'tools/Example.Build.psm1') -Raw
+        foreach ($context in 'example/website/components/frontend/website', 'example/text-to-sql/components/frontend/text-to-sql-ui') {
+            $bundled = Get-Content -LiteralPath (Join-Path $script:ProjectRoot "$context/Example.Build.psm1") -Raw
+            ($bundled -replace '\r\n', "`n") | Should -BeExactly ($canonical -replace '\r\n', "`n")
+            foreach ($wrapper in 'copy-pfx.ps1', 'seed-base-images.ps1') {
+                Get-Content -LiteralPath (Join-Path $script:ProjectRoot "$context/$wrapper") -Raw |
+                    Should -Match 'Join-Path \$PSScriptRoot ''Example\.Build\.psm1'''
+            }
+        }
+    }
 }
 
 Describe 'Shared source regions' {
+    It 'keeps service image wrappers identical within each provider' {
+        foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
+            $expected = $null
+            foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
+                $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/Get-Image.ps1"
+                $text = Get-Content -LiteralPath $path -Raw
+                $text = $text -replace '(?m)^\.GUID .+$', '.GUID ID' -replace '(?m)^\.TAGS.*$', '.TAGS'
+                $text = $text -replace 'host\.operator_[0-9a-f]+', 'host.operator_KEY'
+                foreach ($name in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
+                    $text = $text.Replace($name, 'SERVICE')
+                }
+                foreach ($name in 'Stash', 'PoolControl', 'DownloadAgent', 'CachingProxy') {
+                    $text = $text.Replace($name, 'SERVICE')
+                }
+                $text = $text -replace '\r\n', "`n"
+                if ($null -eq $expected) { $expected = $text }
+                $text | Should -BeExactly $expected -Because "$hostKind service image wrappers share one acquisition contract"
+            }
+        }
+    }
+
+    It 'keeps VM replacement phases in the common order' {
+        $phases = @('Log level from environment', 'Seek the base image',
+            'Remove existing VM', 'Create copies and files for VM')
+        foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
+            foreach ($guest in 'stash-service', 'pool-control-service', 'download-agent-service',
+                'caching-proxy-service', 'ubuntu.server.24', 'ubuntu.server.26',
+                'amazon.linux.2023', 'windows.11') {
+                $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$guest/New-VM.ps1"
+                $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+                        '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+                $observed = @($regions | Where-Object { $_ -in $phases })
+                ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "$hostKind/$guest shares the replacement order"
+            }
+        }
+    }
+
+    It 'keeps each provider service builder in its shared phase order' {
+        $common = @('Log level from environment', 'Seek the base image',
+            'Remove existing VM', 'Create copies and files for VM',
+            'Copy base image -> per-VM disk', 'Grow the per-VM disk to 256 GB',
+            'Yuruna harness SSH key', 'Vault admin password',
+            'Select the guest network', 'Generate cloud-init seed ISO',
+            'Clean up temporary files')
+        $providerPhases = @{
+            'windows.hyper-v' = @('Stage the cloud-init seed directory',
+                'Create and configure the Hyper-V VM', 'Start VM and wait for IP')
+            'ubuntu.kvm' = @('libvirt-qemu search ACL on $HOME',
+                'Render user-data / meta-data',
+                'Create and configure the libvirt domain (virt-install)',
+                'Wait for VM IP')
+            'macos.utm' = @('Stage the cloud-init seed directory',
+                'Create and configure the UTM bundle (config.plist, QEMU backend)',
+                'Guidance', 'Restore operator file ownership')
+        }
+        foreach ($hostKind in 'windows.hyper-v', 'ubuntu.kvm', 'macos.utm') {
+            $names = @($common + $providerPhases[$hostKind])
+            $expected = $null
+            foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
+                $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/New-VM.ps1"
+                $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+                        '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+                $observed = @($regions | Where-Object { $_ -in $names })
+                if ($null -eq $expected) { $expected = $observed -join '|' }
+                ($observed -join '|') | Should -BeExactly $expected -Because "$hostKind/$service shares the provider's service phases"
+                $observed.Count | Should -Be $names.Count -Because "$hostKind/$service includes each shared phase once"
+            }
+        }
+    }
+
     It 'starts every service lifecycle script with the common regions' {
         foreach ($verb in 'Start', 'Stop') {
             foreach ($service in 'CachingProxy', 'Stash', 'PoolControl', 'DownloadAgent') {
@@ -313,6 +533,20 @@ Describe 'Shared source regions' {
                     '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
             $observed = @($regions | Where-Object { $_ -in $phases })
             ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "Start-${service}ServiceVM.ps1 shares the service bring-up order"
+        }
+    }
+
+    It 'keeps service VM teardown phases in the common order' {
+        $phases = @('Confirm the service operation', 'Initialize service runtime',
+            'Record the stop intent', 'Clear the service marker',
+            'Publish the service withdrawal', 'Stop the VM',
+            'Remove the VM and its files', 'Verify the final VM state')
+        foreach ($service in 'Stash', 'PoolControl', 'DownloadAgent') {
+            $path = Join-Path $script:RepoRoot "test/service/Stop-${service}ServiceVM.ps1"
+            $regions = @([regex]::Matches((Get-Content -LiteralPath $path -Raw),
+                    '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+            $observed = @($regions | Where-Object { $_ -in $phases })
+            ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "Stop-${service}ServiceVM.ps1 shares the teardown order"
         }
     }
 

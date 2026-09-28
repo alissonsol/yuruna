@@ -4,9 +4,9 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
-sequenceRevision: 5
+sequenceRevision: 9
 
-description: "Ubuntu Server 26.04: first login, change password, run update script, reboot."
+description: "Ubuntu Server 26.04: first login, change password, run update script, then power-cycle into the workload CPU count."
 keystrokeMechanism: gui
 
 # --- REGION: resource
@@ -20,21 +20,37 @@ variables:
 # --- REGION: component
 component:
   # See https://yuruna.link/42e220c4-0007
-  - action: waitForAndEnter
-    pattern: "Continue with autoinstall?"
-    timeoutSeconds: 1800
-    text: "yes"
-    blindAfterSeconds: 120
-    # The language menu means autoinstall never engaged, so this prompt is not
-    # live and never will be. That screen satisfies the blind answer's own test
-    # -- a menu waiting on a keystroke is static, and the keystroke moves it --
-    # so without this the answer is typed into the list and reported consumed.
-    blindSkipPattern: "Bahasa Indonesia"
-    description: "OCR: Continue with autoinstall?"
+  - action: retry
+    maxAttempts: 2
+    restartVmBeforeRetry: arm64HyperVInstallerBoot
+    description: "Wait for installer confirmation (cold restart on ARM64 Hyper-V boot stall)"
+    steps:
+      - action: waitForAndEnter
+        pattern: "Continue with autoinstall?"
+        timeoutSeconds: 1800
+        text: "yes"
+        blindAfterSeconds: 120
+        # The language menu means autoinstall never engaged; never type the
+        # blind answer into the list and mistake navigation for acceptance.
+        blindSkipPattern: "Bahasa Indonesia"
+        description: "OCR: Continue with autoinstall?"
 
   - action: retry
     maxAttempts: 3
-    description: "Login and password rotation (restart on timeout)"
+    restartVmBeforeRetry: arm64HyperVColdPowerCycle
+    # An incomplete install restarts from the live ISO, so restore the one
+    # piece of boot state needed before another login wait can be meaningful.
+    stepsAfterVmRestart:
+      - action: waitForAndEnter
+        pattern: ["Continue with autoinstall?", "${hostLabel} login:"]
+        noSegmentMatch: true
+        timeoutSeconds: 1800
+        text: "yes"
+        skipInputPattern: "${hostLabel} login:"
+        blindAfterSeconds: 120
+        blindSkipPattern: "Bahasa Indonesia"
+        description: "OCR after cold restart: Continue with autoinstall?"
+    description: "Wait for installed login prompt (cold restart on ARM64 Hyper-V timeout)"
     steps:
       # See https://yuruna.link/42e220c4-0007
       - action: pressKey
@@ -48,6 +64,7 @@ component:
       # See https://yuruna.link/42e220c4-0007
       - action: waitForTextWithNudge
         pattern: "${hostLabel} login:"
+        noSegmentMatch: true
         timeoutSeconds: 2400
         nudgeKey: Enter
         nudgeIntervalSeconds: 60
@@ -61,41 +78,44 @@ component:
           - "Authentication token manipulation error"
         description: "OCR: ${hostLabel} login:"
 
-      - action: passwdPrompt
-        pattern: "${hostLabel} login:"
-        freshMatch: true
-        text: "${username}"
-        description: "OCR: ${hostLabel} login:"
+  # Password mutation is intentionally outside the retry above. Once PAM has
+  # accepted either new-password prompt, neither a VM restart nor a replay with
+  # the old password has a well-defined result.
+  - action: passwdPrompt
+    pattern: "${hostLabel} login:"
+    freshMatch: true
+    text: "${username}"
+    description: "OCR: ${hostLabel} login:"
 
-      # See https://yuruna.link/42e220c4-0007
-      - action: passwdPrompt
-        pattern: "Password:"
-        timeoutSeconds: 30
-        sinceStepStart: true
-        failurePatterns:
-          - "BdsDxe:"
-          - "GNU GRUB"
-        text: "${currentPassword}"
-        description: "OCR: Password:"
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "Password:"
+    timeoutSeconds: 30
+    sinceStepStart: true
+    failurePatterns:
+      - "BdsDxe:"
+      - "GNU GRUB"
+    text: "${currentPassword}"
+    description: "OCR: Password:"
 
-      - action: passwdPrompt
-        pattern: ["Current password", "urrent password:"]
-        sinceStepStart: true
-        text: "${currentPassword}"
-        description: "OCR: Current password"
+  - action: passwdPrompt
+    pattern: ["Current password", "urrent password:"]
+    sinceStepStart: true
+    text: "${currentPassword}"
+    description: "OCR: Current password"
 
-      # Keep the full token distinct from the current-password and retype prompts.
-      - action: passwdPrompt
-        pattern: "New password"
-        sinceStepStart: true
-        text: "${newPassword}"
-        description: "OCR: New password"
+  # Keep the full token distinct from the current-password and retype prompts.
+  - action: passwdPrompt
+    pattern: "New password"
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: New password"
 
-      - action: passwdPrompt
-        pattern: ["Retype new password", "etype new password:"]
-        sinceStepStart: true
-        text: "${newPassword}"
-        description: "OCR: Retype new password"
+  - action: passwdPrompt
+    pattern: ["Retype new password", "etype new password:"]
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: Retype new password"
 
   # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
@@ -139,16 +159,41 @@ workload:
     description: "Capture diagnostics"
 
   - action: inputTextAndEnter
-    text: "clear; sudo reboot now"
-    description: "Reboot the VM"
+    text: "clear; sudo poweroff"
+    description: "Power off after provisioning"
+
+  # ARM64 Hyper-V provisions with one vCPU to avoid the measured intercept
+  # storm, then returns to kubeadm's two-CPU minimum before later workloads.
+  # Other hosts retain their configured processor count; startVm just restarts
+  # the guest after the same clean shutdown.
+  - action: startVm
+    arm64HyperVProcessorCount: 2
+    timeoutSeconds: 180
+    description: "Restore workload processors and start the VM"
 
   # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
     seconds: 15
-    description: "Let the reboot take the console"
+    description: "Let the restarted guest take the console"
 
-  - action: waitForText
-    pattern: "${hostLabel} login:"
-    timeoutSeconds: 600
-    freshMatch: true
-    description: "OCR: ${hostLabel} login:"
+  # A running ARM64 Hyper-V guest can livelock before networking or agetty
+  # starts. Console reconnects cannot change that guest state, so escalate to
+  # a bounded cold restart only after the ordinary login wait has expired.
+  # Password mutation and provisioning are outside this retry and never replay.
+  - action: retry
+    maxAttempts: 3
+    restartVmBeforeRetry: arm64HyperVColdPowerCycle
+    stepsAfterVmRestart:
+      - action: waitForSeconds
+        seconds: 15
+        description: "Let the cold-restarted guest take the console"
+    description: "Wait for post-provision login prompt (cold restart on ARM64 Hyper-V timeout)"
+    steps:
+      - action: waitForTextWithNudge
+        pattern: "${hostLabel} login:"
+        noSegmentMatch: true
+        timeoutSeconds: 600
+        nudgeKey: Enter
+        nudgeIntervalSeconds: 60
+        freshMatch: true
+        description: "OCR: ${hostLabel} login:"

@@ -74,7 +74,7 @@
       // Re-read BEFORE reporting: the reload clears the notice area, so a
       // message written first would be wiped before it could be read -- and
       // which members refused is the whole answer here.
-      Y.mutate('/api/pool/host-control', { method: 'POST', body: { poolId: p.poolId, action: action } }).then(function (res) {
+      Y.mutate('/api/pool/host-control', { method: 'POST', timeoutMs: 90000, body: { poolId: p.poolId, action: action } }).then(function (res) {
         return load().then(function () { reportApply(p.poolId, action, res); });
       }, function (failure) {
         return load().then(function () {
@@ -214,11 +214,15 @@
       if (!hid) { return; }
       addBtn.disabled = true;
       Y.mutate('/api/pool/host', { method: 'POST', body: { poolId: p.poolId, hostId: hid } }).then(function () {
-        Y.notice('ok', window.YurunaI18n.t("pool.added_value1_to_value2", {value1: (hid), value2: (p.poolId)}));
-        // In the row too: the banner is at the top of <main>, which at high
-        // zoom is nowhere near the field the operator just typed into.
-        Y.rowFeedback(addBtn.closest('tr'), 'ok', window.YurunaI18n.t("pool.added_value1", {value1: (Y.shortHost(hid))}));
-        load();
+        return load({ quiet: true }).then(function () {
+          Y.notice('ok', window.YurunaI18n.t("pool.added_value1_to_value2", {value1: (hid), value2: (p.poolId)}));
+          var rows = document.getElementById('pool-rows').children;
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i].getAttribute('data-pool-id') === p.poolId) {
+              Y.rowFeedback(rows[i], 'ok', window.YurunaI18n.t("pool.added_value1", {value1: (Y.shortHost(hid))}));
+            }
+          }
+        });
       }, function (e) {
         Y.notice('error', window.YurunaI18n.t("pool.add_host_failed_value1", {value1: (e.message)}));
         addBtn.disabled = false;
@@ -236,8 +240,9 @@
       if (!window.confirm(window.YurunaI18n.t("pool.delete_pool_value1_this_cannot_be_undone", {value1: (p.poolId)}))) { return; }
       delBtn.disabled = true;
       Y.mutate('/api/pool?poolId=' + encodeURIComponent(p.poolId), { method: 'DELETE' }).then(function () {
-        Y.notice('ok', window.YurunaI18n.t("pool.deleted_pool_value1", {value1: (p.poolId)}));
-        load();
+        return load().then(function () {
+          Y.notice('ok', window.YurunaI18n.t("pool.deleted_pool_value1", {value1: (p.poolId)}));
+        });
       }, function (e) {
         Y.notice('error', window.YurunaI18n.t("pool.delete_failed_value1", {value1: (e.message)}));
         delBtn.disabled = false;
@@ -258,7 +263,7 @@
     return {
       statusTd: statusTd,
       row: {
-        tr: Y.el('tr', {}, [
+        tr: Y.el('tr', { 'data-pool-id': p.poolId }, [
           Y.el('td', { text: p.poolId }),
           Y.el('td', {}, [Y.idCell(p.poolGuid)]),
           Y.el('td', { text: p.displayName || '' }),
@@ -282,7 +287,7 @@
     // control does nor which of the rows above it acts on -- and every member
     // row carries one. The visible text stays, so the button keeps its size and
     // shape; the accessible name names the target.
-    var rm = Y.el('button', { text: window.YurunaI18n.t("pool.x"), 'aria-label': window.YurunaI18n.t("pool.remove_host_value1_from_pool_value2", {value1: (Y.shortHost(m)), value2: (p.poolId)}) });
+    var rm = Y.el('button', { text: 'x', 'aria-label': window.YurunaI18n.t("pool.remove_host_value1_from_pool_value2", {value1: (Y.shortHost(m)), value2: (p.poolId)}) });
     rm.addEventListener('click', function () {
       // Every sibling destructive path on this service confirms, in these words.
       if (!window.confirm(window.YurunaI18n.t("pool.remove_host_value1_from_pool_value2_this_cannot_be_undone", {value1: (m), value2: (p.poolId)}))) { return; }
@@ -302,10 +307,11 @@
     var display = document.getElementById('new-display').value.trim();
     if (!poolId) { Y.notice('error', window.YurunaI18n.t("pool.enter_a_pool_id")); return; }
     Y.mutate('/api/pool', { method: 'POST', body: { poolId: poolId, displayName: display } }).then(function () {
-      Y.notice('ok', window.YurunaI18n.t("pool.created_pool_value1", {value1: (poolId)}));
       document.getElementById('new-poolid').value = '';
       document.getElementById('new-display').value = '';
-      load();
+      return load().then(function () {
+        Y.notice('ok', window.YurunaI18n.t("pool.created_pool_value1", {value1: (poolId)}));
+      });
     }, function (e) {
       Y.notice('error', window.YurunaI18n.t("pool.create_failed_value1", {value1: (e.message)}));
     });

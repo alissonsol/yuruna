@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,56 @@
 # obvious home.
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# Invoke-BoundedNativeCommand bounds the group reads below. Imported -Global and
+# without -Force so an already-loaded copy, whose commands other modules hold,
+# is reused instead of being evicted into this module's private scope.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+function Read-LibvirtGroupFact {
+    <#
+    .SYNOPSIS
+        One bounded identity read for Get-LibvirtGroupState: the trimmed stdout
+        and whether the read is a complete answer.
+    .DESCRIPTION
+        The read's cap is whatever remains of the caller's budget, so several
+        reads in sequence share one bound instead of each taking the full
+        allowance. With less than one whole second left nothing is launched
+        and the read is reported as not attempted.
+
+        Complete requires a launched process that finished inside the cap
+        with both streams drained, nothing truncated or left unkilled, and an
+        exit code listed in CompleteExitCode; anything less is not evidence
+        about group membership.
+    .PARAMETER Deadline
+        The budget all reads of one Get-LibvirtGroupState call share.
+    .PARAMETER Ceiling
+        Upper bound on this one read, in seconds.
+    .PARAMETER CompleteExitCode
+        Exit codes that are a finished answer for this tool. getent exits 2
+        for a key that does not exist, which is an answer, not a failure.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Tool,
+        [string[]]$ToolArgument = @(),
+        [Parameter(Mandatory)][ValidateNotNull()][psobject]$Deadline,
+        [ValidateRange(1, 60)][int]$Ceiling = 5,
+        [int[]]$CompleteExitCode = @(0)
+    )
+    $cap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling $Ceiling
+    if ($null -eq $cap) {
+        return [pscustomobject]@{ Attempted = $false; Complete = $false; ExitCode = -1; Text = '' }
+    }
+    $result = Invoke-BoundedNativeCommand -FilePath $Tool -ArgumentList $ToolArgument -TimeoutSeconds $cap -Deadline $Deadline
+    $complete = (Test-BoundedNativeResultComplete -Result $result) -and ([int]$result.ExitCode -in $CompleteExitCode)
+    return [pscustomobject]@{
+        Attempted = $true
+        Complete  = [bool]$complete
+        ExitCode  = [int]$result.ExitCode
+        Text      = ([string]$result.StdOut).Trim()
+    }
+}
+
 function Get-LibvirtGroupState {
     <#
     .SYNOPSIS
@@ -34,31 +84,84 @@ function Get-LibvirtGroupState {
     .DESCRIPTION
         Returns a hashtable with:
           ActiveGroups   -- the running shell's supplementary group set
-                            (from `id -nG`); what actually governs socket
-                            access, and what a stale `usermod -aG` does
-                            NOT refresh.
+                            (from `id -nG`), always an array; what actually
+                            governs socket access, and what a stale
+                            `usermod -aG` does NOT refresh.
           LibvirtMembers -- the libvirt group's members per `getent group
-                            libvirt`. getent joins members with commas and
-                            no spaces; the last token can carry a trailing
-                            newline, so each token is trimmed and empties
-                            dropped -- otherwise a `-contains $user` test
-                            can miss the last, newline-suffixed member.
+                            libvirt`, always an array. getent joins members
+                            with commas and no spaces; the last token can
+                            carry a trailing newline, so each token is
+                            trimmed and empties dropped -- otherwise a
+                            `-contains $user` test can miss the last,
+                            newline-suffixed member. A libvirt group that
+                            does not exist (getent exit 2) is a complete
+                            answer with no members.
+          CurrentUser    -- the process's real user name (`id -un`), or ''
+                            when it could not be read. $env:USER is not a
+                            substitute: under sg/newgrp/sudo/systemd the
+                            inherited value can be empty or name someone else.
+          Resolved       -- $true only when all three reads launched,
+                            finished inside the budget with fully drained
+                            output and a recognized exit code. A caller
+                            classifying a permission fault treats anything
+                            else as unknown rather than as "not a member".
         The ActiveGroups-vs-LibvirtMembers gap is the classic
         "member in /etc/group but not in the live group set" case that
         makes libvirt-sock return Permission denied until the group set
         is refreshed (sg / newgrp / reboot).
+
+        Each read runs through Invoke-BoundedNativeCommand: getent consults
+        NSS, which on a host joined to a directory service can block on the
+        network, and a hypervisor probe that reuses this diagnosis must stay
+        inside its own deadline. A read that fails contributes an empty value
+        and clears Resolved; once the budget is spent the remaining reads are
+        skipped.
+    .PARAMETER TimeoutSeconds
+        Budget for all three reads together, not for each one.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param()
-    $activeGroups = (& id -nG 2>$null) -split '\s+'
-    $libvirtLine  = & getent group libvirt 2>$null
-    $libvirtMembers = if ($libvirtLine) {
-        (($libvirtLine -split ':', 4)[3]) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-    } else { @() }
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    $budget = New-YurunaDeadline -TotalMilliseconds ([long]$TimeoutSeconds * 1000)
+    $reads = [ordered]@{
+        groups = @{ Tool = 'id'; ToolArgument = @('-nG'); CompleteExitCode = @(0) }
+        user   = @{ Tool = 'id'; ToolArgument = @('-un'); CompleteExitCode = @(0) }
+        entry  = @{ Tool = 'getent'; ToolArgument = @('group', 'libvirt'); CompleteExitCode = @(0, 2) }
+    }
+    $fact = @{}
+    foreach ($name in @($reads.Keys)) {
+        $read = $reads[$name]
+        $fact[$name] = Read-LibvirtGroupFact -Tool $read.Tool -ToolArgument $read.ToolArgument `
+            -CompleteExitCode $read.CompleteExitCode -Deadline $budget -Ceiling $TimeoutSeconds
+        if (-not $fact[$name].Attempted) { break }
+    }
+    $resolved = $true
+    foreach ($name in @($reads.Keys)) {
+        if (-not $fact.ContainsKey($name) -or -not $fact[$name].Complete) { $resolved = $false }
+    }
+    # Assigned inside a statement, never from an if-expression: the pipeline
+    # an if-expression returns unrolls a one-group set to a bare string and an
+    # empty one to $null.
+    $activeGroups = @()
+    if ($fact.ContainsKey('groups') -and $fact.groups.Complete -and $fact.groups.Text) {
+        $activeGroups = @($fact.groups.Text -split '\s+' | Where-Object { $_ })
+    }
+    $currentUser = ''
+    if ($fact.ContainsKey('user') -and $fact.user.Complete) { $currentUser = $fact.user.Text }
+    $libvirtMembers = @()
+    if ($fact.ContainsKey('entry') -and $fact.entry.Complete -and $fact.entry.ExitCode -eq 0) {
+        $fields = $fact.entry.Text -split ':', 4
+        if ($fields.Count -eq 4) {
+            $libvirtMembers = @($fields[3] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        } else {
+            $resolved = $false
+        }
+    }
     return @{
         ActiveGroups   = $activeGroups
-        LibvirtMembers = @($libvirtMembers)
+        LibvirtMembers = $libvirtMembers
+        CurrentUser    = $currentUser
+        Resolved       = $resolved
     }
 }
 
@@ -133,8 +236,9 @@ function Assert-LinuxHostConditionSet {
     <#
     .SYNOPSIS
         Single gate for Linux / KVM prerequisites: virsh round-trip,
-        /dev/kvm character device, libvirtd active, current shell's
-        supplementary group set includes libvirt.
+        /dev/kvm character device, libvirtd active (or its activation
+        socket listening), current shell's supplementary group set
+        includes libvirt.
     .DESCRIPTION
         Returns $true on non-Linux (the registry only dispatches to
         this for the matching HostType, but the guard keeps the
@@ -168,20 +272,39 @@ function Assert-LinuxHostConditionSet {
     $raw = & systemctl is-active libvirtd 2>$null
     $active = if ($raw) { "$raw".Trim() } else { '' }
     if ($active -ne 'active') {
-        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5bd775f79ee13443' -Arguments @{ active = "$active" })
-        return $false
+        # libvirtd runs with an idle timeout under socket activation: with no
+        # client and no running domain it exits, and the listening socket
+        # starts it again on the next connection. An inactive service behind an
+        # active socket is therefore healthy, and the diagnosis continues to
+        # the group checks below instead of blaming the daemon.
+        $socketRaw = & systemctl is-active libvirtd.socket 2>$null
+        $socketActive = if ($socketRaw) { "$socketRaw".Trim() } else { '' }
+        if ($socketActive -ne 'active') {
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5bd775f79ee13443' -Arguments @{ active = "$active" })
+            return $false
+        }
     }
     # libvirtd up, /dev/kvm present, but the round-trip failed -- the
     # by-far most common cause is a stale supplementary group set on
     # the calling shell. Detect that case specifically so the operator
     # gets actionable steps, not a generic "permission denied".
     $groupState     = Get-LibvirtGroupState
+    # An unfinished group read leaves the member list empty, and reading that
+    # as "not in the libvirt group" would send the operator to re-run the
+    # installer for a membership that may well be in place.
+    if (-not $groupState.Resolved) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_71200c53c662e070')
+        return $false
+    }
     $activeGroups   = $groupState.ActiveGroups
     $libvirtMembers = $groupState.LibvirtMembers
     # Use the process's REAL identity, not $env:USER: under sg/newgrp/sudo/systemd
     # the inherited USER can be empty or wrong, which would select the wrong
     # remediation branch -- the opposite of the actionable diagnostics intended.
-    $me = (& id -un 2>$null); if (-not $me) { $me = $env:USER }
+    # A failed read already returned above; $env:USER only covers an `id -un`
+    # that finished but printed nothing.
+    $me = [string]$groupState.CurrentUser
+    if (-not $me) { $me = $env:USER }
     $me = ([string]$me).Trim()
     if ($libvirtMembers -contains $me -and $activeGroups -notcontains 'libvirt') {
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6086c8f7e49eae24' -Arguments @{ me = "$me" })

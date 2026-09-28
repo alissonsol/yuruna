@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,24 @@ function Get-TofuStderrTail {
     return "`n--- tail of $tofuLogFile (last $script:tofuStderrTailLines lines) ---`n" + ($tail -join "`n")
 }
 
+function Save-ResourceOutput {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal manifest persistence; the publishing operation owns the mutation.')]
+    [CmdletBinding()]
+    param([string]$Path, [System.Collections.IDictionary]$Resources)
+
+    # A partial apply must remain discoverable even when a process stops while
+    # replacing its outputs. Keep the prior complete manifest until rename.
+    $temporaryPath = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [IO.File]::WriteAllText($temporaryPath, (ConvertTo-Yaml $Resources), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporaryPath, $Path, $true)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
+    }
+}
+
 function Publish-ResourceListHelper {
     [OutputType([hashtable])]
     [CmdletBinding(PositionalBinding=$false)]
@@ -70,6 +88,7 @@ function Publish-ResourceListHelper {
     $yaml = ConvertFrom-File $resourcesFile
 
     if ($isInitialization) {
+        $script:globalVariables = [ordered]@{}
         # Global variables are saved expanded after first time so resources.output
         # can reuse them.
         if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
@@ -84,11 +103,17 @@ function Publish-ResourceListHelper {
         }
     }
     else {
-        $yamlExpanded = @{ }
-        $yamlExpanded.Add("globalVariables", $globalVariables)
         $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
-        $null = New-Item -Path $resourcesOutputFile -ItemType File -Force
-        Add-Content -Path $resourcesOutputFile -Value $(ConvertTo-Yaml $yamlExpanded)
+        $yamlExpanded = @{}
+        if (Test-Path -LiteralPath $resourcesOutputFile) {
+            $previousOutputs = ConvertFrom-File $resourcesOutputFile
+            if ($previousOutputs -isnot [System.Collections.IDictionary] -or $previousOutputs.Count -eq 0) {
+                throw "Resource output manifest must be a nonempty mapping: $resourcesOutputFile"
+            }
+            foreach ($key in $previousOutputs.Keys) { $yamlExpanded[$key] = $previousOutputs[$key] }
+        }
+        $yamlExpanded['globalVariables'] = $globalVariables
+        Save-ResourceOutput -Path $resourcesOutputFile -Resources $yamlExpanded
     }
 
     if ($null -eq $yaml.resources) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1510c154a8ab2b3e' -Arguments @{ resourcesFile = "$resourcesFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true); }
@@ -133,13 +158,21 @@ function Publish-ResourceListHelper {
                 Write-Verbose "Set-Resource: recovering '$resourceName' from .old (prior-cycle SIGKILL between swap moves)."
                 Move-Item -LiteralPath $workFolderOld -Destination $workFolderRoot -Force
             }
+            $terraformPath = Join-Path -Path $workFolderRoot -ChildPath '.terraform'
+            if ($isInitialization -and (Test-Path -LiteralPath $terraformPath)) {
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_483ad55e8c49c6d8' -Arguments @{ terraformPath = "$terraformPath" })
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "tofu already initialized at $terraformPath (run 'yuruna clear' first)" -FailureClass 'config_error')
+            }
             if (Test-Path -LiteralPath $workFolderNew) {
                 Remove-Item -LiteralPath $workFolderNew -Recurse -Force
             }
             $null = New-Item -ItemType Directory -Force -Path $workFolderNew
             Copy-Item -Path "$templateFolder/*" -Destination $workFolderNew -Recurse -Container -ErrorAction Stop
             if (Test-Path -LiteralPath $workFolderRoot) {
-                foreach ($carryOver in @('.terraform', '.terraform.lock.hcl', 'tofu.planfile')) {
+                # Local state (including backups and named workspaces) is the
+                # authority for already-created resources; templates cannot replace it.
+                $stateNames = @(Get-ChildItem -LiteralPath $workFolderRoot -Force -Filter '*.tfstate*' -ErrorAction Stop | Select-Object -ExpandProperty Name)
+                foreach ($carryOver in @('.terraform', '.terraform.lock.hcl', 'tofu.planfile') + $stateNames) {
                     $src = Join-Path -Path $workFolderRoot -ChildPath $carryOver
                     if (Test-Path -LiteralPath $src) {
                         Copy-Item -LiteralPath $src -Destination $workFolderNew -Recurse -Force -ErrorAction Stop
@@ -186,141 +219,144 @@ function Publish-ResourceListHelper {
                 }
             }
             foreach ($key in $terraformVars.Keys) {
-                $value = $ExecutionContext.InvokeCommand.ExpandString($terraformVars[$key])
+                $value = $terraformVars[$key]
+                # Globals were expanded when read; only local overrides still
+                # contain expressions. Expanding a resolved secret interprets its dollars.
+                if ($null -ne $resource.variables -and $resource.variables.Contains($key)) {
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($value)
+                }
                 if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
                 $line = "$key = `"$value`""
                 Add-Content -Path $terraformVarsFile -Value $line
                 Set-Item -Path Env:$key -Value ${value}
                 Write-Debug "$line"
             }
-            Push-Location $workFolder
+            Push-Location $workFolder -ErrorAction Stop
+            try {
 
-            $terraformPath = Join-Path -Path $workFolder -ChildPath ".terraform"
-            if ($isInitialization -and (Test-Path -Path $terraformPath)) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_483ad55e8c49c6d8' -Arguments @{ terraformPath = "$terraformPath" });
-                Pop-Location;
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "tofu already initialized at $terraformPath (run 'yuruna clear' first)" -FailureClass 'config_error');
-            }
-            # Per-resource tofu stderr/stdout log. Stable path so re-runs
-            # overwrite -- the latest attempt is what matters.
-            $tofuLogFile = Join-Path -Path $workFolder -ChildPath "tofu.stderr.log"
-            Remove-Item -LiteralPath $tofuLogFile -Force -ErrorAction SilentlyContinue
-            # Exit-code sidecar (tofu.rc) next to tofu.stderr.log so the
-            # post-mortem diagnostic's rc-scan resolves the tofu outcome; the
-            # retry helper rewrites it on each init / apply / output pass.
-            $tofuRcFile = Join-Path -Path $workFolder -ChildPath "tofu.rc"
-            Remove-Item -LiteralPath $tofuRcFile -Force -ErrorAction SilentlyContinue
+                # Per-resource tofu stderr/stdout log. Stable path so re-runs
+                # overwrite -- the latest attempt is what matters.
+                $tofuLogFile = Join-Path -Path $workFolder -ChildPath "tofu.stderr.log"
+                Remove-Item -LiteralPath $tofuLogFile -Force -ErrorAction SilentlyContinue
+                # Exit-code sidecar (tofu.rc) next to tofu.stderr.log so the
+                # post-mortem diagnostic's rc-scan resolves the tofu outcome; the
+                # retry helper rewrites it on each init / apply / output pass.
+                $tofuRcFile = Join-Path -Path $workFolder -ChildPath "tofu.rc"
+                Remove-Item -LiteralPath $tofuRcFile -Force -ErrorAction SilentlyContinue
 
-            # azurerm 4.x no longer inherits the subscription from the Azure
-            # CLI's active context (az login + az account set): the provider
-            # requires an explicit subscription_id or ARM_SUBSCRIPTION_ID and
-            # otherwise fails at plan time. Derive it from the CLI context so
-            # the documented az-login flow keeps working; an operator who
-            # exports ARM_SUBSCRIPTION_ID beforehand takes precedence.
-            if (($resourceTemplate -like 'azure/*') -and [string]::IsNullOrEmpty($env:ARM_SUBSCRIPTION_ID)) {
-                $azSubscriptionId = ''
-                try { $azSubscriptionId = [string](& az account show --query id --output tsv 2>$null | Select-Object -First 1) } catch { $azSubscriptionId = '' }
-                if ([string]::IsNullOrWhiteSpace($azSubscriptionId)) {
-                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_227db199c3c8f906')
+                # azurerm 4.x no longer inherits the subscription from the Azure
+                # CLI's active context (az login + az account set): the provider
+                # requires an explicit subscription_id or ARM_SUBSCRIPTION_ID and
+                # otherwise fails at plan time. Derive it from the CLI context so
+                # the documented az-login flow keeps working; an operator who
+                # exports ARM_SUBSCRIPTION_ID beforehand takes precedence.
+                if (($resourceTemplate -like 'azure/*') -and [string]::IsNullOrEmpty($env:ARM_SUBSCRIPTION_ID)) {
+                    $azSubscriptionId = ''
+                    try { $azSubscriptionId = [string](& az account show --query id --output tsv 2>$null | Select-Object -First 1) } catch { $azSubscriptionId = '' }
+                    if ([string]::IsNullOrWhiteSpace($azSubscriptionId)) {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_227db199c3c8f906')
+                    }
+                    else {
+                        Set-Item -Path Env:ARM_SUBSCRIPTION_ID -Value $azSubscriptionId.Trim()
+                        Write-Verbose "ARM_SUBSCRIPTION_ID derived from the Azure CLI active subscription."
+                    }
+                }
+
+                Write-Debug "OpenTofu init"
+                # Shared Yuruna.Retry backoff; TF_PLUGIN_CACHE_DIR (set by
+                # Publish-ResourceList before this helper runs) keeps every
+                # later attempt off the network.
+                # docs/architecture.md#shared-transient-failure-retry-policy
+                # --- REGION: https://yuruna.link/4220a755-0003
+                $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
+                if (-not $retryResult.Success) {
+                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                }
+
+                Write-Debug "Executing tofu command from $workFolder"
+                # --- REGION: https://yuruna.link/42d69dfa-0034
+                $planFile = Join-Path -Path $workFolder -ChildPath "tofu.planfile"
+                # tofu plan and the saved-planfile apply are safe to re-run on a
+                # transient failure: plan is read-only, and a saved-planfile apply
+                # re-applies the same plan. The refreshing-apply fallback is NOT --
+                # it recomputes the plan, so a retry after a partial apply is not
+                # safely idempotent and must fail loudly.
+                $retryableTofu = $true
+                if ($isInitialization) {
+                    $resolvedCommand = "tofu plan -input=false -compact-warnings -out=`"$planFile`""
                 }
                 else {
-                    Set-Item -Path Env:ARM_SUBSCRIPTION_ID -Value $azSubscriptionId.Trim()
-                    Write-Verbose "ARM_SUBSCRIPTION_ID derived from the Azure CLI active subscription."
+                    if (Test-Path -LiteralPath $planFile) {
+                        $resolvedCommand = "tofu apply -input=false -auto-approve `"$planFile`""
+                    }
+                    else {
+                        Write-Verbose "Planfile not found at $planFile; falling back to refreshing apply."
+                        $resolvedCommand = "tofu apply -input=false -auto-approve"
+                        $retryableTofu = $false
+                    }
                 }
-            }
-
-            Write-Debug "OpenTofu init"
-            # Shared Yuruna.Retry backoff; TF_PLUGIN_CACHE_DIR (set by
-            # Publish-ResourceList before this helper runs) keeps every
-            # later attempt off the network.
-            # docs/architecture.md#shared-transient-failure-retry-policy
-            # --- REGION: https://yuruna.link/4220a755-0003
-            $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
-            if (-not $retryResult.Success) {
-                Pop-Location
-                throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
-            }
-
-            Write-Debug "Executing tofu command from $workFolder"
-            # --- REGION: https://yuruna.link/42d69dfa-0034
-            $planFile = Join-Path -Path $workFolder -ChildPath "tofu.planfile"
-            # tofu plan and the saved-planfile apply are safe to re-run on a
-            # transient failure: plan is read-only, and a saved-planfile apply
-            # re-applies the same plan. The refreshing-apply fallback is NOT --
-            # it recomputes the plan, so a retry after a partial apply is not
-            # safely idempotent and must fail loudly.
-            $retryableTofu = $true
-            if ($isInitialization) {
-                $resolvedCommand = "tofu plan -input=false -compact-warnings -out=`"$planFile`""
-            }
-            else {
-                if (Test-Path -LiteralPath $planFile) {
-                    $resolvedCommand = "tofu apply -input=false -auto-approve `"$planFile`""
-                }
-                else {
-                    Write-Verbose "Planfile not found at $planFile; falling back to refreshing apply."
-                    $resolvedCommand = "tofu apply -input=false -auto-approve"
-                    $retryableTofu = $false
-                }
-            }
-            # Retry on a transient signal only; a real plan or null_resource
-            # provisioner error does not match the shared classifier and fails
-            # fast. docs/architecture.md#shared-transient-failure-retry-policy
-            #
-            # The closures capture the command and predicate by value because the
-            # retry scriptblock runs in the Yuruna.Retry module scope, which
-            # cannot see this module's private Invoke-DynamicExpression import
-            # by name -- so capture its CommandInfo here and invoke it via &.
-            $dynExprCmd = Get-Command Invoke-DynamicExpression
-            $transientTest = Get-Command Test-YurunaTransientFailure
-            $applyBlock = { & $dynExprCmd -Command $resolvedCommand *>&1 }.GetNewClosure()
-            $applyShouldRetry = {
-                param($info)
-                if (-not $retryableTofu) { return $false }
-                return [bool](& $transientTest -Output $info.Output)
-            }.GetNewClosure()
-            $applyRetry = Invoke-WithYurunaRetry -Label $resolvedCommand -ScriptBlock $applyBlock -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $applyShouldRetry
-            $applyLog  = $applyRetry.LastOutput
-            $applyExit = $applyRetry.LastExit
-            $applyLog | ForEach-Object { Write-Verbose ([string]$_) }
-            if ($applyExit -ne 0) {
-                Pop-Location
-                throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fcd2c71f3eb5ddd2' -Arguments @{ resolvedCommand = "$resolvedCommand"; resourceName = "$resourceName"; applyExit = "$applyExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
-            }
-
-            if (-Not $isInitialization) {
-                # `tofu output -json` crosses the network too (remote state
-                # backends) and hits the same lock / 5xx transients, so retry
-                # it on the shared classifier. The retry helper merges streams
-                # with 2>&1, so filter out ErrorRecords (stderr) before the
-                # parse -- a stray warning line must not corrupt the JSON.
-                $outputShouldRetry = {
+                # Retry on a transient signal only; a real plan or null_resource
+                # provisioner error does not match the shared classifier and fails
+                # fast. docs/architecture.md#shared-transient-failure-retry-policy
+                #
+                # The closures capture the command and predicate by value because the
+                # retry scriptblock runs in the Yuruna.Retry module scope, which
+                # cannot see this module's private Invoke-DynamicExpression import
+                # by name -- so capture its CommandInfo here and invoke it via &.
+                $dynExprCmd = Get-Command Invoke-DynamicExpression
+                $transientTest = Get-Command Test-YurunaTransientFailure
+                $applyBlock = { & $dynExprCmd -Command $resolvedCommand *>&1 }.GetNewClosure()
+                $applyShouldRetry = {
                     param($info)
+                    if (-not $retryableTofu) { return $false }
                     return [bool](& $transientTest -Output $info.Output)
                 }.GetNewClosure()
-                $outputRetry = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'automation.operator_e08ec6745a750a1d' -Arguments @{ resourceName = "$resourceName" }) -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
-                $outputExit = $outputRetry.LastExit
-                $jsonOutput = (@($outputRetry.LastOutput) | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ }) -join "`n"
-                if ($outputExit -ne 0) {
-                    Pop-Location
-                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_f6bd22fdf471e472' -Arguments @{ resourceName = "$resourceName"; outputExit = "$outputExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                if (-not $isInitialization) {
+                    # Apply can create resources before failing. Register ownership
+                    # first, then replace this placeholder only after outputs succeed.
+                    $yamlExpanded[$resourceName] = @{}
+                    Save-ResourceOutput -Path $resourcesOutputFile -Resources $yamlExpanded
                 }
-                if ([string]::IsNullOrWhiteSpace($jsonOutput)) {
-                    Pop-Location
-                    throw (Format-YurunaOperatorMessage -Key 'automation.operator_2c034a64269ac7d5' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
+                $applyRetry = Invoke-WithYurunaRetry -Label $resolvedCommand -ScriptBlock $applyBlock -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $applyShouldRetry
+                $applyLog  = $applyRetry.LastOutput
+                $applyExit = $applyRetry.LastExit
+                $applyLog | ForEach-Object { Write-Verbose ([string]$_) }
+                if ($applyExit -ne 0) {
+                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fcd2c71f3eb5ddd2' -Arguments @{ resolvedCommand = "$resolvedCommand"; resourceName = "$resourceName"; applyExit = "$applyExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
                 }
-                $terraformYaml = $jsonOutput | ConvertFrom-Json
-                # --- REGION: https://yuruna.link/42d69dfa-0032
-                $propsList = @($terraformYaml.PSObject.Properties)
-                if ($propsList.Count -eq 0) {
-                    Pop-Location
-                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_70a25bee43fda5e2' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+
+                if (-Not $isInitialization) {
+                    # `tofu output -json` crosses the network too (remote state
+                    # backends) and hits the same lock / 5xx transients, so retry
+                    # it on the shared classifier. The retry helper merges streams
+                    # with 2>&1, so filter out ErrorRecords (stderr) before the
+                    # parse -- a stray warning line must not corrupt the JSON.
+                    $outputShouldRetry = {
+                        param($info)
+                        return [bool](& $transientTest -Output $info.Output)
+                    }.GetNewClosure()
+                    $outputRetry = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'automation.operator_e08ec6745a750a1d' -Arguments @{ resourceName = "$resourceName" }) -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
+                    $outputExit = $outputRetry.LastExit
+                    $jsonOutput = (@($outputRetry.LastOutput) | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ }) -join "`n"
+                    if ($outputExit -ne 0) {
+                        throw ((Format-YurunaOperatorMessage -Key 'automation.operator_f6bd22fdf471e472' -Arguments @{ resourceName = "$resourceName"; outputExit = "$outputExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                    }
+                    if ([string]::IsNullOrWhiteSpace($jsonOutput)) {
+                        throw (Format-YurunaOperatorMessage -Key 'automation.operator_2c034a64269ac7d5' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
+                    }
+                    $terraformYaml = $jsonOutput | ConvertFrom-Json
+                    # --- REGION: https://yuruna.link/42d69dfa-0032
+                    $propsList = @($terraformYaml.PSObject.Properties)
+                    if ($propsList.Count -eq 0) {
+                        throw ((Format-YurunaOperatorMessage -Key 'automation.operator_70a25bee43fda5e2' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                    }
+                    $yamlExpanded[$resourceName] = $terraformYaml
+                    Save-ResourceOutput -Path $resourcesOutputFile -Resources $yamlExpanded
                 }
-                $tuple = @{ }
-                $tuple."$resourceName" = $terraformYaml
-                Add-Content -Path $resourcesOutputFile -Value $(ConvertTo-Yaml $tuple)
             }
-            Pop-Location
+            finally {
+                Pop-Location
+            }
         }
     }
 

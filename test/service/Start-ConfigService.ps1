@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,10 +227,14 @@ function Invoke-YurunaConfigServeLoop {
     $serverCert = New-YurunaConfigServerCertificate
     $caPublic   = Get-YurunaConfigCaPublicCertificate
     $tls = [System.Security.Authentication.SslProtocols]::Tls12 -bor [System.Security.Authentication.SslProtocols]::Tls13
-    # No TLS-layer client-cert validation callback (null) -- the server accepts any
-    # presented cert at the transport, then AUTHORIZES it POST-handshake on our own
-    # thread via Test-YurunaConfigClientCertificate ("chains to THIS host's CA").
-    # That sidesteps running a scriptblock delegate during the native handshake.
+    # The private host CA is intentionally absent from the OS trust store.
+    # Give the handshake its own trust root; a null callback otherwise uses
+    # system trust and rejects every legitimate guest before authorization.
+    $clientPolicy = [System.Security.Cryptography.X509Certificates.X509ChainPolicy]::new()
+    $clientPolicy.TrustMode = [System.Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+    $clientPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+    [void]$clientPolicy.CustomTrustStore.Add($caPublic)
+    [void]$clientPolicy.ApplicationPolicy.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.2'))
 
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $ListenPort)
     $listener.Start()
@@ -245,6 +249,7 @@ function Invoke-YurunaConfigServeLoop {
                 $netStream = $client.GetStream()
                 $ssl = [System.Net.Security.SslStream]::new($netStream, $false)
                 $opts = [System.Net.Security.SslServerAuthenticationOptions]::new()
+                $opts.CertificateChainPolicy         = $clientPolicy
                 $opts.ServerCertificate              = $serverCert
                 $opts.ClientCertificateRequired      = $true
                 $opts.EnabledSslProtocols            = $tls
@@ -320,7 +325,7 @@ function Write-YurunaConfigHealth {
     [CmdletBinding()]
     param([Parameter(Mandatory)][bool]$Up, [Parameter(Mandatory)][int]$HealthPort)
     try {
-        $h = [ordered]@{ up = $Up; port = $HealthPort; checkedUtc = ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) }
+        $h = [ordered]@{ up = $Up; port = $HealthPort; checkedUtc = ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) }
         [System.IO.File]::WriteAllText((Join-Path $RuntimeDir 'config-server.health'), ($h | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
     } catch { Write-Verbose "config health write: $($_.Exception.Message)" }
 }

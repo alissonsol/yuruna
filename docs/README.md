@@ -55,6 +55,8 @@ review; English remains the source of truth.
 - **[kubernetes.md](kubernetes.md)** -- the user-facing quick start: deploy a
   containerized app to localhost, Azure, or AWS with one workflow, and clean up
   the cloud resources afterward.
+- **[EKS resource and workload contract](../global/resources/aws/eks-cluster/README.md)** --
+  node-group requirements, ingress ports, outputs, and isolated template validation.
 - **[authentication.md](authentication.md)** -- how to authenticate to Docker
   Desktop, AWS, Azure, and Google Cloud, how the [component-push pipeline logs
   into the target container
@@ -176,6 +178,8 @@ review; English remains the source of truth.
 - **[pool-dashboard.md](pool-dashboard.md)** -- the Yuruna hosts Grafana dashboard,
   panel by panel: what each tile and table means, how the Host ID menus and `/go/`
   links behave, and the metrics behind them. The panels' (i) tooltips link here.
+- **[alerts.md](alerts.md)** -- set up a Grafana email for each observed failed
+  test cycle, including access prerequisites, the Loki alert rule, and routing.
 - **[download-agent.md](download-agent.md)** -- the pool-wide image downloader:
   one machine fetches a guest image and every host reads it from the pool
   share, kept fresh on a timer and managed from the service's own board.
@@ -287,6 +291,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

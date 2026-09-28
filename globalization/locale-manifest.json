@@ -33,6 +33,36 @@
         "groupSize": 3
       }
     },
+    "zh-CN": {
+      "direction": "ltr",
+      "status": "supported",
+      "displayName": "\u7b80\u4f53\u4e2d\u6587\uff08\u4e2d\u56fd\uff09",
+      "pluralCategories": [
+        "other"
+      ],
+      "pluralRule": "zh-cardinal-cldr46",
+      "numberFormat": {
+        "group": ",",
+        "decimal": ".",
+        "groupSize": 3
+      }
+    },
+    "he-IL": {
+      "direction": "rtl",
+      "status": "supported",
+      "displayName": "\u05e2\u05d1\u05e8\u05d9\u05ea (\u05d9\u05e9\u05e8\u05d0\u05dc)",
+      "pluralCategories": [
+        "one",
+        "two",
+        "other"
+      ],
+      "pluralRule": "he-cardinal-cldr46",
+      "numberFormat": {
+        "group": ",",
+        "decimal": ".",
+        "groupSize": 3
+      }
+    },
     "qps-Ploc": {
       "direction": "ltr",
       "status": "pseudo",
@@ -67,14 +97,25 @@
   "aliases": {
     "en": "en-US",
     "pt": "pt-BR",
-    "pt-PT": "pt-BR"
+    "pt-PT": "pt-BR",
+    "zh": "zh-CN",
+    "zh-Hans": "zh-CN",
+    "zh-Hans-CN": "zh-CN",
+    "zh-SG": "zh-CN",
+    "he": "he-IL",
+    "iw": "he-IL",
+    "iw-IL": "he-IL"
   },
   "pluralRules": {
     "one-if-1": "The count takes the 'one' form when it is exactly 1, and 'other' in every other case, zero included.",
-    "pt-cardinal-cldr46": "CLDR 46 Portuguese cardinal rule for canonical numeric counts (no compact exponent or preserved trailing decimal zeros): the absolute integer part 0 or 1 takes one; other nonzero integral multiples of 1000000 take many; all other counts take other."
+    "pt-cardinal-cldr46": "CLDR 46 Portuguese cardinal rule for canonical numeric counts (no compact exponent or preserved trailing decimal zeros): the absolute integer part 0 or 1 takes one; other nonzero integral multiples of 1000000 take many; all other counts take other.",
+    "zh-cardinal-cldr46": "CLDR 46 Chinese cardinal rule: every count takes other; the language has no grammatical number.",
+    "he-cardinal-cldr46": "CLDR 46 Hebrew cardinal rule for canonical numeric counts (no compact exponent or preserved trailing decimal zeros): the absolute integer part 1 with no fraction, or 0 with a fraction, takes one; the absolute integer part 2 with no fraction takes two; every other count takes other, 20 and 100 included."
   },
   "pluralRuleSources": {
-    "pt-cardinal-cldr46": "https://github.com/unicode-org/cldr/blob/release-46/common/supplemental/plurals.xml"
+    "pt-cardinal-cldr46": "https://github.com/unicode-org/cldr/blob/release-46/common/supplemental/plurals.xml",
+    "zh-cardinal-cldr46": "https://github.com/unicode-org/cldr/blob/release-46/common/supplemental/plurals.xml",
+    "he-cardinal-cldr46": "https://github.com/unicode-org/cldr/blob/release-46/common/supplemental/plurals.xml"
   },
   "pluralRulesNote": "A locale whose pluralRule is null has no rule pinned yet, and every runtime refuses it rather than borrowing another locale's -- English and Portuguese disagree about zero, and a borrowed rule reads as fluent, confident, wrong grammar to anyone who does not speak the language. Pinning a rule means transcribing it from a CLDR release and naming it here, so all three runtimes select the same form for the same count.",
   "numberFormatNote": "Separators are declared here rather than read from each runtime's own locale database. ICU data differs between engines and the ICU version behind a runtime changes between releases; a table that lives in one place is the only way the same number reaches every reader identically.",

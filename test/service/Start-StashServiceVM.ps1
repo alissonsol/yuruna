@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,6 +91,25 @@ $HostType = Get-HostType
 if (-not $HostType) { exit $ExitFailure }
 Write-Verbose "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
+
+# --- REGION: Record the start intent
+# The start is on record, and this service's operation lock held, before
+# anything is built: a Stop issued meanwhile waits for the lock instead of
+# tearing down a half-built guest, and the reboot sweep and a host refresh see
+# the request. Taken after the group relaunch, because a lock taken in the
+# parent would block the relaunched child. A request that cannot be recorded
+# changes nothing.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'stash' -VMName $VMName -Operation Start -Script 'Start-StashServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit $ExitFailure
+}
+# Every exit below runs the finally that closes this operation: it records the
+# result and releases the operation lock even inside a long-lived shell.
+$serviceOpResult = 'failed'
+try {
 
 # --- REGION: Storage preflight
 # See https://yuruna.link/42e220c4-0008
@@ -194,6 +213,9 @@ Write-Verbose ""
 Write-Output "== Bringing up '$VMName' on $HostType =="
 $newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
 if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+# A stop published while this start was preparing wins: nothing is built
+# for a request that no longer stands (the finally reports the newer one).
+if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
 & pwsh @newVmArgs
 $rc = $LASTEXITCODE
 if ($rc -ne 0) {
@@ -224,6 +246,9 @@ if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
     Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the stash service was NOT started. Open the VM in the hypervisor UI and start it by hand to see why."
     exit $ExitFailure
 }
+# The start request is confirmed once the rebuilt VM is positively running;
+# the daemon's readiness is reported on its own below and is census evidence.
+$serviceOpResult = 'confirmed'
 
 # --- REGION: Configure Shared NAT forwarding
 # See https://yuruna.link/42e220c4-0008
@@ -345,7 +370,7 @@ $stashDaemonReady = $stashVerdict.Outcome -in @('Ready', 'Unreachable')
 if ($runtimeDir) {
     try {
         [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
-            -Active $stashDaemonReady -VMName $VMName -HostType $HostType)
+            -Active $stashDaemonReady -VMName $VMName -HostType $HostType -HostingMode 'vm')
     } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
 }
 if ($runtimeDir -and $stashVerdict.Outcome -eq 'Ready') {
@@ -550,3 +575,6 @@ Write-Verbose "(See https://yuruna.link/42f5e921.)"
 Write-Verbose ""
 Write-Output "Stop with: test/service/Stop-StashServiceVM.ps1"
 exit $ExitOk
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -Confirm:$false)
+}

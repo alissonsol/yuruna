@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,9 +138,9 @@ function Copy-HashtableWithoutSecretNode {
 # compare the strings. One predicate so the two reconciliation write gates cannot drift.
 function Test-ConfigDiffersOutsideSecretNode {
     param($A, $B)
-    $aYaml = (Copy-HashtableWithoutSecretNode $A) | ConvertTo-Yaml
-    $bYaml = (Copy-HashtableWithoutSecretNode $B) | ConvertTo-Yaml
-    return ($aYaml -ne $bYaml)
+    $aYaml = (ConvertTo-SortedConfig (Copy-HashtableWithoutSecretNode $A)) | ConvertTo-Yaml
+    $bYaml = (ConvertTo-SortedConfig (Copy-HashtableWithoutSecretNode $B)) | ConvertTo-Yaml
+    return ($aYaml -cne $bYaml)
 }
 
 <#
@@ -323,6 +323,9 @@ function Update-TestConfigFromTemplate {
     }
 
     $merged = ConvertTo-MergedHashtable -Template $template -Current $current
+    if ($current -is [System.Collections.IDictionary] -and $current.Contains('secrets')) {
+        $merged['secrets'] = $current['secrets']
+    }
 
     # keystrokeMechanism is no longer a machine-global config knob (it is a
     # per-sequence attribute), so there is nothing to validate here. A stale key
@@ -335,6 +338,14 @@ function Update-TestConfigFromTemplate {
     # in (and a file that only differs by ordering converges to canonical on the
     # next run instead of churning forever).
     $merged = ConvertTo-SortedConfig $merged
+    $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
+    $obsolete = Get-ObsoleteConfigEntry -Text $existingText
+    $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $current)
+    foreach ($path in @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
+        $obsolete[$path] = Format-YamlScalarValue $curLeaves[$path]
+    }
+    $rendered = ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) `
+        -Config $merged -ObsoleteEntry $obsolete
 
     # --- REGION: Schema migration (shape departed)
     # The on-disk file no longer matches the template's nested shape (the schema
@@ -354,7 +365,7 @@ function Update-TestConfigFromTemplate {
         if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_3139f133d03a7df6'))) {
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
-            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
@@ -369,12 +380,12 @@ function Update-TestConfigFromTemplate {
         return $merged
     }
 
-    if (Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) {
+    if ((Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) -or $rendered -cne $existingText) {
         if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_785dae69f36c4993'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58f8689005f6559c') -InformationAction Continue
             # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
-            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
             }
         }
@@ -670,7 +681,7 @@ function Sync-TestConfigToTemplate {
     # Rewrite when the canonical form differs from disk outside 'secrets', or when
     # the documented rendering differs from what is on disk.
     $changed = Test-ConfigDiffersOutsideSecretNode -A $canonical -B $Current
-    if ($null -ne $rendered -and $rendered -ne $existingText) { $changed = $true }
+    if ($null -ne $rendered) { $changed = $rendered -cne $existingText }
     $wrote      = $false
     $backupPath = $null
     if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_1f50cc08b8dd3984'))) {
@@ -701,7 +712,7 @@ function Sync-TestConfigToTemplate {
 
 <#
 .SYNOPSIS
-    Strip everything under the top-level 'secrets' node before a config is logged.
+    Redact secret nodes and credential leaves recursively before a config is logged.
 .DESCRIPTION
     The Hide- verb (rather than Remove-) keeps PSScriptAnalyzer's
     PSUseShouldProcessForStateChangingFunctions rule quiet (it fires on
@@ -711,11 +722,18 @@ function Sync-TestConfigToTemplate {
 #>
 function Hide-SecretsInConfig {
     param($Config)
-    if ($Config -is [System.Collections.IDictionary] -and $Config.Contains('secrets')) {
-        $node = $Config['secrets']
-        if ($node -is [System.Collections.IDictionary]) {
-            foreach ($key in @($node.Keys)) { $node.Remove($key) }
+    if ($Config -is [System.Collections.IDictionary]) {
+        foreach ($key in @($Config.Keys)) {
+            if ([string]$key -ieq 'secrets') {
+                $Config[$key] = [ordered]@{}
+            } elseif ([string]$key -match '(?i)(token|password|secret|apiKey)$') {
+                $Config[$key] = '[redacted]'
+            } else {
+                Hide-SecretsInConfig -Config $Config[$key]
+            }
         }
+    } elseif ($Config -is [System.Collections.IEnumerable] -and $Config -isnot [string]) {
+        foreach ($item in $Config) { Hide-SecretsInConfig -Config $item }
     }
 }
 

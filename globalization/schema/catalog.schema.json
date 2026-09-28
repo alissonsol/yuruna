@@ -86,6 +86,7 @@
       ],
       "properties": {
         "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "origin": { "enum": ["machine"], "description": "Present only on a machine draft. An accepted entry carries no origin." },
         "message": { "type": "string", "minLength": 1 },
         "plural": { "$ref": "#/definitions/translationVariants" },
         "select": { "$ref": "#/definitions/translationSelectVariants" }

@@ -76,6 +76,15 @@ type Tool struct {
 	// arguments to no additional effect.
 	Idempotent bool
 
+	// Gate is an additional, tool-specific gate evaluated on the INCOMING
+	// request after the server's gate. Both must allow, so it can only narrow
+	// who may call the tool. It exists for a tool whose route requires a
+	// credential beyond the daemon's ordinary write gate: the handler runs on
+	// a synthesized request that carries no credential, so the extra check can
+	// only happen here. nil adds nothing. A read-only tool cannot carry one,
+	// because a gated tool is by definition not read-only.
+	Gate Gate
+
 	Handler func(ctx context.Context, args json.RawMessage) (any, error)
 }
 
@@ -162,6 +171,9 @@ func (r *Registry) Add(t Tool) error {
 	}
 	if t.Handler == nil {
 		return fmt.Errorf("tool %q has no handler", t.Name)
+	}
+	if t.ReadOnly && t.Gate != nil {
+		return fmt.Errorf("tool %q is read-only but carries a gate; a gated tool is a mutating tool", t.Name)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -360,6 +372,16 @@ func (s *Server) callTool(r *http.Request, req rpcRequest) rpcResponse {
 		if !allowed {
 			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
 				Code: CodeRefused, Message: message, Data: map[string]any{"reason": reason}}}
+		}
+		// The tool's own gate runs second, on the same incoming request, and
+		// only once the server gate has admitted it: a caller refused by the
+		// daemon never reaches a check that could count a failed attempt.
+		if tool.Gate != nil {
+			allowed, reason, message := tool.Gate.Allow(r)
+			if !allowed {
+				return rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
+					Code: CodeRefused, Message: message, Data: map[string]any{"reason": reason}}}
+			}
 		}
 	}
 

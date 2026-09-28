@@ -46,6 +46,17 @@ const DataptBRauth = `{
   "auth.proof_expired": "a prova de controlo expirou ou não deste pool",
   "auth.proof_shape": "não é uma prova de controlo",
   "auth.proof_unconfigured": "nenhum token de autenticação de laboratório e nenhum URL agregador estão configurados, então uma prova de controle não pode ser verificada; as ações permanecem bloqueadas",
+  "auth.refresh_credential_required": "Esta ação exige a credencial de atualização no cabeçalho X-Yuruna-Refresh-Credential; sessão do laboratório, token do laboratório ou chave de autenticação interna não são aceitos.",
+  "auth.refresh_throttled": [
+    "Muitas tentativas de credencial de atualização a partir deste endereço; aguarde ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos e tente novamente."
+  ],
+  "auth.refresh_unconfigured": "A atualização remota do hospedeiro está desativada: este serviço não tem credencial de atualização provisionada.",
   "auth.route_disabled": "nenhum token de autenticação de laboratório configurado; esta rota está desabilitada",
   "auth.session_required": "sessão de token de laboratório ou token de autenticação de laboratório necessário",
   "auth.token_check_failed": [

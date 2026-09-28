@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42200955-c70d-7649-3ca6-7875df89cd3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -606,7 +606,6 @@
     'download.unavailable' = '[!‮úñáṽáíļáƀļé‬ ~~~~~]'
     'download.unlock_actions' = '[!‮Úñļóçķ áçţíóñš‬ ~~~~~~]'
     'download.unlock_actions_first_enter_the_lab_token_above' = '[!‮Úñļóçķ áçţíóñš ƒířšţ -- éñţéř ţħé Ļáƀ ţóķéñ áƀóṽé.‬ ~~~~~~~~~~~~~~~~~~~~]'
-    'download.v' = '[!‮ṽ‬ ~]'
     'download.value1_failed_for_value2_value3' = @(
         '[!‮'
         @{

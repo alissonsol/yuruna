@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,6 +227,14 @@ printf '#!/bin/sh\necho "SUDOARGS:$*"\n' > "$d/sudo"
 printf '#!/bin/sh\necho "APTENV:${DEBIAN_FRONTEND:-unset}/${DEBIAN_PRIORITY:-unset}"\n' > "$d/apt-get"
 chmod +x "$d/sudo" "$d/apt-get"
 PATH="$d:$PATH"
+hash -r
+if [ "$(command -v sudo)" != "$d/sudo" ] || [ "$(command -v apt-get)" != "$d/apt-get" ]; then
+    rm -rf "$d"
+    echo "shadow-not-executable"
+    exit 0
+fi
+export YURUNA_RETRY_MAX_ATTEMPTS=1
+sleep() { :; }
 
 # Unbounded (the dist-upgrade shape): the prefix lands directly after sudo.
 o=$(YURUNA_APT_STALL_TIMEOUT_SECONDS=0 apt_retry sudo apt-get dist-upgrade -y 2>&1)

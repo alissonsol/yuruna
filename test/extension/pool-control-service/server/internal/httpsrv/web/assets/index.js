@@ -100,8 +100,9 @@
         method: 'POST',
         body: { poolId: p.poolId, name: chosen.name, frameworkURL: chosen.frameworkUrl, projectURL: chosen.projectUrl }
       }).then(function () {
-        Y.notice('ok', window.YurunaI18n.t("pool.assigned_value1_to_pool_value2", {value1: (name), value2: (p.poolId)}));
-        load();
+        return load().then(function () {
+          Y.notice('ok', window.YurunaI18n.t("pool.assigned_value1_to_pool_value2", {value1: (name), value2: (p.poolId)}));
+        });
       }, function (e) {
         Y.notice('error', window.YurunaI18n.t("pool.assign_failed_value1", {value1: (e.message)}));
         assignBtn.disabled = false;

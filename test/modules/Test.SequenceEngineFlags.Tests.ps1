@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,13 @@
     Throw-based assertions so the file runs under OS-bundled Pester 3.4 / 4 / 5+.
 #>
 
+BeforeDiscovery {
+$script:usesWaitSignals = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','sshWaitReady'
+$script:notWaitSignals  = 'fetchAndExecute','sshExec','sshFetchAndExecute','pressKey','retry','tapOn','waitForSeconds'
+$script:selfCapture = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','fetchAndExecute'
+$script:engineCapture = 'sshWaitReady','sshExec','pressKey','retry','tapOn','waitForSeconds'
+}
+
 BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $handlerPsm = Join-Path $here 'Test.SequenceHandler.psm1'
@@ -52,7 +59,7 @@ Import-Module (Join-Path $here 'Test.WarmResume.psm1') -Force -DisableNameChecki
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# Every fixture below lives at file scope: a Describe body is evaluated during
+# Discovery fixtures above are separate from runtime setup: a Describe body is evaluated during
 # the discovery pass and its scope is torn down before any It runs, so a variable
 # declared inside one reaches the assertions as $null. For the same reason the
 # per-verb cases are carried into each It as -TestCases data rather than closed
@@ -60,14 +67,10 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # boundary, and a $null verb would silently exercise the empty-name path.
 
 # Original literal annotation gate plus the bounded-nudge OCR sibling.
-$script:usesWaitSignals = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','sshWaitReady'
-$script:notWaitSignals  = 'fetchAndExecute','sshExec','sshFetchAndExecute','pressKey','retry','tapOn','waitForSeconds'
 
 # Original literal screenshot-skip gate plus the bounded-nudge OCR sibling.
-$script:selfCapture = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','fetchAndExecute'
 # sshWaitReady writes a screenshot on its slow path but was NOT in the skip
 # list -- the engine still captures for it, so its flag stays off.
-$script:engineCapture = 'sshWaitReady','sshExec','pressKey','retry','tapOn','waitForSeconds'
 
 # Source guard: the literal list pattern must not reappear alongside the flag read.
 $script:engineText = Get-Content -Raw $enginePsm
@@ -77,6 +80,47 @@ $script:engineText = Get-Content -Raw $enginePsm
 $restart = [System.Management.Automation.RuntimeException]::new('YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at [sequence start]')
 $restart.Data['YurunaCycleRestart'] = $true
 
+}
+
+Describe 'Guest boot stall evidence' {
+    BeforeAll {
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:engineText, [ref]$null, [ref]$null)
+        $script:stallAssignments = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$script:Fail.WaitForTextGuestBootStalled'
+        }, $true))
+        $script:stallEvidence = @($script:stallAssignments | Where-Object { $_.Extent.Text -match '\$secondOpinion' })[0]
+    }
+    It 'requires sustained static content and an independent guest framebuffer: <Case>' -TestCases @(
+        @{ Case = 'confirmed'; Verdict = 'guest-static'; Seconds = 120; Measured = $true; ErrorPattern = ''; Flood = ''; Expected = $true }
+        @{ Case = 'short pause'; Verdict = 'guest-static'; Seconds = 119; Measured = $true; ErrorPattern = ''; Flood = ''; Expected = $false }
+        @{ Case = 'live framebuffer'; Verdict = 'guest-live'; Seconds = 500; Measured = $true; ErrorPattern = ''; Flood = ''; Expected = $false }
+        @{ Case = 'unavailable'; Verdict = 'unavailable'; Seconds = 500; Measured = $true; ErrorPattern = ''; Flood = ''; Expected = $false }
+        @{ Case = 'unmeasured'; Verdict = 'guest-static'; Seconds = 500; Measured = $false; ErrorPattern = ''; Flood = ''; Expected = $false }
+        @{ Case = 'explicit error'; Verdict = 'guest-static'; Seconds = 500; Measured = $true; ErrorPattern = 'install_fail.crash'; Flood = ''; Expected = $false }
+        @{ Case = 'flood'; Verdict = 'guest-static'; Seconds = 500; Measured = $true; ErrorPattern = ''; Flood = 'repeated'; Expected = $false }
+    ) {
+        param($Case, $Verdict, $Seconds, $Measured, $ErrorPattern, $Flood, $Expected)
+        $null = $Case
+        $secondOpinion = @{ Verdict = $Verdict }
+        $null = $secondOpinion # Consumed by the production scriptblock below.
+        $script:LastWaitVerdict = @{ ConsoleSignalsMeasured = $Measured; ConsoleStaticSeconds = $Seconds }
+        $script:Fail = @{ WaitForTextMatchedFailurePattern = $ErrorPattern; WaitForTextConsoleFlood = $Flood }
+        # Execute the production decision itself against independent evidence
+        # combinations; no host or capture API is called by this expression.
+        . ([scriptblock]::Create($script:stallEvidence.Extent.Text))
+        $script:Fail.WaitForTextGuestBootStalled | Should -Be $Expected
+    }
+    It 'clears prior stall evidence at both wait and step boundaries' {
+        $resets = @($script:stallAssignments | Where-Object { $_.Right.Extent.Text -eq '$false' })
+        $resets.Count | Should -Be 2
+        foreach ($reset in $resets) {
+            $script:Fail = @{ WaitForTextGuestBootStalled = $true }
+            . ([scriptblock]::Create($reset.Extent.Text))
+            $script:Fail.WaitForTextGuestBootStalled | Should -BeFalse
+        }
+    }
 }
 
 Describe 'UsesWaitSignals flag matches the former failure-label annotation verb set' {

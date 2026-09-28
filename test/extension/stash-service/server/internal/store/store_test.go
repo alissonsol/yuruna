@@ -13,6 +13,12 @@ func TestExtractExtension(t *testing.T) {
 		in   string
 		want string
 	}{
+		// Reserved names must not collide with bookkeeping or archive markers.
+		{"reserved/sidecar", "x.yuruna.meta.json", ""},
+		{"reserved/sidecar-case", "x.YURUNA.META.JSON", ""},
+		{"reserved/staging", "app.staging", ""},
+		{"reserved/archive", "x.yuruna.archive.zip", ""},
+		{"reserved/compound", "x.notes.yuruna.meta.json", ""},
 		// Rule 1: no dot.
 		{"no-dot/Makefile", "Makefile", ""},
 		{"no-dot/LICENSE", "LICENSE", ""},

@@ -8,6 +8,7 @@
 package imagestore
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -188,14 +189,20 @@ type Entry struct {
 	PreviousBytes int64
 }
 
-// Store is the pool layout. It is stateless apart from the root path, so two
-// callers never disagree about where a file lives.
+// Store is the shared pool layout plus the identity owning local staging files.
 type Store struct {
-	poolDir string
+	poolDir      string
+	stagingOwner string
 }
 
 // NewStore roots a Store at the pool mount (empty = no pool configured).
-func NewStore(poolDir string) *Store { return &Store{poolDir: poolDir} }
+func NewStore(poolDir string) *Store {
+	return &Store{poolDir: poolDir, stagingOwner: stagingOwner((&LeaseManager{}).identity())}
+}
+
+func stagingOwner(identity string) string {
+	return fmt.Sprintf("agent-%x", sha256.Sum256([]byte(identity)))
+}
 
 // PoolDir returns the configured pool mount.
 func (s *Store) PoolDir() string { return s.poolDir }
@@ -649,14 +656,14 @@ func (s *Store) referencedGenerations(exclude ImageID) map[string]bool {
 // another's in-flight download.
 func stagingPrefix(id ImageID) string { return id.Arch + "." + id.Variant + "." }
 
-// NewStagingPath reserves a PID-suffixed staging path for a download. The PID
-// is what lets a later sweep tell an abandoned attempt from a live one.
+// NewStagingPath reserves an owner/PID-suffixed path. PID liveness is only
+// meaningful on the owner machine; foreign and legacy entries expire by age.
 func (s *Store) NewStagingPath(id ImageID, upstreamFilename string) (string, error) {
 	dir := s.StagingDir(id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	name := stagingPrefix(id) + upstreamFilename + "." + strconv.Itoa(os.Getpid())
+	name := stagingPrefix(id) + upstreamFilename + "." + s.stagingOwner + "." + strconv.Itoa(os.Getpid())
 	return filepath.Join(dir, name), nil
 }
 
@@ -676,7 +683,7 @@ func (s *Store) clearStaging(id ImageID) error {
 }
 
 // SweepStaging removes staging entries older than config.StagingMaxAge or
-// belonging to a dead PID. Agent restarts are routine and a single abandoned
+// belonging to a dead local PID. Agent restarts are routine and a single abandoned
 // attempt can be multiple gigabytes, so this runs at startup and on every scan.
 func (s *Store) SweepStaging(now time.Time, alive func(pid int) bool) (int, error) {
 	root := s.ImagesDir()
@@ -718,7 +725,7 @@ func (s *Store) SweepStaging(now time.Time, alive func(pid int) bool) (int, erro
 				}
 				stale := now.Sub(fi.ModTime()) > config.StagingMaxAge
 				if !stale {
-					if pid, ok := stagingPID(e.Name()); ok && !alive(pid) {
+					if pid, ok := stagingPID(e.Name()); ok && strings.HasSuffix(strings.TrimSuffix(e.Name(), "."+strconv.Itoa(pid)), "."+s.stagingOwner) && !alive(pid) {
 						stale = true
 					}
 				}

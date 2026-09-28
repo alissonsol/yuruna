@@ -60,8 +60,14 @@ func (f *boardIntent) SetDesiredState(context.Context, string, string) intent.Re
 func (f *boardIntent) AddHost(_ context.Context, pool, host string) intent.Result {
 	return f.res(true, "AddHost:"+pool+":"+host)
 }
-func (f *boardIntent) RemoveHost(_ context.Context, pool, host string) intent.Result {
+func (f *boardIntent) RemoveHost(_ context.Context, pool, host string, exclude ...bool) intent.Result {
+	if len(exclude) > 0 && exclude[0] {
+		return f.res(true, "ExcludeHost:"+host)
+	}
 	return f.res(true, "RemoveHost:"+pool+":"+host)
+}
+func (f *boardIntent) MoveHostIdentity(_ context.Context, oldID, newID string) intent.Result {
+	return f.res(true, "MoveHostIdentity:"+oldID+":"+newID)
 }
 func (f *boardIntent) AssignTestSet(_ context.Context, pool, name, _, _ string) intent.Result {
 	return f.res(true, "AssignTestSet:"+pool+":"+name)
@@ -943,5 +949,29 @@ func TestSweepSkipsTickWhenAggregatorDown(t *testing.T) {
 	s.sweepOnce(context.Background())
 	if len(f.calls) != 0 {
 		t.Errorf("sweep wrote intent despite an unreachable aggregator: %v", f.calls)
+	}
+}
+
+func TestMoveToNonePersistsExclusionEvenWhenAlreadyUnpooled(t *testing.T) {
+	for _, host := range []string{"42cc", "42aa", "42unpooled"} {
+		for _, fail := range []bool{false, true} {
+			f := &boardIntent{doc: intentTwoPools}
+			if fail {
+				f.failOn = "ExcludeHost:" + host
+			}
+			s := New(f, Options{})
+			w := httptest.NewRecorder()
+			s.handleMoveHost(w, httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader(`{"hostId":"`+host+`","poolId":""}`)))
+			want := http.StatusOK
+			if fail {
+				want = http.StatusInternalServerError
+			}
+			if w.Code != want {
+				t.Fatalf("host=%s fail=%t code=%d body=%s", host, fail, w.Code, w.Body.String())
+			}
+			if len(f.calls) != 1 || f.calls[0] != "ExcludeHost:"+host {
+				t.Fatalf("membership and exclusion must share one write: %v", f.calls)
+			}
+		}
 	}
 }

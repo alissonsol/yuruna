@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42bad34d-afe5-4516-b9c8-4c8fb18b5c09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,11 +32,14 @@
     Pester 4.10.1.
 #>
 
+BeforeDiscovery {
+$script:entrypoints = 'yuruna.ps1', 'Set-Component.ps1', 'Set-Resource.ps1', 'Set-Workload.ps1', 'Invoke-Clear.ps1'
+}
+
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
-$autoDir  = Join-Path $repoRoot 'automation'
-$entrypoints = 'yuruna.ps1', 'Set-Component.ps1', 'Set-Resource.ps1', 'Set-Workload.ps1', 'Invoke-Clear.ps1'
+$script:autoDir  = Join-Path $repoRoot 'automation'
 
 function Get-FileAst {
     param([string]$Path)
@@ -80,11 +83,8 @@ function Get-EvictionGetModule {
 # scope is still on the chain when an It executes. The per-entrypoint AST is keyed by file
 # name and the key is handed to each It as test-case data, since the discovery-time loop
 # variable is likewise gone by then.
-$script:helperAst     = Get-FileAst (Join-Path $autoDir 'Yuruna.LogLevel.psm1')
-$entrypointAst = @{}
-foreach ($entrypoint in $entrypoints) {
-    $entrypointAst[$entrypoint] = Get-FileAst (Join-Path $autoDir $entrypoint)
-}
+$script:helperAst     = Get-FileAst (Join-Path $script:autoDir 'Yuruna.LogLevel.psm1')
+
 
 }
 
@@ -109,11 +109,11 @@ Describe 'Deployment entrypoints delegate hardened path resolution and scope mod
         }
     }
 
-    foreach ($name in $entrypoints) {
+    foreach ($name in $script:entrypoints) {
         Context $name {
             It 'delegates root resolution to Resolve-YurunaRootSet' -TestCases @(@{ EntryName = $name }) {
                 param($EntryName)
-                $call = $entrypointAst[$EntryName].FindAll({ param($n)
+                $call = (Get-FileAst (Join-Path $script:autoDir $EntryName)).FindAll({ param($n)
                     $n -is [System.Management.Automation.Language.CommandAst] -and
                     $n.GetCommandName() -eq 'Resolve-YurunaRootSet'
                 }, $true) | Select-Object -First 1
@@ -121,7 +121,7 @@ Describe 'Deployment entrypoints delegate hardened path resolution and scope mod
             }
             It 'scopes the pre-import module eviction to Yuruna.*' -TestCases @(@{ EntryName = $name }) {
                 param($EntryName)
-                $gm = Get-EvictionGetModule -Ast $entrypointAst[$EntryName]
+                $gm = Get-EvictionGetModule -Ast (Get-FileAst (Join-Path $script:autoDir $EntryName))
                 $gm | Should -Not -BeNullOrEmpty
                 # The eviction Get-Module must carry a Yuruna.* filter argument, not run bare.
                 # Accept either the positional (Get-Module Yuruna.*) or the -Name Yuruna.* form

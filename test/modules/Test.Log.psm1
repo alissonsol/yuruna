@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -293,7 +293,7 @@ function Invoke-CycleLogRotation {
     $keep    = @($cycleFolders | Select-Object -First $script:CycleHistoryKeep)
     $moveSet = @($cycleFolders | Select-Object -Skip $script:CycleHistoryKeep)
     if ($moveSet.Count -eq 0) { return 0 }
-    $today      = (Get-Date).ToString('yyyy-MM-dd')
+    $today      = (Get-Date).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
     $historyDir = Join-Path $LogDir "history.$today"
     if (-not $PSCmdlet.ShouldProcess($historyDir, (Format-YurunaOperatorMessage -Key 'runner.operator_5085bed43884280d' -Arguments @{ count = "$($moveSet.Count)" }))) { return 0 }
     if (-not (Test-Path -LiteralPath $historyDir)) {
@@ -315,7 +315,7 @@ function Invoke-CycleLogRotation {
         }
     }
     Send-CycleEventSafely -EventRecord @{
-        timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         event         = 'cycle_log_rotated'
         historyFolder = "history.$today"
         moved         = [int]$moved
@@ -479,7 +479,7 @@ function Start-LogFile {
             cycleStartUtc      = [string]$CycleStartUtc
             cycleNumber  = [int]$CycleNumber
             cycleFolder  = $cycleBase
-            startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             pid          = $PID
             hostname     = [string]$Hostname
         }
@@ -537,7 +537,7 @@ function Start-LogFile {
         # whose `cycleFolder` resolves the on-disk artifacts and exactly
         # one cycle_end whose `outcome` tells it pass/fail/aborted.
         $cycleStartEvent = @{
-            timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event        = 'cycle_start'
             cycleStartUtc      = [string]$CycleStartUtc
             cycleNumber  = [int]$CycleNumber
@@ -923,7 +923,7 @@ function Stop-LogFile {
                 }
             }
             Write-CycleNdjsonEvent -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event     = 'cycle_end'
                 outcome   = [string]$Outcome
                 reason    = [string]$Reason
@@ -970,7 +970,7 @@ function Stop-LogFile {
                 try {
                     $footprint = Get-HostAddressStabilityReport -RuntimeDir $runtimeDir
                     Write-CycleNdjsonEvent -EventRecord @{
-                        timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                         event                 = 'host_address_footprint'
                         verdict               = [string]$footprint.verdict
                         severity              = [string]$footprint.severity
@@ -1282,7 +1282,7 @@ function Write-CycleNdjsonEvent {
         try {
             $gapsPath = Join-Path $cycleFolder 'cycle.events.gaps'
             $gapEvent = [ordered]@{
-                timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event          = 'ndjson_write_gap'
                 cycleFolder    = Get-CycleFolderIdentity -Path $cycleFolder
                 droppedEvent   = if ($EventRecord.Contains('event')) { [string]$EventRecord['event'] } else { '(unknown)' }
@@ -1348,7 +1348,7 @@ function Send-CycleEventSafely {
             # recursion on the marker event itself.
             try {
                 Write-CycleNdjsonEvent -EventRecord @{
-                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event      = 'schema_violation'
                     badEvent   = $badEvent
                     violations = @($violations)
@@ -1384,7 +1384,7 @@ function New-YurunaDegradationRecord {
         [ValidateSet('soft','hard')][string]$Severity = 'soft',
         [string]$Timestamp
     )
-    if (-not $Timestamp) { $Timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+    if (-not $Timestamp) { $Timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
     return @{
         timestamp  = $Timestamp
         event      = 'degradation'

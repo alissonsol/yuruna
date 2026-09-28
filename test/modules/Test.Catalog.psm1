@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 422bc4f3-b6dd-4964-868e-1ae5f65db198
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,14 +155,16 @@ function ConvertTo-CatalogHtml {
 function Get-PluralCategory {
     <#
     .SYNOPSIS
-        The CLDR plural category a count takes in a locale.
+        The plural category a count takes in a locale.
     .DESCRIPTION
-        Only the rules actually pinned for a shipped locale live here. A locale
-        whose rule is not pinned is refused rather than guessed: Portuguese and
-        English disagree about zero, so borrowing one language's rule for
-        another produces fluent, confidently wrong grammar that no test would
-        catch. Pinning the remaining rules from a CLDR source is the dependency
-        decision the plan tracks separately.
+        Only the rules the locale manifest pins live here, for supported and
+        planned locales alike. A locale whose rule is not pinned is refused
+        rather than guessed: Portuguese and English disagree about zero, so
+        borrowing one language's rule for another produces fluent, confidently
+        wrong grammar that no test would catch. A rule named -cldrNN is
+        transcribed from that CLDR release, which the manifest's
+        pluralRuleSources names; one-if-1 is this framework's own rule, and
+        unlike CLDR English it puts -1 under other, as the en-US corpus pins.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -176,6 +178,15 @@ function Get-PluralCategory {
             $absolute = [Math]::Abs($Count)
             if ([Math]::Floor($absolute) -le 1) { return 'one' }
             if ($absolute -gt 0 -and $absolute % 1000000 -eq 0) { return 'many' }
+            return 'other'
+        }
+        'zh-cardinal-cldr46' { return 'other' }
+        'he-cardinal-cldr46' {
+            $absolute = [Math]::Abs($Count)
+            $integer = [Math]::Floor($absolute)
+            $hasFraction = $absolute -ne $integer
+            if (($integer -eq 1 -and -not $hasFraction) -or ($integer -eq 0 -and $hasFraction)) { return 'one' }
+            if ($integer -eq 2 -and -not $hasFraction) { return 'two' }
             return 'other'
         }
         default { throw "Plural rule '$rule' for '$Locale' has no implementation here." }
@@ -254,31 +265,46 @@ function Format-CatalogArgument {
 
     if ($null -eq $Value) { return '' }
 
-    switch ($Type) {
-        'integer'  { return (Format-CatalogNumber -Value $Value -Locale $Locale -Decimals 0) }
-        'decimal'  { return (Format-CatalogNumber -Value $Value -Locale $Locale -Decimals 2) }
+    $text = switch ($Type) {
+        'integer'  { Format-CatalogNumber -Value $Value -Locale $Locale -Decimals 0 }
+        'decimal'  { Format-CatalogNumber -Value $Value -Locale $Locale -Decimals 2 }
         'duration' {
             # Floor, not a cast. PowerShell's [int] ROUNDS, so 5400 seconds --
             # an hour and a half -- would render as "2h 30m": a duration longer
             # than the one that actually elapsed, in the whole-hours part where
             # it is least likely to be questioned.
             $span = [TimeSpan]::FromSeconds([double]$Value)
-            if ($span.TotalHours -ge 1) { return ('{0}h {1}m' -f [Math]::Floor($span.TotalHours), $span.Minutes) }
-            if ($span.TotalMinutes -ge 1) { return ('{0}m {1}s' -f [Math]::Floor($span.TotalMinutes), $span.Seconds) }
-            return ('{0}s' -f [Math]::Floor($span.TotalSeconds))
+            if ($span.TotalHours -ge 1) { '{0}h {1}m' -f [Math]::Floor($span.TotalHours), $span.Minutes }
+            elseif ($span.TotalMinutes -ge 1) { '{0}m {1}s' -f [Math]::Floor($span.TotalMinutes), $span.Seconds }
+            else { '{0}s' -f [Math]::Floor($span.TotalSeconds) }
         }
         'datetime' {
             $when = [datetime]$Value
             # A fixed, locale-independent shape, and the same one the browser
             # kernel writes. A timestamp read off a page and pasted into a
             # transcript search has to be the string the transcript holds.
-            return $when.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + ' UTC'
+            $when.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + ' UTC'
         }
         # An external value is shown as given and never parsed back. Escaping
-        # and bidi isolation belong to the surface that renders it, which knows
-        # whether it is writing HTML, a console line or a transcript.
-        default { return [string]$Value }
+        # belongs to the surface that renders it, which knows whether it is
+        # writing HTML, a console line or a transcript.
+        default { [string]$Value }
     }
+    $text = [string]$text
+
+    # In a right-to-left locale every argument is isolated, so the bidi
+    # algorithm cannot reorder a number or an external string into the
+    # sentence around it. A number, duration or timestamp reads left to
+    # right (LRI); an external string decides its own direction (FSI). An
+    # empty argument stays empty: an isolate around nothing is two invisible
+    # characters a reader cannot delete. The Go SDK and the browser kernel
+    # write the same bytes.
+    # A value the caller isolated already opens with an isolate and ends with
+    # its close; a second pair would only nest.
+    $direction = (Get-LocaleManifest).Direction[$Locale]
+    if ($direction -ne 'rtl' -or $text -eq '' -or $text -match '(?s)^[\u2066-\u2068].*\u2069$') { return $text }
+    $open = if ($Type -in @('integer', 'decimal', 'duration', 'datetime')) { [char]0x2066 } else { [char]0x2068 }
+    return "$open$text$([char]0x2069)"
 }
 
 function Format-CatalogMessage {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,7 @@ function Write-VaultEvent {
     )
     try {
         $rec = [ordered]@{
-            ts      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            ts      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event   = $EventName
             outcome = $Outcome
         }
@@ -491,7 +491,7 @@ function Get-PasswordByVaultKey {
         $vault.users[$key] = [ordered]@{
             password         = $pw
             previousPassword = ''
-            updatedUtc       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            updatedUtc       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         }
         Write-VaultUnlocked -Vault $vault
         Write-VaultEvent -EventName 'get' -Outcome 'miss' -Username $LogicalUser -Detail "vaultKey=$key"
@@ -620,7 +620,7 @@ function Set-Password {
         $vault.users[$user] = [ordered]@{
             password         = $pw
             previousPassword = $priorPassword
-            updatedUtc       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            updatedUtc       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         }
         Write-VaultUnlocked -Vault $vault
         $setDetail = if ($priorPassword) { 'rotated' } else { 'created' }

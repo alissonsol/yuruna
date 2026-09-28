@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,9 @@ Describe 'every runtime writes a value the same way' {
         $findings = @()
         foreach ($case in $script:Fixture.cases) {
             $actual = Format-CatalogArgument -Value $case.value -Type $case.type -Locale $case.locale
-            if ($actual -cne $case.expect) {
+            # Ordinal: a culture-aware compare ignores the bidi controls the
+            # contract pins, so a missing or doubled isolate would pass.
+            if (-not [string]::Equals($actual, [string]$case.expect, [StringComparison]::Ordinal)) {
                 $findings += "$($case.name): PowerShell wrote '$actual', the contract says '$($case.expect)'"
             }
         }
@@ -201,7 +203,8 @@ Describe 'every runtime writes a value the same way' {
                 continue
             }
             $rendered = @{}
-            foreach ($line in ($m.Groups[1].Value -split "`n")) {
+            # Out-String joins native output with the platform's line endings.
+            foreach ($line in ($m.Groups[1].Value -split '\r?\n')) {
                 $parts = $line -split "`t", 2
                 if ($parts.Count -eq 2) {
                     # The DOM dump is HTML, so the text arrives entity-encoded.
@@ -213,7 +216,7 @@ Describe 'every runtime writes a value the same way' {
                     $findings += "${rel}: '$($case.name)' rendered nothing"
                     continue
                 }
-                if ($rendered[$case.name] -cne $case.expect) {
+                if (-not [string]::Equals($rendered[$case.name], [string]$case.expect, [StringComparison]::Ordinal)) {
                     $findings += "${rel}: '$($case.name)' wrote '$($rendered[$case.name])', the contract says '$($case.expect)'"
                 }
             }
@@ -357,10 +360,16 @@ window.beforePseudoAsset = {
     }
 }
 
-Describe 'Portuguese browser plural grammar' {
-    It 'matches the same pinned corpus as PowerShell and Go' {
-        $output = & node (Join-Path $PSScriptRoot 'pt-BR-plurals.test.cjs') 2>&1
+Describe 'Browser plural grammar' {
+    It 'matches every pinned corpus PowerShell and Go read' {
+        $output = & node (Join-Path $PSScriptRoot 'plurals.test.cjs') 2>&1
         $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
-        ($output -join "`n") | Should -Match '13 cases passed'
+        $fixtures = @(Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'globalization/fixtures') -Filter '*-plurals.json')
+        $fixtures.Count | Should -BeGreaterOrEqual 3
+        foreach ($fixture in $fixtures) {
+            $corpus = Get-Content -LiteralPath $fixture.FullName -Raw | ConvertFrom-Json
+            ($output -join "`n") -match ('(?m)^' + [regex]::Escape($corpus.locale) + ' browser plural corpus: ' + $corpus.cases.Count + ' cases passed$') |
+                Should -BeTrue -Because "the browser did not report the $($corpus.locale) corpus"
+        }
     }
 }

@@ -89,6 +89,56 @@
       "name": "an external string is placed exactly as given",
       "why": "Third-party text is shown and never parsed back into state, so no runtime may trim, case-fold or re-encode it.",
       "type": "detail", "value": "Connection refused: 10.0.0.5:22", "locale": "en-US", "expect": "Connection refused: 10.0.0.5:22"
+    },
+    {
+      "name": "rtl integer is isolated",
+      "why": "Without isolation the bidi algorithm reorders a number inside Hebrew text.",
+      "type": "integer", "value": 1234, "locale": "he-IL", "expect": "\u20661,234\u2069"
+    },
+    {
+      "name": "rtl negative keeps the plain minus inside the isolate",
+      "why": "Isolation makes the minus render before the digits without a locale-specific sign.",
+      "type": "integer", "value": -5, "locale": "he-IL", "expect": "\u2066-5\u2069"
+    },
+    {
+      "name": "rtl decimal",
+      "why": "A decimal is one number to the reader, not two runs.",
+      "type": "decimal", "value": 1.5, "locale": "he-IL", "expect": "\u20661.50\u2069"
+    },
+    {
+      "name": "rtl datetime keeps its field order",
+      "why": "A timestamp is read left to right in any locale.",
+      "type": "datetime", "value": "2026-09-02T14:05:09Z", "locale": "he-IL", "expect": "\u20662026-09-02 14:05:09 UTC\u2069"
+    },
+    {
+      "name": "rtl duration",
+      "why": "A duration is one number to the reader.",
+      "type": "duration", "value": 5400, "locale": "he-IL", "expect": "\u20661h 30m\u2069"
+    },
+    {
+      "name": "rtl detail is first-strong isolated",
+      "why": "An external string decides its own direction and must not spill into the sentence.",
+      "type": "detail", "value": "host-01", "locale": "he-IL", "expect": "\u2068host-01\u2069"
+    },
+    {
+      "name": "rtl empty detail stays empty",
+      "why": "An isolate around nothing is two invisible characters the reader cannot delete.",
+      "type": "detail", "value": "", "locale": "he-IL", "expect": ""
+    },
+    {
+      "name": "rtl value the caller isolated is not isolated again",
+      "why": "A second pair would only nest; the caller's isolate already keeps the value whole.",
+      "type": "detail", "value": "\u2068host-01\u2069", "locale": "he-IL", "expect": "\u2068host-01\u2069"
+    },
+    {
+      "name": "ltr locale is never isolated",
+      "why": "The controls exist only where the bidi algorithm would reorder.",
+      "type": "integer", "value": -5, "locale": "zh-CN", "expect": "-5"
+    },
+    {
+      "name": "the mirrored pseudo locale is isolated like any rtl locale",
+      "why": "The pseudo locale must behave as a real rtl locale would.",
+      "type": "integer", "value": 7, "locale": "qps-Plocm", "expect": "\u20667\u2069"
     }
   ]
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,6 +138,14 @@ Describe 'Restore-YurunaServiceVM' {
         Assert-Equal 1 $r.Count
         Assert-Equal 'stash' $r[0].Key
     }
+    It 'says the state was never probed, and leaves the service unresolved, when there is no driver' {
+        # The automatic refresh trigger reads ProbeReason: a sweep that could
+        # not look must neither count as fault evidence nor reset it.
+        foreach ($x in @(Restore-YurunaServiceVM -Confirm:$false)) {
+            Assert-Equal 'not-probed' $x.ProbeReason
+            Assert-Equal 'state-unresolved' $x.Obligation
+        }
+    }
     It 'never throws, whatever the host looks like' {
         # The sweep runs at every cycle start; an exception here would take down
         # a cycle over a diagnostic.
@@ -173,6 +181,31 @@ Describe 'Write-YurunaServiceVmRestoreReport' {
     It 'tolerates an empty or null result set' {
         Assert-Equal 0 @(Write-YurunaServiceVmRestoreReport -Result @() 3>&1 6>&1).Count
         Assert-Equal 0 @(Write-YurunaServiceVmRestoreReport -Result $null 3>&1 6>&1).Count
+    }
+    It 'warns about a service whose state could not be confirmed, naming the probe reason' {
+        # The reason is what tells a wedged hypervisor (timeout) from a denied
+        # one (permission-denied); a warning without it sends the operator to
+        # the wrong fix.
+        Mock -ModuleName Test.ServiceVm Format-YurunaOperatorMessage { "$Key|$($Arguments['vmName'])|$($Arguments['reason'])" }
+        $unknown = @([pscustomobject]@{ Key='stash'; VMName='yuruna-stash-service'; DisplayName='Stash service'; StateBefore='unknown'; Outcome='state-unknown'; Healthy=$false; Message='m'; ProbeReason='timeout' })
+        $out = @(Write-YurunaServiceVmRestoreReport -Result $unknown 3>&1)
+        Assert-Equal 1 $out.Count -Because 'one warning per unconfirmed service'
+        Assert-Equal 'runner.service_restore_state_unknown|yuruna-stash-service|timeout' "$($out[0])"
+    }
+    It 'warns about a service whose operation lock could not be taken at all' {
+        # Not another operation that will finish: the sweep fails the same way
+        # every cycle until someone fixes the lock file or its directory.
+        Mock -ModuleName Test.ServiceVm Format-YurunaOperatorMessage { "$Key|$(if ($Arguments) { $Arguments['vmName'] })|$(if ($Arguments) { $Arguments['message'] })" }
+        $row = @([pscustomobject]@{ Key='stash'; VMName='yuruna-stash-service'; DisplayName='Stash service'; StateBefore='stopped'; Outcome='lock-unavailable'; Healthy=$false; Message='m'; ProbeReason='responsive' })
+        $out = @(Write-YurunaServiceVmRestoreReport -Result $row 3>&1)
+        Assert-Equal 1 $out.Count -Because 'one warning per service the sweep could not start'
+        Assert-Equal 'runner.service_restore_lock_unavailable_report|yuruna-stash-service|m' "$($out[0])"
+    }
+    It 'stays silent at the default level for outcomes that need no operator action' {
+        foreach ($outcome in @('intended-stopped', 'not-a-guest', 'operation-busy', 'operation-unowned', 'deadline-exhausted', 'stopped')) {
+            $row = @([pscustomobject]@{ Key='stash'; VMName='v'; DisplayName='Stash service'; StateBefore='stopped'; Outcome=$outcome; Healthy=$false; Message='m'; ProbeReason='responsive' })
+            Assert-Equal 0 @(Write-YurunaServiceVmRestoreReport -Result $row 3>&1 6>&1).Count -Because "'$outcome' is reported on the verbose stream only"
+        }
     }
 }
 

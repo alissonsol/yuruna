@@ -1,0 +1,812 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "remediation",
+  "locale": "zh-CN",
+  "messages": {
+    "remediation.operator_cc703ba747623c88": {
+      "sourceHash": "d3663dc8eeb8e48096be195a1f53d0b6eaa821a47d1aa71f8b7ed7e74b729d7e",
+      "origin": "machine",
+      "message": "{vmName}发生instrumentation_failure：takeScreenshot / saveSystemDiagnostic出现暂时性失败。周期的可观测状态不受影响；立即重试一次通常即可解决。"
+    },
+    "remediation.operator_ce4ee5bda91552ae": {
+      "sourceHash": "efea2df66c318e41c4f6323d1d8e3a0e12e7a1275ffa61c6a2b721729a4396f9",
+      "origin": "machine",
+      "message": "检查last_failure.json中的innerFailureClass字段，查明最深层原因"
+    },
+    "remediation.operator_ce6ff8d514d5658f": {
+      "sourceHash": "d03cc47dad23bf0189d01138acf995a19068d9d9ce4077b0abf9d78af332b360",
+      "origin": "machine",
+      "message": "宿主机的外部交换机"
+    },
+    "remediation.operator_cf05b7bb4e5371b4": {
+      "sourceHash": "753d5304b2930b07c2e8432f62687c0d1c3f3173b9ec2ccd4614a21a52281b6d",
+      "origin": "machine",
+      "message": "在PATH中找不到lsof"
+    },
+    "remediation.operator_d009181b9af99707": {
+      "sourceHash": "5920568c6576bb11781060050d7e7c3662d783f5522aaae36d30ba0760a91366",
+      "origin": "machine",
+      "message": "清除所有处理程序"
+    },
+    "remediation.operator_d16851977ec6a779": {
+      "sourceHash": "653e9c60ece3711d96e4bedc97b131cd5abddda63f7ba31f1208504183d63cfa",
+      "origin": "machine",
+      "message": "{vmName}发生provisioning_failure：宿主机虚拟机监控程序无法定义虚拟机、启动虚拟机或使其进入运行状态。此问题通常是暂时性的（上次拆除后立即出现资源不足，或KVP/IP延迟填充），退避等待后通常会在下一个周期恢复。"
+    },
+    "remediation.operator_d1f78e9ab1185fe5": {
+      "sourceHash": "aa643c2819afd2fd13770da64e9a955685f9a7ee32f0bbb9fea7930ee3f3ebc1",
+      "origin": "machine",
+      "message": "短暂退避等待后重试，地址通常会自行出现，无需操作员干预"
+    },
+    "remediation.operator_d2a8de7e95317e4a": {
+      "sourceHash": "022db7c79360a67bf56cc8b00cd1ccd88871d1a3585344acc6a5b140fa918995",
+      "origin": "machine",
+      "message": "  已先尝试以提升的权限接管，但未能释放端口：{detail}"
+    },
+    "remediation.operator_d58ebc3333e86c7f": {
+      "sourceHash": "ffe3190f8a72b5876c20113c81bc6f05c3499c057fd86299414084854f11414a",
+      "origin": "machine",
+      "message": "{vmName}发生retry_exhausted：重试命令已耗尽重试额度。继续自动重试只会持续失败。"
+    },
+    "remediation.operator_d7f954ed2c939cf9": {
+      "sourceHash": "13a08e98084197995ec030965db5fc00fc91f81c7dbbf81995e079ebc953d6e5",
+      "origin": "machine",
+      "message": "检查框架和项目仓库的工作树是否存在分歧或本地修改"
+    },
+    "remediation.operator_d9a4a3e89d4a670b": {
+      "sourceHash": "ea781c5089dc903138db5e6fa5d3d0e3298fdc0a3a49050a0da348dfe314a8f3",
+      "origin": "machine",
+      "message": "如果重新连接失败两次，则转入operator_intervention_required处理"
+    },
+    "remediation.operator_daf1c9bf1f1bad50": {
+      "sourceHash": "2cc0bb8e6c2371118a7be28503557d9cabcf685bb52b553e4049289683b812e1",
+      "origin": "machine",
+      "message": "删除共享位置hosts/<hostId>/test-cycles/下的旧周期归档，这些文件夹不可变，因此可以安全地整夹删除"
+    },
+    "remediation.operator_db0130b0bf3d4958": {
+      "sourceHash": "2a13e6beb91cac118e4fd8ef7f181ee12776811189c61e933278771a9ce8842d",
+      "origin": "machine",
+      "message": "退避等待后重新运行失败的步骤（客户机安装脚本具有幂等性）"
+    },
+    "remediation.operator_dcc4abf58182f0f3": {
+      "sourceHash": "71616b5e9bb319ebf76b5cb35480b769f4675e4084d41d7602f2cf628b89149f",
+      "origin": "machine",
+      "message": "处理程序抛出异常：{message}"
+    },
+    "remediation.operator_dd019d34b72feafc": {
+      "sourceHash": "adfaabe1690784f125010ec64a6e14d163384e89ffaf86f1bc531a5ed4bc61f0",
+      "origin": "machine",
+      "message": "重试周期；如果问题稳定复现，则按operator_intervention_required处理"
+    },
+    "remediation.operator_e038808ca34827c4": {
+      "sourceHash": "11c8e00a28c217e80641748202be2ac308305d89eaa71566f1660a398d682aa1",
+      "origin": "machine",
+      "message": "待保管库状态一致后，重新运行该序列"
+    },
+    "remediation.operator_e058d7d3febce5c7": {
+      "sourceHash": "6dda5c16f8eb091c90e47caaaa52b714c40ed416e9fb82f7af2ba8d72e292679",
+      "origin": "machine",
+      "message": "仅在客户机恢复运行后，才从失败的步骤重新运行该序列"
+    },
+    "remediation.operator_e0d3c0a00e449780": {
+      "sourceHash": "e6e687662eb087574f1073925cc27f13f37644a0d376dd65725b7e6422de3cab",
+      "origin": "machine",
+      "message": "last_failure.json解析结果不是对象（{gotType}）；预期为JSON对象。"
+    },
+    "remediation.operator_e12111b50564c2b8": {
+      "sourceHash": "b510982f653511f9dd8de3ac209df18e234952ea845b981a58999e03280aae4b",
+      "origin": "machine",
+      "message": "状态服务端口{port}已被占用，但当前用户无法看到占用进程的PID。"
+    },
+    "remediation.operator_e15a652575a58f85": {
+      "sourceHash": "248091829b1ec3e3bcbdc874c88613f4729ccbd74d2d3b12b13efd8ea4c38fdb",
+      "origin": "machine",
+      "message": "列出虚拟机的快照（Get-VMCheckpoint / virsh snapshot-list / utmctl）"
+    },
+    "remediation.operator_e24252c37930e352": {
+      "sourceHash": "829f99aed46e94faed196604ee5d79ad6aeb06560ea4ceb4ed8b6c4ba40e6a80",
+      "origin": "machine",
+      "message": "根本原因解决后，重新运行周期"
+    },
+    "remediation.operator_e344b12d616e0f0a": {
+      "sourceHash": "f901c821a6b7879c5afc934cb13ec97ff34a5fb94d4a429a30765429805b3ce2",
+      "origin": "machine",
+      "message": "{vmName}发生elevation_required：某个命令需要sudo，但没有操作员在场提供密码。sudo从/dev/tty读取密码，因此运行器、重试或远程会话都无法响应此密码请求。处于此状态的宿主机会在周期中途停滞，而仪表板仍将上一个周期显示为绿色。修复此问题需要控制台访问权限，与网络故障相同。"
+    },
+    "remediation.operator_e54de45d1485fbb7": {
+      "sourceHash": "9c1a36c4d6dd8b6e9570481fecc578ac2294b17e872e80b80487ef553047642d",
+      "origin": "machine",
+      "message": "{vmName}发生ip_not_discovered：宿主机侧的所有探测均未能确定客户机地址，因此该步骤从未连接到客户机。地址发现依赖会过期的缓存和延迟发布信息的守护进程，因此同一调用通常会在数秒后返回地址。这不同于network_timeout，后者已找到地址，但到该地址的网络路径失败；也不同于无法自行恢复的host_network_degraded。"
+    },
+    "remediation.operator_e54e017fda4a02ac": {
+      "sourceHash": "06839cd6be2af588db596da6ffb9b1a326ccdf5edfa3b42ce513a4c7f3883052",
+      "origin": "machine",
+      "message": "外部交换机“{switchName}”"
+    },
+    "remediation.operator_e59c2d7e4aa9e176": {
+      "sourceHash": "902e31da1164987cdfdc589b66a46bc9c022120b27533a84e3e09004304ca9a3",
+      "origin": "machine",
+      "message": "打开失败运行的周期文件夹"
+    },
+    "remediation.operator_e893941980e9b648": {
+      "sourceHash": "513cc5a69767f637490da2416eb07cfa48c4a75f3640f39840cd771f889b95c5",
+      "origin": "machine",
+      "message": "在其恢复之前，客户机将继续在NAT回退交换机上配置，且只能通过宿主机的端口转发器访问宿主机"
+    },
+    "remediation.operator_ec70b244ad9d80d1": {
+      "sourceHash": "95e8689a4ac79d3c99831930838a0997e6f1755c18249147a28c67643355d1e1",
+      "origin": "machine",
+      "message": "{vmName}发生snapshot_restore_failed：快照子系统本身已损坏。没有可用的还原原语，自动恢复就无法继续。"
+    },
+    "remediation.operator_efc4491d25c27bc3": {
+      "sourceHash": "a45d5d145f05652caf76b37c19fe42f64fbe2af257b8d3f9a8a70df83259181c",
+      "origin": "machine",
+      "message": "  拒绝启动，以免周期在缺少状态仪表板或断点控件的情况下运行。\n  请停止该进程（它可能属于其他用户），或在test/test.config.yml中\n  为statusService.port设置其他端口，然后重新运行。"
+    },
+    "remediation.operator_f0a29d5f6e38b4ec": {
+      "sourceHash": "4607a0042dd4ba4f40c2e63a785d7d0fb1c79d5099689d7d38280fe788573f50",
+      "origin": "machine",
+      "message": "如需在缺少该服务的情况下运行，请使用$env:YURUNA_EXTENSION_HOST_<AREA>固定地址，或将testCycle.labHealth.enabled设为false以停止等待任何服务"
+    },
+    "remediation.operator_f0fd4b357ed63f38": {
+      "sourceHash": "b5e7f5d1d600a886f63d3833d0c62cef6580fdb9b65f2b22f1ba2ac001192be6",
+      "origin": "machine",
+      "message": "确认上一个周期已释放宿主机的CPU和内存（没有孤立虚拟机占用资源）"
+    },
+    "remediation.operator_f170c655d3aa9ec7": {
+      "sourceHash": "bd08f3cb7b63682953fb534e7f5010e29754001c8903903f2d241a484cb56bf4",
+      "origin": "machine",
+      "message": "如果再次失败，请将屏幕截图和OCR产物保存到周期文件夹下，并暂停以供检查"
+    },
+    "remediation.operator_f279084b2eb96f2c": {
+      "sourceHash": "542bb61b17215e86ff94ded1a0c369e3e7477e85e5d521fe0016bcbe3fd4b0db",
+      "origin": "machine",
+      "message": "或者将池重新分配给其项目可供所有成员读取的测试集"
+    },
+    "remediation.operator_f4ded9a21116febc": {
+      "sourceHash": "adc0e309250690d734697751bf902e079a783f80899ddc0300ad63377f58aca0",
+      "origin": "machine",
+      "message": "确认每个计划使用的客户机都有对应的host/<host>/<guest>文件夹"
+    },
+    "remediation.operator_f65f2f5b0c183dc5": {
+      "sourceHash": "98b704e7897e528f00ea7d348a96bfeeb1b8ad53a8cc41c82d5f61df8ed495df",
+      "origin": "machine",
+      "message": "为虚拟机还原最近一个已知正常的快照"
+    },
+    "remediation.operator_f9f5cd6dabda9dc0": {
+      "sourceHash": "8793612cf8c6dcc3c1c772a2ee84aa0d11b141233d500e8d247e0db85f1b28dd",
+      "origin": "machine",
+      "message": "检查驱动程序读取的宿主机侧租约或邻居信息源中是否有过期或缺失的条目"
+    },
+    "remediation.operator_fa9d85ead9be0ad7": {
+      "sourceHash": "b4af4b754678ca813a70f0421e113d962471d3244bc9a3e0000d0ef670ae3d0a",
+      "origin": "machine",
+      "message": "Windows上无法以提升的权限接管，请以管理员身份运行此shell，或为此端口添加urlacl"
+    },
+    "remediation.operator_fbf8a282c16fce06": {
+      "sourceHash": "ca89469d717fc3ea127c412cd4a976bf24fb50dbe866fe9fc6bea13651ba663b",
+      "origin": "machine",
+      "message": "{vmName}发生network_timeout：SSH或探测始终未就绪。通常为暂时性问题，短暂退避等待（5-30 s）后即可恢复，无需操作员干预。"
+    },
+    "remediation.operator_fe73e80924c46670": {
+      "sourceHash": "35e34a063dbee71f696956fba8cfec347cc898c413d9ab86b9eb51e6896d81fd",
+      "origin": "machine",
+      "message": "在控制台上安装运行器的附加配置：失败消息中包含确切的/etc/sudoers.d/yuruna-runner规则"
+    },
+    "remediation.operator_fe77fdc3a8c79bc8": {
+      "sourceHash": "08b7e8180c172b960a6755fe1098210c60d785fa65f63537f657674fc7be8239",
+      "origin": "machine",
+      "message": "脚本修正后，恢复周期"
+    },
+    "remediation.port_diagnostic": {
+      "sourceHash": "d20d16f1ce0b11f458454011088a82c4945de21cc2043059dbac68ddc2d16472",
+      "origin": "machine",
+      "message": "  诊断：{detail}"
+    },
+    "remediation.port_holder": {
+      "sourceHash": "c1a656010f9d58726b65f2e358ba42d3620428097757115ce58d0aed7b5df66b",
+      "origin": "machine",
+      "message": "状态服务端口{port}被PID为{pid}的进程（{process}）占用。"
+    },
+    "remediation.port_holder_owned": {
+      "sourceHash": "ac81a203176142ae024772dc6b3ded76aac747947006a967b474da1b43ac620d",
+      "origin": "machine",
+      "message": "状态服务端口{port}被PID为{pid}的进程（{process}）占用，该进程属于“{owner}”。"
+    },
+    "remediation.port_inspect_command": {
+      "sourceHash": "675f710fd10d2675b1ae7844e64c2092a1f338f582409bc1dea8a4491084944a",
+      "origin": "machine",
+      "message": "        {command}      # 标识属于root的占用进程"
+    },
+    "remediation.port_netsh_empty": {
+      "sourceHash": "70e58d35f201ecc5314698961bf8592aedd0cfe83af5e36bd3d917dc710c30b3",
+      "origin": "machine",
+      "message": "{command}未返回任何输出"
+    },
+    "remediation.port_root_listener": {
+      "sourceHash": "62daf76eb6f7b10205a1544b754083ac78ec1ec3b1a12fd933d8d347e62493ad",
+      "origin": "machine",
+      "message": "  这通常是此前通过sudo运行安装或运行器脚本后，\n  遗留的以ROOT身份运行的status service。使用以下命令确认并清除："
+    },
+    "remediation.port_still_held_help": {
+      "sourceHash": "5280b2f3c1f40692e9c9615b9d9d53d9474ac45dcbc23d45c4bd91f8a2130d1e",
+      "origin": "machine",
+      "message": "  拒绝启动。使用'lsof -iTCP:{port} -sTCP:LISTEN'（或'netsh http show servicestate'）检查，\n  释放端口，或在test/test.config.yml中为statusService.port设置其他端口，然后重新运行。"
+    },
+    "remediation.port_stop_command": {
+      "sourceHash": "c090c76e3af1f133e640e3045dd40d2873575320079ece6a660bd60acc7be1f5",
+      "origin": "machine",
+      "message": "        {command}       # 按启动时的方式停止该进程"
+    },
+    "remediation.operator_00fd2209b1a993b2": {
+      "sourceHash": "6e04423cbd684cc7a3aa658f13d8eaf85893fd08e3dba50c3963ef3dc4909de7",
+      "origin": "machine",
+      "message": "手动检查last_failure.json"
+    },
+    "remediation.operator_01b3c9512f168859": {
+      "sourceHash": "a629c0623846ddcc17661bc3f4e2bb3fccac5085282f7406767c0822845d6c64",
+      "origin": "machine",
+      "message": "{vmName}上发生console_flooded：屏幕内容已有{staticSecs}s未变化，等待耗尽了全部时限。屏幕上是此前滚动显示的大量文本，控制台并未继续输出。客户机没有输出，说明它正在等待某个条件；如果它在本次等待开始前输出过一次提示，屏幕也会呈现同样的状态。"
+    },
+    "remediation.operator_03c7dac9d2e3c13f": {
+      "sourceHash": "a6d847fa3f513448b5d99b86bf966b632051bfb15a20752cf5c9a2666f5cd872",
+      "origin": "machine",
+      "message": "如果问题持续，请检查此宿主机是否将其地址发布到池目录，以及客户机是否能访问该目录"
+    },
+    "remediation.operator_092d2a9134cdc6f6": {
+      "sourceHash": "2227ed7ecb82cd40a8003438c861c074c2b2b112bc6844a218bbf69cbec10d56",
+      "origin": "machine",
+      "message": "lsof -sTCP:LISTEN未返回进程标识符，但lsof（任意状态）找到了进程标识符{join}；将其视为占用进程"
+    },
+    "remediation.operator_0ddb7073d12e8400": {
+      "sourceHash": "b4e25299f70c8d1fa28f5106d28cfd6da997f0b0f313ea81da5bd2eeb4803daf",
+      "origin": "machine",
+      "message": "{vmName}上发生ocr_timeout：屏幕始终未达到预期状态。通常是工作负载偏离了记录的路径；请从干净的快照重放，不要猜测如何就地恢复。"
+    },
+    "remediation.operator_0f0d8db138f68e01": {
+      "sourceHash": "dcb9849679eaf07c8becbd117ac8277d8510511d930ffcfb2b0b7db5e19832ee",
+      "origin": "machine",
+      "message": "恢复诊断结论指出的绑定：上行链路丢失时使用Set-VMSwitch -Name <switch> -NetAdapterName <nic>，管理vNIC缺失时使用-AllowManagementOS $true；请注意，这会短暂中断宿主机自身的网络"
+    },
+    "remediation.operator_126f4cf4415d01de": {
+      "sourceHash": "431db03931c5bc529b641b130491b78c920d6d95549fbcf75755aec9e2835469",
+      "origin": "machine",
+      "message": "检查还有哪些内容共用此卷：images/下的客户机映像下载池通常占用空间最多"
+    },
+    "remediation.operator_12936401977348b5": {
+      "sourceHash": "45dcd7652a737ec620fc0e33ddc30e79b3270feca67fe3c6058a406f0d701a01",
+      "origin": "machine",
+      "message": "如果每个周期都在同一URL处停滞，请按上游镜像站中断处理，而非客户机故障"
+    },
+    "remediation.operator_14bd8c7afa68b453": {
+      "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
+      "origin": "machine",
+      "message": "从失败的步骤开始重新运行序列"
+    },
+    "remediation.operator_14e6c2ed2ffe7e89": {
+      "sourceHash": "caf1b20af9b3193e211f65a2296b8bd812e990da65a19eb1229a2967f5400354",
+      "origin": "machine",
+      "message": "如果服务只是更换了地址而未停止运行，此处无需处理。服务发现会在每次尝试时重新查询，因此下一个周期会自动找到新地址"
+    },
+    "remediation.operator_16b7173fb133ad34": {
+      "sourceHash": "f4aeed77557e2332ebe046cc9e856272bfa3253577312d8eef7bf32947dbd78d",
+      "origin": "machine",
+      "message": "如果日志还显示GitHub回退源返回404：没有令牌时，该来源无法提供私有仓库，因此宿主机是唯一可用的来源，问题完全在于其可达性"
+    },
+    "remediation.operator_17b1fce158581db3": {
+      "sourceHash": "30d2f66304d5750e47b3ca6d750d3ebc02be010ca71d63d10a193ade570f2a98",
+      "origin": "machine",
+      "message": "  占用进程属于另一用户（未提升权限时，lsof/netsh无法显示其套接字）。"
+    },
+    "remediation.operator_19c29f3d7af84089": {
+      "sourceHash": "fbfa37e09d21797817accc0155113f8facdd38a7f915f4a4d1d05087db8f567d",
+      "origin": "machine",
+      "message": "重试前，请重置客户机密码（或轮换凭据保管库中的条目）"
+    },
+    "remediation.operator_1fcd1c46f3e49adb": {
+      "sourceHash": "8131e8982b9a019bd31ee4ee3369631e65b4e3e670cea9ab8c7bd83c89cb5f31",
+      "origin": "machine",
+      "message": "{vmName}发生wait_timeout：waitForSeconds已耗尽，未观察到变化。此等待与客户机状态无关；可安全地立即重试。"
+    },
+    "remediation.operator_20e82ed313adaba2": {
+      "sourceHash": "70dad3a8bc1a5e1836fd1e319037b51e263aa2fa5d749695100526fa5d89f743",
+      "origin": "machine",
+      "message": "即使以root权限运行lsof，也未找到此端口上可停止的占用进程"
+    },
+    "remediation.operator_229beccf1c8615fb": {
+      "sourceHash": "04af06c48df86edc8531d80534aaf98ddf980104da4b2449cdf91cefb49d782a",
+      "origin": "machine",
+      "message": "注册内置恢复处理程序"
+    },
+    "remediation.operator_25ef3aa3a8d0b7fb": {
+      "sourceHash": "905c38cd0ac9a2b5df7e0f871a5d38eab6a96b3195cd3dfcda9f049ffb8e15da",
+      "origin": "machine",
+      "message": "解决该底层故障"
+    },
+    "remediation.operator_26c6f6da9a72b538": {
+      "sourceHash": "afed261e39a541d0d848a0172949e066aa27b302883012cf4e547ca0056f6ac8",
+      "origin": "machine",
+      "message": "查看last_failure.json + manifest.json + cycle.events.ndjson"
+    },
+    "remediation.operator_26e79b3ecf42c48e": {
+      "sourceHash": "7d365d328289cd82193e91b5d68f9c10ad7255077946d4a6371d038c680cf1fe",
+      "origin": "machine",
+      "message": "对受影响的虚拟机运行Disconnect-VNC"
+    },
+    "remediation.operator_2ad54514c8ca7909": {
+      "sourceHash": "1148d52540ccb10f80184d31c6bee952b3349f90e1473adf05b274743666ecf9",
+      "origin": "machine",
+      "message": "Test.Remediation注册表"
+    },
+    "remediation.operator_2aed02135c2ad75f": {
+      "sourceHash": "8b6baba9eb4463de06cb3962794cd31dea8dcada1e195cd9a1307b6e757a5b34",
+      "origin": "machine",
+      "message": "检查客户机诊断信息的NETWORK部分，查找停滞或缓慢的软件包镜像源"
+    },
+    "remediation.operator_2b9a82d1d78b3138": {
+      "sourceHash": "c3adaf3f12b85124e2ad7a80986eb3273cd8dc79e98d466da51deb4824151a75",
+      "origin": "machine",
+      "message": "{vmName}发生project_access_denied：池为此宿主机分配的projectUrl无法由其git凭据读取（私有仓库，或令牌无访问权限）。重试不可能成功，因为凭据位于宿主机本地，而分配在别处完成，因此此故障从不进入退避重试。它不同于bootstrap_sync，后者是宿主机自身的项目克隆失败；此处应由分配池测试集的人员修复。"
+    },
+    "remediation.operator_2be2a7b55fde9058": {
+      "sourceHash": "80bc475ab2eb232d1abde655975137964946e5b910e0d866fc6c3a6f01d61d31",
+      "origin": "machine",
+      "message": "使仓库恢复一致，然后重新运行周期"
+    },
+    "remediation.operator_2d28084c0bea1d81": {
+      "sourceHash": "e7c9209349836382ed74e0e2653470d2f655450982226674e82c741f6f91aa36",
+      "origin": "machine",
+      "message": "修复底层脚本"
+    },
+    "remediation.operator_2e1e64b6924ab3ed": {
+      "sourceHash": "40a708c230fc45b6e49ec48bccf719151a35b680f56487941f567c5f88703649",
+      "origin": "machine",
+      "message": "确认指定的快照存在且状态一致"
+    },
+    "remediation.operator_2fa001ad26748ebc": {
+      "sourceHash": "f38d5cdd0dcdaaea22c90846dfe9ad30a432f37014c81b2c3fae5afcef0984d6",
+      "origin": "machine",
+      "message": "等待5-30 s，并加入随机抖动（参见Get-PollDelay）"
+    },
+    "remediation.operator_31b3d0d03fc33e59": {
+      "sourceHash": "58742480d4f3b389ad2515ac94cc4748aa56576e6a72905911e86420f3617d78",
+      "origin": "machine",
+      "message": "已记录的判定结果"
+    },
+    "remediation.operator_3264b63693a7f3a4": {
+      "sourceHash": "328c6e4fc744c4c61f60001d327da5ebf3af2f0bb99f3e5451579793e796c66a",
+      "origin": "machine",
+      "message": "读取last_failure.json中的causeDetail.consoleFlood，查看占主导的行及其屏幕占比"
+    },
+    "remediation.operator_328d54082fe46c95": {
+      "sourceHash": "4709a0207b2862571782779a4fd1f982319fc316e06bf8f7e256fb7adbc0a608",
+      "origin": "machine",
+      "message": "或转入“unknown”，目前它也没有处理程序"
+    },
+    "remediation.operator_331d83be3f8e49ab": {
+      "sourceHash": "c3b75ef4ff4143c44311d117f83f98b0a5d784fc495f88909f01f9c8d4dc7109",
+      "origin": "machine",
+      "message": "停止占用端口的孤立pwsh进程"
+    },
+    "remediation.operator_36573af397a13ade": {
+      "sourceHash": "e05476546d89c81315e0bf60ca2fe1f1c32229ce404577b5a16c1b283209b859",
+      "origin": "machine",
+      "message": "Repair-ScreenshotRing恢复捕获；重复执行具有幂等性"
+    },
+    "remediation.operator_377f2e3910815162": {
+      "sourceHash": "54d6607000ce35fe72dcb714c40e31a28e6be4bdceb97b9137d0201be213bc6c",
+      "origin": "machine",
+      "message": "授予此宿主机的GH_TOKEN对所分配projectUrl的读取权限"
+    },
+    "remediation.operator_38a152014944599f": {
+      "sourceHash": "f2ab689086d964546705e366b4a226a5d1eb72592856b8c7e884d2fbb7c33496",
+      "origin": "machine",
+      "message": "检查test/status/extension/authentication/vault.yml中受影响客户机的配置"
+    },
+    "remediation.operator_3b44f5cc88984d87": {
+      "sourceHash": "c87c0cbf5e852ec9bf66bd3609dc832c694afa5bddfd824d24fdfa6eb965176f",
+      "origin": "machine",
+      "message": "Invoke-Remediation：{lastFailurePath}不存在；无需操作。"
+    },
+    "remediation.operator_3d90ab28ad1f16f9": {
+      "sourceHash": "8f33a6e83de874a2bddde82ad73f248abdfe9453cceafb975d76e4ad1a95e0f7",
+      "origin": "machine",
+      "message": "如果问题持续，请确认客户机已启动，且其网卡已连接到预期网络"
+    },
+    "remediation.operator_3f388f3f584a1034": {
+      "sourceHash": "0ec787cfbf80be1eef567e03f6f67eaa4bf84e24d9020efa0790f3bf41b9164f",
+      "origin": "machine",
+      "message": "Invoke-Remediation：未设置YURUNA_LOG_DIR，也未提供-LastFailurePath；无需操作。"
+    },
+    "remediation.operator_3f8475af2fbbaf26": {
+      "sourceHash": "0099a73a0f570510c54d9f195caf0f63b8ba299c6dc2b7ee8d6a4ec97d0c1c43",
+      "origin": "machine",
+      "message": "使用test/pool/Remove-PoolHost.ps1移除失效宿主机，这也会删除其归档根目录（包括统一前的归档根目录）"
+    },
+    "remediation.operator_4046c1f6949f7aad": {
+      "sourceHash": "70630cc8bbfc34df4dd4d2f487d2562c6a9ce5e188fe5d07add4f577d1d2ab10",
+      "origin": "machine",
+      "message": "传输停滞，并非应答错误"
+    },
+    "remediation.operator_4155d913c9defc45": {
+      "sourceHash": "0f6b9fb72d5fb5d900eb993dcd56e5780463a090433d06396258855ff5e7e15c",
+      "origin": "machine",
+      "message": "读取last_failure.json中的causeDetail.consoleStaticSeconds和consoleFlood；如果屏幕长时间静止，且占主导的行重复出现，则客户机处于停滞状态，并非仍在持续刷屏"
+    },
+    "remediation.operator_424dd8ef292c44da": {
+      "sourceHash": "1e8355d5a7d4a6f981285d2a666f9c8909dbb0a80de2980664814b15cfc4344d",
+      "origin": "machine",
+      "message": "  请选择以下一种方式解决：\n    - 停止另一所有者的status service（它可能属于另一用户账户）；或\n    - 在test/test.config.yml（statusService.port）中为此检出副本分配独立端口，然后重新运行。"
+    },
+    "remediation.operator_4398282a54e50a13": {
+      "sourceHash": "3d7caffa9dd2b1fd97f63685bb92e04470614e5057208b522d0b6340d3e501fc",
+      "origin": "machine",
+      "message": "pool_storage_full：池共享存储没有剩余空间保存此宿主机的周期结果，因此无法归档周期输出。运行器无法改变这一情况：它没有可删除的自有归档，而下一个周期只会生成更多待存储的数据。在移动模式下，共享存储保存着周期结果的唯一副本，因此必须归档，周期会保持暂停，直到有可用空间。{detail}"
+    },
+    "remediation.operator_442f164764fa5ba8": {
+      "sourceHash": "b8cb8d4da38a75911a0500450b6ed73bddd1a7f52b5d149a4c1d89f85dfbea10",
+      "origin": "machine",
+      "message": "无法解析last_failure.json：{message}"
+    },
+    "remediation.operator_443019dfa8dbce7c": {
+      "sourceHash": "a1c4e0e978982daa469b685f4754ccfffdb0cb685977f21082d6cea0e9c989f8",
+      "origin": "machine",
+      "message": "打开周期文件夹中的last-fetch-and-execute.log"
+    },
+    "remediation.operator_4fccd2ceaaf44c3a": {
+      "sourceHash": "35c35df5c8a5602cd8b3a037411057db7bb82b38701acc94f2f7705d6a9e1334",
+      "origin": "machine",
+      "message": "检查project/test/test.runner.yml中是否有重复或格式错误的条目"
+    },
+    "remediation.operator_54b0e080b8e528c6": {
+      "sourceHash": "52b49bb375e6ca358c95d20cbb9afbd3adcb21949f2dcdc5bc53e19a366559ae",
+      "origin": "machine",
+      "message": "{vmName}发生plan_invalid：周期计划存在歧义或无法满足（序列重复、宿主机缺少所需后端，或缺少host/<host>/<guest>文件夹）。这是配置错误，无法自动修复。"
+    },
+    "remediation.operator_5a4aff635afbeff4": {
+      "sourceHash": "9ab7de6ae4120922665b605f8d6d7f502bc11fdcb6d30016bfa88c921b71f41d",
+      "origin": "machine",
+      "message": "重新启动test/Start-TestRunner.ps1；其启动时的权限提升检查会在第一个周期前确认宿主机"
+    },
+    "remediation.operator_5c64242438df86ec": {
+      "sourceHash": "fe9b586f10d21f34834da87907cc0584438d8335072f5e9729a9fad0e89c5fdd",
+      "origin": "machine",
+      "message": "已有Yuruna status service在端口{port}{suffix}上响应，由另一检出副本或用户启动。"
+    },
+    "remediation.operator_5d3d876075d1100d": {
+      "sourceHash": "029d6d8cc4d7c51718b0cca66593fc536ff9d7d217ca8303bf01850040cadb35",
+      "origin": "machine",
+      "message": " 操作员发起的{heldSecs}s暂停刚在此步骤前结束：客户机在此期间一直运行，因此它输出后未再次输出的内容，已不在该步骤随后必须读取的屏幕上。"
+    },
+    "remediation.operator_5db26636a6ed4019": {
+      "sourceHash": "0d4ad90e596516a4c965faaf81558362726348d51f52d6a885e98339de40dff6",
+      "origin": "machine",
+      "message": "lsof标准错误输出：{trimErr}"
+    },
+    "remediation.operator_6097b95aeee20519": {
+      "sourceHash": "3d863de681c9de4c3cb430a233ea7fec6ae581f0e527cf5896469027cae2ba44",
+      "origin": "machine",
+      "message": "在宿主机控制台上检查{switchText}（{verdictText}）：先运行Get-VMSwitch，再运行Get-NetAdapter查找其中指定的描述"
+    },
+    "remediation.operator_644fe260c47d5bf9": {
+      "sourceHash": "4591997ddb049b7a2131b8945701fb576d2a3043566900de3b974818f1a388c8",
+      "origin": "machine",
+      "message": "{vmName}发生wait_timeout：fetchAndExecute完成标记始终未出现，因此截至期限，客户机脚本仍在运行（或已卡住），最常见的原因是被缓慢或停滞的软件包镜像源阻塞。未输出失败标签，因此这不是脚本报告的错误；退避重试通常可以解决。"
+    },
+    "remediation.operator_663bef65292f201c": {
+      "sourceHash": "d1908b199d6d24b2fa2f7fd26b086d24ba62e9c3bb561bcb2baa8fb2cb4649dc",
+      "origin": "machine",
+      "message": "在指定服务所属的位置启动它：在其宿主机上运行test/service/Start-<Service>VM.ps1，并确认从该处访问/healthz可获得响应"
+    },
+    "remediation.operator_676a299116f4813d": {
+      "sourceHash": "bdb21dbfaeb33a58cc6ff8c971dd621440b4ad16e7a8ff1b53b2f206e2bb1e26",
+      "origin": "machine",
+      "message": "未为failureClass“{failureClass}”注册处理程序，也不存在“unknown”回退处理程序。"
+    },
+    "remediation.operator_6856d456910a252e": {
+      "sourceHash": "afec8965e806ac421125813282488764ffc25d2a257a2b8bb01f03ce24c56151",
+      "origin": "machine",
+      "message": "停止端口{port}的占用进程"
+    },
+    "remediation.operator_688a7e15ea7edf9c": {
+      "sourceHash": "98ab65617597e1908237eff3fd07ed572b09ad72c8f86a478ee5983e5f50037f",
+      "origin": "machine",
+      "message": "强制下一次Send-*重新握手"
+    },
+    "remediation.operator_6957eec58bdf4cad": {
+      "sourceHash": "3c45374b1efb16c6086074cfc2d09b967f8187745c85c2a2be85e705e7bb1873",
+      "origin": "machine",
+      "message": " 它已从{prev}变为{cur}。"
+    },
+    "remediation.operator_6a7069cdf541164d": {
+      "sourceHash": "039cd7365e42f68e6f8bc3f5d91475fcd2caac25fcdc5358d0f314cd49f3fbd3",
+      "origin": "machine",
+      "message": "重新运行失败的等待步骤。"
+    },
+    "remediation.operator_6a9db7b61b4925ae": {
+      "sourceHash": "6c7a45c81f4191a664d5c8a13e680f932b137ccb88c353291e2737408ebe3f9b",
+      "origin": "machine",
+      "message": "如果该步骤为waitForAndEnter，blindAfterSeconds可使其在下次运行时自行回答该提示"
+    },
+    "remediation.operator_6c024e2aae3f4e0b": {
+      "sourceHash": "1eac69d8192c205351e72b02de56d3d6281ba673c0dc33f234d22ee1e5f32b88",
+      "origin": "machine",
+      "message": "确定发生故障的扩展领域（身份验证、通知等）"
+    },
+    "remediation.operator_6cc507ac627ec13c": {
+      "sourceHash": "b2d725565cd4ca53b612a6ff533d0b2d747fb77ffa9fa5418f3181843cd5e9f5",
+      "origin": "machine",
+      "message": "  也已尝试提升权限后接管，但仍未释放端口：{detail}"
+    },
+    "remediation.operator_6cf224bfd1008ecc": {
+      "sourceHash": "5be0e81d5f92ef86662cc55ba64bd79a2c687ab65c5a35da1fe227784ca27598",
+      "origin": "machine",
+      "message": "验证git远程仓库凭据／令牌仍然有效"
+    },
+    "remediation.operator_6ece8bcef4b26107": {
+      "sourceHash": "16aeba57735c1445fb92ce085330bc0c43c433334b0300f9f1178eec37483589",
+      "origin": "machine",
+      "message": "如果重试次数耗尽，则转入operator_intervention_required"
+    },
+    "remediation.operator_6fd79eb4d8f46b60": {
+      "sourceHash": "ab9d6f187bbe1ef010e3e943763c60fb491e9216bd1f4fb0d6946609b58c8dbb",
+      "origin": "machine",
+      "message": "打开周期文件夹中的last-fetch-and-execute.log，检查日志停在何处；日志末尾没有“# exit code:”表示脚本始终未返回"
+    },
+    "remediation.operator_70fab6da39ee36e1": {
+      "sourceHash": "ab3ced070f1d7289ef9271471a974beb5b9d328278a5053bb8cd283b169578fd",
+      "origin": "machine",
+      "message": "Repair-VncConnection重新连接控制台；重复连接两次无害"
+    },
+    "remediation.operator_713fbd665e5da4bf": {
+      "sourceHash": "bf36dbf980f3c5b57e833abde325c3585dfd7fe6fedcdd9471eedc7ed4c45abe",
+      "origin": "machine",
+      "message": "池控制面板会标记该池，并列出受阻的宿主机"
+    },
+    "remediation.operator_730dca21ad9eda73": {
+      "sourceHash": "fd0770fac26d9f21f648cef97a6687d80e3ac085a0e3669209ea08b5c0528f31",
+      "origin": "machine",
+      "message": "Invoke-Remediation：无法写入last_remediation.json：{message}"
+    },
+    "remediation.operator_787985aef3c53e0a": {
+      "sourceHash": "aedee9a95c5a1a5f1f74a0f3f139e3f78a4eaa5a376a8448650e9c6fb8898349",
+      "origin": "machine",
+      "message": "客户机当时尚无租约；后续周期通常能找到租约"
+    },
+    "remediation.operator_7933966c333f63c7": {
+      "sourceHash": "a246b04031cb5b435aed2815c0e575c2b2179e7222da0237030a22c0c2a9ecb8",
+      "origin": "machine",
+      "message": "使用前，请通过visudo -cf验证；无效的附加配置会导致所有命令都无法使用sudo"
+    },
+    "remediation.operator_7a0e1aa474da9a62": {
+      "sourceHash": "211bdf5e83380a385e2a7116f37aa80a306632d64074241bab215228fa916bca",
+      "origin": "machine",
+      "message": "{vmName}发生payload_unavailable：客户机运行了获取包装脚本，但没有任何来源提供脚本，因此未执行任何内容；此处没有可调试的脚本，也无需怀疑客户机状态。常见原因是宿主机通过DHCP变更了地址，而此客户机仍保留旧地址；客户机会重新查询池目录服务，通常在数秒内恢复。"
+    },
+    "remediation.operator_7c1a5d17f86d77d0": {
+      "sourceHash": "ed83907392d149d62b870541bee91e22a3693c40bfa94f9274bd656b055fb2f2",
+      "origin": "machine",
+      "message": "{vmName}发生pattern_matched_failure：fetchAndExecute检测到failure-end-tag。包装脚本自身报告了失败；自动重试只会再次触发同一故障。"
+    },
+    "remediation.operator_7d87024301324c31": {
+      "sourceHash": "dd4f118e9018695cbd22333e48181ec16aa11a29f691b19d9939dbfc6f1268f8",
+      "origin": "machine",
+      "message": "此账户无权控制占用进程，且无法提升权限：sudo没有当前有效的授权，本次运行也无法请求授权（请运行“sudo -v”，然后重新运行）"
+    },
+    "remediation.operator_7db5a2977e4790b2": {
+      "sourceHash": "37ac907a2e4ae70d62cb0bbaabe50e4f55fc6b42f8cc9ab27f67e418c974361f",
+      "origin": "machine",
+      "message": "修复扩展并重新运行周期"
+    },
+    "remediation.operator_7fb881306771c597": {
+      "sourceHash": "c47c2dea15f8ddca5fbf329692b8efb23bada210a0bfcccc9e49c70f456f764f",
+      "origin": "machine",
+      "message": "  拒绝启动：第二个status service无法绑定同一端口，且在没有该服务的情况下运行\n  周期会使实时仪表板／断点控件不可见（这种状态难以调试）。"
+    },
+    "remediation.operator_807e58f44f8a5743": {
+      "sourceHash": "dca2ab68cd322252cc85d1935b5ec018d812885b1e0bc7ec7456f61c43eee720",
+      "origin": "machine",
+      "message": "重试失败的插桩步骤。"
+    },
+    "remediation.operator_82a3c5762fc4648e": {
+      "sourceHash": "cd3dcb024124ad17a9bf13dc157f378960d5c6164dc4c6fe04dcedccaec2ee2c",
+      "origin": "machine",
+      "message": "诊断底层脚本错误"
+    },
+    "remediation.operator_85eda07f90b4d887": {
+      "sourceHash": "b5df336024fe9ef26aa47ce0aa3e35da785d9399c1670607f041b7d4d434c8eb",
+      "origin": "machine",
+      "message": "修复反复输出的原因，而非重新运行等待步骤；延长超时时间无法使不断覆盖自身的屏幕变得可读"
+    },
+    "remediation.operator_86936d1d16cfffed": {
+      "sourceHash": "54a50a071a048dc31a5a13431ed770e6b51b351116d8496581ca6523658a6011",
+      "origin": "machine",
+      "message": "检查服务器租约表中此客户机的MAC地址：同一MAC地址有两个有效租约，表示服务器以客户机仍在不断更改的client-id为键"
+    },
+    "remediation.operator_88121b1e52c84006": {
+      "sourceHash": "66df2b443dd9fb52cda180c38c4eb714c4dffa979e88771714a7c838bfc0d05b",
+      "origin": "machine",
+      "message": "  拒绝强行接管不属于此测试框架的监听进程。"
+    },
+    "remediation.operator_892877bc74922cba": {
+      "sourceHash": "3dbb40608379ed2b981a5bfcf4e2c36554597b700d9b84b64cecfdb87d8578e6",
+      "origin": "machine",
+      "message": "{vmName}发生extension_error：一次callExtension调用抛出了异常。自动重试可能反复触发同一扩展缺陷，或导致凭据失效。"
+    },
+    "remediation.operator_8f308f9f27537f47": {
+      "sourceHash": "1ca97fcf1b945e33b14468531528d4a46e29969ca587be086b9bb53e8c0fa1a6",
+      "origin": "machine",
+      "message": "打开客户机控制台，回答其正在等待的提示；即使提示已移出屏幕，它仍然有效并继续读取输入"
+    },
+    "remediation.operator_8f9d21c7feb1fbde": {
+      "sourceHash": "7f138b749590b85c15dd5c329386a625bb11fcdcedd1f8c12d5be39cee4c06ec",
+      "origin": "machine",
+      "message": "修复根本原因后手动恢复"
+    },
+    "remediation.operator_90d007dd21de718a": {
+      "sourceHash": "12eab03cbf71d3a2bb5a794d5c1a397ac03f02edc10ed23344333b76343609a0",
+      "origin": "machine",
+      "message": "lab_dependency_down：此宿主机此前可访问的一项实验室服务停止响应，在记录此故障前，周期已为此等待，并按退避间隔重复探测长达十六小时。因此，已确认自动重试在唯一可能有效的时间尺度上尝试过，而下一个周期仍会耗费相同的时间，得到相同结果。该服务也未必运行在此宿主机上：在池中，它通常位于他人管理的虚拟机上，因此这既不是宿主机故障，也不是客户机故障。{detail}"
+    },
+    "remediation.operator_9151cc4f3b057b44": {
+      "sourceHash": "3366f71669a5a56025a199b723d838f8ff427ea624d07a25456a508a45cde5b7",
+      "origin": "machine",
+      "message": "{vmName}发生console_flooded：控制台被同一行反复覆盖，等待步骤耗尽了全部时间预算，因此无论客户机是否曾输出匹配内容，都无法从屏幕上读取。这不是客户机未达到预期状态，而是屏幕无法读取，重新执行只会再次造成同样的刷屏。重复输出的内容可指出原因：链路或DHCP事件反复改变安装程序的网络模型、服务重启循环，或内核消息风暴。"
+    },
+    "remediation.operator_97b6f714dbde379c": {
+      "sourceHash": "89508cbf13b6bbd7a480f45272212fd7fc972305edf53b7d4a02f4bbbfaf3211",
+      "origin": "machine",
+      "message": "等待时限并非周期时间预算：如果操作员知道中断是永久性的，应从状态页面结束等待，而非等到时限耗尽"
+    },
+    "remediation.operator_992cf1faa91dc2f9": {
+      "sourceHash": "145a72406bbc76318253227427ed543ca8dd7b8c6ff68e51a6abcb736863d828",
+      "origin": "machine",
+      "message": "已提升权限并停止占用进程{join}，但端口仍无法绑定"
+    },
+    "remediation.operator_9944c15ceb34ec02": {
+      "sourceHash": "1db7780beeb7b490331f7b3093855e57d215726f308ed8e13b4228fe54c4b9fc",
+      "origin": "machine",
+      "message": "占用进程可能属于另一用户；请使用以下命令重试：sudo lsof -nP -iTCP:{port}"
+    },
+    "remediation.operator_9aa0dd33f9cd273a": {
+      "sourceHash": "6a3b780fb5c4a0303385a177291ef9d1fd01e53c8506bdc7f45ae796ed830810",
+      "origin": "machine",
+      "message": "{vmName}发生bootstrap_sync：框架或项目仓库的git fetch/clone因非网络原因失败（分支分歧、身份验证问题，或工作树有未提交的更改）。纯网络短暂故障会在上游归类为network_timeout并重试；此类别涵盖其余非暂时性故障。"
+    },
+    "remediation.operator_9ea01d9a6217232e": {
+      "sourceHash": "c01bba4f32f7da21612e7a2ac0845d955208f7458ff9469bb86fbbf47b441d9c",
+      "origin": "machine",
+      "message": "运行器会在每个周期前重新检查，一旦有可用空间便自动恢复；修改配置或新增提交会立即结束暂停"
+    },
+    "remediation.operator_9f53aeb17d36bf0e": {
+      "sourceHash": "bcb6fe9d02181adfe81b333cc8eb7daed2b579508807a6a959ffe51b9ea73c58",
+      "origin": "machine",
+      "message": "{vmName}发生script_error：通过SSH执行的命令返回了非零退出码。自动重试会反复触发同一脚本缺陷。"
+    },
+    "remediation.operator_ababc4b189a176eb": {
+      "sourceHash": "62cf25f4a79eba7c2a25492e75a69f0b0cb8b7f535170d23d0d2269ed1fdda6e",
+      "origin": "machine",
+      "message": "lsof -nP -iTCP:{port}（任意状态）-> 空"
+    },
+    "remediation.operator_abd632fb4ee5d5b1": {
+      "sourceHash": "c8b9c5c23123b250b1e9b37921f1e6313c56445c5d0eec2d07003d7817eb03c8",
+      "origin": "machine",
+      "message": "{vmName}发生host_io_blocked：Send-Key / Send-Text / Send-Click无法向客户机传递输入。传输句柄（VNC套接字、Hyper-V键盘CIM）可能已失效。"
+    },
+    "remediation.operator_ae1a107543e2b1da": {
+      "sourceHash": "5a5ff57ffec095197497dc8efb28fb5e47dd113851b50fd4fbedef4a715762e1",
+      "origin": "machine",
+      "message": "通过Register-RecoveryHandler注册处理程序"
+    },
+    "remediation.operator_b0efdbb198fceec5": {
+      "sourceHash": "4dadff69636744f5454b601b019c6b7056428b8205054c74035df21a476ca680",
+      "origin": "machine",
+      "message": "检查该领域的default.psm1 + .contract.yml"
+    },
+    "remediation.operator_b4f9634c3488c4e9": {
+      "sourceHash": "8ccf6ae5147497abbeb01f79c7c52673d1fe8d6520c33f3a6a28031892441b94",
+      "origin": "machine",
+      "message": "对故障模式进行分类，并考虑为该动词添加FailureClass"
+    },
+    "remediation.operator_b51fc0ab27411fec": {
+      "sourceHash": "702260a6c1079a1a621f4cc5b7302768be8fe5240630ea6a4a2e05a1c2f36ebe",
+      "origin": "machine",
+      "message": "{vmName}发生dhcp_identity_unbounded：此客户机已使用应保持不变的身份重建，但DHCP服务器仍为其分配了不同的地址。{move}如果客户机的地址不由其身份决定，每次构建都会消耗一个地址，而每个弃用地址在整个租约期内仍被占用，因此地址池的耗尽速度取决于租约时长，而非机器数量，最终客户机启动时将完全没有IPv4地址。重试无济于事：下次构建会发出相同请求，又得到一个新地址，因此此故障从不进入暂时性故障重试允许列表。"
+    },
+    "remediation.operator_b8bc2c014057ea71": {
+      "sourceHash": "82bf4c66329543700bb01315e4c5f58047bd74c7c20cc9b50b3295bb482b38f0",
+      "origin": "machine",
+      "message": "{vmName}发生未知故障：失败的动词未注册FailureClass。在完成分类前，需要操作员查看周期产物并作出判断。"
+    },
+    "remediation.operator_b9a49bf4b1c35603": {
+      "sourceHash": "01fa02006507d8ea61e96bb04a8c7a34d56a4a301ca611e2c92e071825d7a1a6",
+      "origin": "machine",
+      "message": "{vmName}发生credential_expired：凭据保管库管理的密码已与客户机预期的密码不符。几乎可以确定，必须先更新凭据保管库，下一个周期才可能通过。"
+    },
+    "remediation.operator_b9e5f8c44bec51fc": {
+      "sourceHash": "45c0e585c1172fe016e7f7c076faa7ab1727425942152c5462d0bade240107be",
+      "origin": "machine",
+      "message": "某个步骤超出了时间预算；下次尝试将从全新周期开始"
+    },
+    "remediation.operator_ba08eed1519e3ec9": {
+      "sourceHash": "e2f4336cb40a0e2dd29e5b50775071637b9153ec01d8d23dded6abc83800396d",
+      "origin": "machine",
+      "message": "停止占用端口的孤立pwsh进程（{join}）后，状态服务端口{port}仍被占用。"
+    },
+    "remediation.operator_bac6cb55b45e16b5": {
+      "sourceHash": "f9442fbad292e939f5ab4379877c27e7517a5287df682849f6a022201cd16dd2",
+      "origin": "machine",
+      "message": "检查周期文件夹中的last-fetch-and-execute.log或sshExec标准错误输出"
+    },
+    "remediation.operator_bb02ee25257cba0d": {
+      "sourceHash": "a6650293ed23f555ea6b4991cc4ff61b46b06bd83ecf82fa6180de941ce88772",
+      "origin": "machine",
+      "message": "{vmName}发生host_network_degraded：故障在于宿主机提供的客户机网络通路，而非此客户机。宿主机重启后，虚拟交换机对象仍然存在，但其上行链路绑定已失效，因此交换机依然存在，所有宿主机检查也仍然通过，但连接到它的设备均无法转发流量；每台客户机只能报告自身症状。无论在本周期还是后续周期重试，下一台客户机都会连接到同一个没有载波信号的网桥，因此此故障类别从不进入暂时性故障重试允许列表，也不计入各客户机触发隔离的连续故障次数。"
+    },
+    "remediation.operator_bb25c210fa3519d6": {
+      "sourceHash": "7f09de1dcca473f557b8123d9c88d3967739525d548280b4afc9e82693891ead",
+      "origin": "machine",
+      "message": "重试失败的网络探测／Wait-SshReady"
+    },
+    "remediation.operator_bb372789b3ee6502": {
+      "sourceHash": "bd9b7cee39232c9d23d637ded3b13c7d3950e097a210ae68734224912f4dbc4a",
+      "origin": "machine",
+      "message": "检查宿主机虚拟机监控程序服务及虚拟机存储所在磁盘的可用空间"
+    },
+    "remediation.operator_bcb561ae0b2d1afd": {
+      "sourceHash": "b9e43f4d8f25db130bc8d6f036a2919a9672fa93b0641441b134a887f3c69231",
+      "origin": "machine",
+      "message": "完成后，才可从失败步骤开始重新运行序列"
+    },
+    "remediation.operator_be21fdfe4bad5cf0": {
+      "sourceHash": "bb04ec934cfdda77e0580d24a93b6af067c5eb84a02f70a76fc0a23b25217db7",
+      "origin": "machine",
+      "message": "验证{lastFailurePath}为有效的JSON"
+    },
+    "remediation.operator_bf89860e09f2c5b1": {
+      "sourceHash": "16ff2031217914f2dc364765f8ee9974d03a400fa4b98d07d8ab3c3a7eab4fae",
+      "origin": "machine",
+      "message": "如果缺失，请创建新的基线快照并重新运行序列"
+    },
+    "remediation.operator_c00ffc306428603b": {
+      "sourceHash": "4cc99833d0441044b5fdb1a52719798bfc560644bb87c24ed9ce666a44b72f91",
+      "origin": "machine",
+      "message": "短暂退避后重试；到下次尝试时，宿主机通常已恢复可达"
+    },
+    "remediation.operator_c0a439f9f4207624": {
+      "sourceHash": "2fb109d942ed3eb06291701679f49c60947120400ef0b8dc54789a6435d2d9f2",
+      "origin": "machine",
+      "message": "确认宿主机提供计划所需的所有后端，然后重新运行"
+    },
+    "remediation.operator_c706cfbe26bfe98c": {
+      "sourceHash": "693cff029ecd05e90a90d3c8f944742be927393c4fb351f47ee616b851a3d9cf",
+      "origin": "machine",
+      "message": "“{failureClass}”的处理程序返回了非哈希表结果。"
+    },
+    "remediation.operator_0e19ba1c8c8b7f7b": {
+      "sourceHash": "ab6140322643e75da2094e616f0be0d8a6bb8253b3d34368377d9490fcced8d5",
+      "origin": "machine",
+      "message": "请确认种子介质携带了固定配置：cidata种子介质上的network-config必须传递到客户机，因为启动后才应用固定配置时，租约已分配"
+    },
+    "remediation.operator_12710b3d54a09d23": {
+      "sourceHash": "b19c24b46fd1c7d9d1994b0b127e2c9d0a5fdd3d30e9c9b5b8b22f321af24125",
+      "origin": "machine",
+      "message": "如果已有固定配置但地址仍在变化，说明服务器未依据client-id进行匹配：请为此客户机设置地址保留，或缩短租期以回收闲置地址"
+    },
+    "remediation.operator_a3827909e7a01825": {
+      "sourceHash": "1a7e8c63cf984f1767ad580d73e37eef863bfab1b9686caf1bd3301f983cd505",
+      "origin": "machine",
+      "message": "宿主机丢失了自身的路径；周期内的任何操作都无法修复此问题，而它会恢复"
+    },
+    "remediation.operator_cbaa17fc6a5150b0": {
+      "sourceHash": "ce4de8223efba7171b765a2e3e39d94d35fea3830bdf1ae3480348cc6fb26599",
+      "origin": "machine",
+      "message": "如果大量请求源于安装阶段的网络频繁变动，请确认客户机是否获得了DHCP租约"
+    },
+    "remediation.operator_fc7632bc7d328be6": {
+      "sourceHash": "5490fa8bd4d840c7b8e88213061a576b507ab5ae4f88106504ac11a4756a1a58",
+      "origin": "machine",
+      "message": "状态服务端口{port}空闲，但此进程可能无权预留 http://*:{port}/.\n  这是HTTP.sys URL预留，创建预留需要提升权限。没有进程占用\n  该端口，这是权限问题，并非端口冲突。\n  拒绝启动：status service绑定相同的通配符前缀（以便客户机\n  通过宿主机的局域网IP访问，而不只是通过localhost），因此同样会失败。\n  请任选一种方式解决：\n    - 以管理员身份运行此命令行环境；或\n    - 预留该URL一次，然后在不提升权限的情况下重新运行："
+    }
+  }
+}

@@ -4,7 +4,10 @@
 package httpsrv
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -173,7 +176,103 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		})
 	}
 
+	// Per-host refresh, advertised only when this service holds both refresh
+	// secrets: an agent is never shown a tool that could only refuse. The tool
+	// gate is the refresh credential gate, run on the INCOMING request after
+	// the server's write gate, so an agent needs exactly what a curl needs --
+	// the ordinary write credential AND the refresh credential header.
+	if s.refreshEnabled() {
+		reg.MustAdd(mcp.Tool{
+			Name: "pool_control_refresh_host",
+			Description: "Ask ONE host to repair its hypervisor and test runner (the restart tier: reclaim a stalled runner, " +
+				"start a stopped hypervisor service, restart a hung one where that host supports it). Generate requestId once " +
+				"(a lowercase UUID) and reuse it on every retry, so a retry is never a second repair. Returns the host's " +
+				"acceptance and a stateUrl to poll; a busy host names the request it is already running. Requires the refresh " +
+				"credential header in addition to the ordinary write credential.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
+				`"hostId":{"type":"string","description":"host id as listed by pool_control_hosts"},` +
+				`"requestId":{"type":"string","description":"lowercase 8-4-4-4-12 UUID the caller generates once and reuses on retry"},` +
+				`"tier":{"type":"string","enum":["restart"],"description":"only the restart tier is accepted remotely"},` +
+				`"maxRung":{"type":"string","enum":["probe","reclaim","start-if-stopped","restart-if-hung","restart-broker"],"description":"highest repair rung allowed; defaults to restart-broker, and the host lowers it to what it supports"}},` +
+				`"required":["hostId","requestId","tier"],"additionalProperties":false}`),
+			ReadOnly:    false,
+			Destructive: true,
+			Idempotent:  true,
+			Gate:        s.refreshGate,
+			Handler: mcp.FromRouteWithBody(s.handleHostRefresh, http.MethodPost, "/api/host/refresh", func(a json.RawMessage) (string, []byte, error) {
+				in, err := strictStringArgs(a, []string{"hostId", "requestId", "tier"}, []string{"maxRung"})
+				if err != nil {
+					return "", nil, err
+				}
+				b, err := json.Marshal(in)
+				return "", b, err
+			}),
+		})
+	}
+
 	return reg
+}
+
+// strictStringArgs reads a tool's arguments as one object of strings holding
+// only the named keys, each at most once: an unknown key (force, hard-stop,
+// anything), a repeated key or a non-string value is a named refusal rather
+// than a value silently dropped or overwritten, because the SDK does not
+// enforce a tool's input schema at call time. The object is walked token by
+// token because decoding into a map keeps the last of two equal keys without
+// a trace. A refused key name is echoed only when it has the shape of a field
+// name, so a caller cannot put arbitrary text into the refusal.
+func strictStringArgs(args json.RawMessage, required, optional []string) (map[string]string, error) {
+	refuse := func(msg string) error { return &mcp.ReasonError{Reason: "invalid-arguments", Message: msg} }
+	notAnObject := refuse("arguments must be an object of strings")
+	known := map[string]bool{}
+	for _, k := range append(append([]string{}, required...), optional...) {
+		known[k] = true
+	}
+	out := map[string]string{}
+	if len(args) > 0 {
+		dec := json.NewDecoder(bytes.NewReader(args))
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+			return nil, notAnObject
+		}
+		for dec.More() {
+			tok, err := dec.Token()
+			if err != nil {
+				return nil, notAnObject
+			}
+			name, _ := tok.(string)
+			if !known[name] {
+				shown := name
+				if !fieldNameRE.MatchString(shown) {
+					shown = refreshFieldNamePlaceholder
+				}
+				return nil, refuse("unsupported argument " + shown)
+			}
+			if _, repeated := out[name]; repeated {
+				return nil, refuse(name + " is given more than once")
+			}
+			val, err := dec.Token()
+			if err != nil {
+				return nil, notAnObject
+			}
+			str, isString := val.(string)
+			if !isString {
+				return nil, refuse(name + " must be a string")
+			}
+			out[name] = str
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+			return nil, notAnObject
+		}
+		if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+			return nil, notAnObject
+		}
+	}
+	for _, k := range required {
+		if out[k] == "" {
+			return nil, refuse(k + " is required")
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) mcpServer() *mcp.Server {

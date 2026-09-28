@@ -574,6 +574,96 @@
     "exceptions.runner_fc93013c47f0dff2": {
       "sourceHash": "8a2e0ccd858f0f497767b60716c2fa690917e68bedadaf47659a7fa2767bc8b5",
       "message": "Erro de análise YAML no {path} na linha {line}:{col}: {message}"
+    },
+    "exceptions.host_refresh_auth_authority_missing": {
+      "sourceHash": "06e0f3e3942cb3e21ebf67ad3f211a2fb04bf7bbfd7b80264a05d4739df00f67",
+      "origin": "machine",
+      "message": "Nenhuma autoridade de atualização foi encontrada em {path}; primeiro, crie uma com -NewAuthority."
+    },
+    "exceptions.host_refresh_auth_host_id_mismatch": {
+      "sourceHash": "aa8d698b738887bf731d1a02d75f7787f909dea3d23a4e89df194aa6a6175e8c",
+      "origin": "machine",
+      "message": "A chave de atualização foi emitida para o hospedeiro {keyHostId}, mas este hospedeiro é {hostId}; em vez disso, exporte uma chave para este hospedeiro."
+    },
+    "exceptions.host_refresh_auth_host_id_unavailable": {
+      "sourceHash": "8202453678a561e74172ac39b01236289b0e2f2a962f405b963713021405d4bd",
+      "origin": "machine",
+      "message": "Este hospedeiro ainda não tem um id de hospedeiro ({path} não existe); inicie o executor de testes uma vez para que o arquivo host.uuid seja criado e tente novamente."
+    },
+    "exceptions.host_refresh_auth_invalid_claim": {
+      "sourceHash": "82be7179d912fa7cca4516c096e9dde39294fb0eee5a4f91923a26d44ca93411",
+      "origin": "machine",
+      "message": "O campo {field} da prova de atualização não é válido."
+    },
+    "exceptions.host_refresh_auth_key_malformed": {
+      "sourceHash": "de30febf4bf45e12a3eac82c8432bd8154da43041a4896a67c7cf809ad074304",
+      "origin": "machine",
+      "message": "{path} não é um arquivo de chave de atualização (era esperada uma única linha iniciada por {prefix})."
+    },
+    "exceptions.host_refresh_auth_key_permissions_open": {
+      "sourceHash": "3769ca373e8c868d4c0c41c373f616708effcf8e45d14979332da34e281b75d5",
+      "origin": "machine",
+      "message": "{path} pode ser lido por outros usuários; restrinja o acesso ao proprietário (chmod 600) e tente novamente."
+    },
+    "exceptions.host_refresh_auth_key_write_failed": {
+      "sourceHash": "85975eebe7584b6a19de0f30dc48d710b65eb92c43954583897f4ab99812ca33",
+      "origin": "machine",
+      "message": "Não foi possível gravar {path} com permissões exclusivas do proprietário ({detail})."
+    },
+    "exceptions.host_refresh_auth_private_root_unavailable": {
+      "sourceHash": "dc752b9b8460e3c55ea89f9da90d771cd9ef7ff39b801b0815d51f619343857a",
+      "origin": "machine",
+      "message": "Não foi possível proteger a raiz de estado privada ({reason}); nenhuma chave de atualização foi gravada."
+    },
+    "exceptions.host_utm_sudo_requires_noninteractive": {
+      "sourceHash": "747e47d86d29032e89010398e76a179c41b7b9f3b0302fe7e61c4ac37c436f85",
+      "origin": "machine",
+      "message": "Invoke-UtmHostTool: o sudo deve ser chamado com -n como primeiro argumento, para que nunca fique bloqueado em uma solicitação de senha."
+    },
+    "exceptions.host_utmctl_kill_requires_stop": {
+      "sourceHash": "0fda89f6cee985d7d2f7cf4907bc4fcda68ac3d770aaf4dea54c959f16bf6ce6",
+      "origin": "machine",
+      "message": "Invoke-UtmctlLifecycle: -Kill se aplica apenas ao verbo stop, não a '{verb}'."
+    },
+    "exceptions.runner_libvirt_relaunch_parameter_name_invalid": {
+      "sourceHash": "1f5ead4872db3897a50b17443adbaf4553a4f7df3b21c901d6534f6c076c3fb2",
+      "origin": "machine",
+      "message": "Invoke-LibvirtGroupReExecIfNeeded: '{name}' não é um nome de parâmetro válido, portanto não pode ser repassado pela reexecução via sg."
+    },
+    "exceptions.runner_libvirt_relaunch_parameter_unsupported": {
+      "sourceHash": "33604685bf5c7ee05eceb156bdfb062f4d478dc1b8344ff9b874d296fa567cfb",
+      "origin": "machine",
+      "message": "Invoke-LibvirtGroupReExecIfNeeded: o parâmetro '{name}' contém um valor do tipo '{valueType}' que não pode ser repassado pela reexecução via sg; passe apenas strings, números, switches, booleanos e arrays de strings."
+    },
+    "exceptions.host_refresh_auth_authority_incomplete": {
+      "sourceHash": "d93f951744ff863305100b04aefbffee2c2d4dada3bcce64b6e8bd6ca5d32785",
+      "origin": "machine",
+      "message": "{path} foi gravado, mas {pendingPath} não ({detail}); execute -NewAuthority -Rotate para gravar os dois novamente."
+    },
+    "exceptions.host_refresh_auth_key_unusable": {
+      "sourceHash": "dd6fa2ec0c77a473afbf0d1055a337b31a8166dcdd4d032c03d8200159e0fa37",
+      "origin": "machine",
+      "message": "O arquivo de chave de atualização {path} não pode ser usado ({reason})."
+    },
+    "exceptions.host_refresh_relaunch_parameter_unsupported": {
+      "sourceHash": "949c942134148c7e9bfa3d733db2fad947d4ae2a46a1a8e47af995436ffc2b6d",
+      "origin": "machine",
+      "message": "O parâmetro {name} tem o tipo {type}, que não pode atravessar o relançamento do grupo libvirt."
+    },
+    "exceptions.host_refresh_worker_argument_invalid": {
+      "sourceHash": "fb319e53414e2b0e3f57232afd5eb6c390d91695351817eac82cf8cd1e0c0db1",
+      "origin": "machine",
+      "message": "O argumento {name} do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
+    },
+    "exceptions.setup_service_vm_preserved": {
+      "sourceHash": "2b3bc1d5e74730071c8dc657ebf4b6b02ff0777199bf16303aeb658825928672",
+      "origin": "machine",
+      "message": "{service}: mantido intacto porque {reason}; nada foi parado, removido ou recriado. Resolva o problema do hipervisor e execute novamente, ou passe -Rebuild para substituí-lo."
+    },
+    "exceptions.setup_service_vm_preserved_retry": {
+      "sourceHash": "f5448705366e6cab223613fe65dff180aff535c769774b8ccb36837ababc30ed",
+      "origin": "machine",
+      "message": "{service}: mantido intacto porque {reason}; nada foi parado, removido ou recriado. Execute novamente quando isso for resolvido, ou passe -Rebuild para substituí-lo."
     }
   }
 }

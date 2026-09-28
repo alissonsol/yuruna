@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -411,7 +411,7 @@ function Initialize-SetupLog {
     param([string]$Path = '')
     $target = $Path
     if (-not $target) {
-        $target = Join-Path (Join-Path $TestRoot 'status/log') ('setup.{0}.log' -f (Get-Date).ToString('yyyy.MM.dd.HH.mm'))
+        $target = Join-Path (Join-Path $TestRoot 'status/log') ('setup.{0}.log' -f (Get-Date).ToString('yyyy.MM.dd.HH.mm', [System.Globalization.CultureInfo]::InvariantCulture))
     }
     try {
         $parent = Split-Path -Parent $target
@@ -426,7 +426,7 @@ function Initialize-SetupLog {
         $header = @(
             ''
             '=================== yuruna setup run ==================='
-            ('started     : {0}' -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss K'))
+            ('started     : {0}' -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss K', [System.Globalization.CultureInfo]::InvariantCulture))
             ('script      : {0}' -f $PSCommandPath)
             ('repo        : {0}' -f $RepoRoot)
             ('revision    : {0}' -f (Get-RepoRevisionLabel))
@@ -1535,20 +1535,28 @@ function Test-ServiceVMAdoptable {
 <#
 .SYNOPSIS
     Can this service be taken as-is instead of rebuilt? Returns a verdict object
-    with Adopt (bool) and Reason (string).
+    with Adopt (bool), Preserve (bool), Reason (string) and ProbeReason.
 .DESCRIPTION
     Rebuilding a service VM costs roughly fifteen minutes for the caching proxy
     and throws away a warm squid cache, so a re-run that only wanted to fix one
     broken thing paid that price for every service that was already fine. The
     operator's re-run is usually a repair, not a reinstall.
 
-    Three outcomes, from the roster the harness already keeps:
+    Four outcomes, from the roster the harness already keeps:
       * running and answering its health port -> adopt, do nothing at all;
       * registered but stopped -> start it (Restore-YurunaServiceVM), which is
         far cheaper than a rebuild and is what a host that was merely powered
         off actually needs;
-      * absent, or up but not answering -> rebuild, because there is either
-        nothing to adopt or something demonstrably wrong with what is there.
+      * absent, up but not answering, or stopped on purpose by an explicit
+        Stop -> rebuild, because there is either nothing to adopt, something
+        demonstrably wrong with what is there, or an operator who is now
+        asking for the service back;
+      * state not confirmed (a denied or timed-out hypervisor probe), another
+        start or stop of the service in progress, or its operation lock not
+        obtainable at all -> preserve: touch nothing and fail the step. An
+        unanswered probe is not evidence that the VM is gone, and the rebuild
+        path destroys whatever is there. Cause says which, so the failure
+        names the right remedy.
 
     What adoption gives up: a VM built from earlier inputs keeps them. The seed
     is baked at build time, so a changed cachingProxyIp or storage credential
@@ -1564,8 +1572,8 @@ function Test-ServiceVMAdoptable {
     # report a plan shaped by a machine state the operator has not agreed to
     # touch yet. It lists the full rebuild, which is the honest upper bound of
     # what a real run might do.
-    if ($WhatIfPreference) { return [pscustomobject]@{ Adopt = $false; Reason = 'preview -- nothing was probed' } }
-    if ($Script:Rebuild) { return [pscustomobject]@{ Adopt = $false; Reason = '-Rebuild was requested' } }
+    if ($WhatIfPreference) { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = 'preview -- nothing was probed'; ProbeReason = '' } }
+    if ($Script:Rebuild) { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = '-Rebuild was requested'; ProbeReason = '' } }
     try {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.HostContract.psm1')
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.ServiceVm.psm1')
@@ -1573,7 +1581,7 @@ function Test-ServiceVMAdoptable {
     } catch {
         # Without the host driver there is no way to ask, and guessing "adopt"
         # would skip a rebuild the machine may need. Fall back to rebuilding.
-        return [pscustomobject]@{ Adopt = $false; Reason = "could not load the host contract to check ($($_.Exception.Message))" }
+        return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = "could not load the host contract to check ($($_.Exception.Message))"; ProbeReason = '' }
     }
     # Restore-YurunaServiceVM is the existing self-heal: it reports state, starts
     # a registered-but-stopped VM, and probes the health port. Reusing it keeps
@@ -1588,11 +1596,12 @@ function Test-ServiceVMAdoptable {
     # failure that was correctly reported once and report it as fine on every
     # later run, without the start script that failed ever being invoked again.
     $r = @(Restore-YurunaServiceVM -Key @($RosterKey) -ProbeRunning -Confirm:$false) | Select-Object -First 1
-    if (-not $r) { return [pscustomobject]@{ Adopt = $false; Reason = 'the service roster returned nothing' } }
+    if (-not $r) { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = 'the service roster returned nothing'; ProbeReason = '' } }
     Write-SetupDetail "$RosterKey adopt check: state=$($r.StateBefore) outcome=$($r.Outcome) healthy=$($r.Healthy) -- $($r.Message)"
+    $probeReason = if ($r.PSObject.Properties['ProbeReason']) { [string]$r.ProbeReason } else { '' }
     switch ($r.Outcome) {
         'running'  {
-            if ($r.Healthy) { return [pscustomobject]@{ Adopt = $true; Reason = 'already running and answering its service port' } }
+            if ($r.Healthy) { return [pscustomobject]@{ Adopt = $true; Preserve = $false; Reason = 'already running and answering its service port'; ProbeReason = $probeReason } }
             # Running and silent, OR running and unnameable -- both rebuild.
             #
             # The port being refused is straightforward: something is demonstrably
@@ -1610,20 +1619,55 @@ function Test-ServiceVMAdoptable {
             # fine. Time only -- service state lives on the pool share -- and the
             # reason below names the missing half so it does not read as
             # arbitrary.
-            return [pscustomobject]@{ Adopt = $false; Reason = $r.Message }
+            return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = $r.Message; ProbeReason = $probeReason }
         }
         'started'  {
-            if ($r.Healthy) { return [pscustomobject]@{ Adopt = $true; Reason = 'was stopped; started it and it answered' } }
+            if ($r.Healthy) { return [pscustomobject]@{ Adopt = $true; Preserve = $false; Reason = 'was stopped; started it and it answered'; ProbeReason = $probeReason } }
             # Started but silent. Give it the benefit of the doubt only when the
             # health probe could not run at all (no address yet); a port that was
             # probed and refused is a real fault worth rebuilding over.
-            if ($r.Message -match 'no address') {
-                return [pscustomobject]@{ Adopt = $true; Reason = 'was stopped; started it (address not resolved yet, so its port was not probed)' }
+            if ([string]::IsNullOrWhiteSpace([string]$r.Address)) {
+                return [pscustomobject]@{ Adopt = $true; Preserve = $false; Reason = 'was stopped; started it (address not resolved yet, so its port was not probed)'; ProbeReason = $probeReason }
             }
-            return [pscustomobject]@{ Adopt = $false; Reason = 'started, but its service port did not answer' }
+            return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = 'started, but its service port did not answer'; ProbeReason = $probeReason }
         }
-        'absent'   { return [pscustomobject]@{ Adopt = $false; Reason = 'not built on this host yet' } }
-        default    { return [pscustomobject]@{ Adopt = $false; Reason = $r.Message } }
+        'absent'   { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = 'not built on this host yet'; ProbeReason = $probeReason } }
+        # A state that could not be confirmed, or a deadline that ran out
+        # before it was, preserves: the rebuild path destroys what is there,
+        # and a denied or wedged probe says nothing about whether it is gone.
+        { $_ -in @('state-unknown', 'deadline-exhausted') } {
+            $unknownReason = if ($probeReason) { $probeReason } else { [string]$r.Outcome }
+            return [pscustomobject]@{
+                Adopt = $false; Preserve = $true; ProbeReason = $probeReason; Cause = 'state-unknown'
+                Reason = (Format-YurunaOperatorMessage -Key 'automation.setup_service_vm_reason_state_unknown' -Arguments @{ reason = $unknownReason })
+            }
+        }
+        # Another start or stop holds the service: tearing it down now would
+        # race that operation for the same VM.
+        'operation-busy' {
+            return [pscustomobject]@{
+                Adopt = $false; Preserve = $true; ProbeReason = $probeReason; Cause = 'operation-busy'
+                Reason = (Format-YurunaOperatorMessage -Key 'automation.setup_service_vm_reason_operation_busy')
+            }
+        }
+        # The operation lock could not be taken at all: the Stop and Start
+        # scripts the rebuild runs would refuse on the same lock, after the
+        # teardown had begun.
+        'lock-unavailable' {
+            return [pscustomobject]@{
+                Adopt = $false; Preserve = $true; ProbeReason = $probeReason; Cause = 'lock-unavailable'
+                Reason = (Format-YurunaOperatorMessage -Key 'automation.setup_service_vm_reason_lock_unavailable')
+            }
+        }
+        # Stopped by an explicit Stop: setup was asked to bring the service up,
+        # which is the explicit start that supersedes that request.
+        'intended-stopped' {
+            return [pscustomobject]@{
+                Adopt = $false; Preserve = $false; ProbeReason = $probeReason
+                Reason = (Format-YurunaOperatorMessage -Key 'automation.setup_service_vm_reason_intended_stopped')
+            }
+        }
+        default    { return [pscustomobject]@{ Adopt = $false; Preserve = $false; Reason = $r.Message; ProbeReason = $probeReason } }
     }
 }
 
@@ -1682,6 +1726,25 @@ function Invoke-ServiceVMEnsure {
         $Script:Facts[$RosterKey] = 'ok'
         return
     }
+    if ($verdict -and $verdict.PSObject.Properties['Preserve'] -and $verdict.Preserve) {
+        # Preserved: no teardown and no start. The step still FAILS, so the
+        # fact is recorded as failed and everything that depends on this
+        # service is blocked (the run stops here for a critical one) rather
+        # than built against a service nobody could confirm. The remedy
+        # differs: an unconfirmed state is a hypervisor problem, while a busy
+        # or unobtainable operation lock clears (or is fixed) on its own.
+        $preservedArguments = @{ service = $Service; reason = [string]$verdict.Reason }
+        $preservedMessage = if ($verdict.PSObject.Properties['Cause'] -and [string]$verdict.Cause -in @('operation-busy', 'lock-unavailable')) {
+            Format-YurunaOperatorMessage -Key 'exceptions.setup_service_vm_preserved_retry' -Arguments $preservedArguments
+        } else {
+            Format-YurunaOperatorMessage -Key 'exceptions.setup_service_vm_preserved' -Arguments $preservedArguments
+        }
+        Write-SetupDetail "$Service preserved: $($verdict.Reason)"
+        [void](Invoke-SetupStep -Name "Start the $Service VM" -Critical:$Critical -Provides $RosterKey -Action {
+            throw [System.InvalidOperationException]::new($preservedMessage)
+        })
+        return
+    }
     $why = if ($verdict) { $verdict.Reason } else { 'the reuse check did not complete' }
     Write-SetupDetail "$Service will be rebuilt: $why"
     Invoke-ServiceVMReset -Service $Service -StopScript $StopScript
@@ -1724,9 +1787,10 @@ function Test-NetworkSubnetConnectivity {
                 $denyRules = @($ufwStatus | Where-Object { $_ -match '\bDENY OUT\b|\bREJECT OUT\b' })
                 if ($denyRules.Count -gt 0) {
                     foreach ($rule in $denyRules) {
-                        if ($rule -match '\b(?:\d{1,3}\.){3}\d{1,3}/24\b') {
-                            $hasSubnetAccess = $false
-                            break
+                        if ($rule -match '\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b') {
+                            # A listed destination or port need not cover the host's LAN.
+                            # This heuristic cannot prove that local connectivity is blocked.
+                            Write-SetupWarning "Firewall has an outbound network block; verify local subnet access: $rule"
                         }
                     }
                 }
@@ -2377,6 +2441,7 @@ if ($IsWindows) {
             Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_a34795a8608f486f')
             Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_9676f7771566a233')
             $relaunchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+            if ($Script:Rebuild) { $relaunchArgs += '-Rebuild' }
             if ($AnswerFile) { $relaunchArgs += @('-AnswerFile', (Resolve-Path -LiteralPath $AnswerFile).Path) }
             # The elevated run continues THIS log rather than opening one of its
             # own. Everything worth reading happens after the elevation, so two
@@ -3048,6 +3113,7 @@ if ($storageKind -eq 'none') {
     # VPN is not up yet -- and storage.onFailure below is the operator's stated
     # policy for exactly that. The failure becomes terminal there, or the fallback
     # takes over and IS critical.
+    $nasFailureIndex = $Script:Failed.Count
     $ok = Invoke-SetupStep -Name "Mount the NAS share $storageNetworkPath" -Provides 'storage' -Action {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
@@ -3086,11 +3152,18 @@ if ($storageKind -eq 'none') {
                                   'answer file and re-run.')
                 Exit-Setup 1
             }
-            [void](Invoke-SetupStep -Name 'Fall back to local pool and stash shares (New-LocalLabStorage)' -Critical -Provides 'storage' -Action {
+            $fallbackOk = Invoke-SetupStep -Name 'Fall back to local pool and stash shares (New-LocalLabStorage)' -Critical -Provides 'storage' -Action {
                 $storageArgs = Get-LocalLabStorageArgument -LabName $labName -LocalRoot $storageLocalRoot
                 [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/New-LocalLabStorage.ps1') -Arguments $storageArgs)
-            })
-            $storageKind = 'local'
+            }
+            if ($fallbackOk) {
+                if ($Script:Failed.Count -gt $nasFailureIndex -and
+                    $Script:Failed[$nasFailureIndex].StartsWith("Mount the NAS share $storageNetworkPath -- ", [StringComparison]::Ordinal)) {
+                    $Script:Failed.RemoveAt($nasFailureIndex)
+                }
+                Add-WarnedStep -Description "NAS $storageNetworkPath unreachable; fell back to local shares (storage.onFailure = local)"
+                $storageKind = 'local'
+            }
         } else {
             Write-SetupReport
             Write-SetupError ("Storage is not configured and storage.onFailure is 'stop'. Nothing further will run. " +

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,6 +115,25 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Verbose "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
+# --- REGION: Record the start intent
+# The start is on record, and this service's operation lock held, before
+# anything is built: a Stop issued meanwhile waits for the lock instead of
+# tearing down a half-built guest, and the reboot sweep and a host refresh see
+# the request. Taken after the group relaunch, because a lock taken in the
+# parent would block the relaunched child. A request that cannot be recorded
+# changes nothing.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'download-agent' -VMName $VMName -Operation Start -Script 'Start-DownloadAgentServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit $ExitFailure
+}
+# Every exit below runs the finally that closes this operation: it records the
+# result and releases the operation lock even inside a long-lived shell.
+$serviceOpResult = 'failed'
+try {
+
 # --- REGION: Storage preflight
 # See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1')      -Global -Force
@@ -225,6 +244,9 @@ if (-not $PSCmdlet.ShouldProcess($VMName, "Build and start the download-agent se
 Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
 $newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
 if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+# A stop published while this start was preparing wins: nothing is built
+# for a request that no longer stands (the finally reports the newer one).
+if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
 & pwsh @newVmArgs
 $rc = $LASTEXITCODE
 if ($rc -ne 0) {
@@ -255,6 +277,9 @@ if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
     Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the download-agent service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool share mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
     exit $ExitFailure
 }
+# The start request is confirmed once the rebuilt VM is positively running;
+# the daemon's readiness is reported on its own below and is census evidence.
+$serviceOpResult = 'confirmed'
 
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
 # --- REGION: https://yuruna.link/42e220c4-0008
@@ -624,3 +649,6 @@ Write-Verbose "  VM:   $VMName"
 Write-Verbose "  Host: $HostType"
 Write-Verbose "  Stop: test/service/Stop-DownloadAgentServiceVM.ps1"
 exit $ExitFailure
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -Confirm:$false)
+}

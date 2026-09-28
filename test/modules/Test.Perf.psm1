@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -245,46 +245,7 @@ function Get-RuntimeRootDir {
     return (Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime')
 }
 
-# Resolve-SeededHostId returns the id this machine's hardware implies, or '' to
-# mean "generate one". Test.HostIdentity owns the derivation and the platform
-# reads behind it; this only reaches them, loading that sibling on demand
-# because it is needed exactly once in a host's life -- the call that brings
-# host.uuid into existence.
-#
-# Test.YurunaDir carries the twin of this helper: both modules create
-# host.uuid, either can be the one that wins the race, and a machine whose
-# identity depended on which one got there first would be exactly the forked
-# identity all of this exists to prevent. The two must agree.
-#
-# Never throws and never blocks on a prompt, matching this module's never-crash
-# contract: an id is always obtainable.
-function Resolve-SeededHostId {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    # An operator deliberately re-keying a host needs a way to ask for a new
-    # identity rather than the one its hardware implies, since the derivation
-    # would otherwise hand back the same id the removed runtime directory had.
-    if ($env:YURUNA_HOST_ID_SEED -eq 'random') { return '' }
-    if (-not (Get-Command Get-HostIdentitySeedUuid -ErrorAction SilentlyContinue)) {
-        $module = Join-Path $PSScriptRoot 'Test.HostIdentity.psm1'
-        if (-not (Test-Path -LiteralPath $module)) { return '' }
-        # No -Force: this only needs the command reachable from here, and a
-        # forced reload would evict the module from a caller that already holds
-        # it, taking its commands with it.
-        try { Import-Module $module -ErrorAction Stop } catch {
-            Write-Verbose "Resolve-SeededHostId: Test.HostIdentity unavailable: $($_.Exception.Message)"
-            return ''
-        }
-    }
-    # -AllowSudo because the strong keys are root-only on Linux and the sudo
-    # cache is primed during host setup, which is when a fresh host first asks
-    # for an id. Cold, `sudo -n` fails fast rather than prompting.
-    try { return [string](Get-HostIdentitySeedUuid -AllowSudo) } catch {
-        Write-Verbose "Resolve-SeededHostId: derivation failed: $($_.Exception.Message)"
-        return ''
-    }
-}
+Import-Module (Join-Path $PSScriptRoot 'Test.HostIdentitySeed.psm1') -DisableNameChecking
 
 function Get-PerfHostUuid {
 <#

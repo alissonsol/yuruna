@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a8e238-9fc4-4ca2-bdd0-9b55ac2ff25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,7 @@ function ConvertTo-CommentStrippedSource {
 function Get-LiteralScanText {
     <#
     .SYNOPSIS
-        Return source with real comments blanked for exact-literal discovery.
+        Return source for exact-literal discovery without mistaking shell globs for comments.
     #>
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$Path)
@@ -161,6 +161,11 @@ function Get-LiteralScanText {
             }
         }
         return -join $chars
+    }
+    if ($extension -in @('.sh', '.user-data')) {
+        # Shell globs and cloud-init strings can contain /* without opening a
+        # comment. Conservatively retain their literals for reverse discovery.
+        return $text
     }
     return ConvertTo-CommentStrippedSource -Text $text
 }
@@ -241,6 +246,11 @@ function Get-ScannableSourcePath {
         if ([IO.Path]::GetExtension($relative) -notin @('.ps1', '.psm1', '.go', '.js', '.sh', '.user-data')) { continue }
         if ($relative.StartsWith('globalization/generated/', [StringComparison]::Ordinal)) { continue }
         if ($relative.StartsWith('project/', [StringComparison]::Ordinal)) { continue }
+        # dev-only/ is private tooling that the release strips before this gate
+        # runs on the staged public tree, so it carries no shipped boundary. A
+        # row classifying a dev-only literal would be confirmed in the private
+        # tree and reported stale in the public one.
+        if ($relative.StartsWith('dev-only/', [StringComparison]::Ordinal)) { continue }
         if ($relative.StartsWith('test/status/runtime/', [StringComparison]::Ordinal)) { continue }
         if ($generatedDestinations.ContainsKey($relative)) { continue }
         if ($relative -match '^test/extension/(?:extension-sdk|pool-control-service/server|stash-service/server|download-agent-service/server|caching-proxy-service|caching-proxy-parser-service|pool-aggregator-service)/internal/catalog/(?:registry|[A-Za-z0-9]+_[A-Za-z0-9]+)\.go$' -or

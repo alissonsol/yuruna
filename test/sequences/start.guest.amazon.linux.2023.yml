@@ -34,6 +34,7 @@ component:
 
       - action: waitForText
         pattern: "login:"
+        noSegmentMatch: true
         timeoutSeconds: 300
         failurePatterns:
           - "passwords do not match"
@@ -127,6 +128,7 @@ workload:
 
   - action: waitForText
     pattern: "login:"
+    noSegmentMatch: true
     timeoutSeconds: 600
     freshMatch: true
     description: "OCR: login:"

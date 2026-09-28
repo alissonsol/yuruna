@@ -8,6 +8,128 @@ package catalog
 // string so the package carries no init cost until a caller decodes it.
 const DataenUShost = `{
   "host.clock_service_description": "Windows Time service (W32Time)",
+  "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation: -NoOperatorPrompt cannot be combined with -Confirm, which asks before every change; nothing was captured or changed.",
+  "host.enable_automation_no_prompt_mode": "Enable-TestAutomation: running with -NoOperatorPrompt -- no consent dialogs, no Dock or screen saver restart, no module installs, no sudo prompt and no networkStorage questionnaire. Settings that need an operator are reported as still unmet.",
+  "host.enable_automation_no_prompt_unsupported": "Enable-TestAutomation: -NoOperatorPrompt needs Set-MacHostConditionSet -NoGuiDisruption, which this checkout does not provide; nothing was captured or changed. Run it without -NoOperatorPrompt from an attended session instead.",
+  "host.forwarder_identity_unverified": [
+    "Stop-CachingProxyServiceForwarder: pid ",
+    {
+      "arg": "forwarderPid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " could not be read within the time limit; the pidfile was kept and nothing was signaled."
+  ],
+  "host.hyperv_dism_timed_out": [
+    "Assert-HyperVEnabled: dism.exe did not report the Hyper-V feature state within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds; the feature state is unknown."
+  ],
+  "host.hyperv_rename_source_not_stopped": [
+    "Rename-VM: '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' is ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; a VM is renamed only while Hyper-V positively reports it stopped."
+  ],
+  "host.hyperv_start_vmms_action": "Start the stopped Hyper-V Virtual Machine Management service",
+  "host.hyperv_vm_removal_unconfirmed": [
+    "Remove-VM: Hyper-V could not confirm that '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' was unregistered, so its disk directory was kept."
+  ],
+  "host.hyperv_vm_state_unknown": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": Hyper-V could not establish whether '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' exists; nothing was changed."
+  ],
+  "host.kvm_force_stop_pid_unverified": [
+    "Stop-VMForce: process ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " named in ",
+    {
+      "arg": "pidFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " is not the qemu process of '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "', so it was not signaled."
+  ],
+  "host.kvm_force_stop_pidfile_invalid": [
+    "Stop-VMForce: ",
+    {
+      "arg": "pidFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " does not hold a usable process id, so no qemu process was signaled."
+  ],
+  "host.kvm_force_stop_signal_refused": [
+    "Stop-VMForce: sudo refused to signal qemu process ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " of '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'; install a sudoers rule for /bin/kill or stop the domain by hand."
+  ],
+  "host.kvm_rename_source_not_stopped": [
+    "Rename-VM: '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' is ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; libvirt renames only a domain positively reported as stopped."
+  ],
+  "host.kvm_start_network_action": "Start the inactive libvirt network",
+  "host.kvm_start_unit_action": "Start the stopped libvirt unit",
   "host.operator_005bab80fe0f8f32": [
     "  SSH:      ssh pool-control-service-admin@",
     {
@@ -8448,6 +8570,502 @@ const DataenUShost = `{
   "host.operator_fe45a4bdfe18d51e": "The following base images are KEPT (not associated with a registered VM, but needed as base images):",
   "host.operator_fea701fd46026b88": "Failed to create seed.iso with hdiutil.",
   "host.operator_ffa509d9c8227161": "  CHECKSUM FILE FETCH FAILED",
-  "host.unified_screen_lock_description": "sysadminctl unified screen lock"
+  "host.orphan_sweep_registration_unknown": [
+    "Kept ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": UTM did not answer whether ",
+    {
+      "arg": "target",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is registered (utmctl status did not finish)."
+  ],
+  "host.orphan_sweep_utmctl_unanswered": [
+    "utmctl ",
+    {
+      "arg": "verb",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " did not finish within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds, so the UTM registrations are unknown; nothing was deleted. Run this again once UTM answers."
+  ],
+  "host.rename_vm_inventory_unavailable": [
+    "Rename-VM: the running VM list could not be read (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); UTM was not quit, so no service VM is left suspended. Rename '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' after UTM answers again."
+  ],
+  "host.rename_vm_relaunch_unconfirmed": [
+    "Rename-VM: the UTM relaunch was not confirmed (",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); these service VMs were not resumed: ",
+    {
+      "arg": "names",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Open UTM, then run: ",
+    {
+      "arg": "commands",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.rename_vm_stop_unconfirmed": [
+    "Rename-VM: UTM did not stop (",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' was not renamed and its bundle was not edited."
+  ],
+  "host.unified_screen_lock_description": "sysadminctl unified screen lock",
+  "host.utm_app_census_unknown": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": could not establish which UTM processes belong to this user (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); nothing was stopped or started."
+  ],
+  "host.utm_app_control_refused": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": refused (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); UTM was left as it is."
+  ],
+  "host.utm_app_executable_mismatch": [
+    "Stop-UtmApplication: pid ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " was listed as ",
+    {
+      "arg": "processName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", but the executable it runs is not this user's ",
+    {
+      "arg": "processName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; it was not signaled."
+  ],
+  "host.utm_app_flush_skipped_census": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the preference-cache flush was skipped because this user's UTM processes could not be counted (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); a flush while UTM runs would let it write its old preferences back."
+  ],
+  "host.utm_app_flush_skipped_root": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the preference-cache flush was skipped because this process runs as root, where killall would reach every user's cfprefsd."
+  ],
+  "host.utm_app_hard_stop_signal": [
+    "Stop-UtmApplication: sending ",
+    {
+      "arg": "signal",
+      "type": "token",
+      "trust": "internal"
+    },
+    " to ",
+    {
+      "arg": "processName",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (pid ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ") because it did not exit after the quit request."
+  ],
+  "host.utm_app_identity_changed": [
+    "Stop-UtmApplication: pid ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " no longer matches the ",
+    {
+      "arg": "processName",
+      "type": "detail",
+      "trust": "external"
+    },
+    " process observed earlier; it was not signaled."
+  ],
+  "host.utm_app_identity_unreadable": [
+    {
+      "arg": "operation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the identity of ",
+    {
+      "arg": "processName",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (pid ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ") could not be read (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); it was not signaled."
+  ],
+  "host.utm_app_launch_action": "Launch UTM for this user",
+  "host.utm_app_launch_not_observed": [
+    "Start-UtmApplication: UTM was not observed for this user within ",
+    {
+      "arg": "waitSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s of 'open -a UTM' (acknowledged: ",
+    {
+      "arg": "acknowledged",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", exit ",
+    {
+      "arg": "exitCode",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "host.utm_app_launch_refused": [
+    "Start-UtmApplication: 'open -a UTM' exited ",
+    {
+      "arg": "exitCode",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " and UTM was not launched: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.utm_app_quit_action": "Quit UTM and wait for its VM helper processes to exit",
+  "host.utm_app_quit_not_confirmed": [
+    "Stop-UtmApplication: UTM did not exit within ",
+    {
+      "arg": "waitSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s of the quit request; ",
+    {
+      "arg": "utmCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " UTM and ",
+    {
+      "arg": "helperCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " QEMUHelper process(es) remain for this user and were left running."
+  ],
+  "host.utm_app_restart_action": "Quit and relaunch UTM",
+  "host.utm_app_signal_action": "Send TERM, then KILL if it remains, after revalidating the process identity",
+  "host.utm_detached_launch_action": [
+    "Launch ",
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " without waiting for the application it opens"
+  ],
+  "host.utm_dialog_watchdog_identity_action": "Record the identity of the dialog watchdog that was just started",
+  "host.utm_dialog_watchdog_start_skipped": [
+    "Start-UtmDialogWatchdog: the watchdog recorded in ",
+    {
+      "arg": "pidFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " could not be confirmed stopped, so a second one was not started; its record is kept for the next stop."
+  ],
+  "host.utm_dialog_watchdog_unverified": [
+    "Stop-UtmDialogWatchdog: pid ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " recorded in ",
+    {
+      "arg": "pidFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " could not be verified as this user's dialog watchdog (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); it was not signaled."
+  ],
+  "host.utm_restart_evidence_refused": [
+    "Restart-UtmApplication: refused, the evidence is ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (age ",
+    {
+      "arg": "ageMs",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ms); only a corroborated control timeout observed in the last ",
+    {
+      "arg": "maxAgeSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s permits a restart."
+  ],
+  "host.utm_resume_deadline_exhausted": [
+    "Resume-YurunaServiceVM: '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' was not resumed because no time remained in the shared deadline; resume it by hand (utmctl start '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "')."
+  ],
+  "host.utm_start_absent_observed": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' stayed unregistered with UTM for ",
+    {
+      "arg": "waitSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s on attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "; no start was issued."
+  ],
+  "host.utm_start_dropped": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' did not reach 'running' across ",
+    {
+      "arg": "attempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " attempt(s); utmctl reported no error, so UTM accepted each request and dropped it."
+  ],
+  "host.utm_start_exit_code": [
+    "utmctl start exited ",
+    {
+      "arg": "exitCode",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "host.utm_start_exit_detail": [
+    "utmctl start exited ",
+    {
+      "arg": "exitCode",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "text",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.utm_start_not_acted": [
+    "UTM would not act on the start request for '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' across ",
+    {
+      "arg": "attempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " attempt(s); the last reported '",
+    {
+      "arg": "lastError",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. utmctl reached UTM.app -- state queries were answered throughout -- but the start itself was never carried out, so the VM was never launched and its disk is untouched. Retry it (utmctl start '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'); rebuilding fixes nothing here."
+  ],
+  "host.utm_start_not_running": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' did not reach 'running' across ",
+    {
+      "arg": "attempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " attempt(s): ",
+    {
+      "arg": "lastError",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.utmctl_lifecycle_deadline": [
+    "utmctl ",
+    {
+      "arg": "verb",
+      "type": "token",
+      "trust": "internal"
+    },
+    " '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' was not issued: no time remained in the operation's deadline."
+  ],
+  "host.utmctl_lifecycle_timeout": [
+    "utmctl ",
+    {
+      "arg": "verb",
+      "type": "token",
+      "trust": "internal"
+    },
+    " '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' did not return within ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s and was stopped; its effect is unknown until the VM state is read again."
+  ]
 }
 `

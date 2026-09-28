@@ -10,8 +10,11 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,7 +27,8 @@ type Store struct {
 	startedAt time.Time
 	writes    int
 	last      Status
-	lastErr   string
+	statusErr string
+	auditErr  string
 }
 
 // AuditEntry is one line of the append-only audit log.
@@ -56,10 +60,10 @@ func New(dir string, now time.Time) *Store {
 	s := &Store{dir: dir, startedAt: now}
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			s.lastErr = "state dir: " + err.Error()
+			s.statusErr = "state dir: " + err.Error()
 		}
 	}
-	s.last = Status{StartedAtUTC: now.UTC().Format(time.RFC3339), Healthy: dir == "" || s.lastErr == "", StateDir: dir, LastError: s.lastErr}
+	s.last = Status{StartedAtUTC: now.UTC().Format(time.RFC3339), Healthy: dir == "" || s.statusErr == "", StateDir: dir, LastError: s.statusErr}
 	return s
 }
 
@@ -97,45 +101,61 @@ func (s *Store) Health() Status {
 	return s.last
 }
 
+// updateHealthLocked keeps independent audit and status failures visible until
+// that same destination successfully writes again.
+func (s *Store) updateHealthLocked() {
+	var failures []string
+	if s.auditErr != "" {
+		failures = append(failures, s.auditErr)
+	}
+	if s.statusErr != "" {
+		failures = append(failures, s.statusErr)
+	}
+	s.last.LastError = strings.Join(failures, "; ")
+	s.last.Healthy = len(failures) == 0
+}
+
 func (s *Store) appendAudit(e AuditEntry) {
 	if s.dir == "" {
 		return
 	}
 	f, err := os.OpenFile(filepath.Join(s.dir, "audit.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err == nil {
+		var b []byte
+		b, err = json.Marshal(e)
+		if err == nil {
+			_, err = f.Write(append(b, '\n'))
+		}
+		err = errors.Join(err, f.Close())
+	}
+	previous := s.auditErr
+	s.auditErr = ""
 	if err != nil {
-		s.last.LastError = "audit write: " + err.Error()
-		s.last.Healthy = false
-		return
+		s.auditErr = "audit write: " + err.Error()
 	}
-	defer f.Close()
-	b, _ := json.Marshal(e)
-	if _, err := f.Write(append(b, '\n')); err != nil {
-		s.last.LastError = "audit write: " + err.Error()
-		s.last.Healthy = false
-		return
+	if s.auditErr != "" && s.auditErr != previous {
+		log.Printf("pool-control-service: %s", s.auditErr)
 	}
+	s.updateHealthLocked()
 }
 
 func (s *Store) writeStatusLocked(now time.Time) {
-	// Healthy stays true unless a write error set it false; a successful write
-	// clears a prior transient error.
+	s.statusErr = ""
+	s.updateHealthLocked()
 	if s.dir == "" {
-		s.last.Healthy = true
 		return
 	}
 	tmp := filepath.Join(s.dir, "status.json.tmp")
 	dst := filepath.Join(s.dir, "status.json")
 	b, _ := json.MarshalIndent(s.last, "", "  ")
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		s.last.LastError = "status write: " + err.Error()
-		s.last.Healthy = false
+		s.statusErr = "status write: " + err.Error()
+		s.updateHealthLocked()
 		return
 	}
 	if err := os.Rename(tmp, dst); err != nil {
-		s.last.LastError = "status rename: " + err.Error()
-		s.last.Healthy = false
+		s.statusErr = "status rename: " + err.Error()
+		s.updateHealthLocked()
 		return
 	}
-	s.last.LastError = ""
-	s.last.Healthy = true
 }

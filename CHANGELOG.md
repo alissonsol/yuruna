@@ -4,9 +4,16 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.27
+
+- **Guest diagnostics.** Bound the complete diagnostic capture and SSH
+  cleanup, retain partial evidence on timeout, and preserve the workload
+  result. Timeout reporting uses typed outcomes and localized messages.
+- **Fixes.** Timing issue for Windows ARM configurations. Scaling for the performance page. Show the automated translations for Simplified Chinese and Hebrew.
+
 ## 2026.09.24
 
-- **Globalization.** Release with pt-BR localization.
+- **Localization.** First localized language (AI-based): pt-BR.
 
 - **Browser support.** The status pages and the extension service UIs
   require Safari 16, Safari iOS 16, Chrome 105, or Firefox 105, or a later
@@ -523,6 +530,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](README.md)

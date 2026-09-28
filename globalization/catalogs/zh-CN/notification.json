@@ -1,0 +1,52 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "notification",
+  "locale": "zh-CN",
+  "messages": {
+    "notification.all_delivery_failed": {
+      "sourceHash": "6de380e04855eb19421d8e8c5d9398e07af569f624abfcf6f2fb7dd3aa77bf0d",
+      "origin": "machine",
+      "message": "通知“{eventCode}”：全部{attempted}次发送尝试均失败。最后一个错误：{detail}"
+    },
+    "notification.config_mapping_required": {
+      "sourceHash": "da7ad18c0687decc5074a1cc9d9d71190f95083e129f35f53ec0598cd7ed3352",
+      "origin": "machine",
+      "message": "transports.yml未解析为映射；按空内容处理。"
+    },
+    "notification.config_parse_failed": {
+      "sourceHash": "9607879da3b01a48c05617fa0a0cb02a0221dea3ff7dc2d5ce9cb986d96f7dcf",
+      "origin": "machine",
+      "message": "transports.yml解析失败：{detail}。按空内容处理。"
+    },
+    "notification.delivered": {
+      "sourceHash": "d16da8b65138ab0c1eda3e790e5a8b83d693b4ae5e5f06decae1164c7f54b92e",
+      "origin": "machine",
+      "message": "通知“{eventCode}”已送达{address}"
+    },
+    "notification.delivery_failed": {
+      "sourceHash": "6d006047452bf7cfd673d72fc479f2fffee5d293456f10beda9ddd539b7c153f",
+      "origin": "machine",
+      "message": "通知“{eventCode}”发送至{address}失败：{detail}"
+    },
+    "notification.failure_body": {
+      "sourceHash": "44c254aecb41ceff8e6538865d8d1c4e2dce0e54a4bb6775a0fa799120197d07",
+      "origin": "machine",
+      "message": "Yuruna测试失败\n\n宿主机：{host}\n机器：{machine}\n客户机：{guest}\n步骤：{step}\n错误：{error}\n周期开始时间：{cycleStart}\n提交：{commit}\n时间：{time}"
+    },
+    "notification.failure_subject": {
+      "sourceHash": "98ea4a44a3892cc85393aaec84674bcef36cb7fc84825345be9ab20ae2020b2f",
+      "origin": "machine",
+      "message": "Yuruna测试：{host} / {subject}上的FAIL"
+    },
+    "notification.resend_config_required": {
+      "sourceHash": "78a3a7df6e03b6ab148bcbb4c7b639de437e94a246487687429a2fb6d1c0ba2f",
+      "origin": "machine",
+      "message": "必须设置transports.resend.apiKey和transports.resend.fromEmail。"
+    },
+    "notification.unknown_transport": {
+      "sourceHash": "7c09654a72297db8cfbac2086ce02e04e32d5fdad3fec9978f553962cdc405be",
+      "origin": "machine",
+      "message": "事件“{eventCode}”使用了未知的传输方式“{transport}”。"
+    }
+  }
+}

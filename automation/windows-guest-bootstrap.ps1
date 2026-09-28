@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ae98ea-d3b9-46df-ad7b-f011055484ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,8 @@
 .DESCRIPTION
     A TEMPLATE, not a script to run directly. New-WindowsGuestBootstrap
     (automation/Yuruna.GuestSeed.psm1) substitutes the `__NAME__` tokens and
-    base64s the result into the answer file's -EncodedCommand slot, where it
-    runs once at the guest's first logon.
+    writes the result and resolver to seed media. A small launcher in the
+    answer file locates that CD and runs this file at the guest's first logon.
 
     It is nevertheless a real .ps1 and parses as valid PowerShell -- every
     token sits inside a string literal -- so the parser and PSScriptAnalyzer
@@ -59,7 +59,7 @@ YURUNA_CACHING_PROXY_SERVICE_IP=__CACHE_IP__
 # to arrive over the same trusted channel as the answer file rather than over
 # the network it exists to repair.
 $locate = Join-Path $dir 'yuruna-host-locate.ps1'
-[IO.File]::WriteAllBytes($locate, [Convert]::FromBase64String('__LOCATE_B64__'))
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'yuruna-host-locate.ps1') -Destination $locate -Force
 
 # Once now, before anything reads the coordinates, so a hint that went stale
 # during Setup is corrected on this first logon rather than a minute later.
@@ -79,7 +79,7 @@ try {
         -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$locate`""
     $atStart = New-ScheduledTaskTrigger -AtStartup
     $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-        -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration ([TimeSpan]::MaxValue)
+        -RepetitionInterval (New-TimeSpan -Minutes 1)
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
     Register-ScheduledTask -TaskName 'YurunaHostLocate' -Force `

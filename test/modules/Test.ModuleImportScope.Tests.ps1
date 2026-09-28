@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4290efe6-0b47-4573-a67c-44f74ba35a69
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -220,41 +220,6 @@ same shape as its two siblings. Recorded, not cleared.
         Reason = @'
 Reached once per cleanup to ask Yuruna.Image for the canonical extension base
 image stem, which no guest folder owns. Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'test/modules/Test.ConfigServiceSync.psm1'; Function = ''; Max = 3
-        Reason = @'
-The config-sync grammar helpers -- Test.ConfigSync, Test.PoolStorage and
-Test.HostDetection. The Test.StateFile import above them already passes -Global.
-Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'test/modules/Test.ConfigServiceSync.psm1'; Function = 'Resolve-ConfigSyncInternalAuthKey'; Max = 1
-        Reason = @'
-Loads the caching-proxy module to read the aggregator seed URL, inside a
-try/catch whose failure path is a blank base URL. Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'test/modules/Test.ConfigServiceSync.psm1'; Function = 'Sync-ConfigSyncVaultCredential'; Max = 1
-        Reason = @'
-Loads the extension loader to reach the authentication area. Recorded, not cleared.
-'@
-    }
-    @{
-        File = 'test/modules/Test.ConfigServiceSync.psm1'; Function = 'Test-ConfigSyncReferenceFreshness'; Max = 1
-        Reason = @'
-Guarded: the import is reached only when Get-RetiredConfigKeyMap does not
-already resolve, so there is no resident copy for the reload to take away.
-'@
-    }
-    @{
-        File = 'test/modules/Test.ConfigServiceSync.psm1'; Function = 'Sync-HostConfiguration'; Max = 1
-        Reason = @'
-Loads Test.ConfigNaming to rewrite retired keys during a per-host sync.
-Recorded, not cleared.
 '@
     }
     @{

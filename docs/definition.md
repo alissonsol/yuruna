@@ -68,10 +68,10 @@ base URL for `curl`-style fetches in priority order:
 3. **GitHub, same repository, pinned commit** -- the final fallback.
 
 **The fallback is not a fixed public URL.** It is built from a repo slug
-and an exact commit supplied by the host: `E_FB_REPO` / `E_FB_REF`, typed
-into the guest console alongside `E_SHA` (see "typed envelope" below), or
+and an exact commit supplied by the host: `E_FB_REPO` / `E_FB_REF`, carried
+in the private fetch context alongside `E_SHA` (see below), or
 `YURUNA_GITHUB_REPO` / `YURUNA_GITHUB_REF`
-baked into `host.env` at New-VM time. The typed pair wins: it names the
+baked into `host.env` at New-VM time. The per-step pair wins: it names the
 commit the host is serving *now*, not whenever this VM was provisioned.
 
 Two properties make this the only sound fallback, both from the
@@ -151,67 +151,36 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
 ### Defining the fetch-and-execute typed envelope
 
-Before typing a `fetch-and-execute.sh <path>` command into a guest, the
-host prepends a short block of environment assignments to it -- the
-*typed envelope*. `Get-FetchExecuteEnvPrefix`
-(`test/modules/Test.SequenceHandler.psm1`) builds it, and both
-`fetchAndExecute` (VM console) and `sshFetchAndExecute` (SSH) send it.
+The host sends a 16-character launch prefix, `yfe <11 lowercase hex> `,
+before the existing `bash -c` command. The identifier is an opaque,
+single-use lookup key. It is not a shortened digest. Console and SSH use the
+same host-built context; a freshly provisioned guest has the `yfe` launcher
+at `/usr/local/bin/yfe`.
 
-| Macro | Carries | Guest behavior |
-|---|---|---|
-| `EXEC_REQUIRE_SHA256=1` | "a digest is mandatory for this call" | With no digest it recognizes, the guest **refuses** rather than running unverified bytes. |
-| `E_SHA` | sha256 of the payload script, lowercase hex | Verified before a single byte reaches `bash`; one re-fetch on mismatch, then exit 3. |
-| `E_RETRY_SHA` | sha256 of `automation/yuruna-retry.sh` | Gates the `sudo`-installed self-heal copy of the retry lib through the same check. |
-| `E_FB_REPO` | `owner/repo` for the GitHub fallback | Used only when the host status service is unreachable. |
-| `E_FB_REF` | commit for that fallback, abbreviated to 12 hex characters | Pins the fallback to a commit, never a branch. |
+Before launch, the host sends a data-only context through the existing
+transport. Console input is split into verified lines of at most 400
+characters; SSH carries it inside its detached supervisor. Preparation takes
+additional input time, but the launch prefix stays 16 characters and the
+guest does not execute a partial or failed preparation. A single step
+deadline covers preparation and completion. Context metadata is limited to
+4 KiB; a fully wrapped SSH command also has a Windows process-length guard.
 
-**Naming standard.** `E_` marks a value that is *typed*, per step, into a
-guest; `_SHA` is a lowercase-hex sha256; `FB` is the GitHub fallback pair.
-Names are terse because on the console path each character is
-an individual key event, and sends past roughly 400 characters have
-corrupted mid-flight (see `$script:FetchExecuteTypedCharWarn`). Values that
-are *baked* rather than typed -- `YURUNA_GITHUB_REPO`, `YURUNA_GITHUB_REF`,
-`YURUNA_STATUS_SERVICE_IP` in `host.env` -- cost no keystrokes and keep
-their long, self-describing names. Operator-facing overrides
-(`EXEC_BASE_URL`, `EXEC_QUERY_PARAMS`, `EXEC_PROFILE`) are typed by hand
-rather than by the harness, and likewise stay long.
+The private guest context carries the full SHA-256 hashes of the fetched
+payload and retry library, the resolved fallback repository and full commit,
+the full observation IDs, profiling flags, and a SHA-256 binding to the exact
+UTF-8 `bash -c` argument. The seeded launcher validates and consumes it
+once, exports the existing `E_SHA`, `E_RETRY_SHA`,
+`EXEC_REQUIRE_SHA256=1`, and observation variables, then executes the
+unchanged command. The fetched script still verifies the full hashes before
+executing downloaded bytes. No token or command body is stored in the
+context. Missing, changed, or oversized context data fails before the
+payload runs.
 
-**Budget.** With a 20-character repo slug the envelope is 223 characters:
+Guests are rebuilt from current seeds; this contract has no warm-image or
+mixed-version fallback. A missing `yfe` is a provisioning failure.
 
-```
-EXEC_REQUIRE_SHA256=1     22
-E_SHA=<64 hex>            71
-E_RETRY_SHA=<64 hex>      77
-E_FB_REPO=<owner/repo>    31
-E_FB_REF=<12 hex>         22
-```
-
-The step's own `text:` is added on top of that, against a ~400-character
-warning threshold -- so a sequence author has roughly 175 characters to
-spend. The long spellings cost 281, which put a 129-character command
-(a `fetch-and-execute.sh` invocation with a deep repo path) over the line.
-
-**Two compatibility rules, both deliberate:**
-
-- `EXEC_REQUIRE_SHA256` is **not** shortened. A guest imaged before the
-  short `E_*` names existed knows only the `EXEC_*` spellings; it would
-  ignore `E_SHA` entirely and run the fetched bytes unverified. Seeing
-  this flag with no digest it understands, it refuses instead -- so the
-  short names fail *closed* on an old guest, a loud, diagnosable failure
-  that a rebuild fixes, rather than silently reopening the
-  fetch-to-`bash` hole.
-- The guest reads `${E_SHA:-${EXEC_SHA256:-...}}`, and the same pattern for
-  the other three, so a *new* guest still works under an *old* host.
-
-**Why not shorter still.** Base64 digests would save another 40
-characters but cost a hex<->base64 conversion in the guest and make the
-digest un-greppable against `sha256sum` output in a console log. Folding
-all five into one packed variable saves a little more and makes the OCR'd
-console line unreadable to the operator debugging it. Neither is worth it:
-the remaining lever is the step's `text:`, and a long one signals that the
-work belongs inside the fetched script.
-
-Sources: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
+Sources: [`automation/yuruna-fetch-context.sh`](../automation/yuruna-fetch-context.sh),
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 
 <a id="42fa6f45-0006"></a>
@@ -1350,15 +1319,24 @@ for the host the page is being served from (not any guest).
 
 Round trip:
 
-1. The page's bootstrap fires a `GET /control/host-diagnostic` (single
-   round trip, no separate trigger).
-2. `Start-StatusService.ps1` invokes the script via a child `pwsh`
-   (`pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory
-   <repoRoot> -File <script>`), captures both stdout and stderr
-   through `Out-String`, writes the result to
-   `[System.IO.Path]::GetTempPath()/yuruna-hostinfo.txt`, and returns
-   the captured text as `text/plain; no-store`.
-3. The page renders the text inside a `<pre>` with
+1. The page's bootstrap fires a `GET /control/host-diagnostic`.
+2. The status service launches the detached worker
+   [`test/modules/Invoke-HostDiagnosticWorker.ps1`](../test/modules/Invoke-HostDiagnosticWorker.ps1)
+   and answers `202` with `{action: "pending", runId, retryAfterSeconds: 3}`.
+   The worker runs the script in a child `pwsh` (`pwsh -NoLogo -NoProfile
+   -NonInteractive -ExecutionPolicy Bypass -WorkingDirectory <repoRoot>
+   -File <script>`) under a time limit, captures stdout and stderr, and
+   writes the report and a state record to the host's private
+   `host-diagnostic/` directory under `$HOME/.yuruna/host-refresh/`. The
+   stored report is at most 4 MiB of UTF-8, the most the route serves;
+   a longer one is cut between characters and ends with a truncation
+   notice.
+3. The page asks again after the advertised wait, one request at a time.
+   Once the run has finished, the route answers `200` with the report as
+   `text/plain; no-store` (a run that finished in the last 15 seconds is
+   served as is; one whose report cannot be sent is served as its
+   failure sentence, never answered with a new run).
+4. The page renders the text inside a `<pre>` with
    `white-space: pre-wrap` so the diagnostic's column-aligned tables
    keep their layout while still wrapping on narrow viewports.
 
@@ -1370,20 +1348,21 @@ global preference variables
 for its `-logLevel` handling. A child process keeps those
 side-effects isolated.
 
-**Why a fixed temp filename.** The file is overwritten on every
-request -- operators get one canonical "most recent host diagnostic"
-to grep from the shell (`cat /tmp/yuruna-hostinfo.txt` or
-`type %TEMP%\yuruna-hostinfo.txt`) without timestamped clutter. The
-file is not web-accessible by path (the temp directory is outside
-`$statusDir` / `$trackDir`); reading it through the server takes the
-same `/control/host-diagnostic` request, which regenerates it.
+**Why a private result file.** The latest report is always
+`$HOME/.yuruna/host-refresh/host-diagnostic/result.txt` -- one canonical
+"most recent host diagnostic" an operator can read from the shell
+without timestamped clutter. That directory is outside every tree the
+status service serves; reading the report through the server takes the
+same `/control/host-diagnostic` request.
 
-**Why synchronous.** The diagnostic typically completes in a few
-seconds; an asynchronous request (trigger + poll) would double the
-moving parts for nothing at Yuruna's single-operator scale.
-The endpoint blocks the server's request loop for the duration of the
-run -- acceptable because the polling dashboard retries on the next
-60 s tick.
+**Why a detached worker.** The status service handles one request at a
+time, and the diagnostic reaches tools that can take minutes or never
+answer (`system_profiler`, `scutil`, `lsof`, the hypervisor client).
+Run inside the request loop, one slow call parked every route --
+including the read-only status page an operator opens to see whether
+the host is alive at all. The worker runs one diagnostic at a time: a
+second request while it runs is answered `pending` rather than given a
+second run, and a finished report is reused for 15 seconds.
 
 **Why the hostname is the click target.** It is the same string the
 operator reads at the top right of every page, so the affordance
@@ -1661,12 +1640,16 @@ Page-specific behavior:
   `window.confirm()` only when a runner is currently alive -- starting
   from a stopped state is non-destructive so no prompt fires. POSTs
   to `/control/test-config` first (atomic file replace) and then to
-  `/control/start-cycle` (clears pause flags, runs
-  `Remove-TestVMFiles.ps1`, and either signals the inner runner to
-  break its delay OR spawns a fresh runner if none). 6-second dwell
-  on the final "Cycle restarted / Runner started" message before
-  navigating to the status page so the operator can read it before
-  the dashboard takes over.
+  `/control/start-cycle`, which queues a detached worker and answers
+  `202`. The worker, holding the host's repair lock, clears the pause
+  flags, runs `Remove-TestVMFiles.ps1`, and then either signals the
+  inner runner to break its delay OR starts a fresh runner if none is
+  alive; the page follows its progress in
+  `runtime/start-cycle.state.json` every three seconds. While a host
+  refresh holds the host the request is refused and nothing is
+  changed. 6-second dwell on the final "Cycle restarted / Runner
+  started" message before navigating to the status page so the
+  operator can read it before the dashboard takes over.
 
 <a id="42fa6f45-0024"></a>
 
@@ -2381,6 +2364,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

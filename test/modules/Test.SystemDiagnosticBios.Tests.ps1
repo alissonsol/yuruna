@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42696ce9-89fb-43d5-ab5b-3d4eda2725cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ BeforeAll {
     # Get-SystemDiagnostic is a top-to-bottom executable script, so dot-sourcing
     # it would run every host/network/container probe. Lift only the pure helper
     # bodies from the shipped AST, in dependency order.
-    foreach ($name in 'Get-BiosPropertyOrder', 'Format-BiosDiagnosticValue', 'Get-BiosDiagnosticLine') {
+    foreach ($name in 'Get-BiosPropertyOrder', 'Format-BiosDiagnosticValue', 'Get-BiosDiagnosticLine', 'Invoke-Tool') {
         $definition = Get-YurunaTestFunctionAst -Path $script:DiagPath -Name $name
         if (-not $definition) {
             throw "Test.SystemDiagnosticBios.Tests.ps1: helper '$name' was not found in $($script:DiagPath)."
@@ -333,6 +333,31 @@ Describe 'Get-SystemDiagnostic BIOS section wiring' {
         Assert-Match '-FormatValues \(\$_.Exception.Message\) -FormatBindings' $biosText
         Assert-Match 'if\s*\(\s*-not\s+\$IsWindows\s*\)' $biosText
         Assert-Match '(?s)try\s*\{.*Get-ComputerInfo.*\}\s*catch\s*\{' $biosText
+    }
+}
+
+Describe 'Diagnostic native output with a trailing exit code' {
+    BeforeAll {
+        function Invoke-DiagnosticFixtureTool { throw 'The deadline fixture must intercept execution.' }
+        function Invoke-WithDeadline { throw 'The deadline fixture must intercept execution.' }
+    }
+
+    It 'does not print an exit code as output when the tool prints nothing' {
+        Mock Invoke-WithDeadline { @{ TimedOut = $false; Output = @(0) } }
+        @(Invoke-Tool -Tool Invoke-DiagnosticFixtureTool -TimeoutSeconds 1).Count | Should -Be 0
+    }
+
+    It 'preserves empty output without a trailing exit code' {
+        Mock Invoke-WithDeadline { @{ TimedOut = $false; Output = @() } }
+        @(Invoke-Tool -Tool Invoke-DiagnosticFixtureTool -TimeoutSeconds 1).Count | Should -Be 0
+    }
+
+    It 'prints all text lines and removes only the trailing exit code' {
+        Mock Invoke-WithDeadline { @{ TimedOut = $false; Output = @('first', 'second', 0) } }
+        $output = @(Invoke-Tool -Tool Invoke-DiagnosticFixtureTool -TimeoutSeconds 1)
+        $output.Count | Should -Be 2
+        $output[0] | Should -Be 'first'
+        $output[1] | Should -Be 'second'
     }
 }
 

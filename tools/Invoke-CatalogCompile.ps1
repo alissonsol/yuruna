@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,14 @@
     a layout sized to English breaks visibly. The mirrored one marks the
     string right-to-left. Neither is ever shipped.
 
+    A locale the manifest marks planned is validated like any other and
+    emits no artifact. A stale sourceHash in a locale that is not supported
+    prints a WARN line instead of failing the run, so an English wording edit
+    never waits on a draft no reader is served. Every other translation
+    problem fails the run whatever the locale's status, including a draft
+    that no longer fits an English edit to its placeholders, variants, kind
+    or lifecycle.
+
     Exit codes follow the entry-point contract:
         0  Sources are valid and the generated artifacts are current.
         1  A source is invalid, or the artifacts are stale (-Check), or
@@ -63,7 +71,7 @@
 .PARAMETER Root
     The globalization directory. Default: globalization/ beside this repo.
 .PARAMETER Quiet
-    Print only failures and the summary.
+    Print only failures, warnings and the summary.
 
 .EXAMPLE
     pwsh tools/Invoke-CatalogCompile.ps1
@@ -92,10 +100,27 @@ if (-not $Root) { $Root = Join-Path $RepoRoot 'globalization' }
 if (-not $Update) { $Check = $true }
 
 $script:Problem = [System.Collections.Generic.List[string]]::new()
+$script:Warning = [System.Collections.Generic.List[string]]::new()
 
 function Add-Problem {
     param([Parameter(Mandatory)][string]$Message)
     $script:Problem.Add($Message)
+}
+
+function Add-Warning {
+    param([Parameter(Mandatory)][string]$Message)
+    $script:Warning.Add($Message)
+}
+
+# Every problem is reported before anything is compared or written, so a run
+# that fails leaves the generated tree exactly as it found it.
+function Exit-OnProblem {
+    if ($script:Problem.Count -eq 0) { return }
+    foreach ($w in $script:Warning) { Write-Output "WARN  $w" }
+    foreach ($p in $script:Problem) { Write-Output "  $p" }
+    Write-Output ''
+    Write-Output "Catalog validation failed with $($script:Problem.Count) problem(s)."
+    exit 1
 }
 
 # --- REGION: Validation
@@ -469,10 +494,13 @@ function ConvertTo-PowerShellLiteral {
 
     $pad = ' ' * $Indent
     if ($Value -is [string]) {
+        # PowerShell treats U+2018, U+2019, U+201A and U+201B as single quotes
+        # and U+201C, U+201D and U+201E as double quotes, so any of them ends a
+        # string literal unless escaped.
         if ($Value.Contains("`n") -or $Value.Contains("`r") -or $Value.Contains("`t") -or
-            [regex]::IsMatch($Value, "[\u2018\u2019\u201c\u201d]")) {
+            [regex]::IsMatch($Value, '[\u2018\u2019\u201a\u201b\u201c\u201d\u201e]')) {
             $escaped = $Value.Replace('`', '``').Replace('$', '`$').Replace('"', '`"').Replace("`r", '`r').Replace("`n", '`n').Replace("`t", '`t')
-            foreach ($quote in @(0x2018, 0x2019, 0x201c, 0x201d)) {
+            foreach ($quote in @(0x2018, 0x2019, 0x201a, 0x201b, 0x201c, 0x201d, 0x201e)) {
                 $character = [string][char]$quote
                 $escaped = $escaped.Replace($character, ('`' + $character))
             }
@@ -481,9 +509,10 @@ function ConvertTo-PowerShellLiteral {
         return "'" + $Value.Replace("'", "''") + "'"
     }
     if ($Value -is [System.Collections.IDictionary]) {
+        # A key is a string literal too, so it takes the same quoting as a
+        # value: a select variant name may hold a typographic quote.
         $lines = foreach ($k in $Value.Keys) {
-            $key = ([string]$k).Replace("'", "''")
-            "$pad    '$key' = " + (ConvertTo-PowerShellLiteral -Value $Value[$k] -Indent ($Indent + 4))
+            "$pad    " + (ConvertTo-PowerShellLiteral -Value ([string]$k)) + ' = ' + (ConvertTo-PowerShellLiteral -Value $Value[$k] -Indent ($Indent + 4))
         }
         return "@{`n" + ($lines -join "`n") + "`n$pad}"
     }
@@ -549,7 +578,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.24'
+        '.VERSION 2026.09.27'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -620,6 +649,7 @@ if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
     exit 2
 }
 
+$Root = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).ProviderPath
 $manifestPath = Join-Path $Root 'locale-manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     $ErrorActionPreference = 'Continue'
@@ -644,7 +674,11 @@ if (-not (Test-Path -LiteralPath $catalogRoot -PathType Container)) {
 }
 
 # --- REGION: Read and validate source catalogs
-$sourceLocale = @(Get-ChildItem -LiteralPath $catalogRoot -Directory | Sort-Object Name)
+# Dot-named entries are skipped by name, ordinally, not left to the platform:
+# PowerShell hides them on Linux and macOS but not on Windows, where -Force
+# also brings in Hidden and System files the other platforms never had.
+$sourceLocale = @(Get-ChildItem -LiteralPath $catalogRoot -Directory -Force |
+        Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object Name)
 $catalogs = [System.Collections.Generic.List[hashtable]]::new()
 $seenKey = @{}
 
@@ -656,7 +690,10 @@ foreach ($dir in $sourceLocale) {
         continue
     }
     $categories = @($localeInfo.pluralCategories)
-    foreach ($file in (Get-ChildItem -LiteralPath $dir.FullName -Filter '*.json' -File | Sort-Object Name)) {
+    # The same dot-name rule: an editor's lock or draft file beside a catalog
+    # must not compile into the artifacts on any platform.
+    foreach ($file in (Get-ChildItem -LiteralPath $dir.FullName -Filter '*.json' -File -Force |
+            Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object Name)) {
         $text = [IO.File]::ReadAllText($file.FullName)
         $parsed = $null
         try { $parsed = ConvertFrom-Json -InputObject $text }
@@ -728,12 +765,23 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
         }
         $expectedHash = [string]$messageSourceHash[$key]
         if ([string]$translation.sourceHash -cne $expectedHash) {
-            Add-Problem "$($entry.SourcePath)`: '$key' sourceHash is stale; expected $expectedHash"
+            # An English edit stales every translation of that key. Failing the
+            # compile for a locale no reader is served would block the edit on
+            # a draft; the stale entry is kept and reported, never shipped.
+            if ([string]$manifest.locales.$($entry.Locale).status -eq 'supported') {
+                Add-Problem "$($entry.SourcePath)`: '$key' sourceHash is stale; expected $expectedHash"
+            } else {
+                Add-Warning "$($entry.SourcePath)`: '$key' sourceHash is stale (planned locale; the entry is kept but not shipped)"
+            }
         }
+        # The origin is provenance only: the merged compile input below is
+        # built from the source metadata and the translated text, so a machine
+        # draft and accepted text compile to the same artifact.
         $translationProvenance["$($entry.Locale)/$key"] = [ordered]@{
             source     = $entry.SourcePath
             inputHash  = $entry.InputHash
             sourceHash = [string]$translation.sourceHash
+            origin     = if ($translation.PSObject.Properties['origin']) { [string]$translation.origin } else { 'accepted' }
         }
 
         $sourceKind = if ($null -ne $source.plural) { 'plural' } elseif ($null -ne $source.select) { 'select' } else { 'message' }
@@ -849,12 +897,7 @@ foreach ($p in $manifest.locales.PSObject.Properties) {
     }
 }
 
-if ($script:Problem.Count -gt 0) {
-    foreach ($p in $script:Problem) { Write-Output "  $p" }
-    Write-Output ''
-    Write-Output "Catalog validation failed with $($script:Problem.Count) problem(s)."
-    exit 1
-}
+Exit-OnProblem
 
 # --- REGION: Add pseudo-locales
 $base = @($catalogs | Where-Object { $_.Locale -eq $manifest.default })
@@ -874,6 +917,9 @@ $wanted = [ordered]@{}
 $inventory = [System.Collections.Generic.List[object]]::new()
 
 foreach ($entry in ($catalogs | Sort-Object { $_.Locale }, { $_.Domain })) {
+    # A planned locale is validated above but emits nothing: no runtime can
+    # load it, and the orphan sweep below removes anything an earlier run left.
+    if ([string]$manifest.locales.$($entry.Locale).status -eq 'planned') { continue }
     $compiled = [ordered]@{}
     $activeCount = 0
     foreach ($p in ($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
@@ -884,6 +930,13 @@ foreach ($entry in ($catalogs | Sort-Object { $_.Locale }, { $_.Domain })) {
 
     $json = ConvertTo-CanonicalJson -Value $compiled
     $psText = Get-PowerShellArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
+    # Import-PowerShellDataFile rejects the whole file on one bad literal, so
+    # a data file the parser refuses would break every lookup in its locale.
+    $parseErrors = $null
+    $null = [Management.Automation.Language.Parser]::ParseInput($psText, [ref]$null, [ref]$parseErrors)
+    if ($parseErrors.Count) {
+        Add-Problem "generated/powershell/$($entry.Locale).$($entry.Domain).psd1 does not parse: $($parseErrors[0].Message)"
+    }
     $jsText = Get-BrowserArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
     $goText = Get-GoArtifact -Locale $entry.Locale -Domain $entry.Domain -Json $json
 
@@ -902,6 +955,8 @@ foreach ($entry in ($catalogs | Sort-Object { $_.Locale }, { $_.Domain })) {
         bytes        = [Text.UTF8Encoding]::new($false).GetByteCount($json)
     })
 }
+
+Exit-OnProblem
 
 # Ordered, not a plain hashtable: an unordered map enumerates in whatever
 # order the runtime chooses, so the same inputs would emit different bytes
@@ -941,11 +996,20 @@ foreach ($entry in @($base | Sort-Object Domain)) {
             inputHash  = $entry.InputHash
             sourceHash = [string]$messageSourceHash[$p.Name]
         }
+        # A tombstoned key keeps its record, and no locale may translate it,
+        # so a reader counting open rows has to be able to leave it out.
+        if ([string]$p.Value.lifecycle -eq 'tombstone') { $sourceProvenance[$p.Name]['lifecycle'] = 'tombstone' }
     }
+}
+$machineByLocale = [ordered]@{}
+foreach ($translationKey in $translationProvenance.Keys) {
+    if ($translationProvenance[$translationKey].origin -ne 'machine') { continue }
+    $machineLocale = $translationKey.Substring(0, $translationKey.IndexOf('/'))
+    $machineByLocale[$machineLocale] = 1 + $(if ($machineByLocale.Contains($machineLocale)) { $machineByLocale[$machineLocale] } else { 0 })
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.24'
+    compilerVersion = '2026.09.27'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash
@@ -958,6 +1022,8 @@ $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
         sourceMessages = @($messageSourceHash.Keys).Count
         generatedArtifacts = @($artifactHash.Keys).Count
         generatedBytes = [long](($artifactBytes.Values | Measure-Object -Sum).Sum)
+        machineTranslations = @($translationProvenance.Values | Where-Object { $_.origin -eq 'machine' }).Count
+        machineByLocale = $machineByLocale
     }
 })
 $wanted[(Join-Path $Root 'manifests/catalog-set.json')] = $setManifest
@@ -970,7 +1036,9 @@ $written = 0
 foreach ($path in $wanted.Keys) {
     $rel = ([IO.Path]::GetRelativePath($RepoRoot, $path)) -replace '\\', '/'
     $current = if (Test-Path -LiteralPath $path -PathType Leaf) { [IO.File]::ReadAllText($path) } else { $null }
-    if ($current -eq $wanted[$path]) {
+    # Case-sensitive: -eq would call a change of letter case current, leave the
+    # artifact unwritten, and still record the hash of the text it never wrote.
+    if ($current -ceq $wanted[$path]) {
         if (-not $Quiet) { Write-Output "PASS  $rel" }
         continue
     }
@@ -1004,7 +1072,10 @@ foreach ($path in $wanted.Keys) {
 foreach ($dir in @((Join-Path $generatedRoot 'powershell'), (Join-Path $generatedRoot 'browser'),
                    (Join-Path $generatedRoot 'go/catalog'))) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
-    foreach ($file in (Get-ChildItem -LiteralPath $dir -File)) {
+    # The same name rule as the sources: a dot-named file is never swept. On
+    # Windows -Force does sweep Hidden and System files such as desktop.ini.
+    foreach ($file in (Get-ChildItem -LiteralPath $dir -File -Force |
+            Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) })) {
         if ($wanted.Keys -contains $file.FullName) { continue }
         $rel = ([IO.Path]::GetRelativePath($RepoRoot, $file.FullName)) -replace '\\', '/'
         $stale.Add($rel)
@@ -1023,6 +1094,7 @@ foreach ($dir in @((Join-Path $generatedRoot 'powershell'), (Join-Path $generate
     exit 2
 }
 
+foreach ($w in $script:Warning) { Write-Output "WARN  $w" }
 Write-Output ''
 $domains = @($catalogs | ForEach-Object { $_.Domain } | Sort-Object -Unique).Count
 $locales = @($catalogs | ForEach-Object { $_.Locale } | Sort-Object -Unique).Count

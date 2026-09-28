@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,9 +150,17 @@ function New-ExtensionArea {
     $null = New-ExtensionArea -Root $extRoot -Area 'yzbare'    -NoConfig
 
     Use-ExtensionDir -Path $extRoot
+    $operatorPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Globalization.psm1'
+    $script:FixtureOperatorModule = Import-Module $operatorPath -Global -PassThru -DisableNameChecking
+    $script:PreviousOperatorContext = & $script:FixtureOperatorModule { $script:OperatorContext }
+    $null = Get-YurunaOperatorLocale
+    & $script:FixtureOperatorModule {
+        $script:OperatorContext = New-LocaleContext -ConfigLanguage 'en-US' -ProcessCulture 'en-US'
+    }
 }
 
 AfterAll {
+    & $script:FixtureOperatorModule { param($Previous) $script:OperatorContext = $Previous } $script:PreviousOperatorContext
     if ($realExtensionDir) { Use-ExtensionDir -Path $realExtensionDir }
     foreach ($m in @('yzsolo1', 'yzpart1', 'yznocon1', 'yzblank1', 'yzmulti1', 'yzmulti2')) {
         Remove-Module -Name $m -Force -ErrorAction SilentlyContinue
@@ -161,6 +169,7 @@ AfterAll {
         Remove-Item -LiteralPath $extRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+
 
 Describe 'Resolve-ExtensionAreaDir' {
     It 'resolves an area to its directory' {

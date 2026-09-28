@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/42e220c4-0005
@@ -204,8 +204,9 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 # See https://yuruna.link/42e220c4-000f
 echo ""
 echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
-BUILD=/tmp/pool-control-service-build
-rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
+BUILD="$(mktemp -d /tmp/pool-control-service-build.XXXXXXXX)"
+trap 'rm -rf -- "$BUILD"' EXIT
+cp -r "$SERVER_DIR" "$BUILD/server"
 SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
 [ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
 cp -r "$SDK_DIR" "$BUILD/extension-sdk"

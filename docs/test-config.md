@@ -438,6 +438,124 @@ consecutive-failure streak (`maxAttemptsPerCycle`) so a deterministic failure
 still escalates to the normal wait-for-human pause after that many auto-retries.
 A pool may override the whole block through its `config.testCycle`.
 
+<a id="42b11c32-0012"></a>
+
+## testCycle.autoRefreshAfterStalls -- automatic host refresh (default off)
+
+```yaml
+testCycle:
+  autoRefreshAfterStalls: 0
+```
+
+The number of completed cycles that must see the hypervisor stop answering
+before the resident runner repairs the host itself, instead of waiting for an
+operator to run `test/lab/Invoke-HostRefresh.ps1`. `0` (the default) is off.
+The recommended opt-in is `2`; `1` is treated as `2`, because one timeout is not
+proof of a wedge. A value that is not a whole number of zero or more is read as
+`0`, with a warning after each completed cycle, and `Test-Config.ps1` warns too. A pool's
+`config.testCycle.autoRefreshAfterStalls` wins over this file, including `0`,
+which turns automatic repair off across the pool.
+
+**No platform acts on it yet.** Automatic repair runs only on a platform that has
+passed a native qualification run, and none has: macOS reports
+`awaiting-native-qualification`, Ubuntu KVM and Windows Hyper-V
+`platform-unqualified`. On those hosts the runner still reads the value and
+counts the evidence below, logs once per runner process that automatic repair
+is not available on this host and why, and `Test-Config.ps1` warns when the value
+is above `0`. Local repair with `Invoke-HostRefresh.ps1` is unaffected.
+
+**What counts.** Only a cycle whose outcome is *completed* -- it passed or it
+failed, but it ran -- and only evidence from the service-VM restore sweep at
+cycle start. The inner runner writes that evidence to
+`runtime/runner.refresh-evidence.json`, stamped with the cycle generation the
+resident runner issued, and the resident runner consumes the file after every
+dispatch, so evidence from one cycle is never counted for another. A cycle
+counts toward the threshold when at least one service VM's state could not be
+read because the hypervisor control call timed out, and no service VM got an
+answer. It never counts:
+
+- a denied permission, a missing `utmctl`, no GUI session, or output nothing
+  recognizes -- those need an operator, not a restart;
+- any other phase: git, network, vault and package failures, test failures;
+- a cycle that aborted on start, failed to spawn, hit a pull error, or was
+  paused, drained or shut down.
+
+A cycle in which the hypervisor answered for any service resets the count to
+zero. The count survives a runner restart; it lives in
+`$HOME/.yuruna/host-refresh/host-refresh.auto-streak.json`.
+
+Counting has two side effects on every host, even with the value at `0` and on a
+platform that cannot act: the first counted timeout creates
+`$HOME/.yuruna/host-refresh/` (owner-only) for the count file, and each cycle that
+counts one reads the pool intent again -- with pool sync on, the same bounded
+fetch the cycle start does, rewriting `runtime/pool.state.json` -- so a pool
+override can take effect without waiting for the next cycle.
+
+**What happens at the threshold.** After the cycle that reached it, the resident
+runner re-reads the pool intent, reserves the day's attempt, and runs
+`test/lab/Invoke-HostRefresh.ps1` itself, synchronously, at the `restart` tier
+with the highest restart-tier rung this host has qualified as the ceiling. A
+paused, draining or unreadable pool means no attempt, and so does pool sync that
+is on but yields no pool record for this host (no intent pulled or cached, or the
+host is not a member): the runner then cycles as a single host, but an unattended
+restart cannot tell a fleet that wants the host paused from one it cannot read.
+The repair re-probes first and changes nothing if the hypervisor answers by then.
+It never force-stops UTM or its helpers, never reclaims or restarts the runner
+that called it, and restores the service VMs it disrupted. The runner waits for
+it, at most about 16 minutes. On Linux and macOS the repair starts with Ctrl+C
+(SIGINT) ignored, so a Ctrl+C in the runner's terminal reaches only the runner,
+which acts on it after the repair returns; the processes the repair starts
+inherit the ignored Ctrl+C. On Windows a console Ctrl+C reaches the repair too.
+The runner counts the attempt a success only when the recorded result is for its
+own request, from an attempt that ended after the launch, with a responsive final
+probe and the runner reported parked.
+
+**Budget.** At most one automatic attempt per UTC day; the day rolls over at
+00:00:00Z. The attempt is reserved in
+`$HOME/.yuruna/host-refresh/host-refresh.auto-budget.record` before the repair
+request exists, and the reservation stands whatever the outcome -- a failed,
+refused or interrupted attempt still uses the day. A clock set back never frees
+a used day: a reservation dated in the future stops automatic repair until the
+clock catches up. A corrupt or unreadable ledger makes automatic repair
+unavailable; inspect it, then delete both `host-refresh.auto-budget.record` and
+`host-refresh.auto-budget.record.prev` to start a new one. An answering
+hypervisor resets the count, never the budget.
+
+**After an attempt.** A repair on a failed cycle skips the failure pause, so the
+next cycle starts at once. Any other result keeps the normal backoff and logs an
+operator line naming the verdict and the next UTC day an automatic attempt is
+allowed. While the automatic request is still open, a plain local
+`Invoke-HostRefresh.ps1` run is refused; finish it with
+`Invoke-HostRefresh.ps1 -Resume`, or release what it holds with
+`-DisposeObligation`.
+
+**Resuming.** An automatic request that is left open -- recovery-pending because
+a service it stopped is not back, never claimed, or claimed by a worker that is
+gone (one the runner stopped after the 16-minute bound, or one that crashed) --
+is relaunched by the runner with the same request id: no new reservation, up to
+three attempts in all, at least five minutes after the last one, and only while
+the pool is `run` and no shutdown is pending. A request with a service still to
+restore resumes for restoration only, with no new teardown. The runner resumes
+only a request that recorded its own process as the caller: the repair protects
+the runner it recorded and does not look for another, so after a runner restart
+the new runner leaves the old request to the operator and says so once.
+
+**Turning it off.** Setting the value to `0` (locally or through the pool) stops
+new automatic attempts and every resume of a request that has not disrupted
+anything yet; the runner says once per request that it leaves it. A request with
+a service still to restore keeps resuming, because that run only restores. To
+stop that too, dispose of its obligations with `Invoke-HostRefresh.ps1
+-DisposeObligation`. A drain withdraws an automatic request no worker has
+started.
+
+**Timing.** There is no fixed delay between the fault and the repair: the count
+advances one cycle at a time, and the failure pause between failed cycles is 60
+minutes, widening after repeated preamble stalls, so a wedged host can wait far
+longer than two cycle lengths.
+
+**Taking effect.** The resident runner holds this logic in memory, so a change to
+it applies after the runner restarts; the value itself is re-read every cycle.
+
 <a id="42b11c32-000e"></a>
 
 ## testCycle.labHealth -- hold the cycle while a lab service is away
@@ -525,6 +643,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

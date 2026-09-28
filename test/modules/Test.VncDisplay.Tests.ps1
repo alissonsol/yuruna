@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -266,9 +266,10 @@ Describe 'A failed VM start is never reported as success' {
         $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $body = [regex]::Match($text, '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'Set-VncDisplayInBundle') 'the rename records a display'
-        $quitAt     = $body.IndexOf('to quit')
+        # The quit and the relaunch are the UTM stop and start primitives.
+        $quitAt     = $body.IndexOf('Stop-UtmApplication')
         $displayAt  = $body.IndexOf('Set-VncDisplayInBundle')
-        $relaunchAt = $body.IndexOf('open -a UTM', $displayAt)
+        $relaunchAt = $body.IndexOf('Start-UtmApplication', $displayAt)
         Assert-True ($quitAt -ge 0 -and $quitAt -lt $displayAt) 'UTM is quit before the display is written'
         Assert-True ($relaunchAt -gt $displayAt) 'and relaunched after, so it loads the new value'
         Assert-True ($body -match 'Get-ClaimedVncDisplay') 'the choice avoids displays other bundles claim'

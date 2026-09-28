@@ -259,10 +259,15 @@ func TestScanPageServed(t *testing.T) {
 func rekeyAggStub(t *testing.T) (*httptest.Server, *int32) {
 	t.Helper()
 	var factCalls int32
+	var handed int32
 	base := ""
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			if atomic.LoadInt32(&handed) != 0 {
+				_, _ = w.Write([]byte(`{"hosts":[{"hostId":"42live","control":"ready","reachable":true,"lastSeenUnixMs":2000,"currentIp":"192.168.7.110","baseUrl":"` + base + `/host","status":{"host":"host.windows.hyper-v"}}]}`))
+				return
+			}
 			// The dead id is listed FIRST and both are named "42..." so neither
 			// map order nor id order can be what decides the answer.
 			_, _ = w.Write([]byte(`{"hosts":[
@@ -275,6 +280,13 @@ func rekeyAggStub(t *testing.T) (*httptest.Server, *int32) {
 		case r.URL.Path == "/host/control/host-facts":
 			atomic.AddInt32(&factCalls, 1)
 			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":66342330368,"cores":8,"frameworkAccess":"yurunadev"}`))
+		case r.URL.Path == "/api/v1/handover-host" && r.Method == http.MethodPost:
+			atomic.StoreInt32(&handed, 1)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case r.URL.Path == "/api/v1/host-aliases":
+			if atomic.LoadInt32(&handed) != 0 {
+				_, _ = w.Write([]byte(`{"canonicalHostId":"42live","hostIds":["42dead","42live"]}`))
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -409,10 +421,9 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 	if m["movedToPool"] != "lab" {
 		t.Errorf("movedToPool = %v, want lab", m["movedToPool"])
 	}
-	// Removed BEFORE the add: a host belongs to at most one pool, and adding the
-	// live id while the dead one is still a member would put one machine in a
-	// pool twice under two names -- the state being repaired.
-	want := []string{"RemoveHost:lab:42dead", "AddHost:lab:42live"}
+	// Membership changes in one intent-store write, so a failed push cannot
+	// leave the machine between the remove and add steps.
+	want := []string{"MoveHostIdentity:42dead:42live"}
 	if len(fake.calls) != len(want) {
 		t.Fatalf("intent calls = %v, want %v", fake.calls, want)
 	}
@@ -423,6 +434,19 @@ func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
 	}
 	if s.discovered.Has("42dead") {
 		t.Error("the retired id must leave the monitored list too")
+	}
+	// The fake records calls; unlike the real CLI it does not update pools.yml.
+	fake.doc = strings.Replace(fake.doc, `"42dead"`, `"42live"`, 1)
+	_, rows := hostsPayload(t, s, testBearer)
+	if _, exists := rows["42dead"]; exists {
+		t.Fatal("the retired ID still appears after a successful handover")
+	}
+	if got := rows["42live"]; got == nil {
+		t.Fatal("the live ID disappeared")
+	}
+	resp, m = do(t, "POST", srv.URL+"/api/pool/adopt-rekey", `{"oldHostId":"42dead","newHostId":"42live"}`)
+	if resp.StatusCode != http.StatusOK || m["ok"] != true {
+		t.Fatalf("retry after old row disappeared: %d %v", resp.StatusCode, m)
 	}
 }
 
@@ -468,5 +492,69 @@ func TestAdoptRekeyRefusesTwoDistinctMachines(t *testing.T) {
 	resp, m := do(t, "POST", srv.URL+"/api/pool/adopt-rekey", `{"oldHostId":"42aa","newHostId":"42bb"}`)
 	if resp.StatusCode != 409 {
 		t.Fatalf("two hosts on different addresses: got %d (%v), want 409", resp.StatusCode, m["error"])
+	}
+}
+
+func TestHostHistoryRequiresUnlockAndForwardsInternalBearer(t *testing.T) {
+	var reads int32
+	agg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/host-history" {
+			http.NotFound(w, r)
+			return
+		}
+		atomic.AddInt32(&reads, 1)
+		if r.Header.Get("Authorization") != "Bearer "+testBearer || r.URL.Query().Get("hostId") != "42live" {
+			t.Errorf("history proxy forwarded the wrong request")
+		}
+		_, _ = w.Write([]byte(`{"canonicalHostId":"42live","hostIds":["42dead","42live"],"entries":[]}`))
+	}))
+	defer agg.Close()
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	response, err := http.Get(srv.URL + "/api/hosts/history?hostId=42live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized || atomic.LoadInt32(&reads) != 0 {
+		t.Fatalf("anonymous history: status %d, aggregator reads %d", response.StatusCode, atomic.LoadInt32(&reads))
+	}
+	response, body := do(t, http.MethodGet, srv.URL+"/api/hosts/history?hostId=42live", "")
+	if response.StatusCode != http.StatusOK || body["canonicalHostId"] != "42live" || atomic.LoadInt32(&reads) != 1 {
+		t.Fatalf("authenticated history: status %d, body %v, reads %d", response.StatusCode, body, atomic.LoadInt32(&reads))
+	}
+}
+
+func TestAdoptRekeyReportsAggregatorFailureWithoutForgettingOldRow(t *testing.T) {
+	base := ""
+	agg := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/handover-host" {
+			http.Error(w, "state file unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.URL.Path == "/api/v1/pool-status" {
+			_, _ = w.Write([]byte(`{"hosts":[{"hostId":"42dead","reachable":false,"baseUrl":"` + base + `/host"},{"hostId":"42live","reachable":true,"baseUrl":"` + base + `/host"}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	base = "http://" + agg.Listener.Addr().String()
+	agg.Start()
+	defer agg.Close()
+	fake := &boardIntent{doc: `{"ok":true,"pools":[{"poolId":"lab","members":["42dead"]}]}`}
+	s := New(fake, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	s.discovered.Add(discovery.Host{Address: "192.168.7.110", HostID: "42dead"}, time.Now())
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	resp, body := do(t, http.MethodPost, srv.URL+"/api/pool/adopt-rekey", `{"oldHostId":"42dead","newHostId":"42live"}`)
+	if resp.StatusCode != http.StatusBadGateway || body["error"] == "" || !s.discovered.Has("42dead") {
+		t.Fatalf("partial handover reported success or hid old row: status %d body %v", resp.StatusCode, body)
+	}
+	if detail, ok := body["error"].(string); !ok || !strings.Contains(detail, "retry adopt-rekey") {
+		t.Fatalf("partial handover omitted the retry operation: %v", body)
+	}
+	if len(fake.calls) != 1 || fake.calls[0] != "MoveHostIdentity:42dead:42live" {
+		t.Fatalf("membership update was not atomic: %v", fake.calls)
 	}
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -58,7 +58,7 @@ echo -e "\e[1;36m==== .NET SDK ====\e[0m"
 # Microsoft's RPM repositories do not target AL2023; use dotnet-install.sh.
 dnf_retry sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
-curl_retry -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
+curl_retry -fsSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
 sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,17 +97,8 @@ function Show-ManualDownloadInstruction {
 Write-Output ""
 Write-Output "== Windows 11 ISO =="
 
-# --- REGION: Short-circuit #1: default-path existence check (no admin needed)
-# Hyper-V's default VHD location is predictable, so check there FIRST
-# without loading the Hyper-V module or requiring elevation. Most hosts
-# keep the default; when it's been relocated we re-check the configured
-# path below after elevation clears Get-VMHost.
+# Resolve the active Hyper-V storage root before accepting any existing ISO.
 $defaultBaseFile = Join-Path $defaultDownloadDir "$baseImageName.iso"
-if (Test-Path -LiteralPath $defaultBaseFile) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b8484d0c8d0f00c6')
-    Write-Output "  File: $defaultBaseFile"
-    exit 0
-}
 
 # --- REGION: Elevation check
 # See https://yuruna.link/42e220c4-0003
@@ -124,7 +115,7 @@ try {
     $downloadDir = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
 } catch {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5874e8355455ba51' -Arguments @{ message = "$($_.Exception.Message)" })
-    $downloadDir = $defaultDownloadDir
+    exit 1
 }
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
@@ -136,10 +127,11 @@ if (!(Test-Path -Path $downloadDir)) {
 }
 
 # --- REGION: Short-circuit #2: configured-path existence check
-# Re-check under the Hyper-V-configured VHD path when it differs from the
-# default (we already covered the default above). Cheap, and catches the
-# "custom VHD path" case without another download.
-if ($downloadDir -ne $defaultDownloadDir -and (Test-Path -LiteralPath $baseImageFile)) {
+if (-not (Test-Path -LiteralPath $baseImageFile) -and $downloadDir -ne $defaultDownloadDir -and
+    (Test-Path -LiteralPath $defaultBaseFile)) {
+    Copy-Item -LiteralPath $defaultBaseFile -Destination $baseImageFile -ErrorAction Stop
+}
+if (Test-Path -LiteralPath $baseImageFile) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b8484d0c8d0f00c6')
     Write-Output "  File: $baseImageFile"
     exit 0

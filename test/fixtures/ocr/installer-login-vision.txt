@@ -1,0 +1,59 @@
+mkdir -p /target/etc/iptables
+cat > /target/etc/iptables/rules.v4 ‹ 'EOF'
+*filter
+: INPUT ACCEPT [0:0]
+:FORNARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A OUTPUT -0 10 -j ACCEPT
+-A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+OUTPUT -p icmp -j ACCEPT
+OUTPUT -p udp --dport 53 -j ACCEPT
+OUTPUT -p tcp --dport 53 -j ACCEPT
+OUTPUT -p udp --dport 67:68 -j ACCEPT
+OUTPUT -p udp --dport 123 -j ACCEPT
+OUTPUT -d 10.0.0.0/8 -j ACCEFT
+OUTPUT -d 172.16.0.0/12 -j ACCEPT
+A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+A OUTPUT -d 169.254.0.0/16 -j ACCEPT
+OUTPUT -p tcp --dport 80 -j REJECT --reject-with icmp-port-unreachable
+-A OUTPUT -p tcp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+COMMIT
+EOF
+cat › /target/etc/iptables/rules.v6 < 'EOF"
+*filter
+: INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A OUTPUT -0 10 -j ACCEPT
+-A OUTPUT -m conntrack --ctstate ESTABLISHED, RELATED -j ACCEPT
+COMMIT
+EOF
+chmod 0644/target/etc/iptables/rules.v4 /target/etc/iptables/rules.v6
+curtin in-target --target=/target -- systemctl enable netfilter-persistent Il true
+fi
+start: subiquity/Late/run/command_3: for f in /target/etc/netplan/*.yaml; do
+[ -+ "sf" 1 Il continue
+grep -q 'dhcp-identifier' "sf" a& continue
+sed -i -E 's/^([[:space:]]*)dhcp4:[[:space:]]*(truelyes) [[:space:]]*$/\idhcp4: \2\n\idhcp-identifier: mac/' "*f"
+done
+finish: subiquity/Late/run/command_3: for f in /target/etc/netplan/*.yaml; do
+[ -f "$f' ] |] continue
+grep -g 'dhcp-identifier' "$f" 88 continue
+sed -i -E 's/^([[:space:]]*)dhcp4:[[:space:]]*(truelyes) [[:space:]]*$/\idhcp4: \2\n\idhcp-identifier: mac/" "sf"
+done
+start: subiquity/Late/run/command_4: mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+finish: subiquity/Late/run/command_4: mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+start: subiquity/Late/run/command_5: cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf <‹ 'EOF'
+[Service]
+ExecStart=
+ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+finish: subiquity/Late/run/command_5: cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf «EoF'
+Iservicel
+ExecStart=
+ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+EOF
+siaish: subiquity/late/run/command_6; curtin in-target --target=/target -- passwd--expire amisad-core-admin
+subiquity/Late/run/command_6: curtin in-target --target=/target -- passwd --expire amisad-core-admin
+start: subiquitu/Late/run/cormand 7: bash -c 'sed -i -E '^I*I:space:ll*LOGIN TIMEOuTyd" ýtargetvetczlogin defs 88 echo "LOGIN TINEOUT 180" » vtarget/etcylogin defs'
+finish: airAnternut YaTPzshrners dzgoLUuruna amisad-cnresan tt-targeteztargeftEtbash L terhaiiamisan-corebarminTAMETALLI NOPAsSuDtATDT Yetryeudders dz9o-yuruha-amisanLrnre-admin 8e chmod 440 vetczsudners d/9o-yuruna-amisad-core-admin 88 cho subiquity/Late/run/command_7: bash -c ' sed -i -E "/^[#[:space:]]*LOGIN TIMEOUT/d' /target/etc/login.defs 88 echo "LOGIN TIMEOUT 180" »> /target/etc/login.defs'
+subiquity/Late/run/command_8: curtin in-target

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1316,6 +1316,8 @@ registry write AND the Server-service restart that follows it -- a restart drops
 every live SMB session on the machine, which is far too much to spend on a no-op.
 #>
 function Remove-LocalLabStorageBackConnectionName {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Unary comma preserves the actual string array, including empty, as one pipeline object; the analyzer incorrectly infers object[] from that wrapper.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure list transform; returns the new value for the caller to write, exactly like Merge-LocalLabStorageBackConnectionName.')]
     [CmdletBinding()]
@@ -1338,7 +1340,7 @@ function Remove-LocalLabStorageBackConnectionName {
         [void]$kept.Add($v)
     }
     if (-not $removed) { return $null }
-    return $kept.ToArray()
+    return ,$kept.ToArray()
 }
 
 <#

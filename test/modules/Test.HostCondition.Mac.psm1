@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -889,20 +889,22 @@ function Test-MacSudoAvailable {
 
     Cheap enough to call per block: `sudo -n true` neither prompts nor
     refreshes the timestamp.
+
+    Bounded, because -n only removes the password prompt: sudo can still
+    stall resolving the host name or reading a directory-service account, and
+    a probe that waits there stalls the caller it exists to protect. A probe
+    that could not finish reads as "cannot elevate".
+.PARAMETER TimeoutSeconds
+    Wall-clock cap for the probe.
 .OUTPUTS
     [bool] $true when `sudo -n true` succeeds.
 #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param()
-    # Pinned locally: a non-zero exit IS the answer this function returns, and
-    # with $PSNativeCommandUseErrorActionPreference true a cold timestamp throws
-    # instead -- so the probe that exists to keep a host from stalling would
-    # itself abort the settings pass on exactly the hosts it was written for.
-    $PSNativeCommandUseErrorActionPreference = $false
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 10)
     if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) { return $false }
-    & sudo -n true 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    $probe = Invoke-BoundedNativeCommand -FilePath 'sudo' -ArgumentList @('-n', 'true') -TimeoutSeconds $TimeoutSeconds
+    return [bool]($probe.Started -and -not $probe.TimedOut -and $probe.ExitCode -eq 0)
 }
 
 function Initialize-SudoCache {
@@ -1044,23 +1046,33 @@ function Invoke-MacPrivilegedSetting {
     Native output is consumed here rather than left on the success stream: the
     caller returns a count, and stray `pmset` chatter merged into that would
     turn an [int] into an array.
+
+    Bounded: the settings these commands write are served by daemons
+    (powerd, cfprefsd, opendirectoryd) that can stop answering, and a write
+    that never returns would hold the whole settings pass. A write that ran
+    out of time is reported as not applied, never as applied.
     .PARAMETER Argument
     The command and its arguments, e.g. @('pmset','-a','sleep','0').
+    .PARAMETER TimeoutSeconds
+    Wall-clock cap for the privileged command.
     .OUTPUTS
     [bool] $true when sudo ran the command and it exited 0.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string[]]$Argument)
-    # Pinned locally: this function reports a failed write through its return
-    # value and a warning naming the command. With
-    # $PSNativeCommandUseErrorActionPreference true the non-zero exit throws
-    # first, so a single key this macOS release no longer carries would abort the
-    # whole guard list instead of being recorded as rejected and skipped.
-    $PSNativeCommandUseErrorActionPreference = $false
-    $out = & sudo -n @Argument 2>&1
-    if ($LASTEXITCODE -eq 0) { return $true }
-    Write-Warning ("sudo {0} failed (exit {1}): {2}" -f ($Argument -join ' '), $LASTEXITCODE, ("$($out | Out-String)".Trim()))
+    param(
+        [Parameter(Mandatory)][string[]]$Argument,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 60
+    )
+    $command = $Argument -join ' '
+    $run = Invoke-BoundedNativeCommand -FilePath 'sudo' -ArgumentList (@('-n') + $Argument) -TimeoutSeconds $TimeoutSeconds
+    if ($run.TimedOut) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.mac_privileged_setting_timeout' -Arguments @{ command = "$command"; timeoutSeconds = "$TimeoutSeconds" })
+        return $false
+    }
+    if ($run.Started -and $run.ExitCode -eq 0) { return $true }
+    $detail = ("$($run.StdOut)`n$($run.StdErr)").Trim()
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.mac_privileged_setting_failed' -Arguments @{ command = "$command"; exitCode = "$($run.ExitCode)"; detail = "$detail" })
     return $false
 }
 
@@ -1081,6 +1093,42 @@ $script:MacUtmctlBundlePath  = '/Applications/UTM.app/Contents/MacOS/utmctl'
 # whenever the string is produced anywhere but a Mac.
 $script:MacUtmctlLinkDir     = '/usr/local/bin'
 $script:MacUtmctlLinkPath    = '/usr/local/bin/utmctl'
+
+function Test-MacHostPlatform {
+    <#
+    .SYNOPSIS
+    Whether this process runs on macOS.
+    .DESCRIPTION
+    The platform gate of the entry points whose macOS path is driven against
+    stand-in tools on other POSIX hosts: a suite replaces this one function in
+    the module's scope, and the bounded native calls behind the gate run for
+    real there instead of being read only from source text.
+    .OUTPUTS
+    [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return [bool]$IsMacOS
+}
+
+function Get-MacUtmctlBundlePath {
+    <#
+    .SYNOPSIS
+    The path of the utmctl binary inside UTM.app.
+    .DESCRIPTION
+    One definition for every consumer: the host driver falls back to this copy
+    when no link puts utmctl on PATH, the link repair points at it, and the
+    remediation command names it. A second spelling elsewhere would let the
+    driver resolve one binary while the repair links another.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return $script:MacUtmctlBundlePath
+}
 
 function Get-MacScreenLockManualCommand {
     <#
@@ -1229,14 +1277,37 @@ function Set-MacUtmctlLink {
     password (run the printed command by hand), or the link exists but the
     directory holding it is not on this session's PATH (an edited PATH, which no
     amount of re-linking fixes).
+
+    Every privileged call is bounded, and with -Deadline each one gets at most
+    what the caller's deadline has left; a deadline with under one second left
+    ends the call with the manual command instead of starting a write that
+    cannot finish.
+
+    Under -WhatIf the return is $true without anything being linked. That value
+    describes the preview, not the host: a caller reporting link state reads it
+    from the PATH and the bundle, never from this return.
+    .PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline) bounding the privileged calls.
     .OUTPUTS
     [bool] $true when utmctl resolves on PATH after this call.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param()
+    param($Deadline)
 
-    if (-not $IsMacOS) { return $true }
+    if (-not (Test-MacHostPlatform)) { return $true }
+
+    # Seconds for the next privileged call: the call's own ceiling, shortened
+    # to what the deadline has left; $null when nothing usable remains.
+    $boundedSeconds = {
+        param([int]$Ceiling, $Limit)
+        if (-not $Limit) { return $Ceiling }
+        return Get-YurunaDeadlineBoundedSeconds -Deadline $Limit -Ceiling $Ceiling
+    }
+    $deadlineRefusal = {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.mac_utmctl_link_deadline' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
+        return $false
+    }
 
     if (Get-Command utmctl -ErrorAction SilentlyContinue) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_2a4019b4401fdcac')
@@ -1252,7 +1323,9 @@ function Set-MacUtmctlLink {
         return $false
     }
 
-    if (-not (Test-MacSudoAvailable)) {
+    $probeSeconds = & $boundedSeconds 10 $Deadline
+    if ($null -eq $probeSeconds) { return (& $deadlineRefusal) }
+    if (-not (Test-MacSudoAvailable -TimeoutSeconds $probeSeconds)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1f583cffda1587c' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
         return $false
     }
@@ -1264,9 +1337,13 @@ function Set-MacUtmctlLink {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_14e93d33242f3b57' -Arguments @{ macUtmctlLinkPath = "$script:MacUtmctlLinkPath"; macUtmctlBundlePath = "$script:MacUtmctlBundlePath" })
     # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
     # DIRECTORY makes ln create the new link inside it instead of replacing it.
-    $ok = Invoke-MacPrivilegedSetting -Argument @('mkdir', '-p', $script:MacUtmctlLinkDir)
+    $mkdirSeconds = & $boundedSeconds 60 $Deadline
+    if ($null -eq $mkdirSeconds) { return (& $deadlineRefusal) }
+    $ok = Invoke-MacPrivilegedSetting -Argument @('mkdir', '-p', $script:MacUtmctlLinkDir) -TimeoutSeconds $mkdirSeconds
     if ($ok) {
-        $ok = Invoke-MacPrivilegedSetting -Argument @('ln', '-sfn', $script:MacUtmctlBundlePath, $script:MacUtmctlLinkPath)
+        $linkSeconds = & $boundedSeconds 60 $Deadline
+        if ($null -eq $linkSeconds) { return (& $deadlineRefusal) }
+        $ok = Invoke-MacPrivilegedSetting -Argument @('ln', '-sfn', $script:MacUtmctlBundlePath, $script:MacUtmctlLinkPath) -TimeoutSeconds $linkSeconds
     }
     if (-not $ok) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_132376d3245c659c' -Arguments @{ macUtmctlRemediation = "$(Get-MacUtmctlRemediation)" })
@@ -1297,13 +1374,20 @@ function Set-MacHostConditionSet {
     [int] the number of conditions this run could not put in place. 0 means
     every knob is where the harness needs it. The caller maps a non-zero count
     onto its own exit contract -- see host/macos.utm/Enable-TestAutomation.ps1.
+    .PARAMETER NoGuiDisruption
+    For callers that run while the desktop session belongs to someone else's
+    work: no sudo credential prompt (Initialize-SudoCache is skipped, so each
+    privileged block probes `sudo -n` and reports the manual command when root
+    is not reachable), no Dock or ScreenSaverEngine restart, and no consent
+    dialog, pane or wait from the operator-grant assist. Missing grants are
+    still reported and counted.
     .EXAMPLE
     Set-MacHostConditionSet          # apply all settings
     Set-MacHostConditionSet -WhatIf  # show what would change without applying
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([int])]
-    param()
+    param([switch]$NoGuiDisruption)
 
     if (-not $IsMacOS) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c458fd938809ccbc')
@@ -1331,13 +1415,17 @@ function Set-MacHostConditionSet {
     # asked once, visibly, with the reasons on screen, instead of meeting a
     # bare password prompt in the middle of a block. It declines silently when
     # nobody is there to ask, and the probes below then route each block to its
-    # warn-with-the-exact-command arm.
-    [void](Initialize-SudoCache -Reasons @(
-        'pmset (display sleep, system sleep, power-nap, hibernation)',
-        'defaults write /Library/Preferences (auto-logout delay)',
-        'sysadminctl -screenLock off (Sonoma+ unified screen lock)',
-        'ln -s into /usr/local/bin (utmctl, the UTM command line, on PATH)'
-    ))
+    # warn-with-the-exact-command arm. Skipped entirely without GUI disruption:
+    # the prime can raise a password prompt, and the per-block probes already
+    # cover a host where root is not reachable.
+    if (-not $NoGuiDisruption) {
+        [void](Initialize-SudoCache -Reasons @(
+            'pmset (display sleep, system sleep, power-nap, hibernation)',
+            'defaults write /Library/Preferences (auto-logout delay)',
+            'sysadminctl -screenLock off (Sonoma+ unified screen lock)',
+            'ln -s into /usr/local/bin (utmctl, the UTM command line, on PATH)'
+        ))
+    }
 
     # --- REGION: utmctl on PATH
     # Required, and first: every later VM operation shells out to utmctl, and
@@ -1615,8 +1703,14 @@ function Set-MacHostConditionSet {
     }
     if ($dockReloadNeeded) {
         # Dock re-reads these only at launch; kick it so the change
-        # takes effect immediately (Dock auto-relaunches).
-        & killall Dock 2>$null | Out-Null
+        # takes effect immediately (Dock auto-relaunches). Restarting Dock
+        # redraws the whole desktop, so a caller that must not disturb the
+        # session leaves the change for Dock's next start.
+        if ($NoGuiDisruption) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.mac_dock_reload_deferred')
+        } else {
+            & killall Dock 2>$null | Out-Null
+        }
     } else {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5ec100a74f28c9e9')
     }
@@ -1676,8 +1770,12 @@ function Set-MacHostConditionSet {
     # If a prior aborted run left the saver engaged, the engine process
     # may still be running when this script applies settings. Killing
     # is idempotent and harmless when nothing runs; swallow exit codes
-    # so "no such process" isn't reported as failure.
-    & killall ScreenSaverEngine 2>$null | Out-Null
+    # so "no such process" isn't reported as failure. Not without GUI
+    # disruption: a saver that is running may be what the session's owner
+    # is looking at.
+    if (-not $NoGuiDisruption) {
+        & killall ScreenSaverEngine 2>$null | Out-Null
+    }
 
     # --- REGION: sysadminctl unified screen lock (Ventura+)
     # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
@@ -1703,8 +1801,10 @@ function Set-MacHostConditionSet {
         # cannot put a question in front of a person cannot do this at all:
         # under a captured child stdin is closed, the read returns EOF, and the
         # attempt would be reported as a FAILED disable rather than one that was
-        # never possible. Name the one-time command instead.
-        if (-not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
+        # never possible. Name the one-time command instead -- also when the
+        # caller asked for no GUI disruption, since the password read is itself
+        # a prompt in the session's terminal.
+        if ($NoGuiDisruption -or -not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
             Write-Warning "========"
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d4a3976712d1018c')
             Write-Warning "   $slStatus)"
@@ -1795,7 +1895,11 @@ function Set-MacHostConditionSet {
         if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", (Format-YurunaOperatorMessage -Key 'runner.operator_39e5847dbcba5b40'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_73b483ef7463dc84')
             if (Confirm-MacDefaultWrite -DefaultsArgs @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation') -WriteType '-bool' -WriteValue 'false' -ExpectRead '0') {
-                & killall Dock 2>$null | Out-Null
+                if ($NoGuiDisruption) {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.mac_dock_reload_deferred')
+                } else {
+                    & killall Dock 2>$null | Out-Null
+                }
                 $changed = $true
             }
         }
@@ -1842,7 +1946,7 @@ function Set-MacHostConditionSet {
     # wait and re-read so the outcome is confirmed. What is still missing after
     # that is an unmet condition, which is what makes this script's exit 2 mean
     # "a person has to click something" rather than "look through the log".
-    foreach ($grantId in @(Invoke-MacOperatorGrantAssist)) { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ce67c4c9f3cfdb1a' -Arguments @{ grantId = "$grantId" })) }
+    foreach ($grantId in @(Invoke-MacOperatorGrantAssist -NoPrompt:$NoGuiDisruption)) { $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ce67c4c9f3cfdb1a' -Arguments @{ grantId = "$grantId" })) }
 
     # --- REGION: Host clock
     # Guests inherit this clock at power-on; see Sync-MacHostClock for what
@@ -1908,26 +2012,58 @@ function Get-MacSessionKind {
     false alarm when an operator is merely reading a health report over SSH.
     The two are only distinguishable by asking which session manager owns this
     process, which is what `launchctl managername` answers.
+
+    Bounded: launchctl asks launchd, and a caller deciding whether GUI work is
+    safe must get an answer in seconds even when launchd does not give one. An
+    unanswered question is 'Unknown', which every caller already treats as
+    "not a GUI session".
+    .PARAMETER TimeoutSeconds
+    Wall-clock cap for the launchctl call.
     .OUTPUTS
     [string] 'Aqua' | 'Remote' | 'Unknown'
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    if (-not $IsMacOS) { return 'Unknown' }
-    try {
-        # Pinned locally: a non-zero exit here is an answer to read, not a
-        # reason to abandon the caller's health report.
-        $PSNativeCommandUseErrorActionPreference = $false
-        $name = ("$(& launchctl managername 2>$null)").Trim()
-        if ($LASTEXITCODE -eq 0 -and $name) {
-            if ($name -eq 'Aqua') { return 'Aqua' }
-            return 'Remote'
-        }
-    } catch {
-        Write-Debug "launchctl managername failed: $_"
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    if (-not (Test-MacHostPlatform)) { return 'Unknown' }
+    $answer = Invoke-MacBoundedTool -Tool 'launchctl' -Arguments @('managername') -TimeoutSeconds $TimeoutSeconds -Context 'launchctl managername'
+    $answered = [bool]($answer.Started -and -not $answer.TimedOut -and $answer.ExitCode -eq 0)
+    $ssh = "$($env:SSH_CONNECTION)$($env:SSH_TTY)"
+    return (ConvertTo-MacSessionKind -ManagerName $answer.Text -Answered $answered -SshConnection $ssh)
+}
+
+function ConvertTo-MacSessionKind {
+    <#
+    .SYNOPSIS
+    Classify a `launchctl managername` answer as 'Aqua', 'Remote' or 'Unknown'.
+    .DESCRIPTION
+    Pure, so the decision is exercised on every host rather than only where
+    launchctl exists. Only an answered 'Aqua' is a GUI session. Any other
+    answered manager name is a non-GUI session. With no answer, an SSH
+    environment still identifies a remote session; nothing else is evidence
+    of either kind.
+    .PARAMETER ManagerName
+    The trimmed launchctl output.
+    .PARAMETER Answered
+    Whether launchctl ran to completion and exited 0.
+    .PARAMETER SshConnection
+    SSH_CONNECTION and SSH_TTY joined; empty when neither is set.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$ManagerName,
+        [bool]$Answered,
+        [AllowEmptyString()][AllowNull()][string]$SshConnection
+    )
+    $name = "$ManagerName".Trim()
+    if ($Answered -and $name) {
+        if ($name -eq 'Aqua') { return 'Aqua' }
+        return 'Remote'
     }
-    if ($env:SSH_CONNECTION -or $env:SSH_TTY) { return 'Remote' }
+    if (-not [string]::IsNullOrWhiteSpace($SshConnection)) { return 'Remote' }
     return 'Unknown'
 }
 
@@ -1995,9 +2131,11 @@ function Invoke-MacBoundedTool {
     Fall back to stderr when the tool wrote its answer there.
     .OUTPUTS
     [pscustomobject] Text (trimmed output, '' when there was none), TimedOut,
-    Started. TimedOut is returned separately from an empty Text because a tool
-    that answered nothing and a tool that never answered are different hosts,
-    and only the caller knows which of its verdicts each one maps to.
+    Started, ExitCode. TimedOut is returned separately from an empty Text
+    because a tool that answered nothing and a tool that never answered are
+    different hosts, and only the caller knows which of its verdicts each one
+    maps to. ExitCode is 124 after a timeout and -1 when the tool could not be
+    started, so a caller can tell an empty answer from a refusal.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -2012,14 +2150,14 @@ function Invoke-MacBoundedTool {
     $outcome = Invoke-BoundedNativeCommand -FilePath $Tool -ArgumentList $Arguments -TimeoutSeconds $TimeoutSeconds
     if ($outcome.TimedOut) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4775b1b7fa5ca368' -Arguments @{ label = "${label}"; tool = "$Tool"; timeoutSeconds = "${TimeoutSeconds}" })
-        return [pscustomobject]@{ Text = ''; TimedOut = $true; Started = $true }
+        return [pscustomobject]@{ Text = ''; TimedOut = $true; Started = $true; ExitCode = 124 }
     }
     if (-not $outcome.Started) {
-        return [pscustomobject]@{ Text = ''; TimedOut = $false; Started = $false }
+        return [pscustomobject]@{ Text = ''; TimedOut = $false; Started = $false; ExitCode = -1 }
     }
     $text = [string]$outcome.StdOut
     if ($IncludeError -and -not "$text".Trim() -and $outcome.StdErr) { $text = [string]$outcome.StdErr }
-    return [pscustomobject]@{ Text = "$text".Trim(); TimedOut = $false; Started = $true }
+    return [pscustomobject]@{ Text = "$text".Trim(); TimedOut = $false; Started = $true; ExitCode = [int]$outcome.ExitCode }
 }
 
 function Test-MacAccessibilityGrant {
@@ -2295,9 +2433,16 @@ try { ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]); } catch (
             Blocking   = $false
             Probe      = $null
             Prompt     = {
-                # The first Apple Event to UTM is what raises the dialog.
-                if (Get-Command utmctl -ErrorAction SilentlyContinue) {
-                    & utmctl list 2>&1 | Out-Null
+                # The first Apple Event to UTM is what raises the dialog. The
+                # call is bounded: an unanswered dialog blocks the sender, and
+                # a wedged UTM blocks it the same way, so an unbounded call
+                # would hold the settings pass until someone clicked or killed
+                # it. The bundle copy stands in when no link is on PATH yet.
+                $utmctl = (Get-Command -Name utmctl -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+                if (-not $utmctl -and [IO.FileInfo]::new((Get-MacUtmctlBundlePath)).Exists) { $utmctl = Get-MacUtmctlBundlePath }
+                if ($utmctl) {
+                    $null = Invoke-MacBoundedTool -Tool $utmctl -Arguments @('list') -TimeoutSeconds 60 `
+                        -Context (Format-YurunaOperatorMessage -Key 'runner.mac_automation_utm_title')
                 }
             }
             EnableStep = { param([string]$Application) Format-YurunaOperatorMessage -Key 'runner.mac_permission_enable_utm' -Arguments @{ application = $Application } }
@@ -2485,15 +2630,28 @@ function Invoke-MacOperatorGrantAssist {
     The waiting is gated on Test-YurunaCanPrompt rather than on a timeout alone:
     an unattended install would otherwise stall the full wait per grant on a
     host where nobody is going to click anything.
+
+    -NoPrompt is for callers that must not raise a dialog at all, even with an
+    operator present: no grant's Prompt runs, no settings pane is opened and
+    nothing waits. Each missing grant is reported with the shared instructions
+    and still counted, so the caller's unmet total stays truthful. The read-only
+    probes still run; none of them raises a dialog.
+    .PARAMETER WaitSeconds
+    How long to wait for an operator's click per grant.
+    .PARAMETER NoPrompt
+    Report missing grants without raising dialogs, opening panes or waiting.
     .OUTPUTS
     [string[]] Ids that are still not granted.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string[]])]
-    param([int]$WaitSeconds = 120)
+    param(
+        [int]$WaitSeconds = 120,
+        [switch]$NoPrompt
+    )
 
     $pending = [System.Collections.Generic.List[string]]::new()
-    $canPrompt = Test-YurunaCanPrompt
+    $canPrompt = (-not $NoPrompt) -and (Test-YurunaCanPrompt)
     $session = Get-MacSessionKind
 
     foreach ($s in (Get-MacOperatorGrantState)) {
@@ -2507,6 +2665,12 @@ function Invoke-MacOperatorGrantAssist {
         }
         if ($session -eq 'Remote') {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9a906edf3669e30d' -Arguments @{ title = "$($s.Title)" })
+            if ($s.Blocking) { $pending.Add($s.Id) }
+            continue
+        }
+        if ($NoPrompt) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.mac_grant_prompt_suppressed' -Arguments @{ title = "$($s.Title)" })
+            foreach ($line in (Get-MacOperatorGrantInstruction -Grant $s.Grant)) { Write-Information "  $line" }
             if ($s.Blocking) { $pending.Add($s.Id) }
             continue
         }
@@ -2714,4 +2878,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Invoke-MacBoundedTool
+Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Invoke-MacBoundedTool, Get-MacUtmctlBundlePath

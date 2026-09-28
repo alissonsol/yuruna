@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -403,9 +403,15 @@ $null = New-Item -ItemType Directory -Path $listingDir -Force
 try {
     $null = New-Item -ItemType Directory -Path (Join-Path $listingDir '000200.2026-08-19.08-20-48.422dd0cac87e4cc6831c3228f12ae689') -Force
     Set-Content -LiteralPath (Join-Path $listingDir 'cycle.html') -Value ('x' * 3500000) -NoNewline
-    Set-Content -LiteralPath (Join-Path $listingDir 'notes & "quotes".txt') -Value 'x' -NoNewline
+    Set-Content -LiteralPath (Join-Path $listingDir 'notes.txt') -Value 'x' -NoNewline
 
-    $entries = @(Get-ChildItem -LiteralPath $listingDir | Sort-Object @{Expression = { -not $_.PSIsContainer } }, Name)
+    # Windows cannot create a filename containing quotes. The renderer consumes
+    # entry metadata, so supply that display name without requiring such a file.
+    $entries = @(Get-ChildItem -LiteralPath $listingDir | Select-Object Name, PSIsContainer, Length, LastWriteTimeUtc)
+    foreach ($entry in $entries) {
+        if ($entry.Name -ceq 'notes.txt') { $entry.Name = 'notes & "quotes".txt' }
+    }
+    $entries = @($entries | Sort-Object @{Expression = { -not $_.PSIsContainer } }, Name)
     $origLocal = '/log/000200.2026-08-19.08-20-48.422dd0cac87e4cc6831c3228f12ae689/'
     $listing = [scriptblock]::Create($block + "`n`$sb.ToString()").InvokeWithContext(
         @{}, @(

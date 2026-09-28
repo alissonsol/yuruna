@@ -254,6 +254,19 @@ proxy launcher owns bridge repair; other service builders reject a confirmed
 dead bridge and point to that owner, while an inconclusive probe remains best
 effort.
 
+A libvirt network can remain defined after its backing bridge loses its LAN
+uplink. NetworkManager may have created the bridge without activating its slave,
+or a netplan definition may not have converged. Before reusing a defined network,
+repair the bridge slave. If repair reports that the bridge is gone or the uplink
+cannot recover, continue through network creation instead of returning an
+apparently healthy network whose guests cannot receive upstream DHCP leases.
+
+Hyper-V management vNICs clone the MAC of their bridged NIC. After two External
+switches have used one NIC, live and leftover vEthernet adapters can share that
+MAC; a first-match lookup may select an APIPA address and falsely mark a healthy
+bridge unaddressed. Resolve the MAC match by switch alias, and leave an ambiguous
+mapping unresolved instead of demoting the host to NAT on guessed evidence.
+
 Use shared IP discovery instead of parsing the first dotted address in guest
 agent output: loopback and link-local rows are not usable guest endpoints.
 Hyper-V cache builders collect KVP/ARP candidates before Squid is listening;
@@ -262,11 +275,34 @@ switch, an active neighbor sweep can discover the guest while KVP is still being
 installed. The Default Switch already supplies neighbor evidence through its
 NAT/DHCP path.
 
+Hyper-V's ordinary VM address lookup reads KVP first, then host neighbor entries
+filtered by that VM's MAC. On an External switch, `hv_kvp_daemon` can take 5 to 15
+minutes to publish an address, while a matching neighbor entry may be available
+earlier. Keep this lookup passive and cheap for polling loops. Consumers that
+need fresh evidence, including guest diagnostics and cache discovery, invoke the
+separate active neighbor probe. The shared routable-address selector decides
+which IPv4 or IPv6 candidates can be returned by every provider.
+
 Libvirt's bridged network does not own the DHCP server, so its lease lookup can
 be empty. Agent discovery may need the first-boot package installation to finish;
 ARP helps only after the guest has sent a packet to the host. Readiness budgets
 must cover that work. Hyper-V Ubuntu installers warn and fetch directly when the
 cache VM is absent or stopped, but fail if a running cache cannot answer on 3128.
+
+KVM's cache probe returns bare-IP URLs for its consumers and tries the connection
+three times: a systemd socket proxy into libvirt NAT can take more than one second
+to accept while it is prewarming or the host is busy. A false negative would send
+the entire guest cycle directly to the internet. Quiet callers only decorate
+output when a cache exists, so an absent cache is not a warning there.
+
+A guest without an address can only say that it has no lease; it cannot tell a
+DHCP DISCOVER that was never sent from one that got no answer. Libvirt's dnsmasq
+already logs the server side, so KVM marks each guest boot with a timestamp, MAC,
+and bridge and copies the journal evidence before the domain is undefined. This
+has no persistent capture session to collide with another guest or leak after a
+failed teardown. Packet capture adds evidence about frames missing from the
+journal only when tcpdump can open the bridge without elevation. If that is not
+available, record why capture was disabled beside the journal slice.
 
 **Boot and console continuity.** Explicit `on_reboot=restart` keeps imported
 cloud guests inside QEMU across a guest reboot, retaining the domain, NVRAM boot
@@ -277,6 +313,13 @@ in an early Ubuntu 26 installer kernel consumed display work and correlated
 with an overlayfs failure that stalled installation. Direct VM-configuration
 cmdlet failures must terminate the child script so the parent receives a failed
 exit instead of proceeding with a partially configured VM.
+
+A Hyper-V checkpoint must follow a guest flush and shutdown. Freezing a running
+guest produces a crash-consistent image that may lose the tail of an installation;
+later restores would inherit that incomplete baseline. Check every state except
+genuinely Off, since the provider reports transitional states such as Paused,
+Starting, and Stopping as `unknown`. A force-stop is preferable to a live
+checkpoint but makes the snapshot untrustworthy, so the caller warns loudly.
 
 Printed shell examples belong in a literal PowerShell here-string, with named
 placeholders replaced afterward. An expandable string would evaluate `$()`;
@@ -367,7 +410,13 @@ does not prevent cloud-init completion. Download-agent additionally installs the
 proxy CA and prepares Windows-image tooling; those blocks have no pool-control
 equivalent.
 
-Framework fetches retry the host status service six times, rereading `host.env`
+All service seeds write `/etc/yuruna/host.env` in the same key order: host ID,
+status-service IP and port, then caching-proxy IP. The caching-proxy VM points
+that last key to its own loopback address; the other guests receive the seeded
+cache address. Keep the order aligned so a diff isolates the intentional value
+exception.
+
+Framework fetches retry the host status service six times, re-reading `host.env`
 after each wait because the host locator may have corrected a stale address.
 The public mirror is the bounded fallback for an off-LAN build. The VERSION file
 must exist after extraction, and `/etc/yuruna/framework-source` records the source,
@@ -429,6 +478,21 @@ Every retry therefore nudges before waiting, and Ubuntu repeats that nudge
 once a minute within the original wait deadline. A recovery placed after
 the wait cannot run when the prompt has already scrolled away.
 The first-login priming delay also lets terminal input settle after the redraw.
+
+Console waits repair a frozen capture feed separately from an empty OCR result.
+On headless Hyper-V, vmconnect's PrintWindow surface can keep returning the
+same readable frame after the guest has repainted; OCR then waits for a marker
+that is present only on the live screen. Hash the raw frame, and reconnect the
+viewer if it stays byte-identical for the frozen-feed budget. The same repair
+reopens virt-viewer or the UTM console on their hosts. A blinking cursor changes
+live idle frames, while a cap on reconnects lets a genuinely static guest time
+out without repeatedly restarting the viewer.
+
+The status service's step-pause request writes `control.step-pause`. Check it
+before sequence setup, so setup and the first action do not start during a pause
+between sequences, and again before each action so a mid-sequence click takes
+effect at the next step. Empty sequences have already returned before that
+wait. Cycle pause is a separate runner gate at cycle boundaries.
 
 Ubuntu waits for `${hostLabel} login:` with `freshMatch`, because the
 installer can expose its own login prompt during the first reboot.
@@ -540,6 +604,31 @@ value. Preserve nonterminating host-contract behavior: these service
 scripts use explicit failure paths instead of setting a blanket
 `ErrorActionPreference = 'Stop'`.
 
+The inner runner reloads its complete module set at each cycle boundary using
+the same list as bootstrap. macOS loops in one PowerShell process, so a pull
+between cycles would otherwise leave cached code building obsolete UTM bundle
+paths. Windows normally starts a fresh process per cycle, but the same reload
+also protects an in-process retry; keeping one module list avoids a second
+source of truth. The reload costs roughly a second per cycle.
+
+After a watchdog stop, the outer runner re-ensures the status service before
+the failure pause. Windows `taskkill /T` can kill the inner runner's status
+server child just when an operator needs `/control/start-cycle`; Unix reparents
+the server, and the config service is owned by a different process. Starting it
+from the outer runner gives it a stable parent. Invoke the starter directly so
+a transient port conflict is logged without exiting the outer runner, and wait
+for the host-refresh gate before allowing a starter that can replace a port
+owner.
+
+At a fresh outer-runner start, recover stale incomplete cycle markers, dead
+inner PID files, abandoned break markers, and pause flags before claiming the
+runner PID. PID cleanup removes only proven-dead processes, leaving a legitimate
+concurrent runner to the single-instance gate. If the prior state belongs to a
+different run and is not idle, initialize the state machine with an explicit
+fault-to-idle transition. A host-refresh resume preserves the operator's pauses,
+holds, and restart request; it archives only the reclaimed inner generation and
+delays the recovery sweep until it owns the runner PID.
+
 Stash uses its isolated stash share; pool-control and download-agent use
 pool storage. Missing configuration or a missing stored NAS password is
 a hard preflight failure. A mapped vault key without a stored password
@@ -623,7 +712,7 @@ Caching-proxy teardown also clears its persisted IP on every host before VM
 removal while retaining the durable password.
 Pool-control reads its marker before removal so a host-side proof PID can
 also be stopped. Graceful stop comes first, allowing beacon goodbye,
-lease release and a stash-buffer flush; force stop is the fallback.
+lease release and a stash-buffer flush; force-stop is the fallback.
 Remove domain registration and per-VM disk/seed/bundle even when the VM
 is already absent, because an interrupted builder can leave files behind.
 The final state must be `absent`. Downloaded image generations and pool
@@ -636,6 +725,15 @@ can be lost when the disposable VM disk is removed.
 ## Project examples
 
 Website workloads for Ubuntu 24 and 26 and the text-to-sql application workload use the same container acquisition and deployment flow, differing in project/component names. Their PowerShell certificate-copy and base-image seed scripts share behavior. Dockerfiles retain application dependencies such as the website's LibMan restore; database setup and connection settings belong specifically to text-to-sql.
+
+Both Helm deployments request ephemeral storage so kubelet accounts for the pod
+before its node reaches the 85% eviction threshold; the limit caps a runaway
+build or log loop. CPU and memory requests equal their limits, which keeps the
+pods in Kubernetes' Guaranteed quality-of-service class. The website needs a
+256 MiB memory limit: its healthy steady state has measured about 127.5 MiB,
+leaving almost no startup headroom under 128 MiB. At that lower limit the
+process can stall with its port unbound rather than exit cleanly, and readiness
+times out. Text-to-sql retains its separate 128 MiB limit.
 
 <a id="42e220c4-0010"></a>
 
@@ -776,6 +874,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

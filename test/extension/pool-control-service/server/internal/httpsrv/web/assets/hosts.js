@@ -297,8 +297,9 @@
         method: 'POST', body: { oldHostId: h.hostId, newHostId: h.supersededBy }
       }).then(function (d) {
         var where = d && d.movedToPool ? window.YurunaI18n.t("pool.pool_membership_moved_to_value1", {value1: (Y.bidiIsolate(d.movedToPool))}) : window.YurunaI18n.t("pool.nothing_to_move_the_live_id_already_has_the_pool_it_should");
-        Y.rowFeedback(tr, 'ok', where);
-        return load();
+        return load({ quiet: true }).then(function () {
+          reportHostFeedback(h.supersededBy, window.YurunaI18n.t("pool.re_keyed") + '. ' + where);
+        });
       }, function (e) {
         Y.notice('error', e.message);
         Y.rowFeedback(tr, 'error', window.YurunaI18n.t("pool.hand_over_failed_value1", {value1: (Y.bidiIsolate(e.message))}));
@@ -310,7 +311,18 @@
   function hostCell(h) {
     if (!h.discovered) {
       var link = Y.hostLink(h.hostId, h.pool, goBaseUrl);
-      if (!h.supersededBy) { return link; }
+      if (!h.supersededBy) {
+        if (!h.previousHostIds || !h.previousHostIds.length) { return link; }
+        var history = [link];
+        h.previousHostIds.forEach(function (oldId) {
+          history.push(Y.el('a', {
+            class: 'mono', href: '/api/hosts/history?hostId=' + encodeURIComponent(h.hostId),
+            target: '_blank', rel: 'noopener',
+            title: window.YurunaI18n.t("pool.re_keyed") + ': ' + Y.bidiIsolate(Y.guid(oldId)) + ' \u2192 ' + Y.bidiIsolate(Y.guid(h.hostId))
+          }, Y.shortHost(oldId)));
+        });
+        return Y.el('span', { class: 'host-flags' }, history);
+      }
       return Y.el('span', { class: 'host-flags' }, [
         link,
         Y.el('span', { class: 'mono', title: window.YurunaI18n.t("pool.the_id_that_answers_at_this_address_now") },
@@ -332,6 +344,14 @@
     }
     box.appendChild(Y.el('span', { class: 'badge discovered', text: window.YurunaI18n.t("pool.discovered"), title: window.YurunaI18n.t("pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r") }));
     return box;
+  }
+
+  function reportHostFeedback(hostId, message) {
+    var rows = document.getElementById('host-rows').children;
+    Y.notice('ok', message);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-host-id') === hostId) { Y.rowFeedback(rows[i], 'ok', message); }
+    }
   }
 
   function rowEl(h, n) {
@@ -363,8 +383,9 @@
         // Beside the picker as well as in the banner: on a twelve-column table
         // at high zoom the banner at the top of <main> is not on screen with
         // the row that produced it.
-        Y.rowFeedback(sel.closest('tr'), 'ok', window.YurunaI18n.t("pool.moved_to_value1", {value1: (Y.bidiIsolate(label))}));
-        return load();
+        return load({ quiet: true }).then(function () {
+          reportHostFeedback(h.hostId, window.YurunaI18n.t("pool.moved_to_value1", {value1: (Y.bidiIsolate(label))}));
+        });
       }, function (e) {
         sel.value = h.pool || '';
         Y.notice('error', e.message);
@@ -383,7 +404,7 @@
     var control = Y.el('span', { text: Y.displayState(h.control), title: CONTROL_HINT[h.control] || '' });
     var f = facts[factKey(h)];
     var factErr = f && !f.ok ? (f.error || '') : '';
-    return Y.el('tr', {}, [
+    return Y.el('tr', { 'data-host-id': h.hostId || '' }, [
       Y.numCell(n),
       Y.el('td', {}, [hostCell(h)]),
       Y.el('td', {}, [hostnameCell(h.hostname)]),
@@ -474,7 +495,7 @@
       // Y.hostInfo is memoized and non-rejecting, so this is one read for the
       // life of the page and an aggregator this daemon does not know about just
       // means unlinked ids.
-      return Promise.all([Y.api('/api/hosts'), Y.hostInfo()]);
+      return Promise.all([Y.api('/api/hosts', { timeoutMs: 60000 }), Y.hostInfo()]);
     }).then(function (both) {
       var d = both[0];
       chrome.markLoaded();
@@ -503,7 +524,7 @@
   function loadFacts() {
     chrome.busy(true);
     var idle = function () { chrome.busy(false); };
-    return Y.api('/api/hosts/facts').then(function (d) {
+    return Y.api('/api/hosts/facts', { timeoutMs: 60000 }).then(function (d) {
       facts = d.hosts || {};
       // Only a repaint of rows that exist. On first load these two reads race,
       // and painting an empty table here would take down the wait indicator the

@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.24
+  Version: 2026.09.27
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -269,7 +269,9 @@ numeric.value = '-0.25';
 numeric.onblur();
 assert.strictEqual(config.count, -0.25, 'valid blur commits a typed decimal');
 numeric.value = '99';
-numeric.onkeydown({ key: 'Escape', preventDefault: function () {} });
+var escapedField = false;
+numeric.onkeydown({ key: 'Escape', preventDefault: function () {}, stopPropagation: function () { escapedField = true; } });
+assert.strictEqual(escapedField, true, 'field Escape cannot bubble into editor exit');
 assert.strictEqual(config.count, -0.25, 'cancel preserves last committed number');
 assert.strictEqual(numeric.value, '-0.25');
 numeric.value = '6.02e2';

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,18 @@ $script:NeighborSweepMemo = @{}
 # subnet to work with during the seconds between leases, when the live lookup
 # has nothing to report.
 $script:LastKnownHostPrefix = $null
+# Cap for a single bounded virsh query (Get-VMState and the lookups the rung-2
+# network step makes). A libvirtd that stops answering must turn into an
+# 'unknown' answer inside this window instead of holding the caller; a healthy
+# daemon answers these queries in well under a second.
+$script:VirshQueryTimeoutSeconds = 20
+# libvirt's per-domain pidfile directory for the system connection. Force-stop
+# reads the qemu process id from here when libvirtd itself cannot destroy the
+# domain; it is a variable so a test can point it at a private directory.
+$script:KvmQemuRunDir = '/var/run/libvirt/qemu'
+# Process table root that force-stop reads a candidate's command line from
+# before signaling it; a variable for the same reason as the pidfile directory.
+$script:KvmProcRoot = '/proc'
 
 <#
 .SYNOPSIS
@@ -114,6 +126,7 @@ Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm
 $script:ImagePathTable = @{
     'guest.amazon.linux.2023'  = "$HOME/yuruna/image/amazon.linux.2023/host.ubuntu.kvm.guest.amazon.linux.2023.qcow2"
     'guest.ubuntu.server.24' = "$HOME/yuruna/image/ubuntu.env/host.ubuntu.kvm.guest.ubuntu.server.24.iso"
+    'guest.ubuntu.server.26' = "$HOME/yuruna/image/ubuntu.env/host.ubuntu.kvm.guest.ubuntu.server.26.iso"
     'guest.windows.11'    = "$HOME/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso"
 }
 
@@ -162,6 +175,84 @@ function Get-VirshDomState {
     if ($LASTEXITCODE -ne 0) { return '' }
     $first = ($lines | Where-Object { "$_" -ne '' } | Select-Object -First 1)
     return "$first".Trim()
+}
+
+<#
+.SYNOPSIS
+    Run one virsh query under a wall-clock cap, with the same connection and
+    locale pin as Invoke-Virsh, and return the bounded-command result.
+.DESCRIPTION
+    Invoke-Virsh is a bare `& virsh`: a libvirtd that accepts the connection and
+    then never answers holds its caller indefinitely. Callers that decide
+    something from the answer on a repair path (the responsiveness probe,
+    Get-VMState, force-stop, the rung-2 network step) use this instead.
+
+    The connection is always $script:VirshUri: omitting it lets virsh pick
+    qemu:///session for an unprivileged user, a different daemon with a
+    different inventory. LC_MESSAGES=C with LC_ALL cleared keeps state words
+    and error text in English for the classifiers, exactly as Invoke-Virsh
+    does, while encoding stays on the operator's locale.
+.PARAMETER VirshArgs
+    The virsh subcommand and its arguments, without --connect.
+.PARAMETER TimeoutSeconds
+    Cap for the whole call.
+.OUTPUTS
+    [hashtable] The Invoke-BoundedNativeCommand result.
+#>
+function Invoke-VirshBounded {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$VirshArgs,
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 20
+    )
+    $argumentList = @('--connect', $script:VirshUri) + @($VirshArgs)
+    return Invoke-BoundedNativeCommand -FilePath 'virsh' -ArgumentList $argumentList `
+        -Environment @{ LC_MESSAGES = 'C'; LC_ALL = '' } -TimeoutSeconds $TimeoutSeconds
+}
+
+<#
+.SYNOPSIS
+    $true when a bounded-command result is a complete answer: the process
+    launched and none of TimedOut, DrainTimedOut, OutputTruncated or KillFailed
+    is set. A missing key counts as not set.
+.DESCRIPTION
+    An exit code read from an incomplete result can describe a process whose
+    output was cut, so nothing positive (responsive, absent, stopped) is ever
+    concluded from one.
+#>
+function Test-DriverNativeResultComplete {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
+    if ($null -eq $Result) { return $false }
+    if (-not $Result['Started']) { return $false }
+    foreach ($flag in 'TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed') {
+        if ($Result[$flag]) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Reduce captured native output to a single private diagnostic line of at most
+    1024 characters, with ANSI sequences and control characters removed.
+.DESCRIPTION
+    The probe and rung records carry this for the worker's private log only.
+    Stripping control characters keeps a hostile or garbled tool from writing
+    terminal escapes or forged log lines through it.
+#>
+function Format-VirtualizationProbeDiagnostic {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $clean = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
+    $clean = [regex]::Replace($clean, '\x1B[@-Z\\-_]', '')
+    $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F-\x9F]+', ' ')
+    $clean = [regex]::Replace($clean, ' {2,}', ' ').Trim()
+    if ($clean.Length -gt 1024) { $clean = $clean.Substring(0, 1024) }
+    return $clean
 }
 
 # --- REGION: VM lifecycle
@@ -293,40 +384,199 @@ function Stop-VM {
 
 <#
 .SYNOPSIS
-    Force-stop a guest VM via virsh destroy, escalating to a qemu pid kill when destroy fails.
+    Read a process's argv from the process table, telling a vanished process
+    apart from one whose command line could not be read.
+.DESCRIPTION
+    State is 'gone' when the process directory does not exist, 'unreadable'
+    when it exists but its cmdline could not be read, and 'present' otherwise.
+    A present process with an empty argv is a zombie or kernel thread, which
+    holds no guest.
+.OUTPUTS
+    [pscustomobject] @{ State; Argv }
+#>
+function Get-KvmProcessCommandLine {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $procDir = Join-Path $script:KvmProcRoot "$ProcessId"
+    if (-not [IO.Directory]::Exists($procDir)) {
+        return [pscustomobject]@{ State = 'gone'; Argv = [string[]]@() }
+    }
+    $bytes = $null
+    try {
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $procDir 'cmdline'))
+    } catch [System.IO.DirectoryNotFoundException], [System.IO.FileNotFoundException] {
+        return [pscustomobject]@{ State = 'gone'; Argv = [string[]]@() }
+    } catch {
+        Write-Verbose "Get-KvmProcessCommandLine: cmdline of $ProcessId unreadable: $($_.Exception.Message)"
+        return [pscustomobject]@{ State = 'unreadable'; Argv = [string[]]@() }
+    }
+    $argv = [System.Collections.Generic.List[string]]::new()
+    foreach ($part in ([Text.Encoding]::UTF8.GetString($bytes)).Split([char]0)) { [void]$argv.Add($part) }
+    while ($argv.Count -gt 0 -and $argv[$argv.Count - 1] -eq '') { $argv.RemoveAt($argv.Count - 1) }
+    return [pscustomobject]@{ State = 'present'; Argv = [string[]]$argv.ToArray() }
+}
+
+<#
+.SYNOPSIS
+    Decide whether a process id is the qemu process of a given libvirt domain.
+.DESCRIPTION
+    A pidfile can outlive its process, and a process id can be reused by an
+    unrelated process in the meantime, so the id alone never justifies a kill.
+    Identity 'match' requires argv[0]'s leaf to be qemu-system-* or qemu-kvm
+    and one argument to carry the domain name the way libvirt passes it with
+    -name: 'guest=<name>' alone or followed by ',<options>', where a comma
+    inside the name is doubled. 'mismatch' is a live process that is something
+    else, 'gone' a process that no longer exists (or holds no command line),
+    and 'unknown' a command line that could not be read.
+.OUTPUTS
+    [pscustomobject] @{ Identity; ProcessId }
+#>
+function Get-KvmQemuProcessIdentity {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string]$VMName
+    )
+    $read = Get-KvmProcessCommandLine -ProcessId $ProcessId
+    $identity = switch ($read.State) {
+        'gone'       { 'gone' }
+        'unreadable' { 'unknown' }
+        default {
+            $argv = @($read.Argv)
+            if ($argv.Count -eq 0) { 'gone'; break }
+            $leaf = [IO.Path]::GetFileName([string]$argv[0])
+            if ($leaf -notmatch '^qemu-system-' -and $leaf -ne 'qemu-kvm') { 'mismatch'; break }
+            $named = $false
+            foreach ($argument in $argv) {
+                $m = [regex]::Match([string]$argument, '^guest=(?<name>(?:[^,]|,,)*)(?:,(?!,)|$)')
+                if ($m.Success -and ($m.Groups['name'].Value -replace ',,', ',') -ceq $VMName) { $named = $true; break }
+            }
+            if ($named) { 'match' } else { 'mismatch' }
+        }
+    }
+    return [pscustomobject]@{ Identity = [string]$identity; ProcessId = $ProcessId }
+}
+
+<#
+.SYNOPSIS
+    $true when a bounded state read positively shows the domain gone or powered
+    off ('absent', or a raw libvirt state of 'shut off' or 'crashed').
+.DESCRIPTION
+    Returns $false without launching anything when less than one second of
+    the deadline remains.
+#>
+function Test-KvmDomainPoweredOff {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)]$Deadline
+    )
+    $cap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling $script:VirshQueryTimeoutSeconds
+    if ($null -eq $cap) { return $false }
+    $read = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $cap
+    return ($read.State -eq 'absent' -or $read.Raw -in @('shut off', 'crashed'))
+}
+
+<#
+.SYNOPSIS
+    Force-stop a guest VM via virsh destroy, escalating to a verified qemu
+    process kill when libvirtd cannot destroy it.
+.DESCRIPTION
+    StopTimeoutSeconds bounds the whole call. The destroy gets two thirds of
+    it; the state reads, the escalation and the wait for the process to go
+    share the rest, and each native call is capped by what remains, so a
+    wedged libvirtd costs at most the budget rather than an unbounded wait.
+
+    Escalation reads the domain's qemu process id from libvirt's pidfile and
+    signals it only after revalidating, immediately before the signal, that
+    the id still names that domain's qemu process: a stale pidfile or a reused
+    id must never kill an unrelated process. The signal goes through
+    `sudo -n /bin/kill -9`, which fails at once instead of waiting on a
+    password prompt nobody can answer; a refusal is reported with the exact
+    remedy. The absolute /bin/kill path keeps the call away from PowerShell's
+    own kill alias.
+
+    Success means libvirt reports the domain absent, 'shut off' or 'crashed',
+    or the verified process no longer exists -- the latter proves the guest is
+    down even while libvirtd itself is too wedged to say so.
+.PARAMETER StopTimeoutSeconds
+    Wall-clock budget for the whole call.
+.OUTPUTS
+    [bool] $true when the domain is positively stopped.
 #>
 function Stop-VMForce {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        [int]$StopTimeoutSeconds = 20
+        [ValidateRange(1, 600)][int]$StopTimeoutSeconds = 20
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_44b8aa9af404e9b3'))) { return $false }
-    Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
-    if ($LASTEXITCODE -eq 0) { return $true }
-    # Last-resort escalation: find the qemu pid via libvirt's pidfile.
-    # /var/run/libvirt/qemu/<vm>.pid is the canonical location on Ubuntu.
-    $pidFile = "/var/run/libvirt/qemu/$VMName.pid"
-    if (Test-Path -LiteralPath $pidFile) {
-        try {
-            $qpid = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
-            if ($qpid -gt 0) {
-                # Absolute path makes this unambiguously the Linux 'kill'
-                # binary, not PowerShell's Stop-Process alias.
-                & sudo /bin/kill -9 $qpid 2>$null | Out-Null
-                Start-Sleep -Seconds 1
-                $deadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
-                while ((Get-Date) -lt $deadline) {
-                    if ((Get-VirshDomState -VMName $VMName) -in @('shut off', '')) { return $true }
-                    Start-Sleep -Seconds 1
-                }
-            }
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_30ca216f8c140b13' -Arguments @{ pidFile = "$pidFile"; message = "$($_.Exception.Message)" })
-        }
+    $deadline = New-YurunaDeadline -TotalMilliseconds ([long]$StopTimeoutSeconds * 1000)
+    $destroyCap = [Math]::Max(1, [int][Math]::Floor($StopTimeoutSeconds * 2 / 3))
+    $destroy = Invoke-VirshBounded -VirshArgs @('destroy', $VMName) -TimeoutSeconds $destroyCap
+    if ($destroy.Started -and -not $destroy.TimedOut -and $destroy.ExitCode -eq 0) { return $true }
+    if (Test-KvmDomainPoweredOff -VMName $VMName -Deadline $deadline) { return $true }
+
+    # Last-resort escalation through libvirt's own pidfile for the domain. A
+    # name that is not a plain file-name component cannot name a pidfile here.
+    $pidLeaf = "$VMName.pid"
+    if ([IO.Path]::GetFileName($pidLeaf) -ne $pidLeaf) { return $false }
+    $pidFile = Join-Path $script:KvmQemuRunDir $pidLeaf
+    if (-not [IO.File]::Exists($pidFile)) { return $false }
+    $pidText = $null
+    try {
+        $pidText = [IO.File]::ReadAllText($pidFile)
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_30ca216f8c140b13' -Arguments @{ pidFile = "$pidFile"; message = "$($_.Exception.Message)" })
+        return $false
     }
-    return $false
+    $qpid = 0
+    if (-not [int]::TryParse("$pidText".Trim(), [ref]$qpid) -or $qpid -le 1 -or $qpid -eq $PID) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_force_stop_pidfile_invalid' -Arguments @{ pidFile = "$pidFile" })
+        return $false
+    }
+    $killCap = Get-YurunaDeadlineBoundedSeconds -Deadline $deadline -Ceiling 60
+    if ($null -eq $killCap) {
+        Write-Verbose "Stop-VMForce: no time left to signal qemu process $qpid of '$VMName'."
+        return $false
+    }
+    # Revalidated here, after the destroy and the state read, because those can
+    # take seconds -- long enough for the process to exit and its id to be reused.
+    $identity = Get-KvmQemuProcessIdentity -ProcessId $qpid -VMName $VMName
+    if ($identity.Identity -eq 'gone') {
+        Write-Verbose "Stop-VMForce: process $qpid from '$pidFile' is already gone; libvirt has not confirmed '$VMName' stopped."
+        return $false
+    }
+    if ($identity.Identity -ne 'match') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_force_stop_pid_unverified' -Arguments @{ processId = "$qpid"; pidFile = "$pidFile"; vMName = "$VMName" })
+        return $false
+    }
+    $kill = Invoke-BoundedNativeCommand -FilePath 'sudo' -ArgumentList @('-n', '/bin/kill', '-9', "$qpid") -TimeoutSeconds $killCap
+    if (-not $kill.Started) {
+        Write-Verbose "Stop-VMForce: sudo could not be launched to signal qemu process $qpid."
+        return $false
+    }
+    if (-not $kill.TimedOut -and $kill.ExitCode -ne 0) {
+        if (Test-YurunaSudoRefusal -Output "$($kill.StdOut)`n$($kill.StdErr)") {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_force_stop_signal_refused' -Arguments @{ processId = "$qpid"; vMName = "$VMName" })
+            return $false
+        }
+        # Anything else (typically "No such process") is settled by the
+        # postcondition below rather than by the exit code.
+        Write-Verbose "Stop-VMForce: kill of $qpid exited $($kill.ExitCode)."
+    }
+    while ($true) {
+        $after = Get-KvmQemuProcessIdentity -ProcessId $qpid -VMName $VMName
+        if ($after.Identity -in @('gone', 'mismatch')) { return $true }
+        if (Test-KvmDomainPoweredOff -VMName $VMName -Deadline $deadline) { return $true }
+        $remaining = Get-YurunaDeadlineRemainingMs -Deadline $deadline
+        if ($remaining -le 0) { return $false }
+        Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining))
+    }
 }
 
 <#
@@ -441,89 +691,300 @@ function Get-VMName {
 
 <#
 .SYNOPSIS
+    One bounded libvirt domain-state read, with the reason behind the answer.
+.DESCRIPTION
+    Precedence, first match wins:
+      1. No launchable virsh, a timeout, or output that was not fully drained
+         or was truncated -> 'unknown'. None of these is an answer.
+      2. A nonzero exit whose text is a connection, permission or policy
+         failure -> 'unknown': libvirt never got to look the domain up.
+      3. A nonzero exit whose text says the domain lookup failed -> 'absent'.
+         virsh reports a missing domain as "failed to get domain" (or "domain
+         not found" / "no domain with") once it is connected and authorized.
+      4. Any other nonzero exit -> 'unknown'.
+      5. Exit 0 -> the first non-empty line mapped to running/stopped, and an
+         empty or unrecognized line -> 'unknown'.
+    'absent' is what callers read as permission to build or reuse a name, so it
+    is produced only by a completed, recognized not-found answer.
+.OUTPUTS
+    [pscustomobject] @{ State = running|stopped|absent|unknown; Raw; Reason }
+    Raw is the first libvirt state line ('' when none). Reason is one of
+    observed, not-found, missing-client, timeout, invalid-response,
+    permission-denied, provider-error.
+#>
+function Get-KvmDomainState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 20
+    )
+    $emit = {
+        param([string]$State, [string]$Raw, [string]$Reason)
+        [pscustomobject]@{ State = $State; Raw = $Raw; Reason = $Reason }
+    }
+    $result = Invoke-VirshBounded -VirshArgs @('domstate', $VMName) -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.Started) { return (& $emit 'unknown' '' 'missing-client') }
+    if ($result.TimedOut) { return (& $emit 'unknown' '' 'timeout') }
+    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit 'unknown' '' 'invalid-response') }
+    if ($result.ExitCode -ne 0) {
+        $text = "$($result.StdOut)`n$($result.StdErr)"
+        if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
+            return (& $emit 'unknown' '' 'permission-denied')
+        }
+        if ($text -match '(?i)failed to connect') { return (& $emit 'unknown' '' 'provider-error') }
+        if ($text -match 'failed to get domain|domain not found|no domain with') { return (& $emit 'absent' '' 'not-found') }
+        return (& $emit 'unknown' '' 'provider-error')
+    }
+    $lines = @(Get-BoundedNativeOutputLine -Result $result)
+    $raw = "$($lines | Where-Object { "$_".Trim() -ne '' } | Select-Object -First 1)".Trim()
+    $state = switch -Regex ($raw) {
+        '^running$'              { 'running'; break }
+        '^(shut off|crashed)$'   { 'stopped'; break }
+        '^(paused|in shutdown)$' { 'stopped'; break }
+        '^(idle|pmsuspended)$'   { 'stopped'; break }
+        default                  { 'unknown' }
+    }
+    $reason = if ($state -eq 'unknown') { 'invalid-response' } else { 'observed' }
+    return (& $emit $state $raw $reason)
+}
+
+<#
+.SYNOPSIS
     Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
 .DESCRIPTION
-    Calls Invoke-Virsh directly rather than through Get-VirshDomState, which
-    collapses every nonzero exit to an empty string: that string cannot then
-    distinguish "no such domain" from "virsh could not reach libvirtd" or "no
-    permission", and this function's own callers (Restore-YurunaServiceVM
-    among them) treat 'absent' as license to build or reuse a name. Only a
-    completed response naming the domain as not found is 'absent'; a missing
-    client, denied permission, or any other unrecognized nonzero exit is
-    'unknown'. Get-VirshDomState itself is unchanged: several other call
-    sites and a Pester Mock rely on its existing raw-passthrough-or-empty
-    contract.
+    A bounded read through Get-KvmDomainState, capped at
+    $script:VirshQueryTimeoutSeconds, so a wedged libvirtd answers 'unknown'
+    instead of holding the caller. Only a completed response naming the domain
+    as not found is 'absent': a missing client, a timeout, truncated output,
+    denied permission or any unrecognized failure is 'unknown'. That precedence
+    matters because callers (Restore-YurunaServiceVM among them) treat 'absent'
+    as permission to build or reuse a name, and a provider fault read that way
+    would rebuild over a VM that still exists.
+
+    Get-VirshDomState keeps its raw-passthrough-or-empty contract for the call
+    sites and mocks that depend on it.
 #>
 function Get-VMState {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) { return 'unknown' }
-    $lines = Invoke-Virsh -VirshArgs @('domstate', $VMName)
-    $exit  = $LASTEXITCODE
-    if ($exit -ne 0) {
-        $text = ($lines -join "`n")
-        if ($text -match 'failed to get domain|domain not found|no domain with') { return 'absent' }
-        return 'unknown'
-    }
-    $state = "$($lines | Where-Object { "$_" -ne '' } | Select-Object -First 1)".Trim()
-    switch -Regex ($state) {
-        '^running$'                 { return 'running' }
-        '^(shut off|crashed)$'      { return 'stopped' }
-        '^(paused|in shutdown)$'    { return 'stopped' }
-        '^(idle|pmsuspended)$'      { return 'stopped' }
-        default                     { return 'unknown' }
+    return [string](Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds).State
+}
+
+<#
+.SYNOPSIS
+    Build one Yuruna.VirtualizationProbe record (schema version 1).
+.DESCRIPTION
+    Every return path of the probe goes through here so the record always has
+    every field and every evidence key, whichever branch produced it.
+#>
+function New-KvmVirtualizationProbeRecord {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Reason,
+        [bool]$Started,
+        [bool]$TimedOut,
+        [bool]$DeadlineExhausted,
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ObservedTick,
+        [long]$ElapsedMs,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
+        [AllowEmptyString()][string]$Diagnostic = ''
+    )
+    return [pscustomobject]@{
+        PSTypeName        = 'Yuruna.VirtualizationProbe'
+        schemaVersion     = 1
+        hostType          = (Resolve-HostTag)
+        state             = $State
+        reason            = $Reason
+        started           = $Started
+        timedOut          = $TimedOut
+        deadlineExhausted = $DeadlineExhausted
+        corroborated      = $false
+        observedUtc       = $ObservedUtc
+        observedTick      = $ObservedTick
+        elapsedMs         = $ElapsedMs
+        evidence          = [pscustomobject]$Evidence
+        diagnostic        = (Format-VirtualizationProbeDiagnostic -Text $Diagnostic)
     }
 }
 
 <#
 .SYNOPSIS
-    A versioned, bounded control-channel probe (state/reason/started/
-    timedOut/observedUtc/elapsedMs) -- the structured evidence section 3
-    requires, distinct from the plain [bool] Assert-Virtualization other
-    callers already depend on, which this leaves unchanged.
+    Classify this process's libvirt group standing for a permission-denied
+    probe: active, stale-session, not-member, unknown or not-probed.
 .DESCRIPTION
-    Uses the exact connection and locale the driver already pins for every
-    other virsh call (qemu:///system, LC_MESSAGES=C, LC_ALL cleared), so a
-    non-English host still reports state words this function recognizes and
-    a request never silently reaches the wrong libvirt instance. Bounded
-    through Invoke-BoundedNativeCommand rather than the bare `& virsh` that
-    backs the rest of this driver's calls: a wedged libvirtd must return a
-    classified timeout here, never hang the caller.
+    Reuses Get-LibvirtGroupState from Test.HostCondition.Linux, the diagnosis
+    the host preflight already depends on. The module is imported on demand
+    (-Global, never -Force, so a resident copy other callers hold is reused).
+    A copy without the bounded -TimeoutSeconds parameter is not called at all:
+    an unbounded group read would break the probe's own deadline.
+#>
+function Get-KvmLibvirtGroupEvidence {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
+    if (-not $command) {
+        try {
+            Import-Module (Join-Path $script:TestModulesDir 'Test.HostCondition.Linux.psm1') -Global -DisableNameChecking -ErrorAction Stop
+        } catch {
+            Write-Verbose "Get-KvmLibvirtGroupEvidence: Test.HostCondition.Linux did not load: $($_.Exception.Message)"
+        }
+        $command = Get-Command -Name 'Get-LibvirtGroupState' -CommandType Function -ErrorAction SilentlyContinue
+    }
+    if (-not $command -or -not $command.Parameters.ContainsKey('TimeoutSeconds')) { return 'not-probed' }
+    $group = Get-LibvirtGroupState -TimeoutSeconds $TimeoutSeconds
+    if (-not $group -or -not $group.Resolved) { return 'unknown' }
+    if (@($group.ActiveGroups) -contains 'libvirt') { return 'active' }
+    if ($group.CurrentUser -and @($group.LibvirtMembers) -contains [string]$group.CurrentUser) { return 'stale-session' }
+    return 'not-member'
+}
+
+<#
+.SYNOPSIS
+    Bounded, read-only probe of the libvirt control channel. Returns the
+    versioned Yuruna.VirtualizationProbe record (schema version 1).
+.DESCRIPTION
+    One `virsh list --name` round trip over the connection and locale pin every
+    other virsh call in this driver uses (qemu:///system, LC_MESSAGES=C, LC_ALL
+    cleared): without the URI an unprivileged user reaches qemu:///session, a
+    different daemon, and without the pin the error text the classifier reads
+    arrives translated. The call runs through Invoke-BoundedNativeCommand, so a
+    wedged libvirtd is reported as a classified timeout instead of holding the
+    caller, and the whole probe fits inside min(TimeoutSeconds, -Deadline).
+
+    Classification, first match wins:
+      * virsh missing or not launchable        -> Undetermined/missing-client
+      * less than one second of budget left    -> Undetermined/deadline-exhausted
+                                                   (nothing is launched)
+      * no answer inside the cap               -> Unresponsive/timeout
+      * output not drained or truncated        -> Undetermined/invalid-response
+      * exit 0                                 -> Responsive/responsive
+      * permission, authentication or polkit   -> Undetermined/permission-denied,
+        refusal                                   with the libvirt group standing
+                                                  (a stale login session is not a
+                                                  daemon fault)
+      * the control socket is missing or       -> Unresponsive/app-stopped only when
+        refuses connections                       the daemon's service and socket
+                                                  units are both positively not
+                                                  running; otherwise
+                                                  Undetermined/provider-error
+      * any other failure                      -> Undetermined/provider-error
+    Unresponsive is never inferred from an exit code alone: app-stopped needs
+    the missing socket plus unit state that agrees, and only a timeout is
+    otherwise treated as an unanswered hypervisor.
+
+    Evidence keys, always present: connection, localePinned, client (present|
+    missing), socket (reachable|absent|refused|denied|unknown), libvirtGroup
+    (active|stale-session|not-member|unknown|not-probed), exitCode,
+    drainTimedOut, outputTruncated. The diagnostic field is private: it may go
+    to a private log and never to a public projection.
+
+    Never throws, never prompts, changes nothing.
+.PARAMETER TimeoutSeconds
+    Upper bound for the probe.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
+    the probe never outlives it.
+.OUTPUTS
+    [pscustomobject] Yuruna.VirtualizationProbe
 #>
 function Test-VirtualizationResponsive {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 20)
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
+        [object]$Deadline
+    )
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $observedUtc = [DateTime]::UtcNow.ToString('o')
-    $emit = {
-        param($State, $Reason, $Started, $TimedOut)
-        [pscustomobject]@{
-            state = $State; reason = $Reason; started = $Started; timedOut = $TimedOut
-            observedUtc = $observedUtc; elapsedMs = $stopwatch.ElapsedMilliseconds
-        }
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $evidence = [ordered]@{
+        connection      = [string]$script:VirshUri
+        localePinned    = $true
+        client          = 'present'
+        socket          = 'unknown'
+        libvirtGroup    = 'not-probed'
+        exitCode        = -1
+        drainTimedOut   = $false
+        outputTruncated = $false
     }
-    if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
-        return (& $emit 'Undetermined' 'missing-client' $false $false)
+    $state = 'Undetermined'; $reason = 'invalid-response'
+    $started = $false; $timedOut = $false; $deadlineExhausted = $false; $diagnostic = ''
+    try {
+        do {
+            if (-not (Get-Command -Name 'virsh' -CommandType Application -ErrorAction SilentlyContinue)) {
+                $evidence.client = 'missing'; $reason = 'missing-client'
+                break
+            }
+            $capSeconds = $TimeoutSeconds
+            if ($null -ne $Deadline) {
+                $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 600
+                if ($null -eq $bounded) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $capSeconds = [Math]::Min($TimeoutSeconds, [int]$bounded)
+            }
+            $probeDeadline = New-YurunaDeadlineFromExpiry -ExpiryTick ([long](& $clock) + [long]$capSeconds * 1000) -ClockTicks $clock
+            $result = Invoke-VirshBounded -VirshArgs @('list', '--name') -TimeoutSeconds $capSeconds
+            $started = [bool]$result.Started
+            $evidence.exitCode        = [int]$result.ExitCode
+            $evidence.drainTimedOut   = [bool]$result['DrainTimedOut']
+            $evidence.outputTruncated = [bool]$result['OutputTruncated']
+            if (-not $started) { $evidence.client = 'missing'; $reason = 'missing-client'; break }
+            if ($result.TimedOut) { $state = 'Unresponsive'; $reason = 'timeout'; $timedOut = $true; break }
+            $text = "$($result.StdErr)`n$($result.StdOut)"
+            if (-not (Test-DriverNativeResultComplete -Result $result)) { $reason = 'invalid-response'; $diagnostic = $text; break }
+            if ($result.ExitCode -eq 0) { $state = 'Responsive'; $reason = 'responsive'; $evidence.socket = 'reachable'; break }
+            $diagnostic = $text
+            if ($text -match '(?i)permission denied|authentication (failed|unavailable)|access denied|not authorized|polkit') {
+                $reason = 'permission-denied'; $evidence.socket = 'denied'
+                $groupCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 5
+                if ($null -ne $groupCap) { $evidence.libvirtGroup = Get-KvmLibvirtGroupEvidence -TimeoutSeconds $groupCap }
+                break
+            }
+            $socketFailure = [regex]::Match($text, "(?i)failed to connect socket to '[^']+':\s*(?<cause>no such file or directory|connection refused)")
+            if ($socketFailure.Success) {
+                $evidence.socket = if ($socketFailure.Groups['cause'].Value -match '(?i)refused') { 'refused' } else { 'absent' }
+                # A missing socket only proves the daemon is stopped when systemd
+                # agrees that neither the daemon nor its activation socket runs;
+                # a socket unit that is active but refusing is a daemon fault.
+                $unitCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 10
+                if ($null -eq $unitCap) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $layout = Get-KvmDaemonLayout -TimeoutSeconds $unitCap
+                $recipe = if ($layout.Resolved -and $script:KvmDaemonRecipe.ContainsKey([string]$layout.Layout)) { $script:KvmDaemonRecipe[[string]$layout.Layout] } else { $null }
+                $stoppedUnits = 0
+                $unitWords = [System.Collections.Generic.List[string]]::new()
+                if ($recipe) {
+                    foreach ($unitName in @($recipe.ControlService, $recipe.ControlSocket)) {
+                        $unit = $layout.Units[$unitName]
+                        if ($unit) {
+                            [void]$unitWords.Add("$unitName=$($unit.ActiveState)/$($unit.SubState)")
+                            if ($unit.LoadState -eq 'loaded' -and $unit.ActiveState -in @('inactive', 'failed')) { $stoppedUnits++ }
+                        }
+                    }
+                }
+                $diagnostic = "$text layout=$($layout.Layout) $($unitWords -join ' ')"
+                if ($recipe -and $stoppedUnits -eq 2) { $state = 'Unresponsive'; $reason = 'app-stopped' }
+                else { $reason = 'provider-error' }
+                break
+            }
+            $reason = 'provider-error'
+        } while ($false)
+    } catch {
+        # The record is the contract: an unexpected fault (under a caller's
+        # ErrorActionPreference of Stop any non-terminating error is one)
+        # becomes an Undetermined answer, which authorizes nothing.
+        $state = 'Undetermined'; $reason = 'provider-error'
+        $diagnostic = "$diagnostic $($_.Exception.Message)"
     }
-    $result = Invoke-BoundedNativeCommand -FilePath 'virsh' `
-        -ArgumentList @('--connect', $script:VirshUri, 'list', '--name') `
-        -Environment @{ LC_MESSAGES = 'C'; LC_ALL = '' } -TimeoutSeconds $TimeoutSeconds
-    if (-not $result.Started) { return (& $emit 'Undetermined' 'missing-client' $false $false) }
-    if ($result.TimedOut)     { return (& $emit 'Unresponsive' 'timeout' $true $true) }
-    if ($result.ExitCode -eq 0) { return (& $emit 'Responsive' 'responsive' $true $false) }
-    # Nonzero exit: a permission fault (the running shell's group set has not
-    # picked up libvirt membership, or the socket denies this user) is not
-    # evidence that libvirtd itself has hung, so it gets its own reason
-    # rather than collapsing into a generic provider error. Reuses the same
-    # group-membership diagnosis the host-condition preflight already
-    # depends on instead of a second permission regex.
-    $text = "$($result.StdOut)`n$($result.StdErr)"
-    if ($text -match 'permission denied|authentication (failed|unavailable)|access denied') {
-        return (& $emit 'Undetermined' 'permission-denied' $true $false)
-    }
-    return (& $emit 'Undetermined' 'provider-error' $true $false)
+    return New-KvmVirtualizationProbeRecord -State $state -Reason $reason -Started $started -TimedOut $timedOut `
+        -DeadlineExhausted $deadlineExhausted -ObservedUtc $observedUtc -ObservedTick ([long](& $clock)) `
+        -ElapsedMs $stopwatch.ElapsedMilliseconds -Evidence $evidence -Diagnostic $diagnostic
 }
 
 <#
@@ -609,8 +1070,10 @@ function Get-GuestMacFromDomainXml {
     pinned at build time to the identity its guest keeps for life and is
     left alone -- see Set-GuestMacInDomainXml.
 
-    Requires the domain to be stopped; the caller (Save-VMDiskSnapshot)
-    handles the stop. Returns $false on any sub-step failure.
+    Requires the domain to be positively powered off (virsh domstate
+    'shut off') and the destination name positively absent; the caller
+    (Save-VMDiskSnapshot) handles the stop. Returns $false on any sub-step
+    failure.
 #>
 function Rename-VM {
     [CmdletBinding(SupportsShouldProcess)]
@@ -621,8 +1084,20 @@ function Rename-VM {
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e9e1683d4b60f469' -Arguments @{ newName = "$NewName" }))) { return $false }
     if ($VMName -eq $NewName) { return $true }
-    if ((Get-VMState -VMName $VMName) -eq 'absent') {
+    # Read once and require a domain that is positively powered off: an
+    # 'unknown' from a denied or timed-out read must refuse here rather than
+    # pass on to domrename. Get-VMState folds paused, in shutdown, pmsuspended
+    # and crashed into 'stopped', but each of those can still have a live QEMU
+    # process (crashed does under on_crash=preserve), which libvirt counts as
+    # an active domain and will not rename. Only the raw 'shut off' qualifies.
+    $source = Get-KvmDomainState -VMName $VMName -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+    if ($source.State -eq 'absent') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ef104304974ce38' -Arguments @{ vMName = "$VMName" })
+        return $false
+    }
+    if ($source.State -ne 'stopped' -or $source.Raw -ne 'shut off') {
+        $sourceWord = if ($source.Raw) { [string]$source.Raw } else { [string]$source.State }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_rename_source_not_stopped' -Arguments @{ vMName = "$VMName"; state = "$sourceWord" })
         return $false
     }
     if ((Get-VMState -VMName $NewName) -ne 'absent') {
@@ -2498,17 +2973,8 @@ function New-YurunaExternalNetwork {
     # consumers (Get-ExternalNetwork compares against this exact name).
 
     # --- REGION: Step 1: Reuse an already-defined network
-    # Fast-return when the libvirt network is already defined -- but
-    # NOT before verifying the backing host bridge actually has a LAN
-    # uplink. A previous bring-up can leave the bridge half-built
-    # (bridge NM connection up, slave never activated; or a netplan
-    # definition NetworkManager never let converge): the libvirt network
-    # looks fine to virsh, but guests on it never get DHCP leases because
-    # the bridge has no path to the upstream DHCP server.
-    # Repair-YurunaExternalBridgeSlave detects + self-heals that state;
-    # when it reports 'rebuild' (bridge device gone, or uplink
-    # unrecoverable) fall THROUGH to the build steps below instead of
-    # returning a network that strands its guests.
+    # Verify and repair the bridge uplink before reusing a defined network.
+    # See https://yuruna.link/42e220c4-0004
     $defined = Invoke-Virsh -VirshArgs @('net-list', '--all', '--name')
     $netDefined = $defined -contains $NetworkName
     if ($netDefined) {
@@ -3396,20 +3862,8 @@ function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param([switch]$Quiet)
-    # Thin wrapper over the shared probe (same as the win/mac drivers).
-    #   -NoBracketHost      return bare-IP URLs -- KVM guests/consumers parse the
-    #                       unbracketed form (no Format-IpUrlHost IPv6 bracketing).
-    #   -ConnectAttempts 3  a cache reached over the host's systemd socket-proxy
-    #                       forwarder into libvirt NAT (the 'yuruna-external'
-    #                       bridge fallback) can take >1s to ACCEPT while it is
-    #                       busy pre-warming or the local runner contends for
-    #                       host CPU/IO; retries keep that healthy cache from
-    #                       being false-negatived, which would otherwise drop the
-    #                       whole inner cycle's guests to direct-from-internet
-    #                       downloads.
-    #   -Quiet              caller only decorates with a cache URL when one
-    #                       exists (dashboard banner, a bring-up creating the
-    #                       cache); "none recorded" is normal there, not news.
+    # Keep KVM's bare-IP URL, bounded proxy retries, and optional quiet output.
+    # See https://yuruna.link/42e220c4-0004
     Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -z {0} {1}' -NoBracketHost -ConnectAttempts 3 -Quiet:$Quiet
 }
 
@@ -3655,8 +4109,16 @@ function Assert-Virtualization {
     }
     $active = & systemctl is-active libvirtd 2>$null
     if ("$active".Trim() -ne 'active') {
-        Write-Verbose "Assert-Virtualization: libvirtd is not active (state=$active)."
-        return $false
+        # Under socket activation libvirtd runs with an idle timeout: with no
+        # client and no running domain it exits, and libvirtd.socket starts it
+        # again on the next connection. An inactive service behind a listening
+        # socket is healthy, so the virsh round trip below decides.
+        $socketActive = & systemctl is-active libvirtd.socket 2>$null
+        if ("$socketActive".Trim() -ne 'active') {
+            Write-Verbose "Assert-Virtualization: libvirtd is not active (state=$active) and libvirtd.socket is not listening (state=$socketActive)."
+            return $false
+        }
+        Write-Verbose "Assert-Virtualization: libvirtd is idle (state=$active); libvirtd.socket is listening."
     }
     # libvirtd being active is not the same as THIS process being able to
     # reach it. A user added to 'libvirt' via usermod -aG only gets the
@@ -3674,36 +4136,602 @@ function Assert-Virtualization {
     return $true
 }
 
+# The libvirt units the rung-2 detection reads, in one systemctl call. Both
+# layouts are read every time so a host carrying both is recognized as mixed
+# rather than silently treated as whichever one was asked about.
+$script:KvmDaemonUnit = @(
+    'libvirtd.service', 'libvirtd.socket', 'virtlogd.service', 'virtlogd.socket',
+    'virtqemud.service', 'virtqemud.socket', 'virtnetworkd.service', 'virtnetworkd.socket'
+)
+# UnitFileState values under which a unit's own configuration starts it.
+# Anything else -- disabled above all -- is an operator's choice (and the state
+# Disable-TestAutomation.ps1 leaves behind) that a repair must not override.
+$script:KvmUnitEnabledState = @('enabled', 'enabled-runtime', 'static', 'indirect', 'generated')
+# The units each daemon layout's start recipe covers, in start order, with the
+# activation sockets that make an idle service healthy. Only a qualified
+# recipe is ever acted on; enabling the modular one is a change to this table
+# together with evidence from a modular host.
+$script:KvmDaemonRecipe = @{
+    monolithic = [pscustomobject]@{
+        Qualified      = $true
+        StartOrder     = @('virtlogd.service', 'libvirtd.service')
+        Socket         = @{ 'virtlogd.service' = @('virtlogd.socket'); 'libvirtd.service' = @('libvirtd.socket') }
+        ControlService = 'libvirtd.service'
+        ControlSocket  = 'libvirtd.socket'
+    }
+    modular = [pscustomobject]@{
+        Qualified      = $false
+        StartOrder     = @('virtlogd.service', 'virtqemud.service', 'virtnetworkd.service')
+        Socket         = @{ 'virtlogd.service' = @('virtlogd.socket'); 'virtqemud.service' = @('virtqemud.socket'); 'virtnetworkd.service' = @('virtnetworkd.socket') }
+        ControlService = 'virtqemud.service'
+        ControlSocket  = 'virtqemud.socket'
+    }
+}
+
+<#
+.SYNOPSIS
+    Read systemd's view of the named units in one bounded, read-only call.
+.DESCRIPTION
+    `systemctl show` prints one blank-line-separated block per unit, in the
+    order the units were named, with values that are identifiers rather than
+    translated prose. A unit systemd does not know still gets a block
+    (LoadState=not-found), so a block count that differs from the unit count
+    means the output was not what this parser understands.
+.OUTPUTS
+    [pscustomobject] @{ Resolved; Reason = ok|missing-client|timeout|
+    invalid-response|unit-state-unknown; Units (hashtable by requested name of
+    @{ Name; Id; LoadState; ActiveState; SubState; UnitFileState }); ExitCode }
+#>
+function Get-KvmDaemonUnitState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string[]]$Unit,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 10
+    )
+    $units = @{}
+    $emit = {
+        param([bool]$Resolved, [string]$Reason, [int]$ExitCode)
+        [pscustomobject]@{ Resolved = $Resolved; Reason = $Reason; Units = $units; ExitCode = $ExitCode }
+    }
+    $argumentList = @('show', '--no-pager', '-p', 'Id,LoadState,ActiveState,SubState,UnitFileState') + @($Unit)
+    $result = Invoke-BoundedNativeCommand -FilePath 'systemctl' -ArgumentList $argumentList `
+        -Environment @{ SYSTEMD_COLORS = '0'; SYSTEMD_PAGER = ''; LC_ALL = ''; LC_MESSAGES = 'C' } -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.Started) { return (& $emit $false 'missing-client' -1) }
+    if ($result.TimedOut) { return (& $emit $false 'timeout' ([int]$result.ExitCode)) }
+    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit $false 'invalid-response' ([int]$result.ExitCode)) }
+    if ($result.ExitCode -ne 0) { return (& $emit $false 'unit-state-unknown' ([int]$result.ExitCode)) }
+    $blocks = @(([string]$result.StdOut).Trim() -split '\r?\n[ \t]*\r?\n' | Where-Object { $_.Trim() })
+    if ($blocks.Count -ne @($Unit).Count) { return (& $emit $false 'invalid-response' 0) }
+    for ($i = 0; $i -lt $blocks.Count; $i++) {
+        $properties = @{}
+        foreach ($line in ($blocks[$i] -split '\r?\n')) {
+            $at = $line.IndexOf('=')
+            if ($at -gt 0) { $properties[$line.Substring(0, $at).Trim()] = $line.Substring($at + 1).Trim() }
+        }
+        if (-not $properties.ContainsKey('LoadState') -or -not $properties.ContainsKey('ActiveState')) {
+            $units.Clear()
+            return (& $emit $false 'invalid-response' 0)
+        }
+        $units[[string]$Unit[$i]] = [pscustomobject]@{
+            Name          = [string]$Unit[$i]
+            Id            = [string]$properties['Id']
+            LoadState     = [string]$properties['LoadState']
+            ActiveState   = [string]$properties['ActiveState']
+            SubState      = [string]$properties['SubState']
+            UnitFileState = [string]$properties['UnitFileState']
+        }
+    }
+    return (& $emit $true 'ok' 0)
+}
+
+<#
+.SYNOPSIS
+    Detect which libvirt daemon layout this host runs: monolithic (libvirtd),
+    modular (virtqemud and friends), mixed, or unknown.
+.DESCRIPTION
+    A layout is in use when its control service is loaded with a
+    UnitFileState its own configuration starts. Both in use is 'mixed', which
+    no recipe may act on, since starting one layout's units while the other
+    owns the sockets would fight over the same connection. When neither is in
+    use but exactly one is installed (loaded or masked), that one is named, so
+    the per-unit evaluation refuses its disabled or masked unit by name.
+.OUTPUTS
+    [pscustomobject] @{ Layout; Units; Resolved; Reason }
+#>
+function Get-KvmDaemonLayout {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 60)][int]$TimeoutSeconds = 10)
+    $read = Get-KvmDaemonUnitState -Unit $script:KvmDaemonUnit -TimeoutSeconds $TimeoutSeconds
+    if (-not $read.Resolved) {
+        return [pscustomobject]@{ Layout = 'unknown'; Units = $read.Units; Resolved = $false; Reason = $read.Reason }
+    }
+    $testUnitEnabled = {
+        param($UnitRecord)
+        [bool]($UnitRecord -and $UnitRecord.LoadState -eq 'loaded' -and $script:KvmUnitEnabledState -contains $UnitRecord.UnitFileState)
+    }
+    $testUnitInstalled = {
+        param($UnitRecord)
+        [bool]($UnitRecord -and $UnitRecord.LoadState -in @('loaded', 'masked'))
+    }
+    $monolithic = & $testUnitEnabled $read.Units['libvirtd.service']
+    $modular    = & $testUnitEnabled $read.Units['virtqemud.service']
+    $layout = if ($monolithic -and $modular) { 'mixed' }
+        elseif ($monolithic) { 'monolithic' }
+        elseif ($modular) { 'modular' }
+        else {
+            # Neither control service is enabled. When exactly one layout is
+            # installed at all, name it, so the per-unit evaluation reports the
+            # operator's disabled or masked unit precisely instead of an
+            # unknown layout; it refuses either way.
+            $monolithicInstalled = & $testUnitInstalled $read.Units['libvirtd.service']
+            $modularInstalled    = & $testUnitInstalled $read.Units['virtqemud.service']
+            if ($monolithicInstalled -and -not $modularInstalled) { 'monolithic' }
+            elseif ($modularInstalled -and -not $monolithicInstalled) { 'modular' }
+            else { 'unknown' }
+        }
+    return [pscustomobject]@{ Layout = $layout; Units = $read.Units; Resolved = $true; Reason = 'ok' }
+}
+
+<#
+.SYNOPSIS
+    What rung 2 may do with one recipe unit: refuse, wait for it to settle, or
+    treat it as running, socket-live or a start candidate.
+.OUTPUTS
+    [pscustomobject] @{ Kind = refuse|transitional|already-running|socket-live|candidate; Reason; Before }
+#>
+function Get-KvmUnitStartDisposition {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [AllowNull()]$Unit,
+        [AllowNull()][AllowEmptyCollection()][object[]]$SocketUnit = @()
+    )
+    $emit = { param([string]$Kind, [string]$Reason, [string]$Before) [pscustomobject]@{ Kind = $Kind; Reason = $Reason; Before = $Before } }
+    if ($null -eq $Unit) { return (& $emit 'refuse' 'unit-state-unknown' 'unknown') }
+    $before = "$($Unit.ActiveState)/$($Unit.SubState)"
+    if ($Unit.LoadState -ne 'loaded') {
+        if ($Unit.LoadState -eq 'masked') { return (& $emit 'refuse' 'unit-masked' $before) }
+        return (& $emit 'refuse' 'unit-state-unknown' $before)
+    }
+    if ($Unit.UnitFileState -in @('masked', 'masked-runtime')) { return (& $emit 'refuse' 'unit-masked' $before) }
+    if ($script:KvmUnitEnabledState -notcontains $Unit.UnitFileState) { return (& $emit 'refuse' 'unit-disabled' $before) }
+    switch ($Unit.ActiveState) {
+        'failed' { return (& $emit 'refuse' 'unit-failed' $before) }
+        'active' { return (& $emit 'already-running' 'already-running' $before) }
+        { $_ -in @('activating', 'deactivating', 'reloading', 'refreshing', 'maintenance') } {
+            return (& $emit 'transitional' 'unit-transitioning' $before)
+        }
+        'inactive' {
+            if ($Unit.SubState -ne 'dead') { return (& $emit 'refuse' 'unit-state-unknown' $before) }
+            foreach ($socket in @($SocketUnit)) {
+                if ($socket -and $socket.LoadState -eq 'loaded' -and $socket.ActiveState -eq 'active') {
+                    return (& $emit 'socket-live' 'socket-live' $before)
+                }
+            }
+            return (& $emit 'candidate' 'started' $before)
+        }
+    }
+    return (& $emit 'refuse' 'unit-state-unknown' $before)
+}
+
+<#
+.SYNOPSIS
+    Build one action row of a Yuruna.VirtualizationStartResult.
+#>
+function New-VirtualizationStartAction {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('unit-start', 'service-start', 'network-start', 'wait', 'app-launch')][string]$Kind,
+        [AllowEmptyString()][string]$Before = '',
+        [AllowEmptyString()][string]$After = '',
+        [Parameter(Mandatory)][ValidateSet('started', 'already-running', 'socket-live', 'refused', 'failed', 'unknown', 'skipped', 'preview')][string]$Result,
+        [Parameter(Mandatory)][string]$Reason,
+        [AllowEmptyCollection()][string[]]$Command = @(),
+        [AllowNull()][Nullable[int]]$ExitCode = $null,
+        [bool]$TimedOut = $false,
+        [long]$ElapsedMs = 0
+    )
+    return [pscustomobject]@{
+        target    = $Target
+        kind      = $Kind
+        before    = $Before
+        after     = $After
+        result    = $Result
+        reason    = $Reason
+        command   = [string[]]@($Command)
+        exitCode  = $ExitCode
+        timedOut  = $TimedOut
+        elapsedMs = $ElapsedMs
+    }
+}
+
+<#
+.SYNOPSIS
+    Build a Yuruna.VirtualizationStartResult (schema version 1), deriving the
+    outcome from the actions unless one is given.
+.DESCRIPTION
+    Derived precedence: any failed action -> failed; else any unknown ->
+    unknown; else any started -> started; else any preview -> preview; else
+    already-running. The reason is the first matching action's reason.
+#>
+function New-VirtualizationStartResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateSet('started', 'already-running', 'refused', 'failed', 'unknown', 'unavailable', 'preview', '')][string]$Outcome = '',
+        [AllowEmptyString()][string]$Reason = '',
+        [Parameter(Mandatory)][string]$Layout,
+        [AllowEmptyCollection()][object[]]$Action = @(),
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ElapsedMs
+    )
+    $rows = @($Action | Where-Object { $null -ne $_ })
+    if (-not $Outcome) {
+        $Outcome = 'already-running'
+        foreach ($candidate in 'failed', 'unknown', 'started', 'preview') {
+            $first = @($rows | Where-Object { $_.result -eq $candidate }) | Select-Object -First 1
+            if ($first) { $Outcome = $candidate; $Reason = [string]$first.reason; break }
+        }
+        if ($Outcome -eq 'already-running') {
+            $Reason = if (@($rows | Where-Object { $_.result -eq 'socket-live' }).Count -gt 0) { 'socket-live' } else { 'already-running' }
+        }
+    }
+    return [pscustomobject]@{
+        PSTypeName    = 'Yuruna.VirtualizationStartResult'
+        schemaVersion = 1
+        hostType      = (Resolve-HostTag)
+        outcome       = $Outcome
+        reason        = $Reason
+        layout        = $Layout
+        actions       = [object[]]$rows
+        observedUtc   = $ObservedUtc
+        elapsedMs     = $ElapsedMs
+    }
+}
+
+<#
+.SYNOPSIS
+    Start libvirt's 'default' network when a dependent VM's persistent
+    definition attaches to it and it is positively inactive; report every other
+    required network without touching it.
+.DESCRIPTION
+    Emits one action row per decision. A network other than 'default' is never
+    started: a bridge-backed network left stopped after a failed bridge build is
+    a network-fabric repair, which this rung must not attempt. net-start needs
+    no sudo; membership in the libvirt group is enough on qemu:///system.
+#>
+function Start-KvmDefaultNetworkIfRequired {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$DependentVMName,
+        [Parameter(Mandatory)]$Deadline
+    )
+    $vmNames = @($DependentVMName | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    if ($vmNames.Count -eq 0) {
+        New-VirtualizationStartAction -Target 'default' -Kind 'network-start' -Result 'skipped' -Reason 'network-not-required'
+        return
+    }
+    $required = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($vm in $vmNames) {
+        $cap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 10
+        if ($null -eq $cap) {
+            New-VirtualizationStartAction -Target $vm -Kind 'network-start' -Result 'skipped' -Reason 'deadline-exhausted'
+            continue
+        }
+        $list = Invoke-VirshBounded -VirshArgs @('domiflist', '--inactive', $vm) -TimeoutSeconds $cap
+        if (-not (Test-DriverNativeResultComplete -Result $list) -or $list.ExitCode -ne 0) {
+            New-VirtualizationStartAction -Target $vm -Kind 'network-start' -Result 'skipped' -Reason 'vm-unresolved' `
+                -ExitCode ([int]$list.ExitCode) -TimedOut ([bool]$list.TimedOut) -ElapsedMs ([long]$list['ElapsedMs'])
+            continue
+        }
+        foreach ($line in @(Get-BoundedNativeOutputLine -Result $list)) {
+            $fields = @("$line".Trim() -split '\s+')
+            if ($fields.Count -ge 3 -and $fields[1] -eq 'network') { [void]$required.Add([string]$fields[2]) }
+        }
+    }
+    if ($required.Count -eq 0) {
+        New-VirtualizationStartAction -Target 'default' -Kind 'network-start' -Result 'skipped' -Reason 'network-not-required'
+        return
+    }
+    foreach ($network in $required) {
+        $cap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 10
+        if ($null -eq $cap) {
+            New-VirtualizationStartAction -Target $network -Kind 'network-start' -Result 'skipped' -Reason 'deadline-exhausted'
+            continue
+        }
+        $info = Invoke-VirshBounded -VirshArgs @('net-info', $network) -TimeoutSeconds $cap
+        $before = Get-KvmNetworkActiveWord -Result $info
+        if ($before -eq 'undefined') {
+            New-VirtualizationStartAction -Target $network -Kind 'network-start' -Before 'undefined' -Result 'skipped' -Reason 'network-undefined'
+            continue
+        }
+        if ($before -eq 'unknown') {
+            New-VirtualizationStartAction -Target $network -Kind 'network-start' -Before 'unknown' -Result 'unknown' -Reason 'network-state-unknown' `
+                -ExitCode ([int]$info.ExitCode) -TimedOut ([bool]$info.TimedOut)
+            continue
+        }
+        if ($before -eq 'yes') {
+            New-VirtualizationStartAction -Target $network -Kind 'network-start' -Before 'active' -After 'active' -Result 'already-running' -Reason 'already-running'
+            continue
+        }
+        if ($network -ne 'default') {
+            New-VirtualizationStartAction -Target $network -Kind 'network-start' -Before 'inactive' -Result 'skipped' -Reason 'network-not-default'
+            continue
+        }
+        $command = @('virsh', '--connect', [string]$script:VirshUri, 'net-start', 'default')
+        if (-not $PSCmdlet.ShouldProcess('default', (Format-YurunaOperatorMessage -Key 'host.kvm_start_network_action'))) {
+            New-VirtualizationStartAction -Target 'default' -Kind 'network-start' -Before 'inactive' -Result 'preview' -Reason 'preview' -Command $command
+            continue
+        }
+        $startCap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 30
+        if ($null -eq $startCap) {
+            New-VirtualizationStartAction -Target 'default' -Kind 'network-start' -Before 'inactive' -Result 'skipped' -Reason 'deadline-exhausted'
+            continue
+        }
+        $start = Invoke-VirshBounded -VirshArgs @('net-start', 'default') -TimeoutSeconds $startCap
+        $afterCap = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 10
+        $after = 'unknown'
+        if ($null -ne $afterCap) { $after = Get-KvmNetworkActiveWord -Result (Invoke-VirshBounded -VirshArgs @('net-info', 'default') -TimeoutSeconds $afterCap) }
+        $afterWord = switch ($after) { 'yes' { 'active' } 'no' { 'inactive' } default { [string]$after } }
+        $common = @{ Target = 'default'; Kind = 'network-start'; Before = 'inactive'; After = $afterWord; Command = $command
+            ExitCode = [int]$start.ExitCode; TimedOut = [bool]$start.TimedOut; ElapsedMs = [long]$start['ElapsedMs'] }
+        if ($after -eq 'yes') { New-VirtualizationStartAction @common -Result 'started' -Reason 'started' }
+        elseif ($start.TimedOut) { New-VirtualizationStartAction @common -Result 'unknown' -Reason 'start-timed-out' }
+        elseif (-not $start.Started -or $start.ExitCode -ne 0) { New-VirtualizationStartAction @common -Result 'failed' -Reason 'start-failed' }
+        else { New-VirtualizationStartAction @common -Result 'unknown' -Reason 'postcondition-unknown' }
+    }
+}
+
+<#
+.SYNOPSIS
+    The 'Active:' word of a bounded `virsh net-info` result: yes, no,
+    undefined (the network does not exist) or unknown.
+#>
+function Get-KvmNetworkActiveWord {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
+    if (-not (Test-DriverNativeResultComplete -Result $Result)) { return 'unknown' }
+    if ($Result.ExitCode -ne 0) {
+        $text = "$($Result.StdOut)`n$($Result.StdErr)"
+        if ($text -match '(?i)network not found|no network with matching name') { return 'undefined' }
+        return 'unknown'
+    }
+    foreach ($line in @(Get-BoundedNativeOutputLine -Result $Result)) {
+        $m = [regex]::Match([string]$line, '^\s*Active:\s*(?<word>\S+)\s*$')
+        if ($m.Success) {
+            $word = $m.Groups['word'].Value.ToLowerInvariant()
+            if ($word -in @('yes', 'no')) { return $word }
+            return 'unknown'
+        }
+    }
+    return 'unknown'
+}
+
+<#
+.SYNOPSIS
+    Start the libvirt daemon units that this function positively observes as
+    stopped, and the 'default' network a dependent VM needs; refuse on anything
+    it cannot establish. Returns a Yuruna.VirtualizationStartResult.
+.DESCRIPTION
+    Runs its own detection immediately before acting and never trusts an
+    earlier probe: one bounded `systemctl show` of every libvirt unit decides
+    the layout (monolithic, modular, mixed or unknown) and each unit's state.
+    Only a qualified layout recipe is acted on; the modular recipe is declared
+    but unqualified and returns 'unavailable/layout-unqualified'.
+
+    Every recipe unit is evaluated before any is started, so a refusal changes
+    nothing: a unit that is not loaded, masked, disabled (an operator's choice
+    this must not override), failed, or still transitioning after a bounded
+    settle wait refuses the whole rung. An active unit is already running; an
+    inactive service behind an active activation socket is idle by design and
+    is not started (socket-live). Only an inactive/dead unit with no live
+    socket is started, in recipe order, with
+    `sudo -n systemctl --no-ask-password start <unit>`, which fails at once
+    rather than prompting. A sudo refusal on the first start refuses the rung
+    and the action's command carries the exact vector a sudoers rule must
+    allow. Each start is confirmed by a fresh unit read; a start whose outcome
+    cannot be confirmed is reported as unknown, never as started.
+
+    The 'default' network step runs only for -DependentVMName guests and only
+    once the daemon is running; see Start-KvmDefaultNetworkIfRequired.
+
+    -WhatIf runs only the bounded read-only detection (and, when the daemon is
+    already up, the read-only network lookups) and reports the planned starts
+    as 'preview'. Every native call is capped by the remaining time of
+    min(TimeoutSeconds, -Deadline); with less than one second left nothing is
+    launched. Never throws and never prompts.
+.PARAMETER TimeoutSeconds
+    Upper bound for the whole call.
+.PARAMETER Deadline
+    Optional shared deadline; the call never outlives it.
+.PARAMETER DependentVMName
+    Guests whose restoration depends on this hypervisor; decides whether the
+    'default' network is required.
+.OUTPUTS
+    [pscustomobject] Yuruna.VirtualizationStartResult
+#>
+function Start-VirtualizationServiceIfStopped {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
+        [object]$Deadline,
+        [AllowEmptyCollection()][string[]]$DependentVMName = @()
+    )
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $expiry = [long](& $clock) + [long]$TimeoutSeconds * 1000
+    if ($null -ne $Deadline) { $expiry = [Math]::Min($expiry, [long]$Deadline.ExpiryTick) }
+    $budget = New-YurunaDeadlineFromExpiry -ExpiryTick $expiry -ClockTicks $clock
+    $actions = [System.Collections.Generic.List[object]]::new()
+    $finish = {
+        param([string]$Outcome, [string]$Reason, [string]$Layout)
+        New-VirtualizationStartResult -Outcome $Outcome -Reason $Reason -Layout $Layout -Action $actions.ToArray() `
+            -ObservedUtc $observedUtc -ElapsedMs $stopwatch.ElapsedMilliseconds
+    }
+
+    $layout = 'unknown'
+    $mutated = $false
+    try {
+        $cap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 10
+        if ($null -eq $cap) { return (& $finish 'refused' 'deadline-exhausted' 'unknown') }
+        $detected = Get-KvmDaemonLayout -TimeoutSeconds $cap
+        if (-not $detected.Resolved) {
+            $refusal = if ($detected.Reason -eq 'missing-client') { 'missing-client' } else { 'unit-state-unknown' }
+            return (& $finish 'refused' $refusal 'unknown')
+        }
+        $layout = [string]$detected.Layout
+        if ($layout -eq 'mixed') { return (& $finish 'refused' 'layout-ambiguous' $layout) }
+        if (-not $script:KvmDaemonRecipe.ContainsKey($layout)) { return (& $finish 'refused' 'unit-state-unknown' $layout) }
+        $recipe = $script:KvmDaemonRecipe[$layout]
+        if (-not $recipe.Qualified) { return (& $finish 'unavailable' 'layout-unqualified' $layout) }
+
+        # Evaluate every unit before acting; wait boundedly for transitional ones.
+        $units = $detected.Units
+        $settle = $null
+        while ($true) {
+            $dispositions = [ordered]@{}
+            foreach ($unitName in $recipe.StartOrder) {
+                $sockets = @(@($recipe.Socket[$unitName]) | ForEach-Object { $units[$_] })
+                $dispositions[$unitName] = Get-KvmUnitStartDisposition -Unit $units[$unitName] -SocketUnit $sockets
+            }
+            $refusedUnit = @($dispositions.Keys | Where-Object { $dispositions[$_].Kind -eq 'refuse' }) | Select-Object -First 1
+            if ($refusedUnit) {
+                $row = $dispositions[$refusedUnit]
+                $actions.Add((New-VirtualizationStartAction -Target $refusedUnit -Kind 'unit-start' -Before $row.Before -After $row.Before -Result 'refused' -Reason $row.Reason))
+                return (& $finish 'refused' $row.Reason $layout)
+            }
+            $transitional = @($dispositions.Keys | Where-Object { $dispositions[$_].Kind -eq 'transitional' })
+            if ($transitional.Count -eq 0) { break }
+            if ($null -eq $settle) {
+                $settle = New-YurunaDeadlineFromExpiry -ExpiryTick ([Math]::Min([long](& $clock) + 15000, $budget.ExpiryTick)) -ClockTicks $clock
+            }
+            $remaining = Get-YurunaDeadlineRemainingMs -Deadline $settle
+            $readCap = $null
+            if ($remaining -gt 0) {
+                Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining))
+                $readCap = Get-YurunaDeadlineBoundedSeconds -Deadline $settle -Ceiling 5
+            }
+            if ($null -eq $readCap) {
+                foreach ($unitName in $transitional) {
+                    $actions.Add((New-VirtualizationStartAction -Target $unitName -Kind 'wait' -Before $dispositions[$unitName].Before -After $dispositions[$unitName].Before -Result 'refused' -Reason 'unit-transitioning'))
+                }
+                return (& $finish 'refused' 'unit-transitioning' $layout)
+            }
+            $reread = Get-KvmDaemonUnitState -Unit $script:KvmDaemonUnit -TimeoutSeconds $readCap
+            if (-not $reread.Resolved) { return (& $finish 'refused' 'unit-state-unknown' $layout) }
+            $units = $reread.Units
+        }
+
+        $candidates = [System.Collections.Generic.List[string]]::new()
+        foreach ($unitName in $dispositions.Keys) {
+            $row = $dispositions[$unitName]
+            if ($row.Kind -eq 'candidate') { [void]$candidates.Add($unitName); continue }
+            $actions.Add((New-VirtualizationStartAction -Target $unitName -Kind 'unit-start' -Before $row.Before -After $row.Before -Result $row.Kind -Reason $row.Reason))
+        }
+
+        $mutated = $false
+        $halted = $false
+        foreach ($unitName in $candidates) {
+            $before = $dispositions[$unitName].Before
+            $command = @('systemctl', '--no-ask-password', 'start', $unitName)
+            if ($halted) {
+                $actions.Add((New-VirtualizationStartAction -Target $unitName -Kind 'unit-start' -Before $before -Result 'skipped' -Reason 'start-failed' -Command $command))
+                continue
+            }
+            $startCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 60
+            if ($null -eq $startCap) {
+                if (-not $mutated) { return (& $finish 'refused' 'deadline-exhausted' $layout) }
+                $actions.Add((New-VirtualizationStartAction -Target $unitName -Kind 'unit-start' -Before $before -Result 'unknown' -Reason 'deadline-exhausted' -Command $command))
+                $halted = $true
+                continue
+            }
+            if (-not $PSCmdlet.ShouldProcess($unitName, (Format-YurunaOperatorMessage -Key 'host.kvm_start_unit_action'))) {
+                $actions.Add((New-VirtualizationStartAction -Target $unitName -Kind 'unit-start' -Before $before -Result 'preview' -Reason 'preview' -Command $command))
+                continue
+            }
+            $start = Invoke-BoundedNativeCommand -FilePath 'sudo' -ArgumentList (@('-n') + $command) `
+                -Environment @{ SYSTEMD_COLORS = '0' } -TimeoutSeconds $startCap
+            $common = @{ Target = $unitName; Kind = 'unit-start'; Before = $before; Command = $command
+                ExitCode = [int]$start.ExitCode; TimedOut = [bool]$start.TimedOut; ElapsedMs = [long]$start['ElapsedMs'] }
+            if (-not $start.Started) {
+                $actions.Add((New-VirtualizationStartAction @common -Result ($mutated ? 'failed' : 'refused') -Reason 'missing-client'))
+                if (-not $mutated) { return (& $finish 'refused' 'missing-client' $layout) }
+                $halted = $true
+                continue
+            }
+            if (-not $start.TimedOut -and $start.ExitCode -ne 0 -and (Test-YurunaSudoRefusal -Output "$($start.StdOut)`n$($start.StdErr)")) {
+                $actions.Add((New-VirtualizationStartAction @common -Result ($mutated ? 'failed' : 'refused') -Reason 'elevation-refused'))
+                if (-not $mutated) { return (& $finish 'refused' 'elevation-refused' $layout) }
+                $halted = $true
+                continue
+            }
+            $mutated = $true
+            $after = 'unknown'
+            $isActive = $false
+            $postCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 5
+            if ($null -ne $postCap) {
+                $post = Get-KvmDaemonUnitState -Unit @($unitName) -TimeoutSeconds $postCap
+                if ($post.Resolved -and $post.Units[$unitName]) {
+                    $after = "$($post.Units[$unitName].ActiveState)/$($post.Units[$unitName].SubState)"
+                    $isActive = ($post.Units[$unitName].ActiveState -eq 'active')
+                }
+            }
+            if ($isActive) {
+                $actions.Add((New-VirtualizationStartAction @common -After $after -Result 'started' -Reason 'started'))
+                continue
+            }
+            $halted = $true
+            if ($start.TimedOut) { $actions.Add((New-VirtualizationStartAction @common -After $after -Result 'unknown' -Reason 'start-timed-out')) }
+            elseif ($start.ExitCode -ne 0) { $actions.Add((New-VirtualizationStartAction @common -After $after -Result 'failed' -Reason 'start-failed')) }
+            else { $actions.Add((New-VirtualizationStartAction @common -After $after -Result 'unknown' -Reason 'postcondition-unknown')) }
+        }
+
+        $daemonRows = @($actions.ToArray())
+        $daemonReachable = -not (@($daemonRows | Where-Object { $_.result -in @('failed', 'unknown', 'preview', 'refused', 'skipped') }).Count -gt 0)
+        if ($daemonReachable) {
+            foreach ($row in @(Start-KvmDefaultNetworkIfRequired -DependentVMName @($DependentVMName) -Deadline $budget)) { $actions.Add($row) }
+        }
+        return (& $finish '' '' $layout)
+    } catch {
+        # Never throw: under a caller's ErrorActionPreference of Stop any
+        # non-terminating error is a throw. After a start was attempted its
+        # outcome is unknown until a fresh probe; before, nothing changed.
+        Write-Verbose "Start-VirtualizationServiceIfStopped: $($_.Exception.Message)"
+        if ($mutated) { return (& $finish 'unknown' 'postcondition-unknown' $layout) }
+        return (& $finish 'refused' 'unit-state-unknown' $layout)
+    }
+}
+
 # --- REGION: DHCP evidence capture
 # See https://yuruna.link/4220a755-000e
-# A guest that comes up with no address can only report "no lease". From
-# inside it there is no way to separate a DISCOVER that was never sent from
-# one that was sent and never answered, and those two indict different
-# machines. On this host libvirt runs the dnsmasq that answers, so the
-# server's half of the conversation is already being written to the journal.
-# What is missing is a mark on the timeline saying which lines belong to THIS
-# boot of THIS guest, and a copy taken while the domain still exists: the
-# failure path undefines it within minutes, and with it goes the only mapping
-# from VM name to MAC and bridge that the journal can be read through.
-#
-# Arming therefore costs a timestamp and two lookups. There is no capture
-# session to collide with another guest's, and nothing to leak if a flow never
-# tears one down -- which is what lets it be armed on every start, since
-# whether this boot's lease goes wrong is not knowable in advance.
-#
-# The wire capture is the optional half. It answers the one question the
-# journal cannot -- whether a frame the server never logged reached the bridge
-# at all -- and it is taken only where tcpdump can open the bridge WITHOUT
-# privilege. Nothing here elevates to capture: a root tcpdump started by the
-# runner could not be stopped by it afterwards, and a passwordless grant for a
-# program that writes files and runs commands as root is a larger hole than the
-# evidence is worth. Where the capability is absent the reason is recorded
-# beside the journal slice, so the reader learns the capture is off rather than
-# wondering whether it saw nothing.
+# Mark this boot's DHCP journal window; capture packets only without elevation.
 
 # The one armed capture, if any. Session state, not durable state: it says only
 # that THIS process armed a window for that VM.
 $script:YurunaDhcpCapture = $null
+$script:YurunaDhcpExitJob = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    [void](Yuruna.Host\Stop-VMDhcpCapture -Reason 'arming process exiting')
+}
+$ExecutionContext.SessionState.Module.OnRemove = {
+    [void](Stop-VMDhcpCapture -Reason 'host module unloaded')
+    if ($script:YurunaDhcpExitJob) {
+        Get-EventSubscriber | Where-Object { $_.Action -eq $script:YurunaDhcpExitJob } |
+            Unregister-Event -ErrorAction SilentlyContinue
+        Remove-Job -Job $script:YurunaDhcpExitJob -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # What last happened to that one slot, in words, for the guest that ends up
 # without evidence. An empty slot has exactly one message today and three
@@ -3857,6 +4885,8 @@ function Start-VMDhcpCapture {
             $capture.WireNote = 'no bridge resolved for this domain; wire capture not started'
         } elseif (-not (Get-Command tcpdump -ErrorAction SilentlyContinue)) {
             $capture.WireNote = 'tcpdump is not installed; journal evidence only'
+        } elseif (-not (Get-Command timeout -ErrorAction SilentlyContinue)) {
+            $capture.WireNote = 'timeout is not installed; journal evidence only'
         } elseif ($script:YurunaDhcpWireRefusal) {
             $capture.WireNote = $script:YurunaDhcpWireRefusal
         } else {
@@ -3869,8 +4899,17 @@ function Start-VMDhcpCapture {
             # and 500 DHCP frames is far more than one cycle of one guest.
             $tcpdumpArg = @('-i', $iface.Bridge, '-n', '-s', '0', '-U', '-c', '500',
                             '-w', $pcap, 'port', '67', 'or', 'port', '68')
-            $proc = Start-Process -FilePath 'tcpdump' -ArgumentList $tcpdumpArg -PassThru -NoNewWindow `
-                -RedirectStandardError $errPath -ErrorAction SilentlyContinue
+            # A quiet bridge may never reach the packet bound. The independent
+            # wall-clock bound also survives an abrupt parent process exit.
+            $captureArg = @('--signal=TERM', '--kill-after=5s', '300s', 'tcpdump') + $tcpdumpArg
+            # Start-Process rejects identical input/output paths, even /dev/null.
+            $inputPath = "$pcap.stdin"
+            [System.IO.File]::WriteAllText($inputPath, '')
+            try {
+                $proc = Start-Process -FilePath 'timeout' -ArgumentList $captureArg -PassThru -NoNewWindow `
+                    -RedirectStandardInput $inputPath -RedirectStandardOutput '/dev/null' `
+                    -RedirectStandardError $errPath -ErrorAction SilentlyContinue
+            } finally { Remove-Item -LiteralPath $inputPath -Force -ErrorAction SilentlyContinue }
             # tcpdump reports a refused capture and exits immediately, so a
             # short settle separates "running" from "already dead" without
             # polling. Reported either way: a capture believed to be running
@@ -3926,7 +4965,8 @@ function Stop-VMDhcpCapture {
         if (-not $capture) { return $true }
         $script:YurunaDhcpTrail = "the window armed for '$($capture.VMName)' at @$($capture.ArmedUtc) was $Reason"
         if ($capture.Process -and -not $capture.Process.HasExited) {
-            Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
+            $capture.Process.Kill($true)
+            [void]$capture.Process.WaitForExit(2000)
         }
         if ($capture.PcapPath) {
             Remove-Item -LiteralPath $capture.PcapPath -Force -ErrorAction SilentlyContinue
@@ -3981,7 +5021,8 @@ function Save-VMDhcpCapture {
         $script:YurunaDhcpCapture = $null
         $script:YurunaDhcpTrail = "the window armed for '$VMName' was saved"
         if ($capture.Process -and -not $capture.Process.HasExited) {
-            Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
+            $capture.Process.Kill($true)
+            [void]$capture.Process.WaitForExit(2000)
             # tcpdump flushes on SIGTERM; without a moment to do it the file is
             # truncated at whatever was still buffered.
             Start-Sleep -Milliseconds 300
@@ -3989,14 +5030,14 @@ function Save-VMDhcpCapture {
         if (-not (Test-Path -LiteralPath $OutputDirectory)) {
             New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
         }
-        $armedText = [DateTimeOffset]::FromUnixTimeSeconds($capture.ArmedUtc).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $armedText = [DateTimeOffset]::FromUnixTimeSeconds($capture.ArmedUtc).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
         $body = [System.Collections.Generic.List[string]]::new()
         $body.Add("vmName:   $VMName")
         $body.Add("guestMac: $(if ($capture.Mac) { $capture.Mac } else { '(unresolved)' })")
         $body.Add("bridge:   $(if ($capture.Bridge) { $capture.Bridge } else { '(unresolved)' })")
         $body.Add("network:  $(if ($capture.Network) { $capture.Network } else { '(not a libvirt-managed network)' })")
         $body.Add("armedUtc: $armedText")
-        $body.Add("savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
+        $body.Add("savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))")
         $body.Add("wire:     $($capture.WireNote)")
         $body.Add('')
         $body.Add('reading:  a DISCOVER from the MAC above with an OFFER after it means the')
@@ -4032,7 +5073,7 @@ function Save-VMDhcpCapture {
 
 # --- REGION: Exports
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
@@ -4060,7 +5101,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' `
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization',
-    'Test-VirtualizationResponsive'
+    'Test-VirtualizationResponsive','Start-VirtualizationServiceIfStopped'
 )
 
 # Load-time guard for the cache-download wrapper precedence. The image helpers

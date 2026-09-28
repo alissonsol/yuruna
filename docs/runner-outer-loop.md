@@ -26,7 +26,7 @@ VM, driving its sequences, and recording results. Concretely, each cycle:
 1. `git pull` the framework repo.
 2. Reconcile the pool intent when the host belongs to a pool: `drain` stops
    the runner at this cycle boundary, `paused` holds without spawning.
-3. Wipe last cycle's `inner.pid` / `runner.stepHeartbeat` /
+3. Wipe last cycle's `inner.pid` / `inner.start` / `runner.stepHeartbeat` /
    `runner.phase` / `last_failure.json` / `break-active.json`.
 4. Arm the [watchdog](#watchdog-and-heartbeat-protocol).
 5. Spawn the inner runner via the call operator.
@@ -47,6 +47,9 @@ in a module rather than inline in
 [`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1): mocking the
 call-op + `Set-RunnerState` exercises the state-transition sequence without
 spawning a real inner pwsh.
+
+While a host refresh repairs the host, every one of these steps is held; see
+[Host refresh and the runner](#host-refresh-and-the-runner).
 
 <a id="42f909ad-0002"></a>
 
@@ -320,10 +323,25 @@ A missing key throws `Invoke-RunnerOuterLoop: -State is missing
 required key '<name>'.` at entry, catching wiring bugs at the
 entry-point edit site rather than mid-cycle.
 
-Two more keys are optional, both resolved to a default when absent so an
+Three more keys are optional, each resolved to a default when absent so an
 older caller (or a unit test) that omits them still runs: `CycleScript`, the
 path to `Invoke-TestCycleRunner.ps1` -- absent, the cycle runs in-process --
-and `PreambleTimeoutSecondsDefault`, the watchdog's tighter preamble bound.
+`PreambleTimeoutSecondsDefault`, the watchdog's tighter preamble bound, and
+`RunnerInstanceId`, 32 lowercase hex characters naming this runner process,
+minted at loop entry when absent. Before each dispatch the loop writes
+`CycleGeneration` = `<RunnerInstanceId>:<cycle>`; the cycle process receives
+it as `-CycleGeneration` and hands it to the inner as
+`YURUNA_CYCLE_GENERATION`, so evidence an inner writes can be matched to the
+cycle that produced it and never counted for another.
+
+Three keys carry [host-refresh](#host-refresh-and-the-runner) state between
+dispatches, and all three may be absent:
+
+| Key | Type | Purpose |
+|---|---|---|
+| `RefreshHandoff` | `[hashtable]` | A handoff the next dispatch runs as a preflight chain: `TokenId`, `RequestId`, `Purpose`, `Generation`. `Start-TestRunner.ps1` sets it on a resumed start; the automatic refresh decision sets it for the resident runner. |
+| `RefreshBarrierRequestId` | `[string]` | The request whose held-control barrier the next ordinary cycle carries. Cleared once a cycle completes. |
+| `RefreshGateHoldSeconds` | `[int]` | The interruptible hold between dispatches while a refresh holds the runner (default 15). |
 
 <a id="42f909ad-000d"></a>
 
@@ -355,6 +373,22 @@ never be reached and a deterministic transient would auto-retry forever. A
 passing cycle re-arms the budget. Everything the dispatcher does not classify
 as clearly-safe keeps the full wait-for-human pause.
 
+The automatic host-refresh decision runs after every dispatch, through
+`Test.HostRefreshTrigger` when that module is present (it is off by default;
+[test-config.md](test-config.md) describes `testCycle.autoRefreshAfterStalls`).
+Every outcome first consumes the cycle's evidence file,
+`runner.refresh-evidence.json`; only a completed cycle counts. The decision then
+has two call sites in the loop. A passing cycle asks it on the success branch
+before looping. A failing cycle asks it on the failure branch after the streak
+and crash-gating accounting and before the pause: when the repair reports the
+host `repaired`, the pause is skipped (the state machine goes `fault -> idle`
+and `outer.log` says so) and the next cycle starts at once. Either branch may
+return a handoff for this runner, which the next dispatch runs as a
+[preflight chain](#handoff-and-preflight). A held cycle asks it on its own
+`gated` branch, and a pool drain withdraws an automatic request no worker has
+started. A failure inside the decision is logged to `outer.log` and never
+changes what the loop does.
+
 <a id="42f909ad-000e"></a>
 
 ## State transitions emitted
@@ -373,6 +407,11 @@ transition table live in
 | Pool `desiredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s intent re-poll |
 | Entering failure-pause | `fault -> paused` |
 | Pause broke out | `paused -> idle` |
+| Host refresh holds the dispatch or the cycle start | none: the cycle changes nothing |
+| Host refresh holds the cycle after its pull (before the wipe) | `cycle-start -> paused`, then `paused -> cycle-start` on the next dispatch |
+| Inner held at one of its own gate sites | `in-cycle -> cycle-end -> idle` |
+| Refresh preflight cycle exited | `in-cycle -> cycle-end -> idle` |
+| Automatic refresh repaired the host after a failure | `fault -> idle` (the failure pause is skipped) |
 
 Each `Set-RunnerState` call is `Get-Command`-guarded so a stripped-
 down test fixture that did not import `Test.RunnerState` still runs
@@ -382,15 +421,22 @@ the loop body.
 
 ## Pre-spawn cleanup ordering
 
-Five files are wiped before the watchdog is armed, each for its own reason.
+Six files are wiped before the watchdog is armed, each for its own reason.
 
 | File | Why it is wiped pre-spawn |
 |---|---|
 | `inner.pid` | A stale file makes `Start-Watchdog` skip its wait-for-pidfile loop, read the dead PID, fail to capture an identity for it, and lapse within seconds -- leaving the new inner unwatched for the whole cycle. |
+| `inner.start` | The start-time sidecar of `inner.pid`, which the host-refresh identity checks read with it. It goes with its pidfile, so a new inner's PID is never paired with the previous inner's start time. |
 | `runner.stepHeartbeat` | The symmetric trap: the watchdog would see an hours-old mtime and kill the new inner before it started its first step. |
 | `last_failure.json` | `Invoke-Sequence` removes it at the start of each sequence, but between the previous cycle's failure and the new cycle's first sequence there is a multi-second window where a dashboard or status-service reader sees stale cycle-N failure context attached to cycle N+1. Pre-spawn deletion closes that window. |
 | `runner.phase` | It selects the watchdog's TIGHT preamble bound, so a copy left behind by a killed inner would apply that bound to the next cycle's sequence steps and kill healthy long ones. The new inner re-creates it within its first second; until then its absence means the loose bound, which is the safe direction. |
 | `break-active.json` | Written by the `break` sequence action when a cooperative breakpoint parks the cycle, and removed on resume. Restarting only `Start-TestRunner.ps1` while a break is parked leaves the file behind, and the first new-cycle step's Gate #1 then hangs the cycle waiting on a breakpoint nobody set. Status-service startup sweeps it too, but the runner can start without the status service, so both startup paths clean it. |
+
+A [refresh preflight cycle](#handoff-and-preflight) wipes only `inner.pid`,
+`inner.start`, `runner.stepHeartbeat` and `runner.phase`. It keeps
+`last_failure.json` and `break-active.json`, which still describe the cycle the
+refresh interrupted, and skips the pool-storage check below, because it
+archives nothing.
 
 The **pool-storage space check** runs immediately after the `last_failure.json`
 wipe, and the ordering is load-bearing. On a host archiving in move mode it
@@ -410,6 +456,197 @@ about to arm would read the stale mtime and kill the new inner
 within one poll. The unconditional `WriteAllText` defends against
 that -- the new inner overwrites it again immediately at startup, so
 the force-touch is harmless when the wipe succeeded.
+
+<a id="42f909ad-0022"></a>
+
+## Host refresh and the runner
+
+A host refresh -- `test/lab/Invoke-HostRefresh.ps1` run by hand, the
+`POST /control/host-refresh` route in [control-routes.md](control-routes.md), or
+the automatic repair above -- repairs a stalled runner or hypervisor. While it
+reclaims processes or restarts the hypervisor, no runner process may start a
+cycle, pull, or sweep VMs; when it is done, it hands the host back to a runner
+without an operator. Three mechanisms carry that: the refresh gate, the handoff,
+and the held-control barrier. The gate and handoff records live in
+`Test.SingleInstance`, which the loop, the cycle process and the inner all
+consult; the barrier runs in the inner (`Test.RunnerInnerLoop`).
+
+<a id="42f909ad-0023"></a>
+
+### The refresh gate
+
+The gate is one record per user, `runner-gate.record` under
+`$HOME/.yuruna/host-refresh/`, because a hypervisor repair disrupts every
+runtime directory the user owns. Every write takes `runner-gate.lock`: the
+refresh worker opens, closes and hands off the gate, and the designated runner
+writes it once, to complete its handoff; everything else in the runner only
+reads it. Its state is `open`, `closed`, `recovery-pending` or `handoff`. A
+gate that cannot be read -- damaged, from a newer schema, or under a private
+directory that fails its safety checks -- holds exactly like a closed one.
+Nothing expires a gate by age: one left behind by a worker that died stays held
+until `test/lab/Invoke-HostRefresh.ps1 -Resume` resolves it, and the runner's
+hold line says so.
+
+Six sites read it, each before anything it guards can change:
+
+| Site | Process | Guards |
+|---|---|---|
+| Dispatch | loop | Spawning the cycle process at all |
+| Cycle start | cycle | The `git pull`, the pool-intent sync and the first state transition |
+| Before the wipe | cycle | The pre-spawn wipe and the inner spawn, which can be reached after the gate closed during the pull |
+| Cycle start | inner | The per-cycle host-condition re-check and everything after it |
+| Before the pull | inner | The auth vault, the status reset and the framework pull |
+| Before the cycle-start sweep | inner | `Remove-CycleStartOrphanVM` and everything after it |
+
+A held dispatch or cycle returns the outcome `refresh-gated`. An inner held at
+its own sites exits 0 and leaves `runner.refresh-gated.json` naming itself and
+its parent; the cycle process accepts that file only from its own inner during
+this spawn, deletes it, and reports `refresh-gated` too, skipping every
+cycle-end hook. An inner held before the cycle-start sweep has already opened
+the cycle log, so it closes it as aborted and records the cycle as `skipped`
+in the status history, which the fleet counters do not tally. `refresh-gated` is neither a pass nor a failure: no fault state,
+no crash gating or streak, no failure pause, no failure notification, and no
+completed cycle for the automatic decision to count. The loop holds for
+`RefreshGateHoldSeconds` (sliced, so Ctrl+C still lands within seconds) and
+dispatches again. It logs the hold to the console and `outer.log` once per
+change of request, gate state or orphaned worker, and logs one line when the
+gate releases. The status-service re-ensure before a failure pause is skipped
+while the gate holds, so the runner never restarts a service the repair is
+restoring.
+
+A normal `Start-TestRunner.ps1` start refuses while the gate holds -- it would
+race the repair, which restarts the runner itself -- and so does the
+single-instance banner (`Assert-NoOtherRunner`) of the other entry points.
+
+<a id="42f909ad-0024"></a>
+
+### Handoff and preflight
+
+When the repair is done, the worker hands the host back through a handoff token
+recorded in the gate: 32 hex characters, a purpose, the designated runner, and
+an expiry measured on the boot clock (a reboot expires it). The purpose names
+which runner receives it:
+
+- **`new-outer`**: the worker restarts the runner itself -- see
+  [A runner restarted by a refresh](#a-runner-restarted-by-a-refresh) -- and the
+  new runner's first dispatch is the preflight chain.
+- **`resident-outer`**: the runner that called an automatic repair was never
+  stopped. The token comes back in the repair's result, and that runner's next
+  dispatch is the preflight chain.
+
+The gate admits only the preflight chain of the designated runner. A preflight
+cycle skips the pull and the pool-intent sync, wipes only the four files named
+under [Pre-spawn cleanup ordering](#pre-spawn-cleanup-ordering), and carries the
+token to its inner in the environment (`YURUNA_REFRESH_PREFLIGHT`,
+`YURUNA_REFRESH_HANDOFF_TOKEN`). The preflight inner is bounded (120 seconds)
+and changes nothing: no git, no VM, no control sweep, no status document. It
+probes the hypervisor from the final process ancestry -- the one that matters
+for per-process permissions -- and writes a readiness acknowledgment,
+`runner-handoff.<token>.ack.json` under `$HOME/.yuruna/host-refresh/`, carrying
+the three chain identities and the operator controls it found. An
+acknowledgment is written only while the gate holds that token.
+
+A `new-outer` preflight inner then parks, refreshing its step heartbeat, while
+the worker verifies the acknowledgment against the live chain and completes the
+handoff; it exits once the gate is released, the handoff revoked, or the token
+expired. A
+`resident-outer` preflight inner exits at once, because the runner that must
+verify it is waiting on it: that runner checks the acknowledgment against the
+cycle it spawned and completes the handoff itself, `released` when it verified
+readiness and `recovery-pending` otherwise. Either way the cycle reports the
+outcome `refresh-preflight`, which runs no cycle-end hook and never counts as a
+completed cycle. A successful preflight arms the barrier below; a failed one
+keeps the runner held, so no inner starts into the same fault.
+
+A `resident-outer` token names that runner as the gate's owner, and the worker
+that issued it has already exited, so nobody else would complete it. When the
+token expires (or the host reboots) before the runner dispatched its preflight,
+the runner completes the handoff `recovery-pending` itself and reports
+readiness failed (`handoff-expired`) to the repair's request record. A gate
+this runner owns in that state -- or after its own preflight failed -- is
+logged like a gate whose worker died, naming
+`test/lab/Invoke-HostRefresh.ps1 -Resume` as the way out.
+
+<a id="42f909ad-0025"></a>
+
+### Held-control barrier
+
+A refresh preserves the operator's controls: `control.cycle-pause`,
+`control.step-pause`, `control.pause`, a lab hold and its release, and
+`control.cycle-restart` all survive it. The first ordinary cycle after a
+handoff carries the barrier (`YURUNA_REFRESH_BARRIER`, the request id), and its
+inner stops right after host detection, before anything can touch a VM or the
+host. While a pause flag exists it parks, refreshing its step heartbeat, until
+the status page's resume removes the flag. A preserved lab hold goes to its
+normal consumer, the lab-health gate, which re-probes, holds, honors a release,
+and ends the cycle as a failure when the hold gives up. The barrier never
+deletes a pause flag, and leaves `control.cycle-restart` for the inner's normal
+startup consumer.
+
+<a id="42f909ad-0026"></a>
+
+### A runner restarted by a refresh
+
+A refresh that had to reclaim the runner restarts it from its launch record:
+`runner-launch.<runtime key>.record` under `$HOME/.yuruna/host-refresh/`,
+written by `Start-TestRunner.ps1` after it wins its pidfile. The record holds
+the six operator options with their resolved values (`-ConfigPath`,
+`-NoGitPull`, `-NoStatusService`, `-NoConfigGate`, `-CycleDelaySeconds`,
+`-logLevel`), the working directory, the runtime directory and the forwarded
+`YURUNA_*` environment. It is validated against the runner script's own
+parameter metadata before any launch, so it never replays a command line. A
+runner that could not write one says so at startup; a later refresh then cannot
+restart it and reports that the operator must start it. A runner whose last
+exit was clean (Ctrl+C) is not restarted either. A runner still running from an
+older checkout has no launch record, and a refresh cannot hand the host back to
+it: restart it once so it writes one.
+
+The worker starts `Start-TestRunner.ps1 -RefreshResume -RefreshHandoffToken
+<token>` detached, with the recorded options. Both parameters are internal and
+travel together; neither reaches the inner or the launch record. A resumed
+start:
+
+- refuses when the token does not validate for this runtime, writing a failed
+  acknowledgment the worker is waiting for;
+- never takes over a runner: a live or unidentifiable `runner.pid` refuses the
+  start, and only the exact runner generation proven dead is removed;
+- only once it holds `runner.pid`, runs the boot recovery sweep in
+  preservation mode and resets the runner state, so a refused start never
+  touches a live runner's state: pause flags, lab holds and the restart request
+  stay for their normal consumers; `inner.pid` goes only when its process is
+  proven gone; `runner.pid`, `server.pid` and `config-server.pid` are left
+  alone; and `break-active.json` is archived only for the inner the refresh
+  reclaimed;
+- never prompts: a host whose elevation check would ask for a password
+  refuses the start, as an unattended start does;
+- runs the preflight chain as its first dispatch, then the barrier cycle.
+
+A startup refusal after the launch record is written -- `powershell-yaml`
+missing, elevation, the config gate -- marks the record as a clean exit, like
+Ctrl+C, so a later refresh does not restart the runner into the same refusal.
+The worker watches the runner it launched: one that exits before
+acknowledging ends the wait at once as a failed launch instead of holding the
+repair until its deadline.
+
+A refresh recognizes this checkout's runner however it was started: by an
+absolute path, by a path relative to the directory it was started from
+(`pwsh test/Start-TestRunner.ps1`, a `./test/Start-TestRunner.ps1` shebang
+launch), through a symbolic link to the checkout, or, failing all of those, by
+the process identity its launch record names.
+
+**Stopping a resumed runner.** A restarted runner has no console: its stdout is
+discarded, its stderr goes to `runner.<request id>.err` in the refresh's private
+directory (captures untouched for a week are pruned at the next restart, the
+four newest always kept), and `outer.log` and the per-cycle logs remain the
+durable record.
+Ctrl+C cannot reach it, and the `test/service/Stop-*` scripts stop services,
+not the runner. To take it back into a terminal, start `test/Start-TestRunner.ps1`
+there as usual: the single-instance takeover stops the detached runner and its
+whole process tree first. To stop it outright, arm **Pause after cycle** so the
+current cycle finishes and tears its guests down, then stop the process tree
+rooted at the PID in `runtime/runner.pid`, children first -- stopping only that
+PID leaves its cycle process and inner running. The next start's boot recovery
+treats the result as a crashed runner, which is the designed path.
 
 <a id="42f909ad-0010"></a>
 
@@ -464,6 +701,10 @@ runner re-spawns the inner from a clean state.
 | `runner.stepHeartbeat`   | `Invoke-Sequence` at the top of each step | outer watchdog | Touched from the runspace itself. The signal the watchdog uses to detect a wedged step. |
 | `runner.phase`           | inner runner during its preamble | outer watchdog | Present means the inner has not reached its first sequence step, which selects the tighter preamble bound. |
 | `runner.watchdog.lapsed` | outer watchdog          | outer runner          | Durable sentinel written when the watchdog gives up before arming. The outer is blocked on the call-op while that happens, so an unguarded cycle would otherwise be invisible until a post-mortem. |
+| `inner.start`            | inner runner per cycle  | host refresh, boot recovery | StartTime sidecar of `inner.pid`, written before it. Wiped with `inner.pid` before each spawn. |
+| `runner.cycle.json`      | outer runner            | host refresh, inner (preflight) | PID, start time, cycle number and generation of the running cycle process, plus the outer's own identity; removed once the cycle exits. Lets a refresh identify the whole runner chain. |
+| `runner.refresh-gated.json` | inner runner         | cycle process         | Written when the inner stops at one of its host-refresh gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
+| `runner.refresh-evidence.json` | inner runner (service-VM restore) | outer runner | Hypervisor evidence for the automatic refresh decision, stamped with the cycle generation. Read and consumed by the outer after every dispatch. |
 | `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
 
 <a id="42f909ad-0013"></a>
@@ -736,6 +977,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

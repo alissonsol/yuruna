@@ -167,21 +167,27 @@ func TestSharedFormatCorpus(t *testing.T) {
 	}
 }
 
-func TestPortugueseCardinalCorpus(t *testing.T) {
-	var corpus struct {
-		Locale string `json:"locale"`
-		Rule   string `json:"rule"`
-		Cases  []struct {
-			Count    float64 `json:"count"`
-			Category string  `json:"category"`
-		} `json:"cases"`
+func TestPinnedCardinalCorpora(t *testing.T) {
+	names, err := filepath.Glob(filepath.Join(fixtureRoot, "*-plurals.json"))
+	if err != nil || len(names) < 3 {
+		t.Fatalf("pinned plural corpora: found %d (%v), want at least 3", len(names), err)
 	}
-	readFixture(t, "pt-BR-plurals.json", &corpus)
 	m := DefaultManifest()
-	for _, row := range corpus.Cases {
-		actual, err := PluralCategory(row.Count, corpus.Locale, m)
-		if err != nil || actual != row.Category {
-			t.Errorf("count %v: got %q (%v), want %q", row.Count, actual, err, row.Category)
+	for _, name := range names {
+		var corpus struct {
+			Locale string `json:"locale"`
+			Rule   string `json:"rule"`
+			Cases  []struct {
+				Count    float64 `json:"count"`
+				Category string  `json:"category"`
+			} `json:"cases"`
+		}
+		readFixture(t, filepath.Base(name), &corpus)
+		for _, row := range corpus.Cases {
+			actual, err := PluralCategory(row.Count, corpus.Locale, m)
+			if err != nil || actual != row.Category {
+				t.Errorf("%s count %v: got %q (%v), want %q", corpus.Locale, row.Count, actual, err, row.Category)
+			}
 		}
 	}
 }

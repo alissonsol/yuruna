@@ -40,6 +40,22 @@
     #config-status.error { color: var(--fail-fg); background: var(--fail-soft-bg); }
     #config-status.ok    { color: var(--pass-fg); background: var(--pass-bg); }
 
+    /* Host refresh: its own live region, so its progress never overwrites the
+       save/load messages #config-status carries, and the reverse. Hidden
+       until the host advertises a refresh it can run. */
+    .host-refresh {
+      padding: .5rem 1.5rem;
+      border-top: 1px solid var(--border);
+      background: var(--bg-elevated);
+      font-size: .75rem;
+    }
+    .host-refresh-title { font-size: .8125rem; margin: 0 0 .25rem; }
+    .host-refresh-note  { color: var(--fg-muted); margin: 0 0 .5rem; max-width: 72ch; line-height: 1.4; }
+    .host-refresh-actions > * + * { margin-left: .5rem; }
+    .host-refresh-status { min-height: 1.25rem; margin-top: .5rem; color: var(--fg-muted); }
+    .host-refresh-status.error { color: var(--fail-fg); }
+    .host-refresh-status.ok    { color: var(--pass-fg); }
+
     #config-footer {
       /* Shorthand first as the fallback; browsers that understand env()/max() override with the
          safe-area-aware values so the Save/Discard action row clears the iPhone home indicator
@@ -368,6 +384,16 @@
 </main>
 
 <div id="config-status" role="status"></div>
+
+<section id="host-refresh" class="host-refresh" hidden aria-labelledby="host-refresh-title">
+  <h2 id="host-refresh-title" class="host-refresh-title"></h2>
+  <p id="host-refresh-note" class="host-refresh-note"></p>
+  <div class="host-refresh-actions">
+    <button type="button" class="config-btn destructive" id="host-refresh-start"></button>
+    <button type="button" class="config-btn secondary" id="host-refresh-retry" hidden></button>
+  </div>
+  <div id="host-refresh-status" class="host-refresh-status" role="status" aria-live="polite" aria-atomic="true"></div>
+</section>
 
 <div id="config-footer">
   <button type="button" class="config-btn destructive" id="config-save-start" data-i18n="status.save_and_start_cycle">Save and start cycle</button>

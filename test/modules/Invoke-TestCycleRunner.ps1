@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@
     It exists as a separate PROCESS so that an edit to it -- or to any module it
     imports -- is picked up by the very next cycle. The long-lived runner holds its
     own code resident and would otherwise keep running whatever it parsed at
-    startup, which is why updating a machine used to mean stopping the runner.
+    startup, so an update would need a runner restart to take effect.
     Start-TestRunner.ps1 keeps only what must not be redone per cycle: the
     single-instance pidfile, the boot-recovery sweep, the runner state machine, and
     the Ctrl+C subscription.
@@ -42,6 +42,15 @@
     could be mistaken for a real failure. The pause that follows a transient outcome
     is the caller's: a sleep here could not be interrupted by the Ctrl+C the
     operator pressed in the runner's own shell.
+
+    A host refresh reaches this process through the environment the runner
+    sets around the spawn: a handoff token with YURUNA_REFRESH_PREFLIGHT makes
+    this a preflight cycle (validated here against the recorded runner, then
+    passed to the inner), YURUNA_REFRESH_BARRIER marks the first ordinary cycle
+    after a refresh. A cycle held by the refresh gate reports refresh-gated and
+    changes nothing.
+
+    Strict binding: an unknown or misspelled parameter is a binding error.
 
     See docs/runner-outer-loop.md for the loop contract and the state machine.
 
@@ -62,10 +71,15 @@
     Forwarded to the inner runner.
 .PARAMETER logLevel
     Forwarded to the inner runner.
+.PARAMETER CycleGeneration
+    The runner-issued <runnerInstanceId>:<cycle> generation. Handed to the
+    inner in YURUNA_CYCLE_GENERATION and echoed in the cycle outcome, so
+    per-cycle evidence can be matched to the cycle that produced it.
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = '$global:__YurunaHostId is the cross-host pool-identity channel; set at script top so NDJSON events + status.json carry hostId for pool joins.')]
+[CmdletBinding()]
 param(
     [int]$Cycle = 1,
     [string]$ConfigPath = $null,
@@ -74,7 +88,9 @@ param(
     [switch]$NoConfigGate,
     [int]$CycleDelaySeconds = 30,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
-    [string]$logLevel
+    [string]$logLevel,
+    [ValidatePattern('^[0-9a-f]{32}:[1-9][0-9]{0,8}$')]
+    [string]$CycleGeneration
 )
 
 # --- REGION: Resolve paths
@@ -116,8 +132,11 @@ $global:__YurunaHostId = Get-YurunaHostId
 # cycle breaks run continuity on the event stream).
 
 $pwshExe = Get-PwshExePath
+# -NonInteractive: the inner shares this console and must refuse any prompt
+# rather than park the host on one; it neutralizes its own prompts at startup,
+# and the flag closes the window before that.
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters `
-    -ExcludeParameter @('Cycle')
+    -ExcludeParameter @('Cycle', 'CycleGeneration') -NonInteractive
 
 # --- REGION: Ctrl+C handler
 # This process is not the one the operator's Ctrl+C reaches; the caller owns
@@ -132,6 +151,25 @@ foreach ($n in @('YURUNA_CACHING_PROXY_SERVICE_IP','YURUNA_RUNTIME_DIR','YURUNA_
     $v = [Environment]::GetEnvironmentVariable($n)
     if ($null -ne $v -and $v -ne '') { $forwardEnvSnapshot[$n] = $v }
 }
+
+# --- REGION: Host-refresh transport
+# A preflight token is honored only after it validates for this process: its
+# parent must be the recorded, live runner. An invalid one is not an ordinary
+# cycle either -- the cycle reports refresh-gated and the runner re-decides.
+$refreshTokenId = [string]$env:YURUNA_REFRESH_HANDOFF_TOKEN
+$refreshPreflightRequested = ($env:YURUNA_REFRESH_PREFLIGHT -eq '1') -and [bool]$refreshTokenId
+$refreshPreflight = $null
+if ($refreshPreflightRequested -and $refreshTokenId -match '^[0-9a-f]{32}$' -and
+    (Get-Command Test-YurunaRunnerHandoffToken -ErrorAction SilentlyContinue)) {
+    $checked = Test-YurunaRunnerHandoffToken -TokenId $refreshTokenId -Role cycle -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    if ($checked.Valid) { $refreshPreflight = $checked }
+}
+if (-not $refreshPreflight) {
+    # The inner must never inherit a preflight request this process rejected.
+    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_PREFLIGHT' -ErrorAction SilentlyContinue
+}
+$refreshBarrierRequestId = if ($env:YURUNA_REFRESH_BARRIER) { [string]$env:YURUNA_REFRESH_BARRIER } else { $null }
 
 # --- REGION: Run one cycle
 # Called BARE, and never captured: `$result = Invoke-RunnerOuterCycle ...` reads
@@ -163,6 +201,12 @@ Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     PreambleTimeoutSecondsDefault = 600
     WatchdogPollSeconds       = 30
     TestRoot                  = $TestRoot
+    CycleGeneration           = if ($CycleGeneration) { $CycleGeneration } else { $null }
+    RefreshPreflightRequested = [bool]$refreshPreflightRequested
+    RefreshPreflightTokenId   = if ($refreshPreflight) { $refreshTokenId } else { $null }
+    RefreshPreflightPurpose   = if ($refreshPreflight) { [string]$refreshPreflight.Purpose } else { $null }
+    RefreshPreflightRequestId = if ($refreshPreflight) { [string]$refreshPreflight.RequestId } else { $null }
+    RefreshBarrierRequestId   = $refreshBarrierRequestId
 }
 $result = Get-LastOuterCycleResult
 
@@ -174,7 +218,11 @@ $exitCode = if ($result -and $null -ne $result.ExitCode) { [int]$result.ExitCode
 # "the cycle never got that far".
 $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'
 try {
-    $json = '{"outcome":"' + $outcome + '","exitCode":' + $exitCode + '}'
+    $json = [ordered]@{
+        outcome         = $outcome
+        exitCode        = $exitCode
+        cycleGeneration = if ($CycleGeneration) { $CycleGeneration } else { $null }
+    } | ConvertTo-Json -Compress
     # The [bool] result is consumed rather than left on the success stream: this
     # process runs with its parent's console attached, so anything it returns
     # uncaptured prints a bare value between the caller's per-cycle lines. It

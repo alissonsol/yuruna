@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429fb05c-3d83-4caa-aefe-d8655672e199
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,10 +69,10 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -Disa
 # Every host driver, and the four services each of them builds. Read from disk
 # rather than listed with their sizes: the point of the check under test is that
 # the builders are the only statement of how large a service guest is.
-$HostFolder  = @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')
+$HostFolderList  = @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')
 $ServiceKey  = @('caching-proxy', 'stash', 'download-agent', 'pool-control')
 $RealSize    = @{}
-foreach ($hostFolder in $HostFolder) {
+foreach ($hostFolder in $HostFolderList) {
     foreach ($key in $ServiceKey) {
         $RealSize["$hostFolder/$key"] = Get-ServiceVmMemoryMb -RepoRoot $repoRoot -HostFolder $hostFolder -Key $key
     }
@@ -139,7 +139,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMaximumBytes 8GB
         Assert-Equal 0 (Get-GuestBuilderMemoryMb -Text 'Write-Output "no memory here"')
     }
     It 'still finds a size in every service builder on every host' {
-        foreach ($hostFolder in $HostFolder) {
+        foreach ($hostFolder in $HostFolderList) {
             foreach ($key in $ServiceKey) {
                 Assert-True ($RealSize["$hostFolder/$key"] -gt 0) `
                     "no literal memory size found in host/$hostFolder/guest.$key-service/New-VM.ps1 -- the preflight would report that service as unsized"
@@ -147,7 +147,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMaximumBytes 8GB
         }
     }
     It 'finds the caching proxy to be the largest of them (squid cache_mem is what it is budgeted around)' {
-        foreach ($hostFolder in $HostFolder) {
+        foreach ($hostFolder in $HostFolderList) {
             foreach ($key in @('stash', 'download-agent', 'pool-control')) {
                 Assert-True ($RealSize["$hostFolder/caching-proxy"] -ge $RealSize["$hostFolder/$key"]) `
                     "${hostFolder}: $key is sized above the caching proxy"
@@ -327,7 +327,7 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
         }
     }
     It 'reads the same on every host driver, because the builders agree' {
-        foreach ($hostFolder in $HostFolder) {
+        foreach ($hostFolder in $HostFolderList) {
             $keys = Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true
             $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $keys -From $hostFolder) -HostMemoryMb 24576
             Assert-Equal 'warn' $v.Level -Because "$hostFolder disagrees with the other host drivers about the same machine"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -13,7 +13,7 @@
 #
 # --- REGION: https://yuruna.link/4220a755-0008
 export YURUNA_K8S_MINOR=1.36
-export YURUNA_OPENTOFU_VERSION=1.12.5
+export YURUNA_OPENTOFU_VERSION=1.12.6
 export YURUNA_HELM_VERSION=4.2.4
 export YURUNA_NVM_VERSION=0.40.6
 export YURUNA_NODE_MAJOR=24

@@ -2826,6 +2826,36 @@
     "automation.operator_ff01fa82ff0150ac": {
       "sourceHash": "3e4584678e786e27c2740f29cc9b3e575a59b27eac9cc8ac1a1f6e7f66da5099",
       "message": "Contexto de uso da configuração do kubectl falhou (saída {lASTEXITCODE}) para: {sourceContext}"
+    },
+    "automation.host_setup_module_install_skipped": {
+      "sourceHash": "99384db4ce4de9b1be2c0e3fc659bdf71eaf1323f8ec54740c74c9a384e5065c",
+      "origin": "machine",
+      "message": "{module} não está instalado, e esta execução não pode instalar módulos. Instale-o com: Install-Module {module} -Scope CurrentUser"
+    },
+    "automation.setup_service_vm_reason_intended_stopped": {
+      "sourceHash": "0f4f4341aa4acaa76174d52f298cd050a8463677845b44eb47413b835f36502f",
+      "origin": "machine",
+      "message": "foi parado de propósito; recriando porque o setup recebeu o pedido de iniciá-lo"
+    },
+    "automation.setup_service_vm_reason_lock_unavailable": {
+      "sourceHash": "e04c950f25ef7ad67fcec643ecc0c459205670eb140076e97155a8dc6e90d943",
+      "origin": "machine",
+      "message": "não foi possível obter o bloqueio de operação"
+    },
+    "automation.setup_service_vm_reason_operation_busy": {
+      "sourceHash": "155b71c0d9cbc32cb05df9d9282d37646454b69847aef1356d8018fe9efce842",
+      "origin": "machine",
+      "message": "outra inicialização ou parada deste serviço ainda está em execução"
+    },
+    "automation.setup_service_vm_reason_state_unknown": {
+      "sourceHash": "60386655fdaedd33959a12c064b745cd8178280a913dd32cff66c5fbbe76cda5",
+      "origin": "machine",
+      "message": "não foi possível confirmar o estado da VM ({reason})"
+    },
+    "automation.system_diagnostic_utmctl_list_incomplete": {
+      "sourceHash": "410f6bf1667685d826d78c56f61a3ed885843fa3f3d7e6bc91e8393085f22c0d",
+      "origin": "machine",
+      "message": "  utmctl list não retornou uma resposta completa em {seconds} segundos; a listagem acima pode estar incompleta (o UTM pode não estar respondendo a Apple Events)."
     }
   }
 }

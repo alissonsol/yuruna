@@ -58,23 +58,34 @@ derived from the manifest for PowerShell, browser assets, and Go registries.
 Plural rules and number separators are pinned in that same authority; host
 locale databases do not decide message variants.
 
+Console output: PowerShell writes catalog text in the console's code page. A
+Windows console on cp437 or cp1252 prints Chinese and Hebrew as question
+marks; the operator entry points switch the process to UTF-8, and Windows
+Terminal is UTF-8 already. No console applies bidirectional reordering, so
+Hebrew command output and transcripts appear in logical order.
+
 <a id="420b66d2-0004"></a>
 
 ## Translating a source revision
 
-`tools/Export-Localization.ps1` prepares a request covering terminology,
-catalogs, mapped documents, and official project display values in the paired
-[project repository](https://github.com/alissonsol/yuruna-project).
-JSON, CSV, and XLIFF 2 are supported. The request README explains the selected
-format and the translator and independent reviewer attestations.
+Contributors change only the English catalogs. The project maintains
+every other listed language. New or changed English is first drafted by
+machine translation and marked in the catalog as a draft
+(`"origin": "machine"`). Professional translations then replace the drafts
+in batches that the maintainers import. An entry is either accepted (no
+marker) or a machine draft; drafts ship, and the marker is removed only
+when a professional return replaces the text. The commit that lands a
+translation is its record.
 
-`tools/Import-Localization.ps1` validates source digests, schemas, placeholders,
-variants, and review identities in staging before applying either repository.
-`-WhatIf` writes nothing. Partial reviewed returns retain unanswered catalog
-entries and remain incomplete; `-RequireComplete` rejects missing rows.
-`-EnableLocale` additionally requires complete accepted content and a pinned
-plural rule before setting a locale supported. Never replace missing human
-reviews with generated approvals.
+In a public clone the commit hook has no drafter, so a change that adds
+or edits English is refused until the maintainers' repository drafts the
+other languages; open the change with the English only and say so in its
+description.
+
+Imports validate source digests, schemas, placeholders, and variants in
+staging before either repository changes. They apply only rows whose
+English is unchanged since the request was prepared, and list the rest
+for the next request.
 
 Source changes create a delta request. Accepted answers are carried forward
 only for unchanged source rows. Translation, generated catalogs, and source

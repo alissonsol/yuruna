@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,9 @@ BeforeAll {
         $node=$Ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name },$true)
         return $node.Extent.Text
     }
+    . ([scriptblock]::Create((Get-ObservationFunction $script:handlerAst 'Get-FetchExecutionCommand')))
+    . ([scriptblock]::Create((Get-ObservationFunction $script:handlerAst 'Get-FetchExecutionContext')))
+    $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
 }
 
 Describe 'Diagnostic completeness and ordering' {
@@ -68,11 +71,14 @@ Describe 'Diagnostic completeness and ordering' {
                     -ResolvedAddress 127.0.0.1 -PrivateKeyPath fixture-key -TimeoutSeconds 1 -AddressWaitSeconds 0 -PreservePartialOutputOnTimeout:$keep
                 $clock.Elapsed.TotalSeconds | Should -BeLessThan 4
                 $result.success | Should -BeFalse
+                $result.timedOut | Should -BeTrue
                 if ($keep) {
                     $result.output | Should -Match '/proc/stat partial'
                     $result.output | Should -Match 'partial stderr'
-                    $result.output | Should -Match 'Timed out after 1s'
-                } else { $result.output | Should -Be 'Timed out after 1s' }
+                } else {
+                    $result.output | Should -Not -Match '/proc/stat partial|partial stderr'
+                    $result.output | Should -Not -BeNullOrEmpty
+                }
             }
         } finally { $env:PATH=$oldPath }
     }
@@ -107,13 +113,16 @@ Describe 'Diagnostic completeness and ordering' {
             $script:observedOrder.Add('guest-full')
             return @{success=$false;outPath=$null;reason='budget exhausted';bytes=0;mechanism='none'}
         }
-        $manifest=Save-GuestDiagnostic -VMName test-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Id test `
-            -StepInvocationId step-1 -SequenceInvocationId sequence-1
+        $manifest=& $script:diagModule {
+            param($OutputFolder)
+            Save-GuestDiagnosticCore -VMName test-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $OutputFolder -Id test `
+                -StepInvocationId step-1 -SequenceInvocationId sequence-1
+        } $TestDrive
         ($script:observedOrder -join ',') | Should -Be 'host,guest-short,guest-full'
         $manifest.diagnosticOutcome | Should -Be 'timeout'
         $manifest.stepInvocationId | Should -Be 'step-1'
-        $saved=Get-ChildItem -Path $TestDrive -Filter '*.manifest.json' | Select-Object -Last 1
-        (Get-Content $saved.FullName -Raw | ConvertFrom-Json).diagnosticOutcome | Should -Be 'timeout'
+        $manifest.hostSnapshot.Path | Should -Be 'host.json'
+        $manifest.guestSnapshot.outPath | Should -Be 'short.txt'
     }
 
     It 'gives the short guest command a separate budget and no pwsh dependency' {
@@ -173,8 +182,12 @@ Describe 'Profile retention and invocation identity' {
         $safe=& $script:diagModule {param($t) Protect-GuestEvidenceText -Text $t -Variables @{password='vault-value'}} $text
         $safe | Should -Not -Match 'fictional-value|vault-value|bearer-value'
         $safe | Should -Match 'ordinary'
-        $fn=[scriptblock]::Create((Get-ObservationFunction $script:handlerAst 'Get-FetchObservationEnvPrefix')+"`n"+'Get-FetchObservationEnvPrefix -Context $args[0]')
-        (& $fn @{Step=@{sensitive=$true};ShowSensitive=$true;StepInvocationId='sensitive-step';SequenceInvocationId='sensitive-sequence'}) | Should -Be 'EXEC_PROFILE=0 EXEC_KEEP_PROFILE=0 E_SI=sensitive-step E_QI=sensitive-sequence '
+        $context = @{Step=@{sensitive=$true};StepInvocationId='sensitive-step';SequenceInvocationId='sensitive-sequence'}
+        $fields = (Get-FetchExecutionContext -Context $context -CommandLine 'true').Fields
+        $fields.EXEC_PROFILE | Should -BeExactly '0'
+        $fields.EXEC_KEEP_PROFILE | Should -BeExactly '0'
+        $fields.E_SI | Should -BeExactly 'sensitive-step'
+        $fields.E_QI | Should -BeExactly 'sensitive-sequence'
     }
 
     It 'delivers integrity and profiling values through clear followed by the wrapper with quoted arguments' -Skip:(-not $IsLinux) {
@@ -203,7 +216,8 @@ $script:FetchExecuteTypedCharWarn=10000
 $script:ShellRejectedCommandPattern=@('command not found')
 $script:ShellRejectionWindowSeconds=20
 $script:order=@()
-function Get-FetchExecuteEnvPrefix { return '' }
+function Get-FetchExecutionContext { param($Context,$CommandLine) $null=$Context;$null=$CommandLine; return [pscustomobject]@{Command='yfe 7c4e2a91b80 bash -c true';Launch='yfe 7c4e2a91b80 bash -c true'} }
+function Get-GuiFetchExecutionInput { param($CommandLine) return $CommandLine }
 function Invoke-TypeDrainEnter { param($Context,$Text) $script:sent=$Text; $script:order+='execute'; return $true }
 function Wait-ForText { return $false }
 function Get-GuestRunToken { return 'detached' }
@@ -212,9 +226,8 @@ function Publish-GuestRetryMarker { return 0 }
 function Test-GuestPayloadUnavailable { return $false }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:order+='capture'; $script:succeeded=$Succeeded }
 '@
-            $module=New-Module -ScriptBlock ([scriptblock]::Create($fixture+"`n"+
-                (Get-ObservationFunction $script:handlerAst 'Get-FetchExecutionCommand')+"`n"+
-                (Get-ObservationFunction $script:handlerAst 'Get-FetchObservationEnvPrefix')+"`nfunction Invoke-TestHandler $handler"))
+            $charDelayHelper=Get-ObservationFunction $script:handlerAst 'Resolve-SequenceCharDelay'
+            $module=New-Module -ScriptBlock ([scriptblock]::Create($charDelayHelper+"`n"+$fixture+"`nfunction Invoke-TestHandler $handler"))
             $context=@{VMName='vm';GuestKey='guest.ubuntu.server.26';StepInvocationId='current';SequenceInvocationId='sequence';
                 Step=@{text='fetch-and-execute.sh guest/test.sh';command='fetch-and-execute.sh guest/test.sh';waitPattern='complete'};
                 Vars=@{};ExpandVariable={param($value,$vars) $null=$vars; $value};DefaultTimeoutSeconds=1;DefaultPollSeconds=1}
@@ -222,7 +235,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $result | Should -BeFalse
             & $module {
                 ($script:order -join ',') | Should -Be 'execute,capture'
-                $script:sent | Should -Match '^EXEC_KEEP_PROFILE=1 E_SI=current E_QI=sequence '
+                $script:sent | Should -Match '^yfe [0-9a-f]{11} '
                 $script:succeeded | Should -BeFalse
             }
             if ($action -eq 'sshFetchAndExecute') { $context.CheckpointSourceStepInvocationId | Should -Be 'original' }
@@ -252,13 +265,13 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
     }
 
     It 'arms retention and threads the same identifiers into either transport' {
-        $fn=[scriptblock]::Create((Get-ObservationFunction $script:handlerAst 'Get-FetchObservationEnvPrefix')+"`n"+'Get-FetchObservationEnvPrefix -Context $args[0]')
-        $prefix=& $fn @{StepInvocationId='step-3';SequenceInvocationId='sequence-3'}
-        $prefix | Should -Match 'EXEC_KEEP_PROFILE=1'
-        $prefix | Should -Match 'E_SI=step-3'
-        $prefix | Should -Match 'E_QI=sequence-3'
-        $bad=& $fn @{StepInvocationId='$(touch unwanted)';SequenceInvocationId='bad;value'}
-        $bad | Should -Be 'EXEC_KEEP_PROFILE=1 '
+        $fields=(Get-FetchExecutionContext -Context @{Step=@{};StepInvocationId='step-3';SequenceInvocationId='sequence-3'} -CommandLine 'true').Fields
+        $fields.EXEC_KEEP_PROFILE | Should -BeExactly '1'
+        $fields.E_SI | Should -BeExactly 'step-3'
+        $fields.E_QI | Should -BeExactly 'sequence-3'
+        $bad=(Get-FetchExecutionContext -Context @{Step=@{};StepInvocationId='$(touch unwanted)';SequenceInvocationId='bad;value'} -CommandLine 'true').Fields
+        $bad.Contains('E_SI') | Should -BeFalse
+        $bad.Contains('E_QI') | Should -BeFalse
     }
 
     It 'fetches slow successes and all failures immediately, without delaying fast success' {

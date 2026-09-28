@@ -4502,6 +4502,251 @@
     "host.unified_screen_lock_description": {
       "sourceHash": "b9a3fb6e757dc72184619e9cc9ca73413f32fd41fa6e08a05c022ff85cf843cf",
       "message": "bloqueio de tela unificado sysadminctl"
+    },
+    "host.enable_automation_no_prompt_confirm_conflict": {
+      "sourceHash": "c04c4874b74d96a07da9cdff620ab695f13bfc22c3bd5fb3d240d53d72c571a1",
+      "origin": "machine",
+      "message": "Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado."
+    },
+    "host.enable_automation_no_prompt_mode": {
+      "sourceHash": "0a9fd378e45bb1f90c1a5e92e5710a5c4870ef2e96e4125e91419576b6c3d12d",
+      "origin": "machine",
+      "message": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas."
+    },
+    "host.enable_automation_no_prompt_unsupported": {
+      "sourceHash": "08b0c0896a3a1b437befbb5ad91a5d57c19d4620c62bc16db4e8c27cec6bb628",
+      "origin": "machine",
+      "message": "Enable-TestAutomation: -NoOperatorPrompt requer Set-MacHostConditionSet -NoGuiDisruption, que esta cópia do repositório não fornece; nada foi capturado nem alterado. Em vez disso, execute-o sem -NoOperatorPrompt a partir de uma sessão assistida."
+    },
+    "host.forwarder_identity_unverified": {
+      "sourceHash": "a71da9112c6928be4776439d3acc10877b9d734321e4ea3b4fe1e66ddcfcb2e8",
+      "origin": "machine",
+      "message": "Stop-CachingProxyServiceForwarder: não foi possível ler o processo com PID {forwarderPid} dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado."
+    },
+    "host.hyperv_dism_timed_out": {
+      "sourceHash": "48c516227006be75632a6641dc391cfa8af55ef22d2ebb952192a8708c0861f1",
+      "origin": "machine",
+      "message": "Assert-HyperVEnabled: dism.exe não informou o estado do recurso Hyper-V em até {seconds} segundos; o estado do recurso é desconhecido."
+    },
+    "host.hyperv_start_vmms_action": {
+      "sourceHash": "67e843b2a80948667175001f474926a9235ef2f0154423dec375ebf16a4f7e53",
+      "origin": "machine",
+      "message": "Iniciar o serviço de gerenciamento de máquinas virtuais do Hyper-V, que está parado"
+    },
+    "host.hyperv_vm_removal_unconfirmed": {
+      "sourceHash": "901f9594dada20fdb54b484ea114aea87bb1f323bb4a99c57c583b06597999b9",
+      "origin": "machine",
+      "message": "Remove-VM: o Hyper-V não conseguiu confirmar que '{vMName}' não está mais registrada; por isso, o diretório de disco dela foi mantido."
+    },
+    "host.hyperv_vm_state_unknown": {
+      "sourceHash": "80089953136a18cd9cd7ff2e857628cb372219e99cee88d0dde59a2907f662b2",
+      "origin": "machine",
+      "message": "{operation}: o Hyper-V não conseguiu determinar se '{vMName}' existe; nada foi alterado."
+    },
+    "host.kvm_force_stop_pid_unverified": {
+      "sourceHash": "d4d41b78038683997bfac26fdc475f374f9b10c978d33b9c3a708acb0fe3095b",
+      "origin": "machine",
+      "message": "Stop-VMForce: o processo {processId} indicado em {pidFile} não é o processo qemu de '{vMName}'; por isso, não foi sinalizado."
+    },
+    "host.kvm_force_stop_pidfile_invalid": {
+      "sourceHash": "4dbd9ed4d28997db4b655a82201fcce04e6043751e4f1ae99540a99bd349398c",
+      "origin": "machine",
+      "message": "Stop-VMForce: {pidFile} não contém um PID utilizável; por isso, nenhum processo qemu foi sinalizado."
+    },
+    "host.kvm_force_stop_signal_refused": {
+      "sourceHash": "ebfe41022257c23dfbedf78c29a4927f9524a2dd359d013fbb807c5f88ddb869",
+      "origin": "machine",
+      "message": "Stop-VMForce: o sudo se recusou a sinalizar o processo qemu {processId} de '{vMName}'; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente."
+    },
+    "host.kvm_rename_source_not_stopped": {
+      "sourceHash": "5a446b693d51840c77efa385268264bbbf4e20f090ba0ead758ff17c29379495",
+      "origin": "machine",
+      "message": "Rename-VM: o estado de '{vMName}' é {state}; a libvirt só renomeia um domínio confirmado como parado."
+    },
+    "host.kvm_start_network_action": {
+      "sourceHash": "171b46952854708028975f24b9f31d59c846a68eab16f3e49467ba6f5126b722",
+      "origin": "machine",
+      "message": "Iniciar a rede inativa da libvirt"
+    },
+    "host.kvm_start_unit_action": {
+      "sourceHash": "5864a21e2a4fe5a8e7844f6b14d1401a08604a0b7c24ee5f951499ab442ba5ae",
+      "origin": "machine",
+      "message": "Iniciar a unidade parada da libvirt"
+    },
+    "host.rename_vm_inventory_unavailable": {
+      "sourceHash": "819b6c34d067df1478d9c3b6c85713e36fc6a56859ca26fd2e98d74920841b2f",
+      "origin": "machine",
+      "message": "Rename-VM: não foi possível ler a lista de VMs em execução ({reason}); o UTM não foi encerrado, portanto nenhuma VM de serviço ficou suspensa. Renomeie '{vmName}' depois que o UTM voltar a responder."
+    },
+    "host.rename_vm_relaunch_unconfirmed": {
+      "sourceHash": "89a63db6a2cefadcbff1e967af63fb7be2217427ed20a7b9c584c50c8a61ef6a",
+      "origin": "machine",
+      "message": "Rename-VM: a reabertura do UTM não foi confirmada ({outcome}); estas VMs de serviço não foram retomadas: {names}. Abra o UTM e, em seguida, execute: {commands}"
+    },
+    "host.rename_vm_stop_unconfirmed": {
+      "sourceHash": "1173349a08200f4f9e7aedc67b3b80f7305ed85d9f06ffc80ff6a9d21348f002",
+      "origin": "machine",
+      "message": "Rename-VM: o UTM não parou ({outcome}); '{vmName}' não foi renomeada e o pacote dela não foi editado."
+    },
+    "host.utm_app_census_unknown": {
+      "sourceHash": "5982ec9ca2f82e6734f8221f116cd94b317b9fd9342443dc870868bd03e8e2bf",
+      "origin": "machine",
+      "message": "{operation}: não foi possível determinar quais processos do UTM pertencem a este usuário ({reason}); nada foi parado nem iniciado."
+    },
+    "host.utm_app_control_refused": {
+      "sourceHash": "a83239b8145dab348781b020888b46618d5d51f713fd9540fcb16d24658a3790",
+      "origin": "machine",
+      "message": "{operation}: recusado ({reason}); o UTM foi mantido como estava."
+    },
+    "host.utm_app_flush_skipped_root": {
+      "sourceHash": "d4f9f1616eea22bc6fa4672d5a9a893415bd83d517b46742ad32c255a97bcf97",
+      "origin": "machine",
+      "message": "{operation}: a limpeza do cache de preferências foi ignorada porque este processo é executado como root, caso em que o killall atingiria o cfprefsd de todos os usuários."
+    },
+    "host.utm_app_hard_stop_signal": {
+      "sourceHash": "e002a7a667b95e2bbcf78d017fdd970ecca4f5917cd7a3e3e3e38072853bae6d",
+      "origin": "machine",
+      "message": "Stop-UtmApplication: enviando {signal} para {processName} (PID {processId}) porque o processo não terminou após o pedido de encerramento."
+    },
+    "host.utm_app_identity_changed": {
+      "sourceHash": "31672fd9184c8d9283b5c168c61de7b1e2e86efb762f2572c54710d990033fc6",
+      "origin": "machine",
+      "message": "Stop-UtmApplication: o PID {processId} não corresponde mais ao processo {processName} observado antes; ele não foi sinalizado."
+    },
+    "host.utm_app_launch_action": {
+      "sourceHash": "b7e14fdc0749c93118d1e26d5dec565ae0b65f0bb150b011f057436ef1f680d7",
+      "origin": "machine",
+      "message": "Abrir o UTM para este usuário"
+    },
+    "host.utm_app_launch_not_observed": {
+      "sourceHash": "2d28531e3680ab1fb6db36a7e01528cbc9a18d5acfe66bc6b569c66545c37ff9",
+      "origin": "machine",
+      "message": "Start-UtmApplication: o UTM não foi observado em execução para este usuário em até {waitSeconds}s após 'open -a UTM' (confirmado: {acknowledged}, código de saída {exitCode})."
+    },
+    "host.utm_app_quit_action": {
+      "sourceHash": "3416041159c8c92a5e53bf6567e709a89cb5afff31a72c91af68a23c057ee2b0",
+      "origin": "machine",
+      "message": "Encerrar o UTM e aguardar o término de seus processos auxiliares de VM"
+    },
+    "host.utm_app_quit_not_confirmed": {
+      "sourceHash": "934a38ab6c8e175f32797c7a6437b33ff726a0e1faf53de90131c1aaf949406d",
+      "origin": "machine",
+      "message": "Stop-UtmApplication: o UTM não terminou em até {waitSeconds}s após o pedido de encerramento; restam {utmCount} processo(s) UTM e {helperCount} processo(s) QEMUHelper deste usuário, que foram deixados em execução."
+    },
+    "host.utm_app_restart_action": {
+      "sourceHash": "82621bf185797b78ef610be4177d145497caf1149712fbc9fbbc8ccd37d94f0e",
+      "origin": "machine",
+      "message": "Encerrar e reabrir o UTM"
+    },
+    "host.utm_app_signal_action": {
+      "sourceHash": "d394003e0eafa0fd1a00ff999b4dad4bd5dfdf51d904338c4e162340aaeb90ee",
+      "origin": "machine",
+      "message": "Enviar TERM e depois KILL se o processo persistir, após revalidar a identidade do processo"
+    },
+    "host.utm_detached_launch_action": {
+      "sourceHash": "8da6c50198066b91318d250dbb53f2f5debeea81dde4bc0b0cf2eeb3c54171fd",
+      "origin": "machine",
+      "message": "Executar {tool} sem aguardar o aplicativo que ele abre"
+    },
+    "host.utm_dialog_watchdog_unverified": {
+      "sourceHash": "0097247c74027014403c5d34ffa6326debab671b3496bfebabebd83a5313a582",
+      "origin": "machine",
+      "message": "Stop-UtmDialogWatchdog: não foi possível verificar se o PID {processId} registrado em {pidFile} é o watchdog de diálogos deste usuário ({reason}); ele não foi sinalizado."
+    },
+    "host.utm_restart_evidence_refused": {
+      "sourceHash": "fd8ad3820d3e40e782640c4d0499c490854553142ab150e06c5673e6375a30a2",
+      "origin": "machine",
+      "message": "Restart-UtmApplication: reinício recusado, pois a evidência é {state}/{reason} (idade {ageMs} ms); somente um tempo limite de controle corroborado, observado nos últimos {maxAgeSeconds}s, permite reiniciar."
+    },
+    "host.utm_resume_deadline_exhausted": {
+      "sourceHash": "71348b3d8825ce3381be808430a378fce27c812a4d353649f173b222a0144476",
+      "origin": "machine",
+      "message": "Resume-YurunaServiceVM: a VM '{name}' não foi retomada porque não restava tempo no prazo compartilhado; retome-a manualmente (utmctl start '{name}')."
+    },
+    "host.utm_start_absent_observed": {
+      "sourceHash": "14bf6185ea70e5fa32b436ef98e5d7ec07792d01854b29e851fc5489ab893548",
+      "origin": "machine",
+      "message": "A VM '{vmName}' permaneceu não registrada no UTM por {waitSeconds}s na tentativa {attempt}; nenhuma solicitação de início foi enviada."
+    },
+    "host.utm_start_dropped": {
+      "sourceHash": "83aebef39a06302bda1af7d84d5c137366fbe2595fc8eeca17310b700dd8da32",
+      "origin": "machine",
+      "message": "A VM '{vmName}' não atingiu o estado 'running' em {attempts} tentativa(s); como o utmctl não relatou erro, o UTM aceitou e descartou cada solicitação."
+    },
+    "host.utm_start_exit_code": {
+      "sourceHash": "cbaf9329e257c731d40cdf914226ad8ea55405c45745f8a59f5b2e3b19713da0",
+      "origin": "machine",
+      "message": "utmctl start terminou com o código {exitCode}"
+    },
+    "host.utm_start_exit_detail": {
+      "sourceHash": "170d3c9e374ad640cca2bd1af558fb42e48550e60da90cc1c66993080788e167",
+      "origin": "machine",
+      "message": "utmctl start terminou com o código {exitCode}: {text}"
+    },
+    "host.utm_start_not_acted": {
+      "sourceHash": "aea1adc4b4b09d40287186ce87ffdb366a58452638b812297bbfb7a92f5c12a1",
+      "origin": "machine",
+      "message": "O UTM não atendeu à solicitação de início da VM '{vmName}' em {attempts} tentativa(s); a última relatou '{lastError}'. O utmctl conseguiu se comunicar com o UTM.app -- as consultas de estado foram respondidas o tempo todo --, mas o início em si nunca foi executado; portanto, a VM nunca foi iniciada e o disco dela está intacto. Tente novamente (utmctl start '{vmName}'); reconstruir a VM não resolve nada neste caso."
+    },
+    "host.utm_start_not_running": {
+      "sourceHash": "405cc00b9fe1b1ba8dc88dc3493caf320fe85a56d3fb4c99892bf31b083c3971",
+      "origin": "machine",
+      "message": "A VM '{vmName}' não atingiu o estado 'running' em {attempts} tentativa(s): {lastError}"
+    },
+    "host.utmctl_lifecycle_deadline": {
+      "sourceHash": "b0a0f79985799341b39bd1ff72125318dba6965ec3393fa773c82fdb63143ef5",
+      "origin": "machine",
+      "message": "utmctl {verb} '{vmName}' não foi executado: não restava tempo no prazo da operação."
+    },
+    "host.utmctl_lifecycle_timeout": {
+      "sourceHash": "9412b53986257f13f5463409005188169462ab8e549fa2671c677a201f1700f4",
+      "origin": "machine",
+      "message": "utmctl {verb} '{vmName}' não retornou em até {timeoutSeconds}s e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente."
+    },
+    "host.hyperv_rename_source_not_stopped": {
+      "sourceHash": "c187a949d519838f7c9b207a0057571bc62ea2379703c36fb19969e8c63b94ea",
+      "origin": "machine",
+      "message": "Rename-VM: o estado de '{vMName}' é {state}; uma VM só é renomeada enquanto o Hyper-V a informa, de forma confirmada, como parada."
+    },
+    "host.utm_app_launch_refused": {
+      "sourceHash": "cebe9013ff5a5cd9ee469b5b6955f56da46215ad2cba51e64caf90eaff1abb40",
+      "origin": "machine",
+      "message": "Start-UtmApplication: 'open -a UTM' terminou com o código {exitCode} e o UTM não foi aberto: {detail}"
+    },
+    "host.utm_app_executable_mismatch": {
+      "sourceHash": "60fe8942763e48f55f1e2499005ce8d7b52ec86379e133ba60dfc2140d84eddc",
+      "origin": "machine",
+      "message": "Stop-UtmApplication: o PID {processId} foi listado como {processName}, mas o executável que ele executa não é o {processName} deste usuário; ele não foi sinalizado."
+    },
+    "host.utm_app_flush_skipped_census": {
+      "sourceHash": "3a68e4e7faf54da71ff37a012ac6eefe389100043497ee539fbc735f9d937935",
+      "origin": "machine",
+      "message": "{operation}: a limpeza do cache de preferências foi ignorada porque não foi possível contar os processos do UTM deste usuário ({reason}); uma limpeza com o UTM em execução permitiria que ele gravasse de volta suas preferências antigas."
+    },
+    "host.utm_app_identity_unreadable": {
+      "sourceHash": "81219c520853d2263b61629050b0e105b6822675b63bf1295041497d2689277d",
+      "origin": "machine",
+      "message": "{operation}: não foi possível ler a identidade de {processName} (PID {processId}) ({reason}); ele não foi sinalizado."
+    },
+    "host.utm_dialog_watchdog_identity_action": {
+      "sourceHash": "8f5d4a12d08083553d4abed93b3b59cf8e4660f174ce6bb20b7025aab14d0a67",
+      "origin": "machine",
+      "message": "Registrar a identidade do watchdog de diálogos que acabou de ser iniciado"
+    },
+    "host.utm_dialog_watchdog_start_skipped": {
+      "sourceHash": "9689552e905b2d3e3926efbb8aa4568604cd6972008eac6bd0ecbea955555723",
+      "origin": "machine",
+      "message": "Start-UtmDialogWatchdog: não foi possível confirmar que o watchdog registrado em {pidFile} foi parado; por isso, um segundo não foi iniciado, e o registro dele é mantido para a próxima parada."
+    },
+    "host.orphan_sweep_registration_unknown": {
+      "sourceHash": "8e5f2e3578cee9e8f4ac952cc3e444888ddfde3c17b6b852f00111e729abd61f",
+      "origin": "machine",
+      "message": "{path} mantido: o UTM não informou se {target} está registrado (utmctl status não terminou)."
+    },
+    "host.orphan_sweep_utmctl_unanswered": {
+      "sourceHash": "80373783ece58084b41df85021f62a3214f36ce9714682e5f637f3a6dea861c3",
+      "origin": "machine",
+      "message": "utmctl {verb} não terminou em {seconds} segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder."
     }
   }
 }

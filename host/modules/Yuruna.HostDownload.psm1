@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,7 +362,9 @@ function Invoke-HttpsViaSquidBump {
         [Parameter(Mandatory)][string]$Uri,
         [Parameter(Mandatory)][string]$OutFile,
         [Parameter(Mandatory)][string]$ProxyUrl,
-        [Parameter(Mandatory)][string]$CaPemPath
+        [Parameter(Mandatory)][string]$CaPemPath,
+        [datetime]$Deadline = [datetime]::UtcNow.AddHours(2),
+        [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60
     )
     # yuruna-squid-ca.crt is a cert-only PEM, so CreateFromPemFile (which expects
     # cert+key in one file) is not an option. Load from the DER bytes parsed out of
@@ -384,10 +386,16 @@ function Invoke-HttpsViaSquidBump {
     # 4 GB at ~50 MB/s LAN cache = ~80s; HTTP/SSL handshake + cold cache
     # populate from origin can stretch this. Generous timeout vs. the
     # default 100s which would abort mid-fetch on a cold ISO pull.
-    $client.Timeout = [TimeSpan]::FromHours(2)
+    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    $deadlineCancellation = [System.Threading.CancellationTokenSource]::new()
+    $remaining = [Math]::Max(0, ($Deadline - [datetime]::UtcNow).TotalMilliseconds)
+    $deadlineCancellation.CancelAfter([int][Math]::Min([int]::MaxValue, $remaining))
+    $idleCancellation = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadlineCancellation.Token)
+    $request = $null
     try {
         $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
-        $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+        $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $idleCancellation.Token).GetAwaiter().GetResult()
         try {
             if (-not $response.IsSuccessStatusCode) {
                 throw (Format-YurunaOperatorMessage -Key 'exceptions.host_3fa13d65fc1bcf6d' -Arguments @{ statusCode = "$([int]$response.StatusCode)"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" })
@@ -401,7 +409,10 @@ function Invoke-HttpsViaSquidBump {
                     $written = 0L
                     $next = [DateTime]::UtcNow.AddSeconds(2)
                     $activity = "Downloading $Uri (via squid SSL-bump)"
-                    while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+                    while ($true) {
+                        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+                        $n = $stream.ReadAsync($buf, 0, $buf.Length, $idleCancellation.Token).GetAwaiter().GetResult()
+                        if ($n -eq 0) { break }
                         $out.Write($buf, 0, $n)
                         $written += $n
                         if ([DateTime]::UtcNow -gt $next) {
@@ -419,8 +430,12 @@ function Invoke-HttpsViaSquidBump {
             Write-Progress -Activity $activity -Completed
         } finally { $response.Dispose() }
     } finally {
+        if ($request) { $request.Dispose() }
+        $idleCancellation.Dispose()
+        $deadlineCancellation.Dispose()
         $client.Dispose()
         $handler.Dispose()
+        $extraCa.Dispose()
     }
 }
 

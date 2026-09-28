@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -409,7 +409,7 @@ function Publish-WorkloadList {
             # later layers resolve against the merged state.
             $deploymentVars = [ordered]@{}
             Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $deploymentVars -NoExpand
-            Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -Sink $deploymentVars
+            Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -Sink $deploymentVars -NoExpand
             Set-ExpandedVariableHashtable -Variables $workload.variables -Sink $deploymentVars
             Set-ExpandedVariableHashtable -Variables $deployment.variables -Sink $deploymentVars -DebugLabel 'deploymentVariables' -WarnOnEmpty
 

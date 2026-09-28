@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"pool-control-service/internal/intent"
 )
@@ -454,5 +455,22 @@ func TestFrameworkRevisionIgnoresAnEnclosingRepository(t *testing.T) {
 	}
 	if d.Environment.FrameworkRevision != want {
 		t.Errorf("frameworkRevision = %q, want the sidecar value %q", d.Environment.FrameworkRevision, want)
+	}
+}
+
+func TestTruncateNeverSplitsARune(t *testing.T) {
+	han := strings.Repeat("\u4e2d", 10)
+	got := truncate(han, 7)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate(%q, 7) = %q, which is not valid UTF-8", han, got)
+	}
+	if want := strings.Repeat("\u4e2d", 2) + "..."; got != want {
+		t.Errorf("truncate(%q, 7) = %q, want %q", han, got, want)
+	}
+	if got := truncate("abcdefghij", 4); got != "abcd..." {
+		t.Errorf("ASCII input: got %q, want %q", got, "abcd...")
+	}
+	if got := truncate(han, 100); got != han {
+		t.Errorf("a limit above the length returned %q, want the input", got)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -419,12 +419,11 @@ function Get-YurunaRootArtifact {
     )
     $out = [System.Collections.Generic.List[pscustomobject]]::new()
     if ($IsWindows) { return $out.ToArray() }
-    # Get-YurunaRootOwnedRepoFile returns one record per scanned directory; the
-    # array subexpression flattens that in alongside the single-record probes.
-    foreach ($record in @(
-        (Get-YurunaRootOwnedRepoFile -RepoRoot $RepoRoot),
-        (Get-YurunaRootOwnedMount),
-        (Get-YurunaRootHomeArtifact))) {
+    # Each probe can emit multiple records. Concatenate the result arrays so
+    # every directory remains a separate finding with its own remediation.
+    $candidates = @(Get-YurunaRootOwnedRepoFile -RepoRoot $RepoRoot) +
+        @(Get-YurunaRootOwnedMount) + @(Get-YurunaRootHomeArtifact)
+    foreach ($record in $candidates) {
         if ($record) { [void]$out.Add($record) }
     }
     if ($Port.Count -gt 0) {

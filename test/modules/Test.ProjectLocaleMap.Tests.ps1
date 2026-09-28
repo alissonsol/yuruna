@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,20 +82,28 @@ function New-ProjectMapSandbox {
     $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
             (Join-Path $script:ProjectRoot 'globalization/project-locale-source-hashes.json')))
     $sidecar.entries = @($sidecar.entries | Where-Object { [string]$_.path -ceq $staged })
-    # The shipped ledger also records how far the project's own review has come.
-    # A fixture that inherits that measures the ledger rather than the gate:
-    # where every row already reads reviewed, a test that an acceptance promotes
-    # one row and leaves its neighbor alone has nothing left to observe. Rows are
-    # staged unreviewed, which the schema requires to carry no reviewer or date.
+    # The shipped ledger also records which rows are machine drafts. A fixture
+    # that inherits that measures the ledger rather than the gate, so rows are
+    # staged as accepted, and a case that needs a draft marks one itself.
     foreach ($entry in $sidecar.entries) {
-        $entry.reviewStatus = 'unreviewed'
-        foreach ($property in 'reviewer', 'reviewedAt') {
-            if ($entry.PSObject.Properties[$property]) { $entry.PSObject.Properties.Remove($property) }
-        }
+        if ($entry.PSObject.Properties['origin']) { $entry.PSObject.Properties.Remove('origin') }
     }
     [IO.File]::WriteAllText((Join-Path $root 'globalization/project-locale-source-hashes.json'),
         (ConvertTo-Json -InputObject $sidecar -Depth 20), [Text.UTF8Encoding]::new($false))
     return $root
+}
+
+function Set-SandboxMachineRow {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Marks rows of a disposable sidecar under TestDrive.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$SidecarPath, [Parameter(Mandatory)][string[]]$FieldPath)
+    $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($SidecarPath)) -AsHashtable
+    foreach ($entry in $sidecar.entries) {
+        if ([string]$entry['fieldPath'] -cin $FieldPath) { $entry['origin'] = 'machine' }
+    }
+    $text = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
+    [IO.File]::WriteAllText($SidecarPath, $text, [Text.UTF8Encoding]::new($false))
 }
 
 function New-ProjectReaderSandbox {
@@ -398,14 +406,15 @@ Describe 'the project publisher validates maps and source hashes' {
         }
         $run = Invoke-MapGate -Root $script:ProjectRoot
         Assert-Equal -Expected 0 -Actual $run.ExitCode "the shipped project map contract is not publishable: $($run.Output)"
-        # The census grows with every accepted translation, so a fixed count is
-        # not the contract. What has to hold is that every inventoried map has
-        # its translation and nothing is left outstanding.
+        # Every enabled target locale covers the same set of project maps.
+        # Machine drafts count toward delivery just like accepted translations.
         $census = [regex]::Match($run.Output, '(\d+) map\(s\), (\d+) translation\(s\), 0 finding')
         Assert-True $census.Success 'the shipped project maps were not inventoried'
         Assert-True ([int]$census.Groups[1].Value -gt 0) 'no project map was inventoried'
-        Assert-StringEqual -Expected $census.Groups[1].Value -Actual $census.Groups[2].Value `
-            'every inventoried map needs its own translation'
+        $manifest = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:RepoRoot 'globalization/locale-manifest.json')))
+        $targets = @($manifest.locales.PSObject.Properties | Where-Object { $_.Name -cne $manifest.default -and $_.Value.status -ceq 'supported' })
+        Assert-Equal -Expected ([int]$census.Groups[1].Value * $targets.Count) -Actual ([int]$census.Groups[2].Value) `
+            'every inventoried map needs a translation for each supported target locale'
     }
 
     It 'applies map bounds to NFC Unicode scalars rather than UTF-16 code units' {
@@ -457,7 +466,7 @@ Describe 'the project publisher validates maps and source hashes' {
         Assert-True ($display.localized.'qps-Plocm'.Contains([char]0x202E)) `
             'the mirrored pseudo value has no RTL stress marker'
         Assert-False ($display.localized.'qps-Ploc' -eq 'Teste rapido') `
-            'the pseudo fixture copied the unreviewed translation'
+            'the pseudo fixture copied a real translation'
 
         # Translation wording has no role in a pseudo run. Changing it while
         # retaining the same English source must leave the fixture byte-identical.
@@ -468,7 +477,7 @@ Describe 'the project publisher validates maps and source hashes' {
         Assert-Equal -Expected 0 -Actual $second.ExitCode $second.Output
         Assert-StringEqual -Expected ([Convert]::ToBase64String([IO.File]::ReadAllBytes($firstPath))) `
             -Actual ([Convert]::ToBase64String([IO.File]::ReadAllBytes($secondPath))) `
-            -Because 'an unreviewed real translation influenced the pseudo project fixture'
+            -Because 'a real translation influenced the pseudo project fixture'
     }
 
     It 'does not bless a translation during an ordinary validation run' {
@@ -478,7 +487,7 @@ Describe 'the project publisher validates maps and source hashes' {
         $run = Invoke-MapGate -Root $root
         $after = [IO.File]::ReadAllBytes($sidecar)
         Assert-Equal -Expected 0 -Actual $run.ExitCode $run.Output
-        Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) -Actual ([Convert]::ToBase64String($after)) -Because 'the check advanced a review hash without reviewer acceptance'
+        Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) -Actual ([Convert]::ToBase64String($after)) -Because 'the check advanced a source hash without an explicit acceptance'
     }
 
     It 'stales only the translated field whose English scalar changed' {
@@ -564,44 +573,92 @@ testSets:
             -Actual $run.Output 'the untracked translation was not inventoried by path, field and locale'
     }
 
-    It 'advances exactly one row only through explicit reviewer acceptance' {
-        $root = New-ProjectMapSandbox -Name 'review-accept'
+    It 'advances exactly one row through explicit acceptance' {
+        $root = New-ProjectMapSandbox -Name 'accept-one-row'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        Set-SandboxMachineRow -SidecarPath $sidecarPath -FieldPath @('/testSets/name=smoke/displayName', '/testSets/name=smoke/description')
         $extra = @(
-            '-AcceptReviewedTranslation',
+            '-AcceptTranslation',
             '-ProjectPath', 'test/test.runner.yml',
             '-FieldPath', '/testSets/name=smoke/displayName',
-            '-Locale', 'pt-BR',
-            '-Reviewer', 'Independent Reviewer',
-            '-ReviewedAt', '2026-09-03'
+            '-Locale', 'pt-BR'
         )
         $run = Invoke-MapGate -Root $root -Extra $extra
         Assert-Equal -Expected 0 -Actual $run.ExitCode "explicit acceptance failed: $($run.Output)"
-        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
-            (Join-Path $root 'globalization/project-locale-source-hashes.json')))
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))
         $name = @($sidecar.entries | Where-Object fieldPath -EQ '/testSets/name=smoke/displayName')[0]
         $description = @($sidecar.entries | Where-Object fieldPath -EQ '/testSets/name=smoke/description')[0]
-        Assert-StringEqual -Expected 'reviewed' -Actual $name.reviewStatus 'the selected row was not accepted'
-        Assert-StringEqual -Expected 'Independent Reviewer' -Actual $name.reviewer 'review provenance was lost'
-        Assert-StringEqual -Expected 'unreviewed' -Actual $description.reviewStatus 'an unrelated row was promoted'
+        Assert-StringEqual -Expected 'path,fieldPath,locale,sourceHash' -Actual (@($name.PSObject.Properties.Name) -join ',') `
+            'the accepted row does not carry exactly the four recorded keys'
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$description.origin) 'an unrelated row was accepted'
+    }
+
+    It 'a machine acceptance writes the origin marker and a later acceptance removes it' {
+        $root = New-ProjectMapSandbox -Name 'accept-machine'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $target = @(
+            '-ProjectPath', 'test/test.runner.yml',
+            '-FieldPath', '/testSets/name=smoke/displayName',
+            '-Locale', 'pt-BR'
+        )
+        $run = Invoke-MapGate -Root $root -Extra (@('-AcceptTranslation', '-Machine') + $target)
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "machine acceptance failed: $($run.Output)"
+        $row = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object fieldPath -EQ '/testSets/name=smoke/displayName')[0]
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$row.origin) 'a machine acceptance did not mark the row'
+        $others = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object { $_.PSObject.Properties['origin'] })
+        Assert-Equal -Expected 1 -Actual $others.Count 'a machine acceptance marked more than the selected row'
+
+        $run = Invoke-MapGate -Root $root -Extra (@('-AcceptTranslation') + $target)
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "acceptance failed: $($run.Output)"
+        $row = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object fieldPath -EQ '/testSets/name=smoke/displayName')[0]
+        Assert-False -Condition ($null -ne $row.PSObject.Properties['origin']) `
+            -Because 'accepting the translation did not remove the machine-draft marker'
+    }
+
+    It 'accepts a mis-cased identity as the row the map spells, without a second row' {
+        $root = New-ProjectMapSandbox -Name 'accept-mis-cased'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $run = Invoke-MapGate -Root $root -Extra @(
+            '-AcceptTranslation', '-Machine',
+            '-ProjectPath', 'test/test.runner.yml',
+            '-FieldPath', '/testSets/name=SMOKE/displayName',
+            '-Locale', 'pt-BR'
+        )
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "mis-cased acceptance failed: $($run.Output)"
+        $rows = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object { $_.fieldPath -eq '/testSets/name=smoke/displayName' -and $_.locale -eq 'pt-BR' })
+        Assert-Equal -Expected 1 -Actual $rows.Count 'the acceptance wrote a second row for one identity'
+        Assert-StringEqual -Expected '/testSets/name=smoke/displayName' -Actual ([string]$rows[0].fieldPath) `
+            'the row is not spelled the way the map spells it'
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$rows[0].origin) 'the accepted row is not the one written'
+        $check = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 0 -Actual $check.ExitCode "the sidecar no longer validates: $($check.Output)"
     }
 
     It 'rejects an invalid acceptance candidate without changing the sidecar bytes' {
-        $root = New-ProjectMapSandbox -Name 'invalid-review-candidate'
+        $root = New-ProjectMapSandbox -Name 'invalid-accept-candidate'
         $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        # A person field the schema does not define: the candidate built from
+        # this sidecar keeps it, so the write must be refused as a whole.
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) -AsHashtable
+        $sidecar.entries[0]['reviewer'] = 'Somebody'
+        $candidate = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($sidecarPath, $candidate, [Text.UTF8Encoding]::new($false))
         $before = [IO.File]::ReadAllBytes($sidecarPath)
         $extra = @(
-            '-AcceptReviewedTranslation',
+            '-AcceptTranslation',
             '-ProjectPath', 'test/test.runner.yml',
             '-FieldPath', '/testSets/name=smoke/displayName',
-            '-Locale', 'pt-BR',
-            '-Reviewer', ('R' * 201),
-            '-ReviewedAt', '2026-09-03'
+            '-Locale', 'pt-BR'
         )
         $run = Invoke-MapGate -Root $root -Extra $extra
         $after = [IO.File]::ReadAllBytes($sidecarPath)
-        Assert-Equal -Expected 1 -Actual $run.ExitCode 'a reviewer beyond the schema bound was written'
-        Assert-Match -Pattern 'candidate source-hash sidecar does not satisfy its schema' -Actual $run.Output `
-            'candidate validation did not identify the rejected write'
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'a sidecar carrying a person field accepted a write'
+        Assert-Match -Pattern "source-hash sidecar is invalid: .*'/entries/0/reviewer'" -Actual $run.Output `
+            'schema validation did not identify the field that refused the write'
         Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) `
             -Actual ([Convert]::ToBase64String($after)) `
             -Because 'an invalid candidate changed the persisted sidecar before schema validation'
@@ -619,12 +676,10 @@ testSets:
         $before = [IO.File]::ReadAllBytes($sidecarPath)
 
         $run = Invoke-MapGate -Root $root -Extra @(
-            '-AcceptReviewedTranslation',
+            '-AcceptTranslation',
             '-ProjectPath', 'test/test.runner.yml',
             '-FieldPath', '/testSets/name=smoke/displayName',
-            '-Locale', 'pt-BR',
-            '-Reviewer', 'Independent Reviewer',
-            '-ReviewedAt', '2026-09-03'
+            '-Locale', 'pt-BR'
         )
         $after = [IO.File]::ReadAllBytes($sidecarPath)
         Assert-Equal -Expected 1 -Actual $run.ExitCode 'acceptance ignored an unrelated stale authority row'

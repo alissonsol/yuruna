@@ -27,12 +27,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	"stash-service/internal/config"
+	"stash-service/internal/fsutil"
 	"stash-service/internal/meta"
 	"stash-service/internal/store"
 )
@@ -117,6 +119,7 @@ func (v virtualDirInfo) Sys() any           { return nil }
 // sftpUpload is one in-flight SFTP file write. It stages to the chosen
 // store, enforces the per-file cap, and finalizes on Close.
 type sftpUpload struct {
+	mu         sync.Mutex
 	srv        *Server
 	now        time.Time
 	id         string
@@ -183,6 +186,8 @@ func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload,
 // (section 5.5): bytes past the cap are dropped and the record flagged truncated,
 // but the client still sees a full-length write so the transfer completes.
 func (u *sftpUpload) WriteAt(p []byte, off int64) (int, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	capN := int64(config.PerFileSizeLimit)
 	if off >= capN {
 		u.truncated = true
@@ -204,16 +209,33 @@ func (u *sftpUpload) WriteAt(p []byte, off int64) (int, error) {
 	return len(p), nil
 }
 
+// TransferError is called before Close when an SFTP session ends with open
+// handles. Receiving some bytes does not prove the client completed the file.
+func (u *sftpUpload) TransferError(err error) {
+	if err != nil {
+		u.mu.Lock()
+		u.failed = true
+		u.mu.Unlock()
+	}
+}
+
+var _ sftp.TransferError = (*sftpUpload)(nil)
+
 // Close finalizes the staged file into the stash (single-file artifact)
 // and commits the metadata + sidecar. pkg/sftp calls this on the SFTP
 // CLOSE request. A mid-transfer failure is recorded as partial (section 8.2).
 func (u *sftpUpload) Close() error {
-	_ = u.f.Close()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	closeErr := fsutil.SyncClose(u.f)
+	if closeErr != nil {
+		u.failed = true
+	}
 	if u.failed {
 		_ = u.srv.Meta.UpdateOnPartial(u.id, u.size, time.Now().UTC())
 		_ = os.RemoveAll(u.stagingDir)
 		log.Printf("sftp upload partial: id=%s size=%d", u.id, u.size)
-		return nil
+		return closeErr
 	}
 	final, err := u.target.FinalizeStaging(u.stagingDir, u.dayDir, u.id, false, []string{u.origName}, "")
 	if err != nil {
@@ -230,6 +252,7 @@ func (u *sftpUpload) Close() error {
 	}
 	if err := u.srv.commit(u.id, status, final, u.buffered, u.username); err != nil {
 		log.Printf("sftp commit id=%s: %v", u.id, err)
+		return err
 	}
 	return nil
 }

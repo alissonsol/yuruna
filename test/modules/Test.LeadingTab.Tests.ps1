@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42efc002-974e-471c-8e46-0a144dd8c8fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@ BeforeAll {
         $errors = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errors)
         $covered = [Collections.Generic.HashSet[int]]::new()
-        if (-not $ast) { return $covered }
+        if (-not $ast) { return ,$covered }
         foreach ($s in $ast.FindAll({
                     param($n)
                     $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
@@ -61,7 +61,17 @@ BeforeAll {
             if ($ext.StartLineNumber -eq $ext.EndLineNumber) { continue }
             for ($i = $ext.StartLineNumber; $i -le $ext.EndLineNumber; $i++) { [void]$covered.Add($i) }
         }
-        return $covered
+        return ,$covered
+    }
+}
+
+Describe 'Here-string coverage remains a set' {
+    It 'returns an empty HashSet for ordinary source with no multiline strings' {
+        $path = Join-Path $TestDrive 'plain.ps1'
+        Set-Content -LiteralPath $path -Value '$value = 1'
+        $covered = Get-HereStringLine -Path $path
+        Assert-True ($covered -is [Collections.Generic.HashSet[int]])
+        Assert-False ($covered.Contains(1))
     }
 }
 

@@ -42,7 +42,7 @@
     btn.disabled = true;
     // FormData, so Y.api sends it as the multipart upload it is rather than
     // serializing it -- the daemon parses the file out of the boundary.
-    return Y.api('/api/stashes', { method: 'POST', body: new FormData(form) }).then(function (data) {
+    return Y.api('/api/stashes', { method: 'POST', body: new FormData(form), timeoutMs: 60 * 60 * 1000 }).then(function (data) {
       window.location.href = data.permalink;
     }, function (e) {
       msg('error', window.YurunaI18n.t("stash.create_failed_value1", {value1: (e.message)}));

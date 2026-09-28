@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,7 +194,7 @@ if ($_cfg) {
     # YAML in sequences still uses `charDelayMs` / `pollSeconds` /
     # `timeoutSeconds` to override these defaults for an individual step.
     $_comm = $_cfg.vmCommunication
-    if ($_comm.charDelayMs)   { $script:DefaultCharDelayMs        = [int]$_comm.charDelayMs }
+    if ($null -ne $_comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$_comm.charDelayMs }
     if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
     if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
     if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
@@ -584,6 +584,9 @@ function Invoke-TapOn {
 # "empty string" message. AllowEmptyString lifts that per-element
 # check; AllowEmptyCollection lifts the whole-list one.
 function Save-OcrSidecar {
+    <# .SYNOPSIS
+        Save the raw OCR provider results beside their screenshot.
+    #>
     param(
         [Parameter(Mandatory)] [string]$ScreenshotPath,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [AllowEmptyString()]
@@ -940,6 +943,33 @@ function Select-ConsoleTextSinceBaseline {
     return ([string]::Join("`n", $kept))
 }
 
+function Test-RecentOcrFramesMatch {
+    [OutputType([bool])]
+    param(
+        [hashtable]$Frames, $EngineResults, [string[]]$EnabledEngines,
+        [string[]]$Pattern, [string]$CombineMode, [int]$MaxFrames = 3,
+        [switch]$SinceBaseline, [string[]]$Baseline, [int]$TailLines = 0,
+        [switch]$NoSegmentMatch
+    )
+    $engineMatches = @()
+    foreach ($engine in $EnabledEngines) {
+        if (-not $Frames.ContainsKey($engine)) { $Frames[$engine] = [Collections.Generic.List[string]]::new() }
+        $text = if ($EngineResults.Contains($engine)) { [string]$EngineResults[$engine].Text } else { '' }
+        if ($SinceBaseline) { $text = Select-ConsoleTextSinceBaseline -Text $text -BaselineSignature $Baseline -TailLines $TailLines }
+        $Frames[$engine].Add($text)
+        while ($Frames[$engine].Count -gt $MaxFrames) { $Frames[$engine].RemoveAt(0) }
+        $joined = [string]::Join("`n", $Frames[$engine])
+        $matched = $false
+        foreach ($wanted in $Pattern) {
+            if (Test-OCRMatch -Text $joined -Pattern $wanted -NoSegmentMatch:$NoSegmentMatch) { $matched = $true; break }
+        }
+        $engineMatches += $matched
+    }
+    if ($engineMatches.Count -eq 0) { return $false }
+    if ($CombineMode -eq 'And') { return $false -notin $engineMatches }
+    return $true -in $engineMatches
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -959,6 +989,10 @@ function Wait-ForText {
         applies its tail window to the surviving lines. "When the wait began"
         is the frame the PREVIOUS wait matched on where one is available (see
         Set-CarriedConsoleBaseline), and this wait's own first frame otherwise.
+    .PARAMETER NoSegmentMatch
+        Match positive patterns within one line and a bounded character span.
+        Applies to live frames, step-start filtering, accumulated text, and
+        fresh-window diagnostics. Character-confusion tolerance is preserved.
     .OUTPUTS
         [bool] $true on positive match; $false on timeout or anti-pattern hit.
     #>
@@ -974,6 +1008,7 @@ function Wait-ForText {
         [int]$PollSeconds = 3,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
+        [switch]$NoSegmentMatch,
         # Match the positive pattern only against console lines the guest
         # printed after this step began, ignoring everything the previous step
         # left on the surface. Set it on a step whose pattern is short enough
@@ -1050,6 +1085,7 @@ function Wait-ForText {
     $script:Fail.WaitForTextClosestOnScreen = $null
     $script:Fail.WaitForTextConsoleFlood   = $null
     $script:Fail.WaitForTextConsoleStaticSeconds = 0
+    $script:Fail.WaitForTextGuestBootStalled = $false
     # Which of the two match paths below this wait will take, because only one of
     # them measures the console's shape. A tail-confined (freshMatch) wait reads
     # the same frames but runs neither the flood check nor the content-static
@@ -1156,7 +1192,7 @@ function Wait-ForText {
     # re-examined. A bounded ring keeps this O(1) per poll instead of the O(n^2)
     # a full-history rescan would cost over a 60-300 s loop.
     $recentFrameMax = 3
-    $recentFrames   = [System.Collections.Generic.List[string]]::new()
+    $recentFrames   = @{}
     # Per-line signatures of the console as it stood on this wait's first
     # readable frame, plus the window applied on top of them. $FreshMatch
     # narrows the lines a pattern is tested against by POSITION on the screen;
@@ -1285,7 +1321,7 @@ function Wait-ForText {
             if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
                     # -- FreshMatch mode: only check the last N lines --
-                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch
 
                     $ocrSections = [System.Collections.Generic.List[string]]::new()
                     foreach ($eName in $result.EngineResults.Keys) {
@@ -1320,13 +1356,13 @@ function Wait-ForText {
                         $sinceMatch = $false
                         if ($matchText) {
                             foreach ($p in $Pattern) {
-                                if (Test-OCRMatch -Text $matchText -Pattern $p) { $sinceMatch = $true; break }
+                                if (Test-OCRMatch -Text $matchText -Pattern $p -NoSegmentMatch:$NoSegmentMatch) { $sinceMatch = $true; break }
                             }
                         }
                         if ($result.Match -and -not $sinceMatch) {
                             Write-Verbose "      Wait-ForText: '$patternLabel' reads somewhere on screen, but on no line printed since this step began -- still waiting."
                         }
-                        $result.Match = $sinceMatch
+                        $result.Match = $sinceMatch -and ($combineMode -ne 'And' -or $result.Match)
                     }
 
                     if ($result.Match) {
@@ -1336,7 +1372,7 @@ function Wait-ForText {
                     }
                 } else {
                     # -- Non-FreshMatch mode: accumulate text, check for pattern --
-                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch
 
                     $ocrSections = [System.Collections.Generic.List[string]]::new()
                     foreach ($eName in $result.EngineResults.Keys) {
@@ -1369,7 +1405,7 @@ function Wait-ForText {
                         $sinceMatch = $false
                         if ($matchText) {
                             foreach ($p in $Pattern) {
-                                if (Test-OCRMatch -Text $matchText -Pattern $p) { $sinceMatch = $true; break }
+                                if (Test-OCRMatch -Text $matchText -Pattern $p -NoSegmentMatch:$NoSegmentMatch) { $sinceMatch = $true; break }
                             }
                         }
                         if ($result.Match -and -not $sinceMatch) {
@@ -1381,12 +1417,6 @@ function Wait-ForText {
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
                         $lastEngineResults = $result.EngineResults
-                        # The cross-frame fallback below joins these, so they
-                        # have to carry the same text the live frame was matched
-                        # against -- otherwise a gated wait would match on the
-                        # join what it just declined to match on the frame.
-                        $recentFrames.Add([string]$matchText)
-                        if ($recentFrames.Count -gt $recentFrameMax) { $recentFrames.RemoveAt(0) }
                         $normalizedNow = Get-ConsoleTextSignature -Text ([string]$result.AnyText)
                         if ($normalizedNow -ne $lastStaticText) {
                             $lastStaticText        = $normalizedNow
@@ -1411,18 +1441,15 @@ function Wait-ForText {
                     # history -- see the $recentFrames note above); the live frame
                     # already matched above, so this only catches a frame-straddling
                     # split.
-                    $recentText = [string]::Join("`n", $recentFrames)
-                    foreach ($p in $Pattern) {
-                        if (Test-OCRMatch -Text $recentText -Pattern $p) {
-                            Write-Debug "      Text detected across recent frames: '$p'"
-                            $script:LastWaitVerdict.Matched = $true
-                            # The live frame, not the join the match was found
-                            # in: the join spans several polls, and handing on a
-                            # frame older than the newest one read would leave
-                            # lines eligible that were already on screen.
-                            Set-CarriedConsoleBaseline -VMName $VMName -Text ([string]$result.AnyText)
-                            return $true
-                        }
+                    $recentMatched = Test-RecentOcrFramesMatch -Frames $recentFrames -EngineResults $result.EngineResults `
+                        -EnabledEngines $enabledEngines -Pattern $Pattern -CombineMode $combineMode -MaxFrames $recentFrameMax `
+                        -SinceBaseline:$SinceStepStart -Baseline $sinceBaseline -TailLines $sinceTailLines `
+                        -NoSegmentMatch:$NoSegmentMatch
+                    if ($recentMatched) {
+                        Write-Debug '      Text detected across recent frames'
+                        $script:LastWaitVerdict.Matched = $true
+                        Set-CarriedConsoleBaseline -VMName $VMName -Text ([string]$result.AnyText)
+                        return $true
                     }
 
                     # Flooded-console detection, and a THIRD case distinct from
@@ -1505,24 +1532,8 @@ function Wait-ForText {
                     }
                 }
 
-                # Frozen-feed self-heal (distinct from the no-text case above).
-                # On a headless Hyper-V host the vmconnect PrintWindow surface
-                # can go stale during an idle console tail: the guest has
-                # already repainted -- e.g. printed the fetchAndExecute
-                # completion marker after a quiet network-convergence wait --
-                # but every captured frame is byte-identical, so OCR keeps
-                # reading a dead frame that will never contain the pattern and
-                # the wait burns its full timeout. The no-text branch can't see
-                # this: the frozen frame still holds readable text, so
-                # $result.AnyText is true. Detect a feed whose raw bytes have
-                # not changed for $frozenFeedSeconds and force the console
-                # viewer to reconnect -- Restart-VMConsole relaunches vmconnect
-                # (virt-viewer on KVM, the UTM console on macOS), which
-                # re-attaches to the guest's live framebuffer. A live-but-idle
-                # console keeps a blinking cursor, so its captures differ
-                # frame-to-frame and never trip this; the repair is capped so a
-                # genuinely static screen still times out normally instead of
-                # thrashing the viewer.
+                # Repair a readable capture feed whose frames have stopped changing.
+                # See https://yuruna.link/42e220c4-0007
                 if ($result.AnyText) {
                     $frameHash = $null
                     try { $frameHash = (Get-FileHash -LiteralPath $rawScreenPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $frameHash = $null }
@@ -1678,7 +1689,7 @@ function Wait-ForText {
         # -- where the caller retries -- replays a step that already ran.
         if ($FreshMatch -and $lastEngineResults -and (Get-Command Get-OcrFreshWindowNearMiss -ErrorAction SilentlyContinue)) {
             [string[]]$nearMiss = @(Get-OcrFreshWindowNearMiss -EngineResult $lastEngineResults `
-                -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines)
+                -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch)
             if ($nearMiss.Count -gt 0) {
                 $script:Fail.WaitForTextFreshWindowNearMiss = $nearMiss
                 foreach ($line in $nearMiss) {
@@ -1715,6 +1726,13 @@ function Wait-ForText {
         if ($consoleRestarts -ge $maxConsoleRestarts -and (Get-Command Get-VMConsoleSecondOpinion -ErrorAction SilentlyContinue)) {
             try {
                 $secondOpinion = Get-VMConsoleSecondOpinion -VMName $VMName
+                $script:Fail.WaitForTextGuestBootStalled = (
+                    $secondOpinion -and $secondOpinion.Verdict -eq 'guest-static' -and
+                    $script:LastWaitVerdict.ConsoleSignalsMeasured -and
+                    $script:LastWaitVerdict.ConsoleStaticSeconds -ge 120 -and
+                    -not $script:Fail.WaitForTextMatchedFailurePattern -and
+                    -not $script:Fail.WaitForTextConsoleFlood
+                )
                 if ($secondOpinion -and $secondOpinion.Verdict -ne 'unavailable') {
                     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b3dea02d8275ec49' -Arguments @{ verdict = "$($secondOpinion.Verdict)"; detail = "$($secondOpinion.Detail)" })
                 } elseif ($secondOpinion) {
@@ -2367,6 +2385,7 @@ function Invoke-Sequence {
     # runner drive a step range with -StartStep / -StopStep on the real file.
     # @() guards the single-step case: PowerShell unwraps a one-element return,
     # so without it a 1-step window would arrive as a bare step, not an array.
+    $sourceStepCount = @($sequence.steps).Count
     $steps = @(Select-SequenceStepWindow -Steps @($sequence.steps) -StartStep $StartStep -StopStep $StopStep)
 
     # Per-step perf logging. Set-PerfSequenceContext / Set-PerfGuestContext
@@ -2389,7 +2408,7 @@ function Invoke-Sequence {
                 $readErr = $_
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7545bc97968f08e8' -Arguments @{ sequencePath = "$SequencePath"; message = "$($readErr.Exception.Message)" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event     = 'perf_context_unavailable'
                     reason    = 'sequence_read_failed'
                     path      = [string]$SequencePath
@@ -2402,7 +2421,7 @@ function Invoke-Sequence {
             $setupErr = $_
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c35bcc6c529958c' -Arguments @{ message = "$($setupErr.Exception.Message)" })
             Send-CycleEventSafely -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event     = 'perf_context_unavailable'
                 reason    = 'setup_failed'
                 path      = [string]$SequencePath
@@ -2417,23 +2436,8 @@ function Invoke-Sequence {
     }
     Write-Verbose "    Steps: $($steps.Count)"
 
-    # Step-pause back-channel: the status service's /control/step-pause
-    # endpoint creates $env:YURUNA_RUNTIME_DIR/control.step-pause. We gate
-    # on that file in two places:
-    #   1. Before sequence setup (here, below) -- so Restart-VMConnect and any
-    #      per-sequence work don't run while paused, and the very first
-    #      action of a new sequence can't start while paused. This matters
-    #      most between two sequences (e.g. Test-Start -> Test-Workload, or
-    #      one guest's workload -> the next guest's workload), where a Pause
-    #      click would otherwise only take effect after the next sequence had
-    #      already started its first action.
-    #   2. At the top of each step iteration (further below) -- so a click
-    #      mid-sequence takes effect before the next action.
-    # Empty-steps sequences have already returned above, so the sequence-
-    # level wait here never triggers for a sequence that has nothing to do.
-    # Cycle-pause (control.cycle-pause) is gated separately in
-    # Start-TestRunner.ps1 at cycle boundaries -- Invoke-Sequence is only
-    # concerned with step-level pauses.
+    # Gate step pauses before setup and before each action.
+    # See https://yuruna.link/42e220c4-0007
     $runtimeDir = Initialize-YurunaRuntimeDir
     $stepPauseFlagFile = Join-Path $runtimeDir 'control.step-pause'
     # Cycle-restart back-channel: the status service's /control/start-cycle
@@ -2481,7 +2485,7 @@ function Invoke-Sequence {
                     code      = $Code
                     label     = $Label
                     arguments = $Arguments
-                    updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 }
                 # Route through the shared atomic writer: a fixed "$Path.tmp"
                 # lets a concurrent writer's rename clobber a half-written temp,
@@ -2499,7 +2503,7 @@ function Invoke-Sequence {
         }
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f0366c89e03f268' -Arguments @{ attempts = "$attempts"; message = "$($lastErr.Exception.Message)"; currentActionFile = "$currentActionFile" })
         Send-CycleEventSafely -EventRecord @{
-            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event     = 'sidecar_write_failed'
             file      = 'current-action.json'
             path      = [string]$currentActionFile
@@ -2549,7 +2553,7 @@ function Invoke-Sequence {
                 # runner dies leaves no release event, and an unpaired begin is the
                 # only record that the run was parked rather than stuck.
                 Send-CycleEventSafely -EventRecord ($pauseCommon + @{
-                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event     = 'sequence_paused'
                 })
             }
@@ -2568,14 +2572,14 @@ function Invoke-Sequence {
             # New-SequenceFailureRecord; harmless on the passing path, where
             # nothing consults it.
             $script:Fail.LastPauseRelease = @{
-                releasedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                releasedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 heldSeconds   = $heldSeconds
                 label         = [string]$Label
                 pauseScope    = 'step'
             }
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord ($pauseCommon + @{
-                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event       = 'sequence_resumed'
                     heldSeconds = $heldSeconds
                 })
@@ -2703,23 +2707,37 @@ function Invoke-Sequence {
             # later attempt's rows from the first attempt's, and a step first
             # reached in a later attempt reads as though it ran beside the
             # first attempt's failure.
-            [int]$ParentAttempt = 0
+            [int]$ParentAttempt = 0,
+            [int]$StepOffset = 0
         )
-        $stepNum = 0
+        $stepTotal = if ($ParentOrdinal -eq 0) { $sourceStepCount } else { $Steps.Count }
+        $stepNum = $StepOffset
         foreach ($step in $Steps) {
             $stepNum++
+            # Cause signals belong to one attempted step, including nested retries.
+            foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
+                'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
+                'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable')) {
+                $script:Fail[$cause] = $null
+            }
+            $script:Fail.WaitForTextPatternsSought = [string[]]@()
+            $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
+            $script:Fail.WaitForTextConsoleStaticSeconds = 0
+            $script:Fail.WaitForTextGuestBootStalled = $false
+            $script:Fail.WaitForTextConsoleSignalsMeasured = $true
+
             # Gate #2: between-steps pause + cycle-restart check. Catches
             # a Pause or a "Save and start cycle" clicked while the previous
             # step was running. The throw inside $checkCycleRestart escapes
             # this $invokeStepBlock (including any wrapping `retry` block --
             # retry only catches $false returns, not exceptions) and bubbles
             # up to the cycle-level try/catch in Invoke-TestRunnerInnerLoop.
-            & $waitWhilePaused "[$stepNum/$($Steps.Count)]"
-            & $waitWhileLabHealthy "[$stepNum/$($Steps.Count)]"
-            & $checkCycleRestart "[$stepNum/$($Steps.Count)]"
+            & $waitWhilePaused "[$stepNum/$($stepTotal)]"
+            & $waitWhileLabHealthy "[$stepNum/$($stepTotal)]"
+            & $checkCycleRestart "[$stepNum/$($stepTotal)]"
             $displayDescription = Resolve-YurunaOperatorProjectLabel -Entry $step
             $desc = $displayDescription ? (Expand-Variable $displayDescription $vars) : $step.action
-            $actionArguments = @{ index = $stepNum; total = $Steps.Count; action = [string]$step.action; description = $desc }
+            $actionArguments = @{ index = $stepNum; total = $stepTotal; action = [string]$step.action; description = $desc }
             & $writeCurrentAction (Format-YurunaOperatorMessage -Key 'runner.sequence_step' -Arguments $actionArguments) 'sequence_step_active' $desc $actionArguments
             # Refresh runner.stepHeartbeat from the runspace so the outer
             # watchdog can detect a single step that exceeds stepTimeout-
@@ -2752,7 +2770,7 @@ function Invoke-Sequence {
         $savedProgress = $global:ProgressPreference
         $global:ProgressPreference = 'Continue'
         try {
-        Write-ProgressTick -Activity "Sequence" -Status "[$stepNum/$($steps.Count)] $($step.action): $desc" -PercentComplete ([math]::Round((($stepNum - 1) / [math]::Max($steps.Count,1)) * 100))
+        Write-ProgressTick -Activity "Sequence" -Status "[$stepNum/$($stepTotal)] $($step.action): $desc" -PercentComplete ([math]::Round((($stepNum - 1) / [math]::Max($stepTotal,1)) * 100))
 
         $stepStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         # Wall-clock start captured alongside the stopwatch so the perf
@@ -2777,7 +2795,7 @@ function Invoke-Sequence {
             $ctx = @{
                 Step                  = $step
                 StepNum               = $stepNum
-                StepCount             = $steps.Count
+                StepCount             = $stepTotal
                 Steps                 = $steps
                 Vars                  = $vars
                 VMName                = $VMName
@@ -2846,7 +2864,7 @@ function Invoke-Sequence {
         $stepStopwatch.Stop()
         $elapsedLabel = ("    {0,4}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
         $stepMarker   = if ($ok) { 'PASS' } else { 'FAIL' }
-        Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $stepMarker $($step.action): $desc"
+        Write-Information "$elapsedLabel s [$stepNum/$($stepTotal)] $stepMarker $($step.action): $desc"
 
         # One NDJSON line per step_end so a downstream consumer can plot
         # pass/fail rates without HTML scraping. Carries the SUPERSET
@@ -2855,10 +2873,10 @@ function Invoke-Sequence {
         # step_failure so a downstream consumer can do a single schema
         # join across step_end + step_failure rows.
         $stepEndRecord = @{
-            timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event               = 'step_end'
             stepNumber          = [int]$stepNum
-            totalSteps          = [int]$steps.Count
+            totalSteps          = if ($ParentOrdinal -eq 0) { $sourceStepCount } else { $stepTotal }
             actionVerb          = [string]$step.action
             ok                  = [bool]$ok
             durationMs          = [int]$stepStopwatch.Elapsed.TotalMilliseconds
@@ -2917,7 +2935,7 @@ function Invoke-Sequence {
         # Track the last passing step number so the failure payload can
         # surface lastSucceededStepNumber -- a remediator that wants to
         # replay needs to know the boundary it can safely resume past.
-        if ($ok) { $script:Fail.LastSucceededStepNumber = $stepNum }
+        if ($ok -and $ParentOrdinal -eq 0) { $script:Fail.LastSucceededStepNumber = $stepNum }
 
         # Emit one structured row per step execution. stepName is the
         # RAW (pre-expansion) YAML `description:` -- variables like
@@ -3029,7 +3047,7 @@ function Invoke-Sequence {
     # any wait runs (the wait functions also reset them at entry).
     $script:Fail.WaitForTextOcrTail            = $null
     $script:Fail.WaitForTextPatternsSought     = [string[]]@()
-    $result = & $invokeStepBlock -Steps $steps
+    $result = & $invokeStepBlock -Steps $steps -StepOffset ([Math]::Max(0, $StartStep - 1))
     if (-not $result) {
         # Capture a screenshot now unless the failed verb already saved one
         # in its own failure path (avoids overwriting the verb's richer,
@@ -3064,7 +3082,7 @@ function Invoke-Sequence {
         # both the last_failure.json ordered dict and the matching step_failure
         # NDJSON record so the file and the event stream can never drift. See
         # docs/failure-schema.md.
-        $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count
+        $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount
         $failureFile = Join-Path $logDir "last_failure.json"
         # Atomic write: a remediator/status reader must never observe a truncated
         # last_failure.json mid-write (partial-write regression class).
@@ -3087,7 +3105,7 @@ function Invoke-Sequence {
         # context while the user decides whether to resume. Resuming does not
         # change the outcome -- the step is still a failure -- it only gives
         # the user time to investigate before the runner moves on.
-        & $waitWhilePaused "[$($script:Fail.LastFailedStepNumber)/$($steps.Count)] FAIL"
+        & $waitWhilePaused "[$($script:Fail.LastFailedStepNumber)/$sourceStepCount] FAIL"
         return $false
     }
 
@@ -3160,7 +3178,7 @@ function Invoke-Sequence {
     # weight, since the remediation dispatcher already maps 'unknown' to
     # pause-and-inspect.
     try {
-        $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count -CrashError $_
+        $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount -CrashError $_
         # Atomic, best-effort: a reader must never see a truncated crash record.
         $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
         # Mirror the normal failure path NDJSON so a stream consumer does not see
@@ -3175,7 +3193,7 @@ function Invoke-Sequence {
         $writeErr = $_
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_aff1f890bceeea18' -Arguments @{ message = "$($writeErr.Exception.Message)" })
         Send-CycleEventSafely -EventRecord @{
-            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event     = 'last_failure_write_failed'
             path      = (Join-Path $logDir 'last_failure.json')
             error     = $writeErr.Exception.Message
@@ -3211,7 +3229,7 @@ function Invoke-Sequence {
 # failure-state store. -- Test.SequenceEngine.psm1
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
-    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
+    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-OcrSidecar, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `
     Get-ConsoleLineSignature, Select-ConsoleTextSinceBaseline, `

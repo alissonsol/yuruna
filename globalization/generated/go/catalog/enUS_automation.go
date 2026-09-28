@@ -7,6 +7,20 @@ package catalog
 // DataenUSautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSautomation = `{
+  "automation.host_setup_module_install_skipped": [
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is not installed, and this run may not install modules. Install it with: Install-Module ",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " -Scope CurrentUser"
+  ],
   "automation.memory_plan": {
     "kind": "plural",
     "selector": "count",
@@ -5029,6 +5043,27 @@ const DataenUSautomation = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "automation.setup_service_vm_reason_intended_stopped": "it was stopped on purpose; rebuilding because setup was asked to bring it up",
+  "automation.setup_service_vm_reason_lock_unavailable": "its operation lock could not be taken",
+  "automation.setup_service_vm_reason_operation_busy": "another start or stop of this service is still running",
+  "automation.setup_service_vm_reason_state_unknown": [
+    "its VM state could not be confirmed (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "automation.system_diagnostic_utmctl_list_incomplete": [
+    "  utmctl list did not return a complete answer within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds; the listing above may be incomplete (UTM may not be answering Apple Events)."
   ]
 }
 `

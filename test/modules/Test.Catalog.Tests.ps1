@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,9 @@
     cycle time. And a domain must be read once per process, not once per
     message, or the same loop turns into file I/O.
 
-    The plural rule is deliberately narrow. Only rules actually pinned for a
-    shipped locale are implemented, and an unpinned locale raises rather than
-    borrowing English's rule -- Portuguese and English disagree about zero, and
+    The plural rule is deliberately narrow. Only rules the locale manifest
+    pins are implemented, planned locales included, and an unpinned locale
+    raises rather than borrowing English's rule -- Portuguese and English disagree about zero, and
     a borrowed rule produces fluent, confidently wrong grammar that reads fine
     to anyone who does not speak the language.
 
@@ -93,6 +93,20 @@ Describe 'the renderer reads what the compiler emits' {
             -Arguments @{ detail = 'Connection refused' } -Locale 'en-US'
         Assert-StringEqual -Expected 'The tool reported: Connection refused' -Actual $out `
             'the external detail should be placed verbatim inside the framing sentence'
+    }
+
+    It 'closes every isolate it opens' {
+        # In a right-to-left locale each argument is isolated; an isolate left
+        # open would swallow the rest of the line into its direction.
+        $segments = @('Host ', @{ arg = 'host'; type = 'detail' }, ' ran ', @{ arg = 'count'; type = 'integer' }, ' checks in ', @{ arg = 'took'; type = 'duration' }, '.')
+        $out = Format-CatalogSegment -Segments $segments -Arguments @{ host = 'host-01'; count = 1234; took = 90 } -Locale 'he-IL'
+        $opened = @($out.ToCharArray() | Where-Object { [int]$_ -eq 0x2066 -or [int]$_ -eq 0x2068 }).Count
+        $closed = @($out.ToCharArray() | Where-Object { [int]$_ -eq 0x2069 }).Count
+        Assert-Equal -Expected 3 -Actual $opened 'every argument of an rtl message is isolated'
+        Assert-Equal -Expected $opened -Actual $closed 'an isolate is left open'
+        $plain = Format-CatalogSegment -Segments $segments -Arguments @{ host = 'host-01'; count = 1234; took = 90 } -Locale 'en-US'
+        # Ordinal: a culture-aware compare ignores the bidi controls in question.
+        Assert-True ([string]::Equals('Host host-01 ran 1,234 checks in 1m 30s.', $plain, [StringComparison]::Ordinal)) "an ltr locale is not isolated: '$plain'"
     }
 
     It 'returns the key itself when a key is missing' {
@@ -293,12 +307,67 @@ $out
     }
 }
 
-Describe 'Portuguese numeric cardinal rules' {
-    It 'matches the pinned shared zero fraction negative and million corpus' {
-        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-        $corpus = Get-Content -LiteralPath (Join-Path $root 'globalization/fixtures/pt-BR-plurals.json') -Raw | ConvertFrom-Json
+# Read at discovery, because -ForEach is: every pinned corpus becomes a case
+# of its own, so a new locale's fixture is covered the moment it exists.
+$script:PluralCorpora = @(Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'globalization/fixtures') -Filter '*-plurals.json' | Sort-Object Name | ForEach-Object { @{ Path = $_.FullName; Name = $_.Name } })
+
+Describe 'Pinned numeric cardinal rules' {
+    It 'matches every pinned plural corpus <Name>' -ForEach $script:PluralCorpora {
+        $corpus = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
         foreach ($row in $corpus.cases) {
-            Get-PluralCategory -Count $row.count -Locale $corpus.locale | Should -BeExactly $row.category
+            Get-PluralCategory -Count $row.count -Locale $corpus.locale | Should -BeExactly $row.category -Because "$($corpus.locale) count $($row.count)"
+        }
+    }
+
+    It 'finds at least three pinned corpora' -ForEach @(@{ Count = $script:PluralCorpora.Count }) {
+        $Count | Should -BeGreaterOrEqual 3 -Because 'the corpus glob found fewer fixtures than the locales that pin a rule'
+    }
+}
+
+Describe 'every pinned plural rule is described, sourced, implemented and covered' {
+    # A rule the manifest names but no runtime implements, or implements
+    # without a corpus, fails only when a reader first sees that locale; these
+    # read the manifest so a new locale is held to all four at once.
+    BeforeAll {
+        $script:PluralManifest = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/locale-manifest.json') -Raw | ConvertFrom-Json
+        $script:PinnedLocales = @($script:PluralManifest.locales.PSObject.Properties |
+                Where-Object { [string]$_.Value.status -cne 'pseudo' -and $_.Value.pluralRule })
+    }
+
+    It 'names only rules the manifest describes' {
+        $described = @($script:PluralManifest.pluralRules.PSObject.Properties.Name)
+        foreach ($locale in $script:PluralManifest.locales.PSObject.Properties) {
+            $rule = [string]$locale.Value.pluralRule
+            if ($rule) { $described | Should -Contain $rule -Because "$($locale.Name) names a rule pluralRules does not describe" }
+        }
+    }
+
+    It 'sources every CLDR-derived rule' {
+        foreach ($rule in @($script:PluralManifest.pluralRules.PSObject.Properties.Name)) {
+            if ($rule -notmatch '-cldr\d+$') { continue }
+            $source = $script:PluralManifest.pluralRuleSources.PSObject.Properties[$rule]
+            [string]$(if ($source) { $source.Value }) | Should -BeLike 'https://github.com/unicode-org/cldr/blob/release-*' `
+                -Because "$rule names no CLDR release it was transcribed from"
+        }
+    }
+
+    It 'covers every non-pseudo locale with a fixture that exercises every category' {
+        $script:PinnedLocales.Count | Should -BeGreaterOrEqual 1
+        foreach ($locale in $script:PinnedLocales) {
+            $path = Join-Path $script:RepoRoot "globalization/fixtures/$($locale.Name)-plurals.json"
+            Test-Path -LiteralPath $path | Should -BeTrue -Because "$($locale.Name) has no plural corpus"
+            $fixture = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            [string]$fixture.rule | Should -BeExactly ([string]$locale.Value.pluralRule) -Because "the $($locale.Name) corpus pins another rule"
+            [string]$fixture.locale | Should -BeExactly $locale.Name
+            (@($fixture.cases | ForEach-Object { [string]$_.category } | Sort-Object -Unique) -join ',') |
+                Should -BeExactly (@($locale.Value.pluralCategories | Sort-Object) -join ',') -Because "the $($locale.Name) corpus does not exercise every category"
+            @($locale.Value.pluralCategories) | Should -Contain 'other'
+        }
+    }
+
+    It 'is implemented in this runtime' {
+        foreach ($locale in $script:PinnedLocales) {
+            { Get-PluralCategory -Locale $locale.Name -Count 1 } | Should -Not -Throw -Because "$($locale.Name) has no implementation here"
         }
     }
 }

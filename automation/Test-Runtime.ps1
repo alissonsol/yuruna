@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42716d16-84b0-4329-82d3-c96aec139664
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,11 +184,12 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
         foreach ($line in $nodeLines) { $problems.Add("  $line") }
         $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_60108482ffac31eb'))
     } else {
-        # Error lines must not be filtered out (filtering them hides failures) and zero nodes
-        # must not count as healthy: require at least one Ready node. `\bReady\b` matches
-        # "Ready" but not "NotReady".
-        $readyNodes    = @($nodeLines | Where-Object { $_ -match "\bReady\b" })
-        $notReadyNodes = @($nodeLines | Where-Object { $_ -notmatch "\bReady\b" })
+        # Successful kubectl calls may emit discovery warnings on stderr. Only
+        # stdout rows describe nodes; a failed native exit above retains diagnostics.
+        $nodeLines = @($nodeLines | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        # Zero nodes must not count as healthy; Ready must match the status column.
+        $readyNodes    = @($nodeLines | Where-Object { $_ -match "^\S+\s+Ready(?:,\S+)?(?:\s|$)" })
+        $notReadyNodes = @($nodeLines | Where-Object { $_ -notmatch "^\S+\s+Ready(?:,\S+)?(?:\s|$)" })
         if ($readyNodes.Count -eq 0) {
             $problems.Add((Format-YurunaOperatorMessage -Key 'automation.operator_8deabd038eb2770d'))
             foreach ($line in $nodeLines) { $problems.Add("  $line") }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f0b9d3-7c48-4a21-b5e6-08c9d13f7a25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,9 @@ if ($findings.Count -eq 0) {
 Write-Warning ("Test-SuiteBaseline: {0} finding(s):" -f $findings.Count)
 foreach ($finding in $findings) { Write-Warning ("  FINDING: {0}" -f $finding) }
 Write-Warning ''
-Write-Warning 'Fix: run the full suite and re-record the baseline from that run:'
+Write-Warning 'For newly added suites, register every missing suite from a passing run:'
+Write-Warning '    pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -RegisterNewSuites'
+Write-Warning 'To refresh all rows, run the full suite and re-record the baseline:'
 Write-Warning '    pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -UpdateBaseline'
 Write-Warning '  Record it from a passing run. A baseline written over a failing one'
 Write-Warning '  protects the failure.'

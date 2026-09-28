@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,14 @@ Describe 'Per-cycle runner never performs once-per-runner startup' {
     }
     It 'does not re-initialize runner state (it would mint a new runId per cycle)' {
         ($cycleCommands -contains 'Initialize-RunnerState') | Should -Be $false
+    }
+    It 'never removes a runner record or writes the refresh gate (only the runner and the repair do)' {
+        ($cycleCommands -contains 'Remove-YurunaRunnerRecordGeneration') | Should -Be $false
+        ($cycleCommands -contains 'Set-YurunaRefreshGate') | Should -Be $false
+        ($cycleCommands -contains 'Complete-YurunaRunnerHandoff') | Should -Be $false
+    }
+    It 'validates a preflight token for its own role before honoring it' {
+        ($cycleCommands -contains 'Test-YurunaRunnerHandoffToken') | Should -Be $true
     }
     It 'leaves all three with the long-lived runner' {
         ($outerCommands -contains 'Get-RunnerInstanceState')   | Should -Be $true

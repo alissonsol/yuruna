@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -542,10 +542,10 @@ function Save-DownloadAgentArtifact {
             }
             $written = 0L
             if (Test-Path -LiteralPath $OutFile) { $written = (Get-Item -LiteralPath $OutFile).Length }
-            if ($ExpectedByteCount -gt 0 -and $written -ge $ExpectedByteCount) { break }
+            if ($ExpectedByteCount -gt 0 -and $written -ge $ExpectedByteCount) { $lastError = ''; break }
 
             try {
-                $written = Copy-DownloadAgentStream -Client $client -Uri $Uri -OutFile $OutFile -Offset $written -ExpectedByteCount $ExpectedByteCount
+                $written = Copy-DownloadAgentStream -Client $client -Uri $Uri -OutFile $OutFile -Offset $written -ExpectedByteCount $ExpectedByteCount -Deadline $Deadline
                 $lastError = ''
             } catch {
                 $lastError = $_.Exception.Message
@@ -563,6 +563,9 @@ function Save-DownloadAgentArtifact {
         Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_90cb61bda0fc16e4' -Arguments @{ uri = "$Uri" }) -Completed
     }
 
+    if ($lastError) {
+        return @{ Ok = $false; ByteCount = $written; Error = $lastError }
+    }
     if ($ExpectedByteCount -gt 0 -and $written -lt $ExpectedByteCount) {
         if ($lastError -eq '') { $lastError = "the transfer ended at $written of $ExpectedByteCount byte(s)" }
         return @{ Ok = $false; ByteCount = $written; Error = $lastError }
@@ -599,15 +602,25 @@ function Copy-DownloadAgentStream {
         [Parameter(Mandatory)][string]$Uri,
         [Parameter(Mandatory)][string]$OutFile,
         [int64]$Offset = 0,
-        [int64]$ExpectedByteCount = 0
+        [int64]$ExpectedByteCount = 0,
+        [datetime]$Deadline = [datetime]::MaxValue,
+        [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60
     )
 
     $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
     if ($Offset -gt 0) {
         $request.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::new($Offset, $null)
     }
-    $response = $Client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    $deadlineCancellation = [System.Threading.CancellationTokenSource]::new()
+    if ($Deadline -ne [datetime]::MaxValue) {
+        $remaining = [Math]::Max(0, ($Deadline - [datetime]::UtcNow).TotalMilliseconds)
+        $deadlineCancellation.CancelAfter([int][Math]::Min([int]::MaxValue, $remaining))
+    }
+    $idleCancellation = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadlineCancellation.Token)
+    $response = $null
     try {
+        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+        $response = $Client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $idleCancellation.Token).GetAwaiter().GetResult()
         $status = [int]$response.StatusCode
         if ($status -eq 416) {
             # The server says there is nothing past our offset: the file on disk
@@ -630,7 +643,10 @@ function Copy-DownloadAgentStream {
                 $buffer = [byte[]]::new(256 * 1024)
                 $total = if ($append) { $Offset } else { 0L }
                 $next = [datetime]::UtcNow.AddSeconds(2)
-                while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                while ($true) {
+                    $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+                    $read = $stream.ReadAsync($buffer, 0, $buffer.Length, $idleCancellation.Token).GetAwaiter().GetResult()
+                    if ($read -eq 0) { break }
                     $out.Write($buffer, 0, $read)
                     $total += $read
                     if ([datetime]::UtcNow -gt $next) {
@@ -647,8 +663,10 @@ function Copy-DownloadAgentStream {
             } finally { $out.Dispose() }
         } finally { $stream.Dispose() }
     } finally {
-        $response.Dispose()
+        if ($response) { $response.Dispose() }
         $request.Dispose()
+        $idleCancellation.Dispose()
+        $deadlineCancellation.Dispose()
     }
     return (Get-Item -LiteralPath $OutFile).Length
 }

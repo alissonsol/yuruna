@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,12 +79,20 @@ $script:statusServiceBody = Get-Content -Raw -LiteralPath $statusServicePath
 
 Describe 'Test.CachingProxyService CA-source helpers' {
     BeforeEach {
+        $script:PreviousRuntimeDir = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
+        $script:PreviousProxyIp = [Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', 'Process')
         $script:sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("cpca_" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:sandbox -Force | Out-Null
         $env:YURUNA_RUNTIME_DIR = $script:sandbox
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
         Import-Module $script:module -Force -DisableNameChecking
         Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
+    }
+
+    AfterEach {
+        [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $script:PreviousRuntimeDir, 'Process')
+        [Environment]::SetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', $script:PreviousProxyIp, 'Process')
+        if ($script:sandbox) { Remove-Item -LiteralPath $script:sandbox -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
     Context 'Test-CachingProxyServiceCaPem' {

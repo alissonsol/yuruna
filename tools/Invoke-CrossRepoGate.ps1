@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,19 +135,17 @@ function Get-GateRemediation {
     # to the same repair needs.
     $table = @(
         @{ Gate = 'doc-translation'; Match = ''; Code = 'doc-source-drift'
-            Action = 'An English source moved after its pt-BR translation was accepted. If the only ' +
-                'change is the review footer or the verified-download tag, run: pwsh -NoProfile ' +
-                '-File tools/Update-VersionDerivedPin.ps1 -ProjectRoot ../yuruna-project . ' +
-                'It advances a recorded hash only when the accepted bytes reproduce the current ' +
-                'file under those two edits alone, and it names every document it refuses with a ' +
-                'diff. If the prose changed, re-translate and run: pwsh -NoProfile -File ' +
-                'tools/Test-DocTranslation.ps1 -AcceptReview -Status reviewed -Path ''<source>'' -- ' +
-                'one -Path per document, because a bare run accepts all thirteen. Commit and push ' +
-                'both private repositories; a working-tree fix is invisible to a release. (Detail ' +
-                '''has no <locale> translation at <path>'' instead means the document is ' +
-                'unregistered: accept it as -Status draft. Detail ''does not resolve'' means a ' +
-                'relative link is broken: fix the link, or run tools/Test-DocTranslation.ps1 ' +
-                '-RepairLinks.)' }
+            Action = 'An English document changed after its translation was last written, or a ' +
+                'translation is missing. Version footers and release tags never stale a row. ' +
+                'Maintainers draft the translation with the drafter''s Documents scope (pwsh ' +
+                '-NoProfile -File dev-only/New-Translation.ps1 -Fill -Scope Documents -Locale <tag>) ' +
+                'or import a professional return through the maintainers'' exchange; both record ' +
+                'the row. Commit and push both private repositories; a working-tree fix is ' +
+                'invisible to a release. Detail ''does not resolve'' means a relative link is ' +
+                'broken: fix that link in the translation, or, when the translation''s links were ' +
+                'copied verbatim from its English source, run tools/Test-DocTranslation.ps1 ' +
+                '-RepairLinks -Locale <tag> -Path <source> (it rebases every relative link of the ' +
+                'files it selects).' }
         @{ Gate = 'region-anchors'; Match = ''; Code = 'region-anchors'
             Action = 'A documentation region anchor or a public short-link target no longer resolves. ' +
                 'Re-run pwsh -NoProfile -File tools/Test-RegionAnchors.ps1 -ProjectRoot <project ' +
@@ -262,21 +260,14 @@ function Get-GateRemediation {
                 'Route the string through the catalog rather than hard-coding it, then recompile ' +
                 'and re-embed.' }
         @{ Gate = 'terminology'; Match = ''; Code = 'terminology'
-            Action = 'A terminology pin no longer matches its source. Detail ''docs/definition.md changed ' +
-                'after the terminology source was derived'': if the only change is the review ' +
-                'footer, run pwsh -NoProfile -File tools/Update-VersionDerivedPin.ps1 -Update ; it ' +
-                'rewrites sources.definitions.sha256 and then repins the style guide over the ' +
-                'terminology bytes it just wrote, in that order. A real definition edit needs the ' +
-                'approval walk, not a repin. Detail ''the terminology source changed after the style ' +
-                'guide was derived'': that pin is a pure derivation over the terminology file''s ' +
-                'bytes, but repin it ONLY in the same operation that legitimately wrote those bytes ' +
-                '-- repinning it over an unexplained terminology edit blesses that edit. Detail ' +
-                '''names release <r>, which this tree has not reached'': an approval record was ' +
-                'rewritten forward; restore the release the approver actually signed. That field is ' +
-                'a historical stamp, an earlier value passes by design, and a version bump must ' +
-                'never move it. Detail ''baseline approval is incomplete'': a native translator and a ' +
-                'different independent reviewer must each complete their approval record; no tool ' +
-                'can supply that.' }
+            Action = 'The glossary or style guide no longer matches its sources. Detail ''references ' +
+                'a missing definition heading'': docs/definition.md lost a heading a term points at; ' +
+                'restore the heading or update the term''s sourceHeadings. Detail ''retired-name ' +
+                'ruling is not an exact hook pair'': the retired_names block in ' +
+                'tools/githooks/pre-commit and the rulings in ' +
+                'globalization/terminology/<tag>.terms.json disagree; make them identical. Detail ' +
+                '''does not satisfy'': the file carries a field the schema does not define (a status, ' +
+                'a source pin, a sign-off record or a person name); remove it.' }
         @{ Gate = 'perf-baseline'; Match = ''; Code = 'perf-baseline'
             Action = 'Run pwsh -NoProfile -File tools/Invoke-PerfBaseline.ps1 ; the detail names the ' +
                 'measurement that regressed against the recorded baseline. Either fix the ' +

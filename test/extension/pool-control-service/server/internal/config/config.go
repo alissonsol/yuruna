@@ -35,4 +35,18 @@ const (
 	// no path of their own, so a service VM that predates the current layout
 	// keeps its bearer route working until it is rebuilt.
 	LegacyAuthTokenFile = "/etc/yuruna/lab-auth.token"
+
+	// DefaultRefreshAuthorityFile holds the host refresh signing authority
+	// (one "yhra1." line, owner-only). Without it this service cannot mint a
+	// refresh proof, and remote refresh stays disabled.
+	DefaultRefreshAuthorityFile = "/etc/yuruna/host-refresh/authority.key"
+
+	// DefaultRefreshCredentialFile holds the operator refresh credential (one
+	// "yhrc1." line, owner-only) that the per-host refresh route and its MCP
+	// tool require in the X-Yuruna-Refresh-Credential header.
+	DefaultRefreshCredentialFile = "/etc/yuruna/host-refresh/operator.credential"
+
+	// MaxRefreshRequestBytes caps the per-host refresh request body, which
+	// carries four short strings.
+	MaxRefreshRequestBytes = 4096
 )

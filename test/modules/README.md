@@ -22,6 +22,19 @@ Scripts under here take their `$TestRoot` from
 the same switch used by every script in the sibling `service/`, `pool/`
 and `check/` folders.
 
+**Strict binding.** `../Start-TestRunner.ps1`, `Invoke-TestCycleRunner.ps1`
+and `Invoke-TestRunnerInnerLoop.ps1` each carry `[CmdletBinding()]`, so an
+unknown or misspelled parameter is a binding error, never a value absorbed
+into `$args` while the script runs on its defaults. The inner's argv is built
+from the caller's own bound parameters with
+`Test.InnerSpawn\New-InnerRunnerArgList` -- by the runner and again by the
+cycle process -- so a parameter the caller accepts and the inner does not must
+be excluded there: the runner's host-refresh pair (`-RefreshResume`,
+`-RefreshHandoffToken`) and the cycle's `-Cycle` and `-CycleGeneration` are. A
+new transport parameter follows the same rule;
+[`Test.RunnerCycleOptionForwarding.Tests.ps1`](Test.RunnerCycleOptionForwarding.Tests.ps1)
+pins the forwarded argv.
+
 ## The Pester suites
 
 Most files here are `*.Tests.ps1`, and they are **not** part of a test cycle --
@@ -153,6 +166,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../../README.md)

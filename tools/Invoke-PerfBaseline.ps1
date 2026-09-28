@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b3f81a-6c27-4d95-8e13-7a5f2c904db6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,8 +174,8 @@ function Get-Measurement {
     foreach ($root in $registry.roots) {
         $dir = Join-Path $RepoRoot ([string]$root.path)
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
-        foreach ($file in (Get-ChildItem -LiteralPath $dir -File -Recurse -Include '*.js', '*.css' |
-                Sort-Object FullName)) {
+        foreach ($file in (@(Get-ChildItem -LiteralPath $dir -File -Recurse -Filter '*.js') +
+                @(Get-ChildItem -LiteralPath $dir -File -Recurse -Filter '*.css') | Sort-Object FullName)) {
             $skip = $false
             foreach ($suffix in $excluded) { if ($file.Name.EndsWith($suffix)) { $skip = $true; break } }
             if ($skip) { continue }

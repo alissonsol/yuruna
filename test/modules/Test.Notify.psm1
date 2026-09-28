@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -228,7 +228,7 @@ function Write-NotificationDelivery {
     if (-not $CycleFolder) { $CycleFolder = [string]$global:__YurunaCycleFolder }
     if (-not $CycleFolder) { return }
     $record = [ordered]@{
-        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         eventCode    = $EventCode
         extension    = $ExtensionName
         status       = $Status
@@ -440,7 +440,7 @@ function Get-FailureEventData {
             action              = $StepName
             description         = $ErrorMessage
             suggestedRecoveries = @()
-            timestamp           = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+            timestamp           = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
         }
     }
 

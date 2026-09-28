@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,26 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $Modul
 # group set is stale -- Stop-CachingProxyServiceVM on Linux calls virsh destroy /
 # undefine on the cache VM. No-op elsewhere.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+
+# --- REGION: Record the stop intent
+# The stop is on record, and this service's operation lock held, before the
+# first change (the bring-up lock clear below): the reboot sweep and a host
+# refresh then honor the request, and a concurrent Start cannot rebuild the
+# cache mid-teardown. Taken before the sudo priming so a busy service refuses
+# before anything is asked of the operator. A request that cannot be recorded
+# changes nothing.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'caching-proxy' -VMName $VMName -Operation Stop -Script 'Stop-CachingProxyServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit 1
+}
+# Every exit below runs the finally at the end of this file, which records the
+# result and releases the operation lock even inside a long-lived shell.
+$serviceOpResult = 'failed'
+$serviceOpFinalState = 'unknown'
+try {
 
 # --- REGION: Preflight
 # Prime sudo once after the operation gate; teardown then runs unattended.
@@ -293,9 +313,23 @@ if ($IsMacOS) {
 }
 
 # --- REGION: Report the service state
+# Confirmed only by a final reading of absent: a removal that left the VM
+# registered is a failed stop, and the stop request still stands. Every branch
+# above loaded the host contract, so Get-VMState is in scope here.
+$serviceOpFinalState = 'unknown'
+try { $serviceOpFinalState = [string](Get-VMState -VMName $VMName) } catch { Write-Verbose "final state of '$VMName': $($_.Exception.Message)" }
 Write-Output ""
-Write-Output "Done."
-# Explicit, not a fall-through: the teardown branches call native commands
-# (sudo -n -v, id, ps) that legitimately exit non-zero on a healthy run, and
-# without this the script would report the last one's code as its own.
-exit 0
+if ($serviceOpFinalState -eq 'absent') {
+    $serviceOpResult = 'confirmed'
+    Write-Output "Done."
+    # Explicit, not a fall-through: the teardown branches call native commands
+    # (sudo -n -v, id, ps) that legitimately exit non-zero on a healthy run, and
+    # without this the script would report the last one's code as its own.
+    exit 0
+}
+Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_stop_final_state_unexpected' -Arguments @{
+        vmName = $VMName; finalState = $serviceOpFinalState })
+exit 1
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -FinalState $serviceOpFinalState -Confirm:$false)
+}

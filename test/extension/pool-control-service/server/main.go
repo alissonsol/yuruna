@@ -26,11 +26,18 @@ import (
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 )
 
 var version = "dev"
 
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API listen address (empty disables the server)")
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator service base URL for the presence beacon (empty disables it)")
 	hostID := flag.String("host-id", "", "this host's stable id for the beacon (empty disables it)")
@@ -42,6 +49,8 @@ func main() {
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
+	refreshAuthorityFile := flag.String("refresh-authority-file", config.DefaultRefreshAuthorityFile, "file holding the host refresh signing authority (one yhra1 line, owner-only); missing, malformed or group/world-readable disables remote host refresh")
+	refreshCredentialFile := flag.String("refresh-credential-file", config.DefaultRefreshCredentialFile, "file holding the operator refresh credential (one yhrc1 line, owner-only) required in X-Yuruna-Refresh-Credential; missing, malformed or group/world-readable disables remote host refresh")
 	autoEnroll := flag.Bool("auto-enroll", false, "enable the auto-enrollment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
 	autoEnrollInterval := flag.Duration("auto-enroll-interval", 60*time.Second, "how often the auto-enrollment sweep runs when --auto-enroll is set")
 	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
@@ -61,6 +70,7 @@ func main() {
 	// route into the gate is unavailable, and an operator can still unlock with
 	// the dashboard's lab token.
 	authToken := readTokenFile(*authTokenFile)
+	refreshAuthority, refreshCredential := readRefreshSecrets(*refreshAuthorityFile, *refreshCredentialFile, authToken)
 
 	runner := &intent.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, IntentGitUrl: *intentGitURL, ConfigPath: *configPath}
 	store := state.New(*stateDir, time.Now())
@@ -69,6 +79,7 @@ func main() {
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
+		RefreshAuthority: refreshAuthority, RefreshCredential: refreshCredential, RefreshAuthorityFile: *refreshAuthorityFile,
 		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval, ScanTTL: *scanTTL,
 		Language: *language, AllowPseudoLocale: *allowPseudoLocale,
 	})
@@ -131,9 +142,11 @@ func main() {
 	}
 
 	log.Printf("pool-control-service %s: http=%q aggregator=%q area=%s", version, *httpAddr, *aggregatorURL, config.PresenceArea)
+	var serverErr error
 	select {
 	case <-ctx.Done():
 	case err := <-errCh:
+		serverErr = err
 		if err != nil {
 			log.Printf("pool-control-service: http server error: %v", err)
 		}
@@ -143,6 +156,7 @@ func main() {
 	case <-beaconDone:
 	case <-time.After(8 * time.Second):
 	}
+	return serverErr
 }
 
 // readTokenFile loads the internal authentication key; an absent or unreadable
@@ -166,6 +180,20 @@ func readTokenFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// readRefreshSecrets loads the refresh signing authority and the operator
+// refresh credential, and logs whether remote host refresh is enabled. The
+// rules live in httpsrv.LoadRefreshSecrets; the log line names files and tags,
+// never secret material.
+func readRefreshSecrets(authorityFile, credentialFile, legacyToken string) ([]byte, string) {
+	authority, credential, err := httpsrv.LoadRefreshSecrets(authorityFile, credentialFile, legacyToken)
+	if err != nil {
+		log.Printf("pool-control-service: remote host refresh disabled: %v", err)
+		return nil, ""
+	}
+	log.Printf("pool-control-service: remote host refresh enabled (authority tag %s)", hostrefresh.AuthorityTag(authority))
+	return authority, credential
 }
 
 // uiPort extracts the port from an addr like "0.0.0.0:80" for the beacon's

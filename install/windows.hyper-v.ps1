@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -350,8 +350,8 @@ function Test-DisplayScaling {
     $asSignedDword = {
         param($raw)
         if ($null -eq $raw) { return 0 }
-        $u = [uint32]$raw
-        if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
+        $n = [int64]$raw
+        if ($n -gt [int32]::MaxValue) { return [int32]($n - 0x100000000) } else { return [int32]$n }
     }
 
     $issues = New-Object System.Collections.Generic.List[string]
@@ -435,20 +435,22 @@ if (-not $PSCommandPath) {
     try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
     if (-not $currentShellExe) { $currentShellExe = 'powershell.exe' }
     # Preflight already ran in this iex process, so the -File child skips it.
-    $matArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$matTmp`"", '-SkipPreflight')
-    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $matArgs += @('-YurunaDir',    "`"$YurunaDir`"") }
-    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $matArgs += @('-YurunaRepo',   "`"$YurunaRepo`"") }
-    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $matArgs += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    $matArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', $matTmp, '-SkipPreflight')
+    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $matArgs += @('-YurunaDir',    $YurunaDir) }
+    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $matArgs += @('-YurunaRepo',   $YurunaRepo) }
+    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $matArgs += @('-YurunaBranch', $YurunaBranch) }
     if ($PinVersion) { $matArgs += '-PinVersion' }
-    $matArgs += @('-LogPath', "`"$LogPath`"")   # forward the one log file to every stage
+    $matArgs += @('-LogPath', $LogPath)   # forward the one log file to every stage
     & $currentShellExe $matArgs
-    # Propagate the -File child's exit code so a wrapping script / CI sees the
-    # install's real result; a bare `return` here otherwise always exits 0.
-    # Kept 5.1-safe (no `??`): this gate runs in the original irm|iex shell,
-    # which may be Windows PowerShell 5.1.
+    # Keep an interactive irm|iex console open so the handoff log stays visible.
+    # A shell explicitly launched to run a command still propagates the result.
     $childExit = $LASTEXITCODE
     if ($null -eq $childExit) { $childExit = 0 }
-    exit $childExit
+    $global:LASTEXITCODE = $childExit
+    if ([Environment]::GetCommandLineArgs() -match '^-(?:NonInteractive|Command|c|File|f|EncodedCommand|ec)$') {
+        exit $childExit
+    }
+    return
 }
 
 # --- REGION: Elevation announcement + self-relaunch
@@ -1049,7 +1051,7 @@ if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinu
     try {
         Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
     } catch {
-        Write-Warn "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
+        Add-InstallIssue "Install-Module powershell-yaml failed: $($_.Exception.Message)"
         Write-Warn "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
         Write-Warn "  Try manually: Install-Module powershell-yaml -Scope CurrentUser"
     }
@@ -1734,3 +1736,4 @@ if ($script:RestartNeeded -or -not $script:InstallSucceeded) {
 # Close the transcript (best-effort). A hard failure earlier already flushed
 # its content to disk even if this footer line is never reached.
 Stop-InstallLog
+if (-not $script:InstallSucceeded) { exit 1 }

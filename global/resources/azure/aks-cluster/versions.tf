@@ -4,7 +4,7 @@
 
 terraform {
   # Floor mirrors YURUNA_OPENTOFU_VERSION (automation/yuruna-versions.sh); bump both together.
-  required_version = ">= 1.12.5"
+  required_version = ">= 1.12.6"
 
   required_providers {
     azurerm = {

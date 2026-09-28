@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42746513-f859-4478-b773-07a4c13848b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,12 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 # variables are gone before any It executes.
 
 $script:handlerText = Get-Content -Raw $handlerPsm
+$handlerAst = [System.Management.Automation.Language.Parser]::ParseFile($handlerPsm, [ref]$null, [ref]$null)
+$rejectionSet = $handlerAst.Find({ param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -eq '$script:ShellRejectedCommandPattern'
+}, $true)
+$script:rejectionPatterns = @(& ([scriptblock]::Create($rejectionSet.Right.Extent.Text)))
 $script:engineText  = Get-Content -Raw $enginePsm
 $script:schemaText  = Get-Content -Raw (Join-Path (Split-Path -Parent $here) 'schemas/sequence.schema.yml')
 
@@ -141,6 +147,20 @@ $script:waitForTextParams = if ($waitAst) {
 
 Describe 'Shell-rejection fast-fail: the captured failure' {
 
+    It 'recognizes Bash syntax rejection before the wrapper can emit its sentinel: <ErrorText>' -TestCases @(
+        @{ ErrorText = "bash: syntax error near unexpected token 'then'" }
+        @{ ErrorText = 'bash: syntax error: unexpected end of file' }
+    ) {
+        param($ErrorText)
+        $frame = "$ErrorText`nyuuser26@yuhost26:~$"
+        $matched = @($script:rejectionPatterns | Where-Object {
+            Test-OCRMatch -Text $frame -Pattern $_ -NoSegmentMatch
+        })
+        Assert-True ($matched.Count -gt 0) 'The production early-rejection set must recognize a shell parse failure.'
+        Assert-True (-not (Test-OCRMatch -Text $frame -Pattern 'NONZERO SCRIPT EXIT:' -NoSegmentMatch)) `
+            'The unexecuted wrapper cannot supply the failure sentinel.'
+    }
+
     It 'matches the shell refusal on the frame the transport actually produced' {
         # The anchor of this file. If this stops matching, a damaged command
         # word goes back to costing the step its entire timeout.
@@ -157,7 +177,7 @@ Describe 'Shell-rejection fast-fail: the captured failure' {
     }
 
     It 'stays silent on a healthy fetch' {
-        foreach ($p in @('No such file or directory', 'command not found')) {
+        foreach ($p in $script:rejectionPatterns) {
             Assert-True (-not (Test-OCRMatch -Text $script:HealthyEcho -Pattern $p)) `
                 "A healthy console must not match the shell-rejection pattern '$p'."
         }
@@ -168,7 +188,7 @@ Describe 'Shell-rejection fast-fail: the captured failure' {
         # noisy build inside the window must not have its own output read as
         # the shell refusing to start it: the run was working, and a match
         # here ends it as a hard failure with the guest still building.
-        foreach ($p in @('No such file or directory', 'command not found')) {
+        foreach ($p in $script:rejectionPatterns) {
             Assert-True (-not (Test-OCRMatch -Text $script:BuildFloodEcho -Pattern $p -NoSegmentMatch)) `
                 "A healthy build screen must not read as the shell refusal '$p'."
         }

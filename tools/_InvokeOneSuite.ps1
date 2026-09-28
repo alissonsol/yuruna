@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4243f981-9a67-4b29-81f5-966316b4be67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,12 +32,12 @@
     the standalone path still emit a machine-readable result: the preference is
     read from this scope when the suite's first Describe triggers the run.
 
-    IMPORTANT -- this script's exit code reports only whether the SUITE PROCESS
-    SURVIVED, never whether its tests passed. Pester's standalone path does not
-    propagate a failing run through the call operator: a suite whose tests fail
-    still returns 0 here. The result file is the authority on pass/fail, and
-    the caller treats a missing result file as the real failure signal. Do not
-    "simplify" this by trusting the exit code.
+    This script's exit code reports whether the suite returned with readable
+    NUnit results, never whether its tests passed. Pester's standalone path
+    does not propagate a failing run through the call operator: a suite whose
+    tests fail still returns 0 here. The result file is the authority on
+    pass/fail. The caller must also validate it because a suite can terminate
+    the process before this script checks the result.
 
 .PARAMETER Suite
     Absolute path to the *.Tests.ps1 file to run.
@@ -63,12 +63,28 @@ try {
     # Left at its default ($false) deliberately: Run.Exit does not reach this
     # process through the call operator, so enabling it would only suggest an
     # exit-code contract that does not hold.
+
+    # A suite that commits through a hook must never reach the network, the
+    # Claude Code CLI a logged-in machine would draft through, or a
+    # translation command set in the operator's environment.
+    $env:YURUNA_TRANSLATE = '0'
+    $env:YURUNA_TRANSLATE_CLI = '0'
+    $env:YURUNA_TRANSLATE_COMMAND = '0'
     & $Suite
+    # Pester can catch an internal reporting failure, print it to stdout, and
+    # return normally. Process survival alone must not claim a complete run.
+    if (-not (Test-Path -LiteralPath $Xml -PathType Leaf)) {
+        throw "Suite returned without writing its NUnit result file: $Xml"
+    }
+    $result = [xml](Get-Content -LiteralPath $Xml -Raw)
+    # NUnit's name attribute shadows Name in PowerShell's XML adapter.
+    if ($result.DocumentElement.LocalName -cne 'test-results') {
+        throw "Suite produced an invalid NUnit result file: $Xml"
+    }
     exit 0
 } catch {
-    # A parse error, a missing module, or a throw outside any It block. No
-    # result file is written, which is how the caller distinguishes this from
-    # a suite that ran and reported failures.
+    # Invocation and reporting failures are distinct from failed assertions,
+    # which still produce readable NUnit evidence for the caller to judge.
     Write-Error ("suite process failed: {0}" -f $_.Exception.Message) -ErrorAction Continue
     exit 2
 }

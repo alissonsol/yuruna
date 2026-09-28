@@ -87,10 +87,11 @@ Import-Module $cachingProxyModule -Force -DisableNameChecking
 
 Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
     BeforeEach {
+        $script:PreviousProxyIp = [Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', 'Process')
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
     }
     AfterEach {
-        $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+        [Environment]::SetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', $script:PreviousProxyIp, 'Process')
     }
 
     Context 'config candidate is probed first' {

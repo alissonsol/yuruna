@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,8 +53,10 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module powershell-yaml -ErrorAction Stop
 
 $script:RepoRoot    = Get-YurunaTestRepoRoot -SuiteDirectory $here
+Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
 $script:DiagnosticsGoPath = Join-Path $script:RepoRoot `
     'test/extension/pool-control-service/server/internal/httpsrv/diagnostics.go'
@@ -108,11 +110,14 @@ function New-ArchiveInvoker {
     param()
 
     $text = Get-FunctionFromServer -Name 'Send-GitArchive'
+    $routeImport = Get-FunctionFromServer -Name 'Import-RouteModule'
     if (-not $text) { throw 'Send-GitArchive is not in the emitted server' }
     return [scriptblock]::Create(@"
 param([string]`$RepoDir, [string]`$Method)
 `$script:ServerErr = @()
 function Write-ServerErr { param([string]`$Message) `$script:ServerErr += `$Message }
+`$repoRoot = '$($script:RepoRoot.Replace("'", "''"))'
+$routeImport
 $text
 `$stream   = [System.IO.MemoryStream]::new()
 `$response = [pscustomobject]@{
@@ -257,11 +262,77 @@ Describe 'the committed-content tarball names the commit it was cut from' {
                 'the tarball carries no revision sidecar, so an extracted tree cannot name its commit'
             Assert-StringEqual -Expected $repo.Head -Actual ($entries['.yuruna-revision'].Trim()) `
                 'the revision sidecar does not name the archived commit'
-            Assert-StringEqual -Expected 'https://example.invalid/yuruna.git' `
+            Assert-StringEqual -Expected 'https://example.invalid/yuruna' `
                 -Actual ($entries['.yuruna-origin'].Trim()) `
                 'the origin sidecar no longer records where the tree came from'
             Assert-True $entries.ContainsKey('VERSION') `
                 'the tarball does not carry the committed tree'
+        } finally { Remove-YurunaTestTempDir -Path $repo.Path }
+    }
+
+    It 'strips credentials from the origin sidecar in actual archive bytes' -TestCases @(
+        @{ Remote = 'https://fixture-user:PRIVATE_FIXTURE_TOKEN@example.invalid/owner/project.git' }
+        @{ Remote = 'ssh://fixture-user:PRIVATE_FIXTURE_TOKEN@example.invalid/owner/project.git' }
+    ) {
+        param($Remote)
+        $repo = New-ArchiveFixtureRepo -OriginUrl $Remote
+        try {
+            $result = & $script:InvokeArchive $repo.Path 'GET'
+            Assert-NoFinding @($result.ServerErr)
+            Assert-Equal 200 $result.StatusCode
+            $entries = Read-TarGzEntry -Bytes $result.Bytes
+            Assert-StringEqual 'https://example.invalid/owner/project' $entries['.yuruna-origin']
+            Assert-False (($entries.Values -join "`n") -match 'PRIVATE_FIXTURE_TOKEN|fixture-user')
+            Assert-StringEqual $repo.Head $entries['.yuruna-revision']
+        } finally { Remove-YurunaTestTempDir -Path $repo.Path }
+    }
+
+    It 'sanitizes startup repository metadata from <Source>' -TestCases @(
+        @{ Source = 'origin' }, @{ Source = 'config' }, @{ Source = 'status' }
+    ) {
+        param($Source)
+        $remote = 'https://fixture-user:PRIVATE_FIXTURE_TOKEN@example.invalid/owner/project.git'
+        $repo = New-ArchiveFixtureRepo -OriginUrl $(if ($Source -eq 'origin') { $remote } else { 'https://example.invalid/fallback/repo.git' })
+        try {
+            $RepoRoot = $repo.Path
+            $TestRoot = Join-Path $repo.Path 'test'
+            $null = New-Item -ItemType Directory -Path $TestRoot
+            $StatusFile = Join-Path $repo.Path 'status.json'
+            [IO.File]::WriteAllText($StatusFile, '{}')
+            if ($Source -eq 'status') { [IO.File]::WriteAllText($StatusFile, (@{ repoUrl = $remote } | ConvertTo-Json)) }
+            if ($Source -eq 'config') { [IO.File]::WriteAllText((Join-Path $TestRoot 'test.config.yml'), "repositories:`n  frameworkUrl: '$remote'`n") }
+            $ModulesDir = Join-Path $script:RepoRoot 'test/modules'
+            $RefreshSafe = $false
+            $null = $RepoRoot, $ModulesDir, $RefreshSafe # Read by the extracted production startup block.
+            $ast = [Management.Automation.Language.Parser]::ParseFile($script:ServicePath, [ref]$null, [ref]$null)
+            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $RefreshSafe -and (Test-Path $StatusFile)' }, $true)
+            Assert-NotNull $block
+            $output = @(. ([scriptblock]::Create($block.Extent.Text)) *>&1) -join "`n"
+            $json = [IO.File]::ReadAllText($StatusFile)
+            Assert-StringEqual 'https://example.invalid/owner/project' ($json | ConvertFrom-Json).repoUrl
+            Assert-False (($json + $output) -match 'PRIVATE_FIXTURE_TOKEN|fixture-user')
+        } finally { Remove-YurunaTestTempDir -Path $repo.Path }
+    }
+
+    It 'clears a stale public URL when the configured source cannot be published' {
+        $repo = New-ArchiveFixtureRepo -OriginUrl 'https://example.invalid/fallback/repo.git'
+        try {
+            $RepoRoot = $repo.Path
+            $TestRoot = Join-Path $repo.Path 'test'
+            $null = New-Item -ItemType Directory -Path $TestRoot
+            [IO.File]::WriteAllText((Join-Path $TestRoot 'test.config.yml'), "repositories:`n  frameworkUrl: '../local-source.git'`n")
+            $StatusFile = Join-Path $repo.Path 'status.json'
+            [IO.File]::WriteAllText($StatusFile, '{"repoUrl":"https://user:PRIVATE_FIXTURE_TOKEN@example.invalid/old.git"}')
+            $ModulesDir = Join-Path $script:RepoRoot 'test/modules'
+            $RefreshSafe = $false
+            $null = $RepoRoot, $ModulesDir, $RefreshSafe # Read by the extracted production startup block.
+            $ast = [Management.Automation.Language.Parser]::ParseFile($script:ServicePath, [ref]$null, [ref]$null)
+            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $RefreshSafe -and (Test-Path $StatusFile)' }, $true)
+            Assert-NotNull $block
+            $output = @(. ([scriptblock]::Create($block.Extent.Text)) *>&1) -join "`n"
+            $json = [IO.File]::ReadAllText($StatusFile)
+            Assert-StringEqual '' ($json | ConvertFrom-Json).repoUrl
+            Assert-False (($json + $output) -match 'PRIVATE_FIXTURE_TOKEN')
         } finally { Remove-YurunaTestTempDir -Path $repo.Path }
     }
 

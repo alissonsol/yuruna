@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -Di
     Returns the current UTC time as an ISO 8601 string with Z suffix.
 #>
 function Get-UtcTimestamp {
-    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
 }
 
 <#
@@ -89,7 +89,7 @@ function Reset-StatusDocumentForCycleStart {
             $reasonMsg = $_.Exception.Message
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7e50599bce26a067' -Arguments @{ reasonMsg = "$reasonMsg" })
             try {
-                $tsStamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
+                $tsStamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ', [Globalization.CultureInfo]::InvariantCulture)
                 $dst = $StatusFilePath -replace '\.json$', ".corrupt.$tsStamp.json"
                 Move-Item -LiteralPath $StatusFilePath -Destination $dst -Force -ErrorAction Stop
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1ece636ce3153014' -Arguments @{ dst = "$dst" })
@@ -100,7 +100,7 @@ function Reset-StatusDocumentForCycleStart {
                 # guard pattern).
                 if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                     Send-CycleEventSafely -EventRecord @{
-                        timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                         event         = 'status_doc_corrupt'
                         original      = [string]$StatusFilePath
                         preservedAt   = [string]$dst
@@ -683,7 +683,7 @@ function Complete-Run {
 
     $entry = New-CycleHistoryEntry -Document $script:Doc -OverallStatus $OverallStatus `
         -CycleFolderUrl $historyCycleFolderUrl
-    $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
+    $script:Doc.history = @(@($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns)
     Write-StatusJson
 }
 
@@ -762,12 +762,12 @@ function Write-StatusJson {
     # not the sidecar, so a torn sidecar read cannot blank the banner.
     $labHoldFlag = Join-Path $runtimeDir 'control.lab-hold'
     $script:Doc.labHold = (Test-Path $labHoldFlag)
-    $script:Doc.labHoldAreas = if ($script:Doc.labHold) {
+    $script:Doc.labHoldAreas = @(if ($script:Doc.labHold) {
         try {
             @(([string](Get-Content -LiteralPath $labHoldFlag -Raw -ErrorAction Stop)).Split(',') |
                 ForEach-Object { $_.Trim() } | Where-Object { $_ })
         } catch { @() }
-    } else { @() }
+    } else { @() })
     # Per-writer unique temp name: the runner and the status-service
     # process both flush status.json, so a shared fixed "$File.tmp"
     # lets one process's Move-Item rename the other's half-written temp.
@@ -805,7 +805,7 @@ function Write-StatusJson {
         # Write-Warning is the fallback when the cycle-event logger is absent.
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
             Send-CycleEventSafely -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event     = 'status_doc_write_failed'
                 path      = [string]$script:File
             }
@@ -1055,7 +1055,7 @@ function Get-CycleContext {
         $utc = if ($dt.Kind -eq [DateTimeKind]::Unspecified) {
             [DateTime]::SpecifyKind($dt, [DateTimeKind]::Utc)
         } else { $dt.ToUniversalTime() }
-        $ctx['cycleStartUtc'] = $utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $ctx['cycleStartUtc'] = $utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
     return $ctx
 }

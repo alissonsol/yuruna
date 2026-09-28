@@ -67,7 +67,11 @@ function makeEl(tag) {
     hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k); },
     addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
     removeEventListener() {},
-    focus() {},
+    focusCalls: 0,
+    focus() {
+      this.focusCalls++;
+      if (pageBody.contains(this)) pageDocument.activeElement = this;
+    },
     // The runtime builds every tree with appendChild, never ChildNode.append:
     // the browser baseline it targets does not carry the latter.
     appendChild(kid) {
@@ -83,6 +87,7 @@ function makeEl(tag) {
       return kid;
     },
     removeChild(kid) {
+      if (kid.contains && kid.contains(pageDocument.activeElement)) pageDocument.activeElement = pageBody;
       const i = this.children.indexOf(kid);
       if (i >= 0) this.children.splice(i, 1);
       kid.parentNode = null;
@@ -94,7 +99,19 @@ function makeEl(tag) {
       return this.children.some((c) => c.nodeType === 1 && c.contains && c.contains(node));
     },
     closest() { return null; },
-    querySelector() { return null; },
+    querySelector(selector) {
+      const matches = (el) => selector.split(',').some((part) => {
+        const name = part.trim();
+        return name === el.tagName || (name === 'a[href]' && el.tagName === 'a' && el.hasAttribute('href'));
+      });
+      for (const child of this.children) {
+        if (child.nodeType !== 1) continue;
+        if (matches(child)) return child;
+        const found = child.querySelector(selector);
+        if (found) return found;
+      }
+      return null;
+    },
     querySelectorAll() { return []; },
     scrollIntoView() {},
   };
@@ -116,7 +133,7 @@ const PAGE_IDS = ['q', 'class', 'host', 'refresh', 'rows', 'status', 'msg', 'mor
 // context, so a second page can be raised under different host facts -- the
 // delete gate is answered per browser, and its "no" is only observable on a page
 // that loaded under it.
-let byId, ticks, calls, corpus, confirmAnswer, confirmed, session, refuse, pageBody, failDelete;
+let byId, ticks, calls, corpus, confirmAnswer, confirmed, session, refuse, pageBody, pageDocument, failDelete, fetchOverride;
 
 function respond(body) { return Promise.resolve({ ok: true, json: () => Promise.resolve(body) }); }
 
@@ -134,6 +151,10 @@ function fakeFetch(p, o) {
     try { body = JSON.parse(o.body); } catch (e) { body = null; }
   }
   calls.push({ path: p, method, body, blocked: blocked() });
+  if (fetchOverride) {
+    const response = fetchOverride(p, o);
+    if (response) return response;
+  }
   if (p === '/api/hostinfo') return respond({ ok: true, serverIps: '10.0.0.2', version: '1', localHostId: 'h1' });
   if (p === '/api/session') return respond(Object.assign({ ok: true }, session));
   if (p === '/api/login') { session = { authed: true, labToken: true, configured: true }; return respond({ ok: true }); }
@@ -162,7 +183,7 @@ function fakeFetch(p, o) {
   return respond({ ok: true });
 }
 
-function bootPage(sess) {
+function bootPage(sess, localized) {
   session = sess;
   refuse = null;
   byId = {};
@@ -170,6 +191,8 @@ function bootPage(sess) {
   byId.countdown.textContent = '60';
   // The barrier is appended to <body>, so the shim needs one to append to.
   pageBody = makeEl('body');
+  for (const id of PAGE_IDS) pageBody.appendChild(byId[id]);
+  fetchOverride = null;
   failDelete = false;
   ticks = [];   // captured setInterval callbacks (the footer's 1 s tick)
   calls = [];   // every fetch: { path, method }
@@ -216,12 +239,18 @@ function bootPage(sess) {
   // The scripts address the browser through `window`, so it has to be the
   // context itself -- a separate object would hand the runtime a different
   // setInterval from the one these ticks are captured through.
+  pageDocument = sandbox.document;
+  pageDocument.activeElement = pageBody;
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   // Loaded in page order: shared runtime, service layer, page.
   vm.runInContext(coreSrc, sandbox, { filename: 'yuruna.core.js' });
   vm.runInContext(commonSrc, sandbox, { filename: 'common.js' });
+  if (localized) {
+    const translate = sandbox.YurunaI18n.t;
+    sandbox.YurunaI18n.t = function (key, args) { return localized + translate(key, args); };
+  }
   vm.runInContext(indexSrc, sandbox, { filename: 'index.js' });
 }
 
@@ -475,6 +504,131 @@ const bulkCalls = () => calls.filter((c) => c.path === '/api/stashes/delete');
   const single = calls.filter((c) => c.method === 'DELETE').pop();
   assert.strictEqual(single.blocked, true, 'a per-row delete blocks the page while it runs');
   assert.strictEqual(blocked(), false, 'and releases it when the row is gone');
+
+  // Deletion captures keyboard focus before the real shared overlay moves it.
+  // Its saved button still has a parent td after removal, but is disconnected.
+  bootPage(UNLOCKED);
+  await settle();
+  const deletedButton = delOf(rowsOf()[0]);
+  const nextRow = rowsOf()[1];
+  deletedButton.focus();
+  fire(deletedButton, 'click');
+  assert.ok(!rowsOf()[0].contains(pageDocument.activeElement), 'the barrier owns focus while deleting');
+  await settle();
+  assert.ok(nextRow.contains(pageDocument.activeElement), 'focus moves to the surviving next row');
+  assert.strictEqual(deletedButton.focusCalls, 1, 'the overlay never attempts to focus a detached descendant');
+  while (rowsOf().length) {
+    const button = delOf(rowsOf()[0]);
+    button.focus();
+    fire(button, 'click');
+    await settle();
+  }
+  assert.strictEqual(pageDocument.activeElement, byId.status, 'deleting the last row focuses the list status');
+
+  // Deferred responses reproduce list/query races, including an older request
+  // finishing before the newest one. Only the active generation may mutate UI.
+  bootPage(UNLOCKED);
+  await settle();
+  const fixtures = corpus.slice();
+  const pending = [];
+  fetchOverride = (p) => {
+    if (!p.startsWith('/api/stashes?')) return null;
+    return new Promise((resolve, reject) => pending.push({ p, resolve, reject }));
+  };
+  byId.class.value = 'text';
+  fire(byId.class, 'change');
+  await settle();
+  byId.class.value = 'image';
+  fire(byId.class, 'change');
+  await settle();
+  assert.strictEqual(pending.length, 2, 'both distinct filter requests are in flight');
+  pending[0].resolve(await respond({ ok: true, total: 3, stashes: [fixtures[0]] }));
+  await settle();
+  assert.strictEqual(rowsOf().length, 0, 'an old result cannot repopulate a new query');
+  assert.strictEqual(byId.more.disabled, true, 'an old completion cannot release current paging');
+  pending[1].resolve(await respond({ ok: true, total: 3, stashes: [fixtures[1]] }));
+  await settle();
+  assert.strictEqual(rowsOf().length, 1, 'only the current query renders');
+  assert.strictEqual(cellOf(rowsOf()[0], 3).textContent, 'b.txt');
+  assert.strictEqual(byId.more.disabled, false, 'current completion releases paging');
+
+  fire(byId.more, 'click');
+  fire(byId.more, 'click');
+  await settle();
+  assert.strictEqual(pending.length, 3, 'rapid paging clicks send one request');
+  assert.match(pending[2].p, /offset=1(?:&|$)/, 'stale rows never inflate the paging offset');
+  pending[2].resolve(await respond({ ok: true, total: 3, stashes: [fixtures[2]] }));
+  await settle();
+  assert.strictEqual(rowsOf().length, 2, 'one page appends once');
+
+  byId.class.value = 'old';
+  fire(byId.class, 'change');
+  await settle();
+  byId.class.value = 'new';
+  fire(byId.class, 'change');
+  await settle();
+  pending[4].resolve(await respond({ ok: true, total: 1, stashes: [fixtures[0]] }));
+  await settle();
+  const latestStatus = byId.status.textContent;
+  pending[3].reject(new Error('old query failed'));
+  await settle();
+  assert.strictEqual(byId.status.textContent, latestStatus, 'a stale failure cannot replace current status');
+  assert.strictEqual(rowsOf().length, 1, 'a late stale completion leaves the current rows intact');
+
+  byId.class.value = 'slow';
+  fire(byId.class, 'change');
+  await settle();
+  byId.class.value = 'fast';
+  fire(byId.class, 'change');
+  await settle();
+  pending[6].resolve(await respond({ ok: true, total: 1, stashes: [fixtures[2]] }));
+  await settle();
+  pending[5].resolve(await respond({ ok: true, total: 2, stashes: [fixtures[0], fixtures[1]] }));
+  await settle();
+  assert.strictEqual(rowsOf().length, 1, 'a successful old response arriving last is discarded');
+  assert.strictEqual(cellOf(rowsOf()[0], 3).textContent, 'c.txt', 'the newest successful filter owns the table');
+  fire(byId.more, 'click');
+  await settle();
+  pending[7].reject(new Error('current page failed'));
+  await settle();
+  assert.match(byId.status.textContent, /current page failed/, 'current errors remain visible');
+  assert.strictEqual(byId.more.disabled, false, 'a current failure releases paging for retry');
+  assert.strictEqual(rowsOf().length, 1, 'a paging failure retains the displayed page');
+
+  // A superseded session lookup must not issue a list request after a newer
+  // list is already visible. Query parameters are captured at load invocation.
+  let resolveOldSession;
+  fetchOverride = (p) => {
+    if (p !== '/api/session' || resolveOldSession) return null;
+    return new Promise((resolve) => { resolveOldSession = resolve; });
+  };
+  byId.class.value = 'superseded';
+  fire(byId.class, 'change');
+  await settle();
+  byId.class.value = 'latest';
+  fire(byId.class, 'change');
+  await settle();
+  const loadsAfterLatest = listLoads();
+  resolveOldSession(await respond(Object.assign({ ok: true }, UNLOCKED)));
+  await settle();
+  assert.strictEqual(listLoads(), loadsAfterLatest, 'an obsolete session result never requests stale rows');
+
+  for (const language of ['zh-CN', 'he-IL']) {
+    bootPage(UNLOCKED, language + ':');
+    await settle();
+    byId.q.value = 'query & spaces';
+    byId.class.value = 'text';
+    byId.host.value = 'h2';
+    fire(byId.refresh, 'click');
+    await settle();
+    const request = calls.filter((c) => c.path.startsWith('/api/stashes?')).pop();
+    const params = new URL(request.path, 'https://stash.test').searchParams;
+    assert.deepStrictEqual(Array.from(params.keys()).sort(), ['class', 'dir', 'host', 'limit', 'offset', 'q', 'sort'],
+      language + ': translated display text must not change API parameter names');
+    assert.strictEqual(params.get('q'), 'query & spaces', 'the query value survives URL encoding');
+    assert.strictEqual(params.get('host'), 'h2', 'the host filter reaches the API');
+    assert.strictEqual(params.get('class'), 'text', 'the class filter reaches the API');
+  }
 
   console.log('PASS: index.js');
 })().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

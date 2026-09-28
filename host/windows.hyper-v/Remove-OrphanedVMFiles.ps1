@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ Import-Module -Name (Join-Path $ScriptDir 'modules/Yuruna.Host.psm1') -Force
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
 # --- REGION: Scan for VM artifacts
-$vmHost = Get-VMHost
+$vmHost = Get-VMHost -ErrorAction Stop
 $vhdPath = $vmHost.VirtualHardDiskPath
 $vmPath = $vmHost.VirtualMachinePath
 
@@ -120,7 +120,11 @@ function Test-IsHyperVSystemPath {
     $p = $Path.TrimEnd('\', '/')
     # Only VirtualMachinePath entries are "system" candidates;
     # VirtualHardDiskPath content is user VHDX/ISO.
-    if (-not $p.StartsWith($vmPathNormalized, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $vhdPathNormalized = $vhdPath.TrimEnd('\', '/')
+    if ($p -eq $vhdPathNormalized -or $p.StartsWith($vhdPathNormalized + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    if (-not $p.StartsWith($vmPathNormalized + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
     # Under VirtualMachinePath, only "Virtual Machines\" contains user VM
@@ -158,7 +162,7 @@ if ($allFiles.Count -eq 0) {
 }
 
 # --- REGION: Enumerate registered VMs
-$allVMs = Get-VM
+$allVMs = @(Get-VM -ErrorAction Stop)
 $claimedFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
 function Add-ClaimedFilesUnderDir {
@@ -196,7 +200,7 @@ foreach ($vm in $allVMs) {
         }
     }
 
-    $hdds = Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue
+    $hdds = Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction Stop
     foreach ($hdd in $hdds) {
         if ($hdd.Path) {
             [void]$claimedFiles.Add($hdd.Path)
@@ -204,7 +208,7 @@ foreach ($vm in $allVMs) {
         }
     }
 
-    $dvds = Get-VMDvdDrive -VMName $vm.Name -ErrorAction SilentlyContinue
+    $dvds = Get-VMDvdDrive -VMName $vm.Name -ErrorAction Stop
     foreach ($dvd in $dvds) {
         if ($dvd.Path) {
             [void]$claimedFiles.Add($dvd.Path)
@@ -212,7 +216,7 @@ foreach ($vm in $allVMs) {
         }
     }
 
-    $checkpoints = Get-VMSnapshot -VMName $vm.Name -ErrorAction SilentlyContinue
+    $checkpoints = Get-VMSnapshot -VMName $vm.Name -ErrorAction Stop
     foreach ($cp in $checkpoints) {
         if ($cp.Path) {
             Add-ClaimedFilesUnderDir $cp.Path
@@ -224,7 +228,7 @@ foreach ($vm in $allVMs) {
                 }
             }
         }
-        $cpHdds = Get-VMHardDiskDrive -VMCheckpoint $cp -ErrorAction SilentlyContinue
+        $cpHdds = Get-VMHardDiskDrive -VMCheckpoint $cp -ErrorAction Stop
         foreach ($hdd in $cpHdds) {
             if ($hdd.Path) {
                 [void]$claimedFiles.Add($hdd.Path)

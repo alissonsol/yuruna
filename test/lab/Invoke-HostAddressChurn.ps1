@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ $logPath = Join-Path $RuntimeDir 'hostaddress.churn.log'
 
 function Write-ChurnLine {
     param([Parameter(Mandatory)][string]$Message)
-    $stamped = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), $Message
+    $stamped = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture), $Message
     Write-Information $stamped -InformationAction Continue
     try { [System.IO.File]::AppendAllText($logPath, "$stamped`n") } catch { Write-Verbose "churn log: $($_.Exception.Message)" }
 }

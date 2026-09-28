@@ -309,11 +309,28 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
   (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
   activate it automatically via `.gitconfig.yuruna`; on a clone set up by
-  hand, enable it once with
-  `git config --local core.hooksPath tools/githooks`. It is advisory --
-  skipped when `pwsh` is absent and bypassable with
-  `git commit --no-verify` -- so the release script must run the same gate as
-  a hard precondition (the authoritative check for the published artifact).
+  hand, enable it once with `git config --local core.hooksPath tools/githooks`.
+  When a commit stages catalog sources, the kernel, the locale manifest,
+  either generator, or a generated catalog/runtime file, it also runs
+  `tools/Invoke-CatalogCompile.ps1 -Update` and
+  `tools/Invoke-CatalogEmbed.ps1` (about forty seconds, more when a commit
+  adds English and the translation pass runs; announced by one `WARNING`
+  line). Other commits skip those generators; the release gate checks the
+  complete tree. The hook stages the files the generators report as theirs --
+  for a runtime they splice a generated block into, only that block, so a
+  hand edit elsewhere in the file stays unstaged. In the maintainers'
+  repository a pass before the catalog pass drafts translations for new
+  English and stages them. A public clone has no drafter and skips that
+  pass, so the catalog pass refuses a commit that adds or edits English:
+  commit the English only with `git commit --no-verify` and say so in the
+  change; the maintainers draft the other languages. It refuses while a
+  catalog source has changes the commit does not carry, and when a
+  `git commit <paths>` would need files staged. A merge or rebase step
+  that commits on its own does not run the hook; one concluded with
+  `git commit` after a conflict does. It is advisory -- skipped when
+  `pwsh` is absent and bypassable with `git commit --no-verify` -- so the
+  release script must run the same gate as a hard precondition (the
+  authoritative check for the published artifact).
 - **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
   page, a stylesheet, or anything that generates HTML. It drives the installed
   Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
@@ -376,6 +393,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](README.md)

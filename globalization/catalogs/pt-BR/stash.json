@@ -115,10 +115,6 @@
       "sourceHash": "7a7dc2b38720b185046ab6ab0e6c83e9e302b2a546e149ee7950bb83b539ff4b",
       "message": "Escolha pelo menos um arquivo."
     },
-    "stash.class": {
-      "sourceHash": "8054179886fdec7ddc2c0cdce2be91dd0611f68a7dcf9cdca6529e336256e8db",
-      "message": "classe"
-    },
     "stash.content": {
       "sourceHash": "424a402b1d92b4532f7ef1726f0e7902586b615169f99ccc77152e24cced77bc",
       "message": "Conteúdo"
@@ -199,10 +195,6 @@
       "sourceHash": "7028c13632d51b0a8ce6442a6d247d31541e2f83d208cae55930e7a294daf92b",
       "message": "A apagar..."
     },
-    "stash.dir": {
-      "sourceHash": "dafcca48244dc72188fba6b180b9b50652d20f0009d1fe32682310bf94920057",
-      "message": "dir"
-    },
     "stash.download": {
       "sourceHash": "dd2a73078504e4ed2fb78a6f4d3f36abde23c9d96657c8d2be8a3c4ee6f5e31a",
       "message": "Baixar"
@@ -231,10 +223,6 @@
       "sourceHash": "0428e36be9bf70f5b45cddd5791736b5061d44e615e1e6ea41734c37a9e508c0",
       "message": "Máquina"
     },
-    "stash.host_4740ae63": {
-      "sourceHash": "54de94cfda7d655b8d0982f1610e59df65b53b706b4836536fd3851e5d3d223f",
-      "message": "máquina"
-    },
     "stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_": {
       "sourceHash": "e80420191e397f8fa8cfcb41faec37d30015299c9610092b3aa106675ce1b83c",
       "message": "Se desbloquear respostas que o código não pôde ser verificado, o código não é o problema -- o agregador de pool que verifica se ele é inacessível, e você não pode desbloquear até que ele esteja de volta."
@@ -254,10 +242,6 @@
     "stash.lab_token": {
       "sourceHash": "0df9f6938a1d27647283d8c3e52c8462c9ffbafd46d0657c04372d2b19f8098b",
       "message": "Token de laboratório"
-    },
-    "stash.limit": {
-      "sourceHash": "883dff1d37d9a3a9ea370ae2ada5ca668b999a5e313307a793935d55694fc2b8",
-      "message": "limite"
     },
     "stash.listed_count": {
       "sourceHash": "31419789686b12fc51ed89d6bcd5943a4e7e3c389efa0ae0c928ab68046a5087",
@@ -321,10 +305,6 @@
       "sourceHash": "0cba7d80bf533f9da79e8b67981f782aed33e134edcda8ac0e064ef1cdfc63a9",
       "message": "Nada para armazenar -- cole algum conteúdo primeiro."
     },
-    "stash.offset": {
-      "sourceHash": "6d6a8e4265947a35327211cd441d863e526a7f5e445ebf4c326b7afda737a18b",
-      "message": "deslocamento"
-    },
     "stash.open_on_that_host": {
       "sourceHash": "8238d32e9d1cde7691df92f31cd94c49a0fb7dc11dc6ecbe92ad6afa38adab07",
       "message": "abrir nessa máquina"
@@ -368,10 +348,6 @@
     "stash.preview_unavailable_use_download_to_open_the_file": {
       "sourceHash": "6013542c7340beb9246bceb6df66cf2d10a9cf536d1142311b9721331e3bf860",
       "message": "Antevisão não disponível. Use Download para abrir o arquivo."
-    },
-    "stash.q": {
-      "sourceHash": "edac3baa985a66e601f80b9823cd905d2e7dab0a3f556405298abfacfe761991",
-      "message": "q"
     },
     "stash.received": {
       "sourceHash": "4c90f8f17c7cb9ae91b021dbae505b511c90c2e46e13382ab793143d3ddf02e6",
@@ -426,10 +402,6 @@
     "stash.size": {
       "sourceHash": "28395a5dd4b7b8cc518e2cbd803fd231103c83396aed05365cecc167647e205b",
       "message": "Tamanho"
-    },
-    "stash.sort": {
-      "sourceHash": "87cb1c9f1e55e8a46df5d846a67923f91c7571e0681ccc03c658352a8c5c5f24",
-      "message": "sort"
     },
     "stash.source": {
       "sourceHash": "8bf322282e3281eb676be944409423c40a4393ec0687c1eddbfb5c890d982b36",

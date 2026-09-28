@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 420098a1-5755-4ff7-b551-73d01615ce5c
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 26.04 (SSH): blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
 keystrokeMechanism: ssh
@@ -61,6 +61,19 @@ workload:
     description: "ubuntu.server.26.update.sh"
 
   - action: sshExec
-    command: "sudo reboot now"
+    command: "sudo poweroff"
     allowFailure: true
-    description: "Reboot the VM"
+    description: "Power off after provisioning"
+
+  # ARM64 Hyper-V provisions with one vCPU to avoid the measured intercept
+  # storm, then returns to kubeadm's two-CPU minimum before later workloads.
+  # Other hosts retain their configured processor count; startVm just restarts
+  # the guest after the same clean shutdown.
+  - action: startVm
+    arm64HyperVProcessorCount: 2
+    timeoutSeconds: 180
+    description: "Restore workload processors and start the VM"
+
+  - action: sshWaitReady
+    timeoutSeconds: 600
+    description: "Wait for SSH after the provisioning power cycle"

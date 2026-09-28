@@ -97,6 +97,14 @@
         if (Math.floor(count) <= 1) { return 'one'; }
         if (count > 0 && count % 1000000 === 0) { return 'many'; }
         return 'other';
+      case 'zh-cardinal-cldr46': return 'other';
+      case 'he-cardinal-cldr46':
+        count = Math.abs(count);
+        var integer = Math.floor(count);
+        var hasFraction = count !== integer;
+        if ((integer === 1 && !hasFraction) || (integer === 0 && hasFraction)) { return 'one'; }
+        if (integer === 2 && !hasFraction) { return 'two'; }
+        return 'other';
       default:
         reportOnce('unknown plural rule ' + rule);
         return 'other';
@@ -135,6 +143,12 @@
   function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
   function formatArgument(value, type, tag) {
+    var t = formatText(value, type, tag);
+    if (dataFor(tag).direction !== 'rtl' || !t || /^[\u2066-\u2068][^]*\u2069$/.test(t)) { return t; }
+    return (/^(integer|decimal|duration|datetime)$/.test(type) ? '\u2066' : '\u2068') + t + '\u2069';
+  }
+
+  function formatText(value, type, tag) {
     if (value === null || value === undefined) { return ''; }
     switch (type) {
       case 'integer': return formatNumber(value, tag, 0);

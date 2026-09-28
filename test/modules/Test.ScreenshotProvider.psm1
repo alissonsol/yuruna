@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424e571a-0f6b-4eef-b112-0794f8d85952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,16 +106,23 @@ function Repair-ScreenshotRing {
         buffer for a given VM so the next Wait-ForText poll starts
         fresh against the live framebuffer.
     .DESCRIPTION
-        Called from a Handler's catch block when OCR returns no
-        detectable text for N consecutive polls. The ring lives under
-        $env:YURUNA_LOG_DIR/screen-<VMName>/. Best-effort: missing
-        directory or in-flight write is logged Verbose and returns
-        $true so the caller's retry can proceed.
+        Called when OCR recovery needs the next poll to start against a fresh
+        framebuffer. The canonical ring lives under the active cycle folder as
+        screens_<VMName>/ (with the log root as the pre-cycle fallback), resolved
+        by Get-CycleScreenDir. Best-effort: a missing directory or in-flight
+        write is logged Verbose and returns $true so the caller can proceed.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    $ringDir = Join-Path $env:YURUNA_LOG_DIR "screen-$VMName"
+    $ringDir = $null
+    if (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue) {
+        try { $ringDir = Get-CycleScreenDir -VMName $VMName -Confirm:$false } catch { $ringDir = $null }
+    }
+    if (-not $ringDir) {
+        if (-not $env:YURUNA_LOG_DIR) { return $true }
+        $ringDir = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
+    }
     if (-not (Test-Path -LiteralPath $ringDir)) { return $true }
     if (-not $PSCmdlet.ShouldProcess($ringDir, (Format-YurunaOperatorMessage -Key 'runner.operator_eb4ca73c6f91b714'))) { return $true }
     try {

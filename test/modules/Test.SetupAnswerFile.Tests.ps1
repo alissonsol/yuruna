@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,22 +126,19 @@ Describe 'the answer document the writer emits' {
     }
 }
 
-# Every combination the writer can produce. At file scope and iterated INSIDE the
-# It below rather than around it: a Describe body runs during the discovery pass,
-# so cases built there and closed over by generated It blocks resolve differently
-# across Pester editions.
-$roundTripCase = @(
-    @{ Type = 'standalone'; Kind = 'local'; OnFailure = 'stop';  Root = '/srv/yuruna'; Path = '';  User = '';  Lab = '' }
-    @{ Type = 'standalone'; Kind = 'local'; OnFailure = 'local'; Root = '/srv/yuruna'; Path = '';  User = '';  Lab = '' }
-    @{ Type = 'standalone'; Kind = 'none';  OnFailure = 'stop';  Root = '';            Path = '';  User = '';  Lab = '' }
-    @{ Type = 'standalone'; Kind = 'nas';   OnFailure = 'stop';  Root = '';            Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = '' }
-    @{ Type = 'standalone'; Kind = 'nas';   OnFailure = 'local'; Root = '/srv/yuruna'; Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = '' }
-    @{ Type = 'lab';        Kind = 'local'; OnFailure = 'stop';  Root = '/srv/yuruna'; Path = '';  User = '';  Lab = 'workshop' }
-    @{ Type = 'lab';        Kind = 'nas';   OnFailure = 'local'; Root = '/srv/yuruna'; Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = 'workshop' }
-)
 
 Describe 'a document the writer emits is one the validator accepts' {
     It 'round-trips every (setup.type, storage.kind, storage.onFailure) combination' {
+        $roundTripCase = @(
+            @{ Type = 'standalone'; Kind = 'local'; OnFailure = 'stop';  Root = '/srv/yuruna'; Path = '';  User = '';  Lab = '' }
+            @{ Type = 'standalone'; Kind = 'local'; OnFailure = 'local'; Root = '/srv/yuruna'; Path = '';  User = '';  Lab = '' }
+            @{ Type = 'standalone'; Kind = 'none';  OnFailure = 'stop';  Root = '';            Path = '';  User = '';  Lab = '' }
+            @{ Type = 'standalone'; Kind = 'nas';   OnFailure = 'stop';  Root = '';            Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = '' }
+            @{ Type = 'standalone'; Kind = 'nas';   OnFailure = 'local'; Root = '/srv/yuruna'; Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = '' }
+            @{ Type = 'lab';        Kind = 'local'; OnFailure = 'stop';  Root = '/srv/yuruna'; Path = '';  User = '';  Lab = 'workshop' }
+            @{ Type = 'lab';        Kind = 'nas';   OnFailure = 'local'; Root = '/srv/yuruna'; Path = '//ypool-nas/work/yuruna.pool'; User = 'yuruna-pool'; Lab = 'workshop' }
+        )
+        Assert-Equal 7 $roundTripCase.Count 'all supported combinations are exercised'
         foreach ($case in $roundTripCase) {
             $doc = New-SetupAnswerDocument -SetupType $case.Type -RunTests $true -ProjectUrl '' `
                 -StorageKind $case.Kind -LocalRoot $case.Root -NetworkPath $case.Path `

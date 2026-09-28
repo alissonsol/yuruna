@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +75,22 @@ type Store struct {
 // Open creates / opens stash.sqlite at dbPath, applies the schema, and
 // returns a ready-to-use Store. Callers must Close when done.
 func Open(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Encode the filename separately from connection pragmas so spaces, '?' and
+	// '#' in the configured path cannot change the SQLite URI options.
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("metadata path: %w", err)
+	}
+	uriPath := filepath.ToSlash(absPath)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	dsn := url.URL{Scheme: "file", Path: uriPath}
+	query := url.Values{}
+	query.Add("_pragma", "busy_timeout(5000)")
+	query.Add("_pragma", "journal_mode(WAL)")
+	dsn.RawQuery = query.Encode()
+	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
@@ -335,12 +352,13 @@ func (s *Store) Count() (int, error) {
 	return n, err
 }
 
-// ListBuffered returns every record still in the VM-local buffer, oldest
+// ListBuffered returns completed artifacts still in the VM-local buffer, oldest
 // first, so the flush worker drains the backlog in arrival order (section 8.4).
 func (s *Store) ListBuffered() ([]*Record, error) {
 	rows, err := s.db.Query(`
 SELECT ` + uploadColumns + `
-  FROM uploads WHERE locallyBuffered = 1 ORDER BY createdAt ASC`)
+  FROM uploads WHERE locallyBuffered = 1 AND status IN ('complete', 'truncated')
+  AND storedPath <> '' ORDER BY createdAt ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +599,11 @@ func (s *Store) RebuildFromSidecars(filesRoot string) (int, error) {
 	count := 0
 	walkErr := filepath.WalkDir(filesRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			if path == filesRoot {
+				return err
+			}
+			log.Printf("sidecar rebuild skipped unreadable path %q: %v", path, err)
+			return nil
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), config.SidecarExtension) {
 			return nil

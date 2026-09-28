@@ -2,8 +2,8 @@
   "schema": "yuruna.locale-fixtures/v1",
   "description": "One corpus, run by every runtime that resolves a locale. PowerShell, Go and the browser each answer these, and they answer identically or one of them is wrong. Matching is what decides which catalog a reader gets, so a disagreement between runtimes shows up as a page in one language and a transcript in another.",
   "default": "en-US",
-  "supported": ["en-US", "pt-BR"],
-  "aliases": { "en": "en-US", "pt": "pt-BR", "pt-PT": "pt-BR" },
+  "supported": ["en-US", "pt-BR", "zh-CN", "he-IL"],
+  "aliases": { "en": "en-US", "pt": "pt-BR", "pt-PT": "pt-BR", "zh": "zh-CN", "zh-Hans": "zh-CN", "zh-Hans-CN": "zh-CN", "zh-SG": "zh-CN", "he": "he-IL", "iw": "he-IL", "iw-IL": "he-IL" },
   "maxTagLength": 35,
   "maxHeaderLength": 512,
   "cases": [
@@ -249,6 +249,24 @@
     {
       "name": "nothing at all resolves to the default",
       "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "the retired Hebrew code resolves to the current one",
+      "why": "Older systems still send iw for Hebrew; the manifest declares the mapping rather than guessing it.",
+      "acceptLanguage": "iw",
+      "expect": { "requestedTag": "iw", "resolvedTag": "he-IL", "source": "http" }
+    },
+    {
+      "name": "a script subtag is title-cased and then aliased",
+      "why": "zh-hans-cn canonicalizes to zh-Hans-CN before the alias table, which is keyed in lower case.",
+      "acceptLanguage": "zh-hans-cn",
+      "expect": { "requestedTag": "zh-Hans-CN", "resolvedTag": "zh-CN", "source": "http" }
+    },
+    {
+      "name": "Traditional Chinese is not answered by the Simplified catalog",
+      "why": "zh-TW is a different script; there is no prefix fallback, so it falls to the default.",
+      "acceptLanguage": "zh-TW",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
     }
   ]
 }

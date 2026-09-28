@@ -66,3 +66,39 @@ func TestBufferedLifecycle(t *testing.T) {
 		t.Fatalf("storedPath = %q, want %q", got.StoredPath, sharePath)
 	}
 }
+
+func TestListBufferedExcludesUnfinishedArtifacts(t *testing.T) {
+	m, err := Open(filepath.Join(t.TempDir(), "stash.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	for _, id := range []string{"pending", "partial", "complete", "truncated", "empty"} {
+		if err := m.InsertPending(&Record{ID: id, Username: "u", CreatedAt: time.Now(), Status: StatusPending, LocallyBuffered: true}); err != nil {
+			t.Fatal(err)
+		}
+		switch id {
+		case "partial":
+			err = m.UpdateOnPartial(id, 7, time.Now())
+		case "complete", "truncated":
+			err = m.UpdateOnComplete(id, "/buffer/"+id+".txt", "f.txt", false, id, 7, time.Now())
+		case "empty":
+			err = m.UpdateOnComplete(id, "", "f.txt", false, StatusComplete, 7, time.Now())
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	records, err := m.ListBuffered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("flushable records=%+v", records)
+	}
+	for _, record := range records {
+		if record.ID != "complete" && record.ID != "truncated" {
+			t.Fatalf("unfinished record queued: %+v", record)
+		}
+	}
+}

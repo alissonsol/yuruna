@@ -10,6 +10,7 @@
 package sshsrv
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"stash-service/internal/config"
+	"stash-service/internal/fsutil"
 	"stash-service/internal/meta"
 	"stash-service/internal/store"
 )
@@ -168,7 +170,7 @@ func writeCapped(path string, content io.Reader) (truncated bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, fsutil.SyncClose(f)) }()
 	cap := int64(config.PerFileSizeLimit)
 	n, err := io.Copy(f, io.LimitReader(content, cap))
 	if err != nil {

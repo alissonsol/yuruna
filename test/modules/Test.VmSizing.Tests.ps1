@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,12 +36,8 @@
     assertions so the file runs under Pester 4.10.1 and Pester 5+.
 #>
 
-BeforeAll {
-$here     = Split-Path -Parent $PSCommandPath
-$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
-
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
+BeforeDiscovery {
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 # The guest scripts wired for sizing overrides: ubuntu.server.24 on every host.
 $guestPaths = @(
     'host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1',
@@ -66,6 +62,15 @@ $hyperVGuestPaths = @(
     'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1'
 ) | ForEach-Object { Join-Path $repoRoot $_ }
 $script:hyperVGuestCase = @($hyperVGuestPaths | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent $_)); path = $_ } })
+
+if ($script:guestCase.Count -ne 3 -or $script:hostCase.Count -ne 3 -or $script:hyperVGuestCase.Count -ne 3) { throw 'VM-sizing discovery must include every wired host and guest fixture.' }
+}
+
+BeforeAll {
+$here     = Split-Path -Parent $PSCommandPath
+$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
 $script:plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
@@ -99,7 +104,8 @@ Describe 'vm-sizing -- ConvertTo-MemoryStartupBytes normalizes memory sizes' {
 }
 
 Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
-    It 'finds the wired guest scripts (fixture sanity)' {
+    It 'finds the wired guest scripts (fixture sanity)' -TestCases @(@{ guestPaths = [string[]]@($script:guestCase.path) }) {
+        param($guestPaths)
         Assert-True ($guestPaths.Count -eq 3) "expected 3 wired guest scripts, found $($guestPaths.Count)"
         foreach ($p in $guestPaths) { Assert-True (Test-Path -LiteralPath $p) "missing guest script: $p" }
     }
@@ -175,7 +181,8 @@ Describe 'vm-sizing -- the planner cascade surfaces the effective fields' {
 }
 
 Describe 'nested-virt -- exposeVirtualizationExtensions travels the same cascade, off by default' {
-    It 'finds the wired Hyper-V guest scripts (fixture sanity)' {
+    It 'finds the wired Hyper-V guest scripts (fixture sanity)' -TestCases @(@{ hyperVGuestPaths = [string[]]@($script:hyperVGuestCase.path) }) {
+        param($hyperVGuestPaths)
         Assert-True ($hyperVGuestPaths.Count -eq 3) "expected 3 wired Hyper-V guest scripts, found $($hyperVGuestPaths.Count)"
         foreach ($p in $hyperVGuestPaths) { Assert-True (Test-Path -LiteralPath $p) "missing guest script: $p" }
     }

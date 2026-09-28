@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,7 @@ function Send-YurunaRetryEvent {
     )
     if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
     $rec = @{
-        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         event       = $EventName
         stack       = 'pwsh'
         description = [string]$Label
@@ -221,7 +221,7 @@ function Invoke-WithYurunaRetry {
 
         if ($LogPath) {
             try {
-                $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 $header = "== ${stamp} ${Label} attempt ${attempt}/${MaxAttempts} (exit=${lastExit}) =="
                 Add-Content -LiteralPath $LogPath -Value $header
                 foreach ($line in $lastOutput) {

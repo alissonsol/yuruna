@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,7 +149,7 @@ function Get-YurunaPoolConfig {
     if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('pool')) { return $null }
     $p = $Config['pool']
     if (-not ($p -is [System.Collections.IDictionary])) { return $null }
-    $enabled      = [bool]$p['enabled']
+    $enabled      = ([string]$p['enabled']).Trim() -in @('true', 'yes', 'on', '1')
     $intentGitUrl = [string]$p['intentGitUrl']
     $localClone   = [string]$p['localClonePath']
     $pullTimeout  = if ($p['pullTimeoutSeconds']) { [int]$p['pullTimeoutSeconds'] } else { $script:PoolSyncFetchTimeoutSeconds }
@@ -325,7 +325,7 @@ function Write-YurunaPoolState {
         desiredState = $DesiredState
         intentOk     = $IntentOk
         gating       = $Gating
-        lastSyncUtc  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        lastSyncUtc  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         return [bool](Write-YurunaStateFileJson -Path $path -InputObject $state -Depth 4 -Confirm:$false)
@@ -401,7 +401,7 @@ function Write-YurunaPoolManifest {
         # so a field missing here can never reach the planner no matter what the
         # intent says.
         config      = if ($Pool['config'] -is [System.Collections.IDictionary]) { $Pool['config'] } else { @{} }
-        writtenAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        writtenAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
     $subset = @(@($testSet['sequences']) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
     if ($subset.Count -gt 0) { $manifest.testSet['sequences'] = $subset }

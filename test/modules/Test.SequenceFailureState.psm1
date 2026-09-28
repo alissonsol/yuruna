@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,6 +94,9 @@ function Initialize-SequenceFailureStateStore {
     # already -- the second is a guest parked on something, and the wait it
     # failed was never going to end on its own.
     $Store['WaitForTextConsoleStaticSeconds'] = 0
+    # Set only on timeout with sustained static content and an independent
+    # hypervisor framebuffer confirmation. Never inferred from OCR absence.
+    $Store['WaitForTextGuestBootStalled'] = $false
     # Whether the wait that failed actually evaluated the two slots above. A
     # tail-confined match reads the same frames but runs neither tracker, so it
     # leaves them at these initializers -- which are also what a measured, moving,
@@ -379,8 +382,8 @@ function New-SequenceFailureRecord {
         resumeFromStep = $stepNumber
     }
 
-    $tsFile        = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-    $tsEvent       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $tsFile        = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+    $tsEvent       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     # Cycle-dir-relative, naming where the artifacts actually land. The flat
     # root-level form these carried was keyed only by VM name, so every cycle
     # that failed on the same guest rewrote the same two files: a pointer read
@@ -628,8 +631,8 @@ function New-InfraFailureRecord {
     # Two-step [string[]] guard so the empty recoveries list never collapses to
     # $null (the typed-array-cast-if-empty trap); the NDJSON field stays an array.
     [string[]]$suggested = @()
-    $tsFile  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-    $tsEvent = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $tsFile  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+    $tsEvent = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     $file = [ordered]@{
         schemaVersion        = 2
         reason               = 'infra'

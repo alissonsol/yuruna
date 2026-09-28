@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,60 @@ AfterAll {
     }
 }
 
+Describe 'document anchor history survives partial updates and deletions' {
+    It 'preserves unavailable and unselected documents and never reissues a retired id' {
+        $fixture = Join-Path $script:Sandbox 'history/yuruna'
+        foreach ($dir in @('tools', 'docs', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        $manifest = Join-Path $fixture 'globalization/manifests/doc-anchors.json'
+        $readme = Join-Path $fixture 'README.md'
+        $records = @(
+            @{ id = '42aaaaaa'; repo = 'yuruna'; source = 'README.md'; translations = @{}; anchors = @(
+                @{ id = '42aaaaaa-0001'; heading = 'First'; slug = 'first' },
+                @{ id = '42aaaaaa-0002'; heading = 'Second'; slug = 'second' }) },
+            @{ id = '42bbbbbb'; repo = 'yuruna'; source = 'docs/other.md'; translations = @{}; anchors = @() },
+            @{ id = '42cccccc'; repo = 'yuruna-project'; source = 'README.md'; translations = @{}; anchors = @() })
+        @{ schema = 'yuruna.doc-anchors/v1'; files = $records } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifest
+        [IO.File]::WriteAllText($readme, "<a id=`"42aaaaaa-0002`"></a>`n`n# Second`n")
+        $output = & pwsh -NoProfile -File $generator -Update -Path README.md -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        $first = Get-Content -Raw -LiteralPath $manifest | ConvertFrom-Json
+        Assert-Equal 3 @($first.files).Count 'a partial update retains other documents and absent sibling repositories'
+        $entry = @($first.files | Where-Object { $_.id -eq '42aaaaaa' })[0]
+        Assert-Equal '42aaaaaa-0001' $entry.retiredAnchorIds[0] 'deleted ids stay reserved after the manifest is rewritten'
+        $output = & pwsh -NoProfile -File $generator -Update -Path README.md -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE $output
+        Add-Content -LiteralPath $readme -Value "`n# Third"
+        $output = & pwsh -NoProfile -File $generator -Update -Path README.md -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        $last = Get-Content -Raw -LiteralPath $manifest | ConvertFrom-Json
+        $entry = @($last.files | Where-Object { $_.id -eq '42aaaaaa' })[0]
+        Assert-Equal '42aaaaaa-0003' $entry.anchors[1].id 'a later invocation cannot give an old public link to unrelated text'
+        Assert-Equal 1 @($entry.retiredAnchorIds).Count 'retired history remains separate from live link targets'
+    }
+}
+
 Describe 'the anchor gate says which of the three things happened' {
+
+    It 'rejects missing, headingless, and substring-only document targets' -ForEach @('missing', 'headingless', 'substring') {
+        $project = Join-Path $script:Sandbox ('document-' + $_)
+        $null = New-Item -ItemType Directory -Path $project -Force
+        $null = & git -C $project init --quiet 2>&1
+        Assert-Equal 0 $LASTEXITCODE 'the disposable project initializes'
+        if ($_ -ne 'missing') {
+            $content = if ($_ -eq 'substring') { '# Installation guide' } else { 'No headings here.' }
+            [IO.File]::WriteAllText((Join-Path $project 'README.md'), $content)
+        }
+        [IO.File]::WriteAllText((Join-Path $project 'consumer.ps1'), '# https://yuruna.link/fixture-doc#install')
+        $map = New-LinkMap -Name ('document-' + $_ + '.json') -Entry @(
+            , @('fixture-doc', 'Fixture', 'https://github.com/alissonsol/yuruna-project/blob/main/README.md'))
+        $run = Invoke-Gate -Argument @('-Quiet', '-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map)
+        Assert-Equal 1 $run.ExitCode $run.Output
+        Assert-Match 'install' $run.Output
+    }
 
     It 'exits 2 when the link map is absent, having checked nothing' {
         $missing = Join-Path $script:Sandbox 'no-such-map.json'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,6 +212,12 @@ param(
     [switch]$Force
 )
 
+$script:UserScriptBoundParameters = @{} + $PSBoundParameters
+
+# A Windows console code page prints Chinese and Hebrew catalog text as
+# question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
+if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
+
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
@@ -248,7 +254,7 @@ function Read-NewPassword {
     $again = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_0dfb80d85bdca638') -AsSecureString
     $a = [System.Net.NetworkCredential]::new('', $first).Password
     $b = [System.Net.NetworkCredential]::new('', $again).Password
-    if ($a -ne $b) { throw "The two passwords did not match." }
+    if ($a -cne $b) { throw "The two passwords did not match." }
     if ([string]::IsNullOrEmpty($a)) { throw "Password must not be empty." }
     return $a
 }
@@ -338,8 +344,8 @@ function Invoke-SelfElevation {
 
     $argList = @('-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"",
                  '-AccountName', "`"$AccountName`"")
-    if ($PSBoundParameters.ContainsKey('FirstName')) { $argList += @('-FirstName', "`"$FirstName`"") }
-    if ($PSBoundParameters.ContainsKey('LastName'))  { $argList += @('-LastName',  "`"$LastName`"") }
+    if ($script:UserScriptBoundParameters.ContainsKey('FirstName')) { $argList += @('-FirstName', "`"$FirstName`"") }
+    if ($script:UserScriptBoundParameters.ContainsKey('LastName'))  { $argList += @('-LastName',  "`"$LastName`"") }
     if ($Admin)               { $argList += '-Admin' }
     if ($ForcePasswordChange) { $argList += '-ForcePasswordChange' }
     if ($Force)               { $argList += '-Force' }
@@ -586,6 +592,7 @@ function Remove-OsUser {
 
 $Recreated   = $false
 $RemovedHome = ''
+$existing = $null
 
 if (Test-OsUser -Name $AccountName) {
     $existing = Get-OsUserFact -Name $AccountName
@@ -611,31 +618,7 @@ if (Test-OsUser -Name $AccountName) {
         throw "OS account '$AccountName' has an open login session. Sign every session of it out and re-run: deleting it now would leave that session pointing at a uid and a home directory that no longer exist."
     }
 
-    # Recreating is the whole point of running this against a name that
-    # already exists, so the run offers it rather than refusing and telling
-    # the operator which switch to add. What it cannot do is decide on their
-    # behalf: the account may be a stale test account or one in use, and only
-    # the operator can tell which. -Force is that answer given in advance,
-    # which is what makes an unattended recreate possible.
-    $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
-    Write-Information ""
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42dcde04bb769692' -Arguments @{ accountName = "$AccountName"; homeNote = "$homeNote" })
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11a27b5d651f84e3')
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6121ef24c9e88198' -Arguments @{ accountName = "$AccountName" })
-    if ($WhatIfPreference) {
-        # A dry run has no consent to ask for -- it deletes nothing.
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_46cf3f3b25c7b1d5')
-    } else {
-        if ($Force) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_56d07230931cc37f')
-        }
-        if (-not (Confirm-Step "Delete $consentTarget and recreate the account")) {
-            throw "Declined: '$AccountName' is untouched and nothing was created. Re-run with -Force to answer that confirmation in advance, or with a different -AccountName to leave this account alone."
-        }
-    }
-    Remove-OsUser -Name $AccountName -Fact $existing
-    $Recreated   = $true
-    $RemovedHome = $existing.Home
+
 }
 
 # --- REGION: Pre-flight: does users.yml already declare this name?
@@ -777,7 +760,7 @@ if ($WantsPassword -and [string]::IsNullOrEmpty($Password)) {
 }
 $HasPassword = -not [string]::IsNullOrEmpty($Password)
 
-if ($StoredCredential -and $HasPassword -and -not $PasswordFromVault -and $Password -ne $StoredCredential.Password) {
+if ($StoredCredential -and $HasPassword -and -not $PasswordFromVault -and $Password -cne $StoredCredential.Password) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3897cb6768db5aa5' -Arguments @{ accountName = "$AccountName"; key = "$($StoredCredential.Key)"; vaultPath = "$VaultPath" })
 }
 if ($StoredCredential -and $NoPassword) {
@@ -794,6 +777,35 @@ if ($IsMacOS -and $HasPassword -and $Password.StartsWith('-')) {
         throw "On macOS the password may not begin with '-' (sysadminctl would parse it as an option), and the password stored in the vault under key '$($StoredCredential.Key)' does. Rotate that entry in $VaultPath to a value that does not start with '-', or pass -PromptForPassword to set a different one on the account."
     }
     throw "On macOS the password may not begin with '-' (sysadminctl would parse it as an option). Choose a password with a different leading character."
+}
+
+# Complete every non-mutating refusal before offering to replace the account.
+if ($existing) {
+    # Recreating is the whole point of running this against a name that
+    # already exists, so the run offers it rather than refusing and telling
+    # the operator which switch to add. What it cannot do is decide on their
+    # behalf: the account may be a stale test account or one in use, and only
+    # the operator can tell which. -Force is that answer given in advance,
+    # which is what makes an unattended recreate possible.
+    $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
+    Write-Information ""
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42dcde04bb769692' -Arguments @{ accountName = "$AccountName"; homeNote = "$homeNote" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_11a27b5d651f84e3')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6121ef24c9e88198' -Arguments @{ accountName = "$AccountName" })
+    if ($WhatIfPreference) {
+        # A dry run has no consent to ask for -- it deletes nothing.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_46cf3f3b25c7b1d5')
+    } else {
+        if ($Force) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_56d07230931cc37f')
+        }
+        if (-not (Confirm-Step "Delete $consentTarget and recreate the account")) {
+            throw "Declined: '$AccountName' is untouched and nothing was created. Re-run with -Force to answer that confirmation in advance, or with a different -AccountName to leave this account alone."
+        }
+    }
+    Remove-OsUser -Name $AccountName -Fact $existing
+    $Recreated   = $true
+    $RemovedHome = $existing.Home
 }
 
 # --- REGION: Create the OS account
@@ -1196,7 +1208,7 @@ function Register-WindowsUserExecutionPolicyTask {
         # sign-in and cannot unregister a task an administrator registered.
         # Until it expires the task re-runs at every sign-in, writing the same
         # value again.
-        $trigger.EndBoundary = (Get-Date).AddDays(30).ToString('yyyy-MM-ddTHH:mm:ss')
+        $trigger.EndBoundary = (Get-Date).AddDays(30).ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
         $principal = New-ScheduledTaskPrincipal -UserId $qualified -LogonType Interactive
         $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
         $settings.DeleteExpiredTaskAfter = 'PT0S'

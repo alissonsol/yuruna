@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,11 +53,15 @@ $script:Runner   = Join-Path $script:RepoRoot 'tools' | Join-Path -ChildPath 'In
 # Every tracked JavaScript self-test, spelled out. Deriving this list the way
 # the runner derives it would make the check agree with a broken pathspec.
 $script:Expected = @(
+    'test/extension/pool-control-ui.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/common.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/index.test.js',
+    'test/extension/stash-service/server/internal/httpsrv/web/assets/new.test.js',
     'test/extension/ui-pages.test.js',
     'test/status/globalization-pages.test.js',
+    'test/status/host-refresh.test.js',
     'test/status/performance.test.js',
+    'test/status/refresh-safety.test.js',
     'test/status/status-badges.test.js',
     'test/status/yuruna.common.test.js'
 )

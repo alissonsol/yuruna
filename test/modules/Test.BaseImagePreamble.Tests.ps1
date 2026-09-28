@@ -154,19 +154,33 @@ Describe 'the gate returns what its call sites read' {
 
     It 'accepts an artifact that Get-Image.ps1 produces' {
         $made = Join-Path $script:TempRoot 'fetched.qcow2'
-        Set-Content -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1')             -Value "Set-Content -LiteralPath '$made' -Value 'fetched'"
+        Set-Content -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1')             -Value "Write-Output 'fetch progress'; Write-Host 'fetch complete'; Set-Content -LiteralPath '$made' -Value 'fetched'"
         try {
-            Assert-True (Assert-YurunaBaseImage -BaseImageFile $made -GuestFolder $script:GuestDir)
+            $r = Assert-YurunaBaseImage -BaseImageFile $made -GuestFolder $script:GuestDir
+            Assert-StringEqual 'Boolean' $r.GetType().Name 'child stdout must not join the return value'
+            Assert-True $r
         } finally {
             Remove-Item -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Force -ErrorAction SilentlyContinue
         }
     }
 
     It 'rejects when Get-Image.ps1 exits non-zero' {
-        Set-Content -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Value 'exit 3'
+        Set-Content -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Value "Write-Output 'fetch progress'; Write-Warning 'mirror failed'; Write-Host 'manual download required'; exit 3"
         try {
             $r = Assert-YurunaBaseImage -BaseImageFile (Join-Path $script:TempRoot 'never.qcow2')                     -GuestFolder $script:GuestDir -ErrorAction SilentlyContinue
+            Assert-StringEqual 'Boolean' $r.GetType().Name 'child stdout must not make a failed fetch truthy'
             Assert-False $r
+        } finally {
+            Remove-Item -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects a noisy successful child that did not produce the image' {
+        Set-Content -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Value "Write-Output 'manual download required'; exit 0"
+        try {
+            $r = Assert-YurunaBaseImage -BaseImageFile (Join-Path $script:TempRoot 'not-produced.qcow2') -GuestFolder $script:GuestDir -ErrorAction SilentlyContinue
+            Assert-StringEqual 'Boolean' $r.GetType().Name
+            Assert-False $r 'exit zero without the required artifact must still block the VM build'
         } finally {
             Remove-Item -LiteralPath (Join-Path $script:GuestDir 'Get-Image.ps1') -Force -ErrorAction SilentlyContinue
         }

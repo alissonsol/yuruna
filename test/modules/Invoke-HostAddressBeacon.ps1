@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,17 @@
     expensive runs, the same shape the pool push forwarder uses: a repeated
     status-service start must not stack beacons, and a lock naming a dead
     PID must not wedge the next one out.
+
+    Each loop also runs one service-census tick (Invoke-YurunaServiceCensusTick),
+    beside the announce tick rather than inside it: the announce returns early
+    unless the address moved or its interval elapsed, while the census has to
+    observe the service VMs on every pass to have fresh evidence when a
+    refresh needs it. This is the one long-lived host process that ticks on
+    time, which is why the census rides here. The tick is bounded to five
+    seconds and calls nothing that talks to the hypervisor's control channel
+    (a wedged UTM would otherwise stall the beacon itself). A census that
+    fails to import or to run never ends the beacon; the announce keeps its
+    schedule either way.
 
 .PARAMETER RuntimeDir
     The runtime directory holding host.uuid and ipaddresses.txt. Defaults to
@@ -141,6 +152,17 @@ if (-not (Test-Path -LiteralPath $hostDriver)) {
 }
 Import-Module $hostDriver -Force
 
+# --- REGION: Service census
+# Imported after the driver, whose passive resolver the census looks up by
+# name. A census that cannot load leaves the beacon announcing as before.
+$censusReady = $false
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking -ErrorAction Stop
+    $censusReady = [bool](Get-Command -Name 'Invoke-YurunaServiceCensusTick' -ErrorAction SilentlyContinue)
+} catch {
+    Write-Verbose "host address beacon: service census unavailable -- $($_.Exception.Message)"
+}
+
 # The status service's PID file is the liveness signal this beacon follows.
 # Read once per tick rather than cached: the service can be restarted under a
 # running beacon, and the beacon should keep going for the new one rather than
@@ -181,6 +203,13 @@ try {
             # A tick must never end the beacon: the next one may well succeed,
             # and a host with no beacon is a host the pool loses track of.
             Write-Verbose "host address beacon tick: $($_.Exception.Message)"
+        }
+        if ($censusReady) {
+            try {
+                $null = Invoke-YurunaServiceCensusTick -RuntimeDir $RuntimeDir -BudgetMilliseconds 5000 -Confirm:$false
+            } catch {
+                Write-Verbose "host address beacon census tick: $($_.Exception.Message)"
+            }
         }
         Start-Sleep -Seconds $IntervalSeconds
     }

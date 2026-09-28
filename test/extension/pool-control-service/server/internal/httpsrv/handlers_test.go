@@ -46,8 +46,12 @@ func (f *fakeIntent) AddHost(ctx context.Context, a, b string) intent.Result {
 	f.lastCall, f.lastArgs = "AddHost", []string{a, b}
 	return f.ret
 }
-func (f *fakeIntent) RemoveHost(ctx context.Context, a, b string) intent.Result {
+func (f *fakeIntent) RemoveHost(ctx context.Context, a, b string, exclude ...bool) intent.Result {
 	f.lastCall, f.lastArgs = "RemoveHost", []string{a, b}
+	return f.ret
+}
+func (f *fakeIntent) MoveHostIdentity(ctx context.Context, a, b string) intent.Result {
+	f.lastCall, f.lastArgs = "MoveHostIdentity", []string{a, b}
 	return f.ret
 }
 func (f *fakeIntent) AssignTestSet(ctx context.Context, a, b, c, d string) intent.Result {

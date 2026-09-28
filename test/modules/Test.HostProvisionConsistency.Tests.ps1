@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,9 +61,14 @@ $module = Import-Module $ModulePath -Force -PassThru -DisableNameChecking -Warni
     $script:NativeExitCode = $ExitCode
     $script:StopCalls = [Collections.Generic.List[string]]::new()
     $script:WatchdogStops = 0
-    function script:utmctl {
-        $script:StopCalls.Add(($args -join ' '))
-        $global:LASTEXITCODE = $script:NativeExitCode
+    function script:Invoke-UtmctlLifecycle {
+        param([string]$Verb, [string]$VMName, [switch]$Kill, $Deadline, [int]$TimeoutSeconds, [switch]$Quiet)
+        $script:StopCalls.Add("$Verb $VMName$(if ($Kill) { ' --kill' })")
+        return @{
+            ExitCode = $script:NativeExitCode; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $true
+            DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; DeadlineExhausted = $false
+            Verb = $Verb; VMName = $VMName; Kill = [bool]$Kill; OutcomeKnown = $true; FailureKind = 'none'; Text = ''
+        }
     }
     function script:Stop-UtmDialogWatchdog { $script:WatchdogStops++ }
     function script:Start-Sleep { param([int]$Seconds) }

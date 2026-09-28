@@ -473,7 +473,11 @@ test/extension/pool-aggregator-service/pool-aggregator-service
 # the English out and the translated text back, and translated text is not
 # ASCII -- a tracked bundle could never pass the raw-ASCII gate. The census
 # counts whatever is not ignored, so an export would also stale it every time.
-# What is durable is the placed translation and the approval digest over it,
-# and both of those are tracked artifacts.
+# What is durable is the placed translation, and that is tracked.
 dev-only/localization-input/
 dev-only/localization-output/
+
+# Batch folders of the localization exchange: request and return data is
+# non-ASCII JSON that could never pass the raw-ASCII gate. The placed
+# translation in the tracked tree is the durable record.
+/dev-only/localization-pro/*/*/

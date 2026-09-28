@@ -95,4 +95,7 @@ async function checkGenerated(){let checked=0;
  }
  console.log('PASS: '+checked+' generated page/locale/state renders');
 }
-const which=process.argv[2]||'all';Promise.resolve().then(()=>which==='generated'?null:checkStatus()).then(()=>which==='status'?null:checkGenerated()).catch(error=>{console.error(error.stack||error);process.exit(1);});
+module.exports = {runtime, statusResponse, statusDoc};
+if (require.main === module) {
+  const which=process.argv[2]||'all';Promise.resolve().then(()=>which==='generated'?null:checkStatus()).then(()=>which==='status'?null:checkGenerated()).catch(error=>{console.error(error.stack||error);process.exit(1);});
+}

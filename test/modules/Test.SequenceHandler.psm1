@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,12 +101,14 @@ function Test-GuestPayloadUnavailable {
 # reading directly.
 #
 # These are matched ONLY inside Wait-ForText's early window (see
-# $script:ShellRejectionWindowSeconds). Both strings are also routine output
-# from a healthy script -- probing for an optional binary prints one or the
-# other constantly -- so outside that window they carry no signal at all.
+# $script:ShellRejectionWindowSeconds). A healthy script can probe missing
+# binaries or deliberately test invalid shell input, so these strings alone
+# do not establish command-delivery failure outside that window.
 $script:ShellRejectedCommandPattern = @(
     'command not found',
-    'No such file or directory'
+    'No such file or directory',
+    'syntax error near unexpected token',
+    'syntax error: unexpected end of file'
 )
 
 # How long after Enter the shell's refusal is still the only plausible source
@@ -118,8 +120,8 @@ $script:ShellRejectedCommandPattern = @(
 $script:ShellRejectionWindowSeconds = 20
 
 # --- REGION: https://yuruna.link/428e4df6-0014
-# Complete command length above which macOS GUI fetches use verified staging.
-# Other console paths retain their warning. Include metadata and shell quoting
+# Complete command length above which GUI fetches use verified staging.
+# Include metadata, shell quoting, and assignment terminators
 # in this budget; see the linked sequence authoring guidance.
 $script:FetchExecuteTypedCharWarn = 400
 
@@ -155,6 +157,17 @@ Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScript
 # (waitForText, waitForAndEnter, passwdPrompt). Kept private to this module --
 # the engine never calls them.
 
+function Resolve-SequenceCharDelay {
+    <#
+    .SYNOPSIS
+        Select an explicit per-step delay, including zero, or the context default.
+    #>
+    [OutputType([int])]
+    param([Parameter(Mandatory)][hashtable]$Context)
+    if ($null -ne $Context.Step.charDelayMs) { return [int]$Context.Step.charDelayMs }
+    return [int]$Context.DefaultCharDelayMs
+}
+
 function Format-SequencePatternLabel {
     # Shared helper for the four pattern-bearing actions (waitForText,
     # waitForAndEnter, passwdPrompt). $Step's `pattern` may be a single
@@ -172,11 +185,11 @@ function Format-SequencePatternLabel {
 
 function Resolve-WaitForTextStepParam {
     # Returns @{ patterns; failurePatterns; timeout; poll; fresh; tailLines;
-    # sinceStepStart } from a $Context. Used by waitForText /
+    # sinceStepStart; noSegmentMatch } from a $Context. Used by waitForText /
     # waitForTextWithNudge / waitForAndEnter / passwdPrompt Handlers so the
     # pattern-bearing verbs share one expansion path.
     [CmdletBinding()][OutputType([hashtable])]
-    param([Parameter(Mandatory)][hashtable]$Context)
+    param([Parameter(Mandatory)][hashtable]$Context, [switch]$DefaultNoSegmentMatch)
     $step = $Context.Step
     $raw = $step.pattern
     [string[]]$patterns = if ($raw -is [System.Collections.IEnumerable] -and $raw -isnot [string]) {
@@ -196,6 +209,9 @@ function Resolve-WaitForTextStepParam {
         poll            = $step.pollSeconds    ? [int]$step.pollSeconds    : $Context.DefaultPollSeconds
         fresh           = $step.freshMatch -eq $true
         tailLines       = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
+        # Credentials require a prompt whose words occur together. Other waits
+        # can opt in without changing callers that rely on reordered OCR text.
+        noSegmentMatch  = $null -ne $step.noSegmentMatch ? [bool]$step.noSegmentMatch : [bool]$DefaultNoSegmentMatch
         # Confine the positive match to lines that were NOT already on screen
         # when the wait began. A prompt whose wording is a subsequence of text
         # standing above it -- PAM's "New password:" against the banner saying
@@ -208,6 +224,63 @@ function Resolve-WaitForTextStepParam {
         # whenever it is visible, including when it was visible on arrival.
         sinceStepStart  = $step.sinceStepStart -eq $true
     }
+}
+
+function Invoke-Arm64HyperVColdPowerCycle {
+    <#
+    .SYNOPSIS
+        Cold-restart a running ARM64 Hyper-V guest between safe retry attempts.
+    .DESCRIPTION
+        The caller owns the platform/architecture policy. This helper is
+        deliberately fail-closed: a retry must not continue when the VM's
+        stopped/running postconditions or its console transport are ambiguous.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][hashtable]$Context)
+
+    foreach ($commandName in 'Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole') {
+        if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { return $false }
+    }
+
+    try {
+        if ([string](Get-VMState -VMName $Context.VMName) -ne 'running') { return $false }
+        if (-not (Stop-VMForce -VMName $Context.VMName -StopTimeoutSeconds 20 -Confirm:$false)) { return $false }
+        if ([string](Get-VMState -VMName $Context.VMName) -ne 'stopped') { return $false }
+
+        $startResult = Start-VM -VMName $Context.VMName -Confirm:$false
+        $startRecord = @($startResult) | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1
+        if (-not $startRecord -or -not $startRecord.success) { return $false }
+        if ([string](Get-VMState -VMName $Context.VMName) -ne 'running') { return $false }
+
+        # Start-VM can leave the viewer from the failed boot alive. Reopening it
+        # ensures both screenshots and keyboard input bind to the new boot.
+        if (-not (Restart-VMConsole -VMName $Context.VMName -Confirm:$false)) { return $false }
+        if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) {
+            [void](Repair-ScreenshotRing -VMName $Context.VMName -Confirm:$false)
+        }
+        return $true
+    } catch {
+        if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
+            $_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+        Write-Verbose "ARM64 Hyper-V cold retry failed for '$($Context.VMName)': $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Test-Arm64HyperVColdPowerCycleMode {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowEmptyString()][string]$Mode,
+        [AllowEmptyString()][string]$HostType,
+        [System.Runtime.InteropServices.Architecture]$Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    )
+    return (
+        $Mode -in @('arm64HyperVColdPowerCycle', 'arm64HyperVInstallerBoot') -and
+        $HostType -eq 'host.windows.hyper-v' -and
+        $Architecture -eq [System.Runtime.InteropServices.Architecture]::Arm64
+    )
 }
 
 # --- REGION: Verb registrations
@@ -354,7 +427,7 @@ function Invoke-BlindAnswer {
     $baselineText = [string]$verdict.ConsoleText
     Send-TabNavigation -Context $Context
     $delaySeconds = $Context.Step.delaySeconds ? [double]$Context.Step.delaySeconds : 2
-    $charDelay    = $Context.Step.charDelayMs ? [int]$Context.Step.charDelayMs : $Context.DefaultCharDelayMs
+    $charDelay    = (Resolve-SequenceCharDelay -Context $Context)
     if (-not (Invoke-TypeDrainEnter -Context $Context -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99bfd6c66d50c714')
         return $false
@@ -369,6 +442,7 @@ function Invoke-BlindAnswer {
     }
     $confirmed = if ($confirmPatterns.Count -gt 0) {
         [bool](Wait-ForText -HostType $Context.HostType -VMName $Context.VMName -Pattern $confirmPatterns `
+            -NoSegmentMatch:($Context.Step.noSegmentMatch -eq $true) `
             -TimeoutSeconds $confirmSeconds -PollSeconds ($Context.Step.pollSeconds ? [int]$Context.Step.pollSeconds : $Context.DefaultPollSeconds))
     } else {
         [bool](Wait-ForConsoleChange -HostType $Context.HostType -VMName $Context.VMName `
@@ -421,6 +495,60 @@ Register-SequenceAction -Name 'pressKey' -HostIORequirement @('Send-Key') -OcrRe
         $keyName = $c.Step.name
         Write-Debug "      Sending key '$keyName'..."
         return [bool](Test.SequenceEngine\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName $keyName)
+    }
+
+Register-SequenceAction -Name 'startVm' -HostIORequirement @() -OcrRequired $false `
+    -FailureClass 'provisioning_failure' -Severity 'hard' -SuggestedRecoveries @('retry_immediately') `
+    -Description (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef') `
+    -FailureLabel { param($c) "startVm: `"$($c.VMName)`"" } `
+    -Handler {
+        param([hashtable]$c)
+        if (-not (Get-Command Get-VMState -ErrorAction SilentlyContinue) -or
+            -not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
+            return $false
+        }
+
+        $timeoutSeconds = 120
+        if ($null -ne $c.Step.timeoutSeconds) {
+            try { $timeoutSeconds = [int]$c.Step.timeoutSeconds } catch { return $false }
+        }
+        if ($timeoutSeconds -lt 1) { return $false }
+        $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
+        do {
+            try { $state = [string](Get-VMState -VMName $c.VMName) } catch { return $false }
+            if ($state -eq 'stopped') { break }
+            if ($state -eq 'absent' -or [DateTime]::UtcNow -ge $deadline) { return $false }
+            Start-Sleep -Seconds 1
+        } while ($true)
+
+        if ($c.HostType -eq 'host.windows.hyper-v' -and $null -ne $c.Step.arm64HyperVProcessorCount) {
+            $processorCount = 0
+            $processorCountText = & $c.ExpandVariable $c.Step.arm64HyperVProcessorCount $c.Vars
+            if (-not [int]::TryParse([string]$processorCountText, [ref]$processorCount) -or $processorCount -lt 1) {
+                return $false
+            }
+            if (-not (Get-Command Set-HyperVArm64LinuxGuestProcessorCount -ErrorAction SilentlyContinue)) {
+                return $false
+            }
+            try {
+                if (-not (Set-HyperVArm64LinuxGuestProcessorCount -VMName $c.VMName -Count $processorCount -Confirm:$false)) {
+                    return $false
+                }
+            } catch {
+                if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+                return $false
+            }
+        }
+
+        try {
+            $startResult = Start-VM -VMName $c.VMName -Confirm:$false
+            $startRecord = @($startResult) | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1
+            if (-not $startRecord -or -not $startRecord.success) { return $false }
+        } catch {
+            if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+            return $false
+        }
+        return $true
     }
 
 Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false `
@@ -490,7 +618,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                     restoreOnContinue = [bool]$restoreOnContinue
                     reason     = if ($reason) { [string]$reason } else { '' }
                     markerPath = [string]$markerPath
-                    startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 }
                 $tmp = "$breakActivePath.tmp"
                 $breakDoc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
@@ -505,7 +633,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         if ($breakLastErr) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7c7b00a26a30f926' -Arguments @{ breakAttempts = "$breakAttempts"; message = "$($breakLastErr.Exception.Message)"; breakActivePath = "$breakActivePath" })
             Send-CycleEventSafely -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event     = 'sidecar_write_failed'
                 file      = 'break-active.json'
                 path      = [string]$breakActivePath
@@ -754,7 +882,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
             if (-not $snapExists) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_27c75a0e1cc7f8d9' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'snapshot_missing'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
@@ -777,7 +905,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
             if ($check.Status -eq 'mismatch') {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_93d6b96984f8145c' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)"; join = "$($check.Violations -join '; ')" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'snapshot_manifest_mismatch'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
@@ -790,7 +918,7 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
             } elseif ($check.Status -eq 'missing') {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bb0c0f58e4cfceea' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event      = 'snapshot_manifest_missing'
                     vmName     = [string]$c.VMName
                     snapshotId = [string]$snapId
@@ -873,7 +1001,7 @@ Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -Ocr
         if ($diagManifest -is [hashtable]) {
             $c.DiagnosticOutcome = [string]$diagManifest.diagnosticOutcome
             Send-CycleEventSafely -EventRecord @{
-                timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event      = 'guest_diagnostic'
                 diagId     = [string]$diagId
                 vmName     = [string]$c.VMName
@@ -932,7 +1060,7 @@ Register-SequenceAction -Name 'inputText' -HostIORequirement @('Send-Text') -Ocr
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
-        $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
+        $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
         return [bool](Test.SequenceEngine\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape)
     }
@@ -947,7 +1075,7 @@ Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Tex
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
-        $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
+        $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape)
     }
@@ -969,7 +1097,7 @@ Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text',
             $cmd = $c.Step.text `
                 ? (& $c.ExpandVariable $c.Step.text $c.Vars) `
                 : 'bash /usr/local/lib/yuruna/yuruna-network.sh release'
-            $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
+            $charDelay = (Resolve-SequenceCharDelay -Context $c)
             Write-Debug "      networkRelease: typing '$cmd' + Enter"
             $ok = Test.SequenceEngine\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $cmd -CharDelayMs $charDelay -ShellEscape
             if ($ok -eq $false) { return $false }
@@ -1002,7 +1130,7 @@ Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired 
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -FailurePattern $p.failurePatterns)
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns)
     }
 
 Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-Key') -OcrRequired $true `
@@ -1027,7 +1155,7 @@ Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -FailurePattern $p.failurePatterns `
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns `
             -NudgeKey $nudgeKey -NudgeIntervalSeconds $nudgeInterval)
     }
 
@@ -1055,7 +1183,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $firstWindow -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -FailurePattern $p.failurePatterns
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns
         # A wait that stopped on one of its own failurePatterns read the console
         # and found a screen the step declared wrong. That is the one $false the
         # blind path must not act on: it is evidence about the screen, not the
@@ -1079,15 +1207,33 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
                 $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
                     -TimeoutSeconds $remaining -PollSeconds $p.poll -FreshMatch $p.fresh `
                     -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-                    -FailurePattern $p.failurePatterns
+                    -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns
             }
         }
         if ($ok -eq $false) { return $false }
+
+        # Some recovery waits have two successful terminal screens: the prompt
+        # that needs an answer, and a later screen proving the guest is already
+        # beyond that prompt. Match the latter against the same OCR frame and
+        # succeed without typing into it (notably, never type "yes" at login).
+        $rawSkipInput = $c.Step.skipInputPattern
+        if ($null -ne $rawSkipInput) {
+            [string[]]$skipInputPatterns = if ($rawSkipInput -is [System.Collections.IEnumerable] -and $rawSkipInput -isnot [string]) {
+                @($rawSkipInput | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
+            } else { @(& $c.ExpandVariable $rawSkipInput $c.Vars) }
+            $waitVerdict = Test.SequenceEngine\Get-LastWaitVerdict
+            foreach ($skipInputPattern in $skipInputPatterns) {
+                if ($waitVerdict.ConsoleText -and (Test-OCRMatch -Text ([string]$waitVerdict.ConsoleText) -Pattern $skipInputPattern -NoSegmentMatch:$p.noSegmentMatch)) {
+                    Write-Debug "      '$skipInputPattern' is already satisfied; skipping input"
+                    return $true
+                }
+            }
+        }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
-        $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
+        $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)
     }
@@ -1102,19 +1248,19 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
     } `
     -Handler {
         param([hashtable]$c)
-        $p = Resolve-WaitForTextStepParam -Context $c
+        $p = Resolve-WaitForTextStepParam -Context $c -DefaultNoSegmentMatch
         $patternDisplay = $p.patterns -join "' | '"
         Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.sinceStepStart) { ', sinceStepStart' }))"
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -FailurePattern $p.failurePatterns
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns
         if ($ok -eq $false) { return $false }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = $c.ShowSensitive ? $text : '***'
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
-        $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
+        $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
         return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt')
     }
@@ -1161,21 +1307,6 @@ function Get-FetchExecutionCommand {
     return $EnvPrefix + 'bash -c ' + $quote + $CommandLine.Replace($quote,$escapedQuote) + $quote
 }
 
-function Get-FetchObservationEnvPrefix {
-    <#
-    .SYNOPSIS
-        Arms command traces and identifies the invocation across both transports.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][hashtable]$Context)
-    $prefix = if ($Context.Step.sensitive) { 'EXEC_PROFILE=0 EXEC_KEEP_PROFILE=0 ' } else { 'EXEC_KEEP_PROFILE=1 ' }
-    foreach ($entry in @(@('E_SI',$Context.StepInvocationId), @('E_QI',$Context.SequenceInvocationId))) {
-        if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
-    }
-    return $prefix
-}
-
 function Get-GuiFetchExecutionInput {
     <#
     .SYNOPSIS
@@ -1198,18 +1329,20 @@ function Get-GuiFetchExecutionInput {
     $prefix = '(unset __y;__y='
     $chunk = ''
     # Count the quoted representation, including apostrophe expansion, rather
-    # than the raw substring. Keep headroom below the transport's 400-char cap.
+    # than the raw substring. Include the command terminator: an Enter event
+    # can be lost even when both adjacent text chunks arrive intact. Explicit
+    # semicolons keep assignments and the guard separate in that case.
     $chunkBudget = 240
     foreach ($character in $CommandLine.ToCharArray()) {
         $encoded = if ([string]$character -eq $quote) { $escapedQuote } else { [string]$character }
-        if ($prefix.Length + $chunk.Length + $encoded.Length + 2 -gt $chunkBudget) {
-            $lines.Add($prefix + $quote + $chunk + $quote)
+        if ($prefix.Length + $chunk.Length + $encoded.Length + 3 -gt $chunkBudget) {
+            $lines.Add($prefix + $quote + $chunk + $quote + ';')
             $prefix = '__y+='
             $chunk = ''
         }
         $chunk += $encoded
     }
-    if ($chunk.Length) { $lines.Add($prefix + $quote + $chunk + $quote) }
+    if ($chunk.Length) { $lines.Add($prefix + $quote + $chunk + $quote + ';') }
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try {
         $digest = [BitConverter]::ToString($sha256.ComputeHash(
@@ -1220,12 +1353,117 @@ function Get-GuiFetchExecutionInput {
     $sentinelFormat = -join @($script:NonzeroScriptExitSentinel.ToCharArray() | ForEach-Object {
         '\' + [Convert]::ToString([int]$_, 8).PadLeft(3, '0')
     })
-    $guard = 'if [ "$(printf %s "$__y"|sha256sum)" = ' + $quote + $digest + '  -' + $quote +
+    $guard = 'if [ "$(printf %s "$__y"|sha256sum --text)" = ' + $quote + $digest + '  -' + $quote +
         ' ];then eval "$__y";else printf ' + $quote + $sentinelFormat +
         ' GUI command integrity mismatch\n' + $quote + ';exit 125;fi)'
     if ($guard.Length -gt $MaxTypedChars) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_31cfbd18727596c9') }
     $lines.Add($guard)
     return $lines.ToArray()
+}
+
+function Get-FetchExecutionContext {
+    <#
+    .SYNOPSIS
+        Builds one immutable, integrity-bound context for console and SSH fetches.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][string]$CommandLine
+    )
+    if (-not $script:FetchContextIds) {
+        $script:FetchContextIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    }
+    $random = [byte[]]::new(6)
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($random) } finally { $rng.Dispose() }
+    $id = [BitConverter]::ToString($random).Replace('-', '').ToLowerInvariant().Substring(0, 11)
+    if (-not $script:FetchContextIds.Add($id)) {
+        throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_CONTEXT_COLLISION'; detail = $id })
+    }
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $commandDigest = [BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($CommandLine))).Replace('-', '').ToLowerInvariant()
+    } finally { $sha256.Dispose() }
+    $fields = [ordered]@{
+        id = $id
+        cmd_sha = $commandDigest
+        EXEC_KEEP_PROFILE = if ($Context.Step.sensitive) { '0' } else { '1' }
+    }
+    if ($Context.Step.sensitive) { $fields['EXEC_PROFILE'] = '0' }
+    foreach ($entry in @(@('E_SI', $Context.StepInvocationId), @('E_QI', $Context.SequenceInvocationId))) {
+        if ([string]$entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $fields[$entry[0]] = [string]$entry[1] }
+    }
+
+    $matched = [regex]::Match($CommandLine, 'fetch-and-execute\.sh\s+(\S+)')
+    if ($matched.Success) {
+        $rel = ($matched.Groups[1].Value -split '\?', 2)[0]
+        if ([string]::IsNullOrWhiteSpace($rel) -or $rel -notmatch '^[A-Za-z0-9_./-]+$' -or
+            $rel -match '(^|/)\.\.?(/|$)' -or [IO.Path]::IsPathRooted($rel)) {
+            throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_CONTEXT_PATH'; detail = "$rel" })
+        }
+        $root = [string]$Context.RepoRoot
+        if ([string]::IsNullOrWhiteSpace($root)) {
+            throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_REPO_ROOT_MISSING'; detail = 'RepoRoot' })
+        }
+        $full = Join-Path $root $rel
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_PAYLOAD_MISSING'; detail = "$rel" })
+        }
+        $retryLib = Join-Path $root 'automation/yuruna-retry.sh'
+        if (-not (Test-Path -LiteralPath $retryLib -PathType Leaf)) {
+            throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_RETRY_LIB_MISSING'; detail = "$retryLib" })
+        }
+        $fields['rel'] = $rel
+        $fields['EXEC_REQUIRE_SHA256'] = '1'
+        $fields['E_SHA'] = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+        $fields['E_RETRY_SHA'] = (Get-FileHash -LiteralPath $retryLib -Algorithm SHA256).Hash.ToLowerInvariant()
+        $source = Get-YurunaGitHubSource -RepoRoot $root
+        if ($source.Repo -and $source.Ref) {
+            $fields['E_FB_REPO'] = [string]$source.Repo
+            $fields['E_FB_REF'] = [string]$source.Ref
+            if (-not (Test-YurunaFileMatchesHead -RepoRoot $root -RelativePath $rel)) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d9b7f7780d748cd8' -Arguments @{ rel = "$rel" })
+            }
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f1e69844d12e14d2' -Arguments @{ repoRoot = "$root" })
+        }
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('YFE1')
+    foreach ($key in $fields.Keys) {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$fields[$key]))
+        $lines.Add("$key=$encoded")
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($lines -join "`n") + "`n")
+    if ($bytes.Length -gt 4096) {
+        throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_CONTEXT_SIZE'; detail = "$($bytes.Length)/4096" })
+    }
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+    finally { $sha256.Dispose() }
+    $prefix = "yfe $id "
+    if ($prefix.Length -ne 16) {
+        throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_PREFIX_LENGTH'; detail = "$($prefix.Length)/16" })
+    }
+    $launch = Get-FetchExecutionCommand -CommandLine $CommandLine -EnvPrefix $prefix
+    $encodedContext = [Convert]::ToBase64String($bytes)
+    $prepare = "printf '%s' '$encodedContext' | yfe --prepare $id $($bytes.Length) $digest"
+    $sentinelOctal = -join @($script:NonzeroScriptExitSentinel.ToCharArray() | ForEach-Object {
+        '\' + [Convert]::ToString([int]$_, 8).PadLeft(3, '0')
+    })
+    $combined = "if $prepare; then $launch; else printf '%b\n' '$sentinelOctal'; exit 125; fi"
+    return [pscustomobject]@{
+        Id = $id
+        Prefix = $prefix
+        Launch = $launch
+        Preparation = $prepare
+        Command = $combined
+        Fields = $fields
+        Bytes = $bytes
+    }
 }
 
 function Save-FetchExecutionEvidence {
@@ -1256,103 +1494,6 @@ function Save-FetchExecutionEvidence {
     finally { $Context.EvidenceCaptureDurationMs = [long]$captureClock.Elapsed.TotalMilliseconds }
 }
 
-function Get-FetchExecuteEnvPrefix {
-    <#
-    .SYNOPSIS
-        Build an "E_SHA=<hex> E_RETRY_SHA=<hex> " env prefix for a
-        fetch-and-execute.sh invocation so the guest can verify the fetched
-        bytes before running them.
-    .DESCRIPTION
-        The host hashes the working-tree copy of the script the guest is about
-        to fetch and passes that digest over the trusted channel that TYPES the
-        command (SSH / VM console) -- not over the HTTP the guest fetches over.
-        The guest refuses to run bytes that do not match. That closes the
-        on-path network-MITM (ARP/DHCP/rogue-responder) and moving-`main`
-        GitHub-fallback RCE class: neither controls the typing channel, so
-        neither can forge bytes matching a digest they never saw. A host-local
-        compromise is out of scope (it controls both the digest and the bytes).
-        For any matched fetch-and-execute command it also sets
-        EXEC_REQUIRE_SHA256=1, so if the target file cannot be hashed here (a
-        served-root/working-tree drift or a bad path) the guest fails CLOSED
-        rather than running unverified. Every character of this prefix is an
-        individual key event on the console path, so the value-carrying names
-        are terse (E_SHA, E_RETRY_SHA, E_FB_REPO, E_FB_REF) and the fallback
-        commit is abbreviated; see the typed-envelope definition linked below.
-        Returns '' only when the command is not
-        a fetch-and-execute invocation (or, defensively, when RepoRoot is unset
-        -- a code regression, not a runtime state), preserving rollout-compat.
-    #>
-    param([string]$CommandLine, [string]$RepoRoot)
-    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return '' }
-    $m = [regex]::Match($CommandLine, 'fetch-and-execute\.sh\s+(\S+)')
-    if (-not $m.Success) { return '' }
-    # Without the served base we cannot compute a digest. Only reachable via a
-    # code regression (the engine always threads RepoRoot), so degrade to the
-    # guest's rollout-compat path rather than break every guest at once.
-    if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return '' }
-    # Matched a fetch-and-execute invocation on the automated path: ENFORCE. The
-    # guest refuses if it does not also receive a matching E_SHA, so a
-    # served-root/working-tree drift or a bad path fails closed, not open.
-    #
-    # --- REGION: https://yuruna.link/42fa6f45-0005
-    # This one name is NOT shortened, and that is the point: a guest imaged
-    # before the rename knows only the EXEC_* spellings, so it would ignore a
-    # short-named digest and run the bytes UNVERIFIED. Seeing this flag with no
-    # digest it recognizes, it refuses instead -- the rename fails closed on an
-    # old guest, loudly, rather than silently reopening the fetch-to-bash hole.
-    $prefix = 'EXEC_REQUIRE_SHA256=1 '
-    $rel = ($m.Groups[1].Value -split '\?', 2)[0]
-    if ([string]::IsNullOrWhiteSpace($rel) -or $rel -match '\.\.[\\/]' -or [System.IO.Path]::IsPathRooted($rel)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_00403c4aae99968d' -Arguments @{ rel = "$rel" })
-        return $prefix
-    }
-    $full = Join-Path $RepoRoot $rel
-    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6603f9463ffd92bc' -Arguments @{ rel = "$rel" })
-        return $prefix
-    }
-    $prefix += "E_SHA=$((Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLower()) "
-    # fetch-and-execute.sh self-heals the retry lib over the same channel; give
-    # the guest that digest too so its sudo-installed copy is verified as well.
-    $retryLib = Join-Path $RepoRoot 'automation/yuruna-retry.sh'
-    if (Test-Path -LiteralPath $retryLib -PathType Leaf) {
-        $prefix += "E_RETRY_SHA=$((Get-FileHash -LiteralPath $retryLib -Algorithm SHA256).Hash.ToLower()) "
-    }
-
-    # Where the guest should fetch from if it cannot reach this host: THIS
-    # repository, at the commit whose bytes the digest above was taken from.
-    # Typed per step rather than baked at New-VM time, so a guest provisioned
-    # days ago still falls back to the commit being served right now.
-    #
-    # GH_TOKEN is deliberately NOT typed. This command line is rendered on the VM
-    # console, which the host screenshots and OCRs into the run log published by
-    # the status service -- a token typed here would be readable in
-    # failure_screenshot.png and failure_ocr.txt. The guest gets it from the
-    # cloud-init seed instead, which never leaves the VM.
-    $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
-    if ($source.Repo -and $source.Ref) {
-        # 12 hex characters of the commit, not 40: both fallback routes
-        # (raw.githubusercontent.com/<repo>/<ref>/<path> and the Contents API's
-        # ?ref=) resolve an abbreviated sha, and 48 bits is far past ambiguity
-        # for any repository this framework serves. Saves 28 keystrokes per
-        # step on a console path that corrupts long sends. The digest, not the
-        # ref, is what actually pins the bytes.
-        $shortRef = $source.Ref.Substring(0, [math]::Min(12, $source.Ref.Length))
-        $prefix += "E_FB_REPO=$($source.Repo) E_FB_REF=$shortRef "
-        # The digest covers the WORKING TREE copy, but the fallback fetches the
-        # commit. When they differ, the fallback can only fetch bytes that fail
-        # the integrity gate -- so if the host is also unreachable, the run dies
-        # on an "INTEGRITY MISMATCH" whose real cause is this uncommitted edit.
-        # Say it here, where it is still cheap to act on.
-        if (-not (Test-YurunaFileMatchesHead -RepoRoot $RepoRoot -RelativePath $rel)) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d9b7f7780d748cd8' -Arguments @{ rel = "$rel" })
-        }
-    } else {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f1e69844d12e14d2' -Arguments @{ repoRoot = "$RepoRoot" })
-    }
-    return $prefix
-}
-
 # The registered class is the DEFAULT -- what this verb failed as when no
 # failPattern matched. That is the completion marker never arriving, i.e. a
 # wait_timeout; the fetched script hanging on a stalled package mirror is the
@@ -1368,30 +1509,31 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
     -FailureClass 'wait_timeout' -Severity 'hard' -SuggestedRecoveries @('retry_with_backoff','pause_and_inspect') `
     -CapturesOwnFailureScreenshot $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_d1d328d999fc31cf') `
-    -FailureLabel { param($c) "fetchAndExecute: `"$(& $c.ExpandVariable $c.Step.text $c.Vars)`"" } `
+    -FailureLabel { param($c) if ($c.Step.sensitive) { return 'fetchAndExecute: "***"' }; "fetchAndExecute: `"$(& $c.ExpandVariable $c.Step.text $c.Vars)`"" } `
     -Handler {
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
-        $envPrefix  = (Get-FetchObservationEnvPrefix -Context $c) + (Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot)
         $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
         $executionSucceeded = $false
         try {
-        $payloadLen = $text.Length
-        $text = Get-FetchExecutionCommand -CommandLine $text -EnvPrefix $envPrefix
-        $typedCommands = @($text)
-        if ($c.HostType -eq 'host.macos.utm' -and $text.Length -gt $script:FetchExecuteTypedCharWarn) {
-            $typedCommands = @(Get-GuiFetchExecutionInput -CommandLine $text -MaxTypedChars $script:FetchExecuteTypedCharWarn)
+        $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
+        $fetchContext = Get-FetchExecutionContext -Context $c -CommandLine $text
+        $text = $fetchContext.Command
+        $typedCommands = @(Get-GuiFetchExecutionInput -CommandLine $text -MaxTypedChars $script:FetchExecuteTypedCharWarn)
+        if ($typedCommands.Count -gt 1) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0ed289c55b84fcb5' -Arguments @{ length = "$($text.Length)"; count = "$($typedCommands.Count)" })
         }
-        # Typed one key event per character; see $script:FetchExecuteTypedCharWarn
-        # for why length matters and why the prefix counts against the budget.
-        if ($typedCommands.Count -eq 1 -and $text.Length -gt $script:FetchExecuteTypedCharWarn) {
-            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_51bc77d2f69ec90e' -Arguments @{ length = "$($text.Length)"; length2 = "$($envPrefix.Length)"; payloadLen = "$payloadLen"; fetchExecuteTypedCharWarn = "$($script:FetchExecuteTypedCharWarn)" }))
-        }
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
-        $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
-        if (-not $c.Step.sensitive) { Write-Debug "      fetchAndExecute: command '$text'" }
+        $charDelay = (Resolve-SequenceCharDelay -Context $c)
+        if (-not $c.Step.sensitive) { Write-Debug "      fetchAndExecute: command '$($fetchContext.Launch)'" }
         foreach ($typedCommand in $typedCommands) {
+            if ($typedCommand.Length -gt $script:FetchExecuteTypedCharWarn) {
+                throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_PHYSICAL_SEND_LIMIT'; detail = "$($typedCommand.Length)/$($script:FetchExecuteTypedCharWarn)" })
+            }
+            if ($executionClock.Elapsed.TotalSeconds -ge $timeout) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_context_deadline' -Arguments @{ timeoutSeconds = "$timeout" })
+                return $false
+            }
             # The CGEvent fallback's ShellEscape wrapper evaluates each input
             # independently. Continuation lines must reach the shell literally.
             if (-not (Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1))) { return $false }
@@ -1404,7 +1546,6 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_64c3f8a2035c9363')
             return $false
         }
-        $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
         $failPatterns = @()
         $rawFail = $c.Step.failurePatterns
@@ -1457,9 +1598,15 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         # reason to also give up the harness reading whether the command line
         # was accepted at all.
         Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', '); shell-rejection window=${script:ShellRejectionWindowSeconds}s"
+        $remaining = $timeout - [int][Math]::Ceiling($executionClock.Elapsed.TotalSeconds)
+        if ($remaining -le 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_context_deadline' -Arguments @{ timeoutSeconds = "$timeout" })
+            return $false
+        }
         $executionSucceeded = [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
-            -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $true `
+            -TimeoutSeconds $remaining -PollSeconds $poll -FreshMatch $true `
             -FreshMatchTailLines $tailLines -FailurePattern $failPatterns `
+            -NoSegmentMatch:($c.Step.noSegmentMatch -eq $true) `
             -EarlyFailurePattern $script:ShellRejectedCommandPattern `
             -EarlyFailureSeconds $script:ShellRejectionWindowSeconds)
         return $executionSucceeded
@@ -1620,7 +1767,7 @@ function Publish-GuestRetryMarker {
         if (-not $m.Success) { continue }
         try { $obj = $m.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $rec = @{
-            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event     = 'retry_attempt'
             stack     = 'bash'
         }
@@ -1640,7 +1787,7 @@ function Publish-GuestRetryMarker {
 Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_84d963e1b876d615') `
-    -FailureLabel { param($c) "sshExec: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
+    -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshExec: "***"' }; "sshExec: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
     -Handler {
         param([hashtable]$c)
         $cmd     = & $c.ExpandVariable $c.Step.command $c.Vars
@@ -1677,17 +1824,17 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
 Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_6ba8527c12297fee') `
-    -FailureLabel { param($c) "sshFetchAndExecute: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
+    -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshFetchAndExecute: "***"' }; "sshFetchAndExecute: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
     -Handler {
         param([hashtable]$c)
         $cmd     = & $c.ExpandVariable $c.Step.command $c.Vars
-        $prefix  = (Get-FetchObservationEnvPrefix -Context $c) + (Get-FetchExecuteEnvPrefix -CommandLine $cmd -RepoRoot $c.RepoRoot)
-        $cmd     = Get-FetchExecutionCommand -CommandLine $cmd -EnvPrefix $prefix
+        $fetchContext = Get-FetchExecutionContext -Context $c -CommandLine $cmd
+        $cmd = $fetchContext.Command
         $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
         $executionSucceeded = $false
         try {
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
-        Write-Debug "      sshFetchAndExecute: $cmd"
+        if (-not $c.Step.sensitive) { Write-Debug "      sshFetchAndExecute: $($fetchContext.Launch)" }
         $script:Fail.StepGuestAddressUnresolved = $null
         $script:Fail.StepGuestTransportLost     = $null
         $script:Fail.StepGuestRunLost           = $null
@@ -1721,7 +1868,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
             if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
             if ($result.runLost) { $script:Fail.StepGuestRunLost = $true }
             if (Test-GuestPayloadUnavailable -Output $result.output) { $script:Fail.StepGuestPayloadUnavailable = $true }
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35be02c672504936' -Arguments @{ exitCode = "$($result.exitCode)"; cmd = "$cmd" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35be02c672504936' -Arguments @{ exitCode = "$($result.exitCode)"; cmd = "$($fetchContext.Launch)" })
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
         }
@@ -1758,6 +1905,32 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
         # gave up AND which inner step ran out of patience.
         $maxAttempts = $c.Step.maxAttempts ? [int]$c.Step.maxAttempts : 3
         $innerSteps  = @($c.Step.steps)
+        $installerBootRetry = ([string]$c.Step.restartVmBeforeRetry -eq 'arm64HyperVInstallerBoot')
+        if ($installerBootRetry) {
+            # This recovery may replay only the initial, non-credential installer
+            # confirmation. Other providers retain one ordinary prompt wait.
+            if ($innerSteps.Count -ne 1 -or
+                [string]$innerSteps[0].action -ne 'waitForAndEnter' -or
+                @($innerSteps[0].pattern).Count -ne 1 -or
+                [string]$innerSteps[0].pattern -cne 'Continue with autoinstall?' -or
+                [string]$innerSteps[0].text -cne 'yes' -or
+                $innerSteps[0].sensitive -or $c.Step.stepsAfterVmRestart) {
+                return $false
+            }
+            $maxAttempts = if (Test-Arm64HyperVColdPowerCycleMode -Mode 'arm64HyperVInstallerBoot' -HostType $c.HostType) {
+                # Stop on explicit installer errors before they can become a
+                # static boot screen. Clone so other invocations keep their
+                # declared wait policy and non-ARM providers stay unchanged.
+                $bootStep = @{}
+                foreach ($key in $innerSteps[0].Keys) { $bootStep[$key] = $innerSteps[0][$key] }
+                $bootStep.failurePatterns = @($bootStep.failurePatterns) + @(
+                    'Bahasa Indonesia', 'install_fail.crash',
+                    'Press enter to start a shell', 'An error occurred'
+                ) | Where-Object { $_ }
+                $innerSteps = @($bootStep)
+                [Math]::Min($maxAttempts, 2)
+            } else { 1 }
+        }
         if ($innerSteps.Count -eq 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_55a49008b08e5b55' -Arguments @{ stepNum = "$($c.StepNum)"; stepCount = "$($c.StepCount)" })
             $script:Fail.LastFailureLabel       = 'retry: empty steps block'
@@ -1811,7 +1984,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             # knowing the naming convention.
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'retry_attempt'
                     stack        = 'sequence'
                     attempt      = [int]$attempt
@@ -1825,7 +1998,58 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 }
             }
             if ($attempt -lt $maxAttempts) {
+                if ($installerBootRetry -and (
+                    [string]$script:Fail.LastFailedAction -ne 'waitForAndEnter' -or
+                    -not $script:Fail.WaitForTextGuestBootStalled -or
+                    [string]$script:Fail.WaitForTextOcrTail -notmatch '(?i)/scripts/casper-|Setting up console keyboard' -or
+                    $script:Fail.WaitForTextMatchedFailurePattern -or
+                    $script:Fail.WaitForTextConsoleFlood)) {
+                    # Missing or live-frame evidence is not permission to cut
+                    # power. End this specialized retry without replaying input.
+                    $maxAttempts = $attempt
+                    break
+                }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5e0f817304f680f9' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3'; count = '4' })
+                # ARM64 Hyper-V can wedge while booting either the live installer
+                # or the installed guest, with virtual processors spending almost
+                # all of their time outside the guest. A console reconnect cannot
+                # change that VM state; a cold power cycle can. Keep recovery
+                # opt-in, platform-specific, and limited to a login wait or a
+                # separately confirmed stall before installer confirmation.
+                # In particular, never restart on an installer failurePattern,
+                # a console flood, or a password-prompt failure.
+                $restartMode = [string]$c.Step.restartVmBeforeRetry
+                $nativeArm64HyperV = Test-Arm64HyperVColdPowerCycleMode `
+                    -Mode $restartMode -HostType $c.HostType
+                $restartableLoginOcrTimeout = (
+                    [string]$script:Fail.LastFailedAction -eq 'waitForTextWithNudge' -and
+                    -not $script:Fail.WaitForTextMatchedFailurePattern -and
+                    -not $script:Fail.WaitForTextConsoleFlood
+                )
+                if ($nativeArm64HyperV -and ($restartableLoginOcrTimeout -or $installerBootRetry)) {
+                    if (-not (Invoke-Arm64HyperVColdPowerCycle -Context $c)) {
+                        $script:Fail.LastFailureLabel = "retry VM cold restart failed after attempt $attempt"
+                        $script:Fail.LastFailureDescription = $c.Description
+                        $script:Fail.LastFailedAction = 'retry'
+                        $script:Fail.LastFailedStepNumber = $c.StepNum
+                        return $false
+                    }
+
+                    # Run only the explicitly declared boot-recovery steps before
+                    # retrying the login wait. An incomplete install can re-answer
+                    # its live-ISO confirmation; an installed guest can simply
+                    # settle. These steps never run when no power cycle happened.
+                    $stepsAfterVmRestart = @($c.Step.stepsAfterVmRestart)
+                    if ($c.Step.stepsAfterVmRestart -and $stepsAfterVmRestart.Count -gt 0) {
+                        $restartRecoveryOk = & $c.InvokeStepBlock -Steps $stepsAfterVmRestart `
+                            -ParentOrdinal $c.StepNum -ParentAction 'retry' -ParentAttempt $attempt
+                        if (-not $restartRecoveryOk) {
+                            $script:Fail.LastFailureLabel = "retry VM boot recovery failed after attempt ${attempt}: $($script:Fail.LastFailureLabel)"
+                            $script:Fail.LastFailedStepNumber = $c.StepNum
+                            return $false
+                        }
+                    }
+                }
                 # Back off before the next attempt. Re-running instantly
                 # burns all attempts in milliseconds and gives a transient
                 # fault (network blip, a service still coming up) no time to
@@ -1867,7 +2091,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             # the deepest inner cause (the outer class collapses to retry_exhausted).
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'retry_exhausted'
                     stack        = 'sequence'
                     attempt      = [int]$maxAttempts
@@ -1924,7 +2148,7 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrR
             if (-not $snapExists) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df7ed91aac9f4403' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'snapshot_missing'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
@@ -1943,7 +2167,7 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrR
             if ($check.Status -eq 'mismatch') {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a8da3c2cf2b9b4d2' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)"; join = "$($check.Violations -join '; ')" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event        = 'snapshot_manifest_mismatch'
                     vmName       = [string]$c.VMName
                     snapshotId   = [string]$snapId
@@ -1956,7 +2180,7 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrR
             } elseif ($check.Status -eq 'missing') {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e788536aac40e0f6' -Arguments @{ snapId = "$snapId"; vMName = "$($c.VMName)" })
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     event      = 'snapshot_manifest_missing'
                     vmName     = [string]$c.VMName
                     snapshotId = [string]$snapId

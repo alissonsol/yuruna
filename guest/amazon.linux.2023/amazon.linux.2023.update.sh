@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -244,7 +244,7 @@ fi
 if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-  if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+  if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-000e
     if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -296,7 +296,7 @@ if [ -r /etc/yuruna/host.env ]; then
 fi
 if yuruna_host_env; then
   CFG_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/control/test-config"
-  if cfg_body=$(wget --no-proxy --no-cache --timeout=5 -qO- "$CFG_URL" 2>/dev/null); then
+  if cfg_body=$(wget --no-proxy --no-cache --tries=1 --timeout=5 -qO- "$CFG_URL" 2>/dev/null); then
     FRAMEWORK_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("frameworkUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
     PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
   fi
@@ -332,7 +332,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     fi
     LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
-    if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
+    if wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
       if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -377,7 +377,7 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     fi
     PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
-    if ! wget --no-proxy --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+    if ! wget --no-proxy --tries=1 --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
       echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
       continue
     fi

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -91,18 +91,31 @@ __yhl_livecheck() {
 # machine lives; loopback and link-local are the two forms that would
 # resolve locally and appear to work while pointing at nothing -- loopback
 # at this guest itself, link-local at whatever answers first on the segment.
+# Coordinates become shell assignments in host.env. Accept only literal
+# dotted IPv4 and a decimal TCP port before any persistence or export.
+__yhl_valid_endpoint() {
+    local ip="$1" port="$2" octet
+    [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || return 1
+    for octet in ${ip//./ }; do
+        (( 10#$octet <= 255 )) || return 1
+    done
+    (( 10#$port >= 1 && 10#$port <= 65535 ))
+}
+
 __yhl_plausible() {
-    local url="$1" hostpart
-    case "$url" in
-        http://*|https://*) ;;
-        *) return 1 ;;
-    esac
+    local url="$1" hostpart port
+    # The directory advertises an origin, never userinfo, paths, queries or
+    # fragments. Even a reachable URL is untrusted input to the shell file.
+    [[ "$url" =~ ^https?://([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]{1,5})?/?$ ]] || return 1
     hostpart="${url#*://}"
-    hostpart="${hostpart%%/*}"
+    hostpart="${hostpart%/}"
+    port="${hostpart##*:}"
+    if [ "$port" = "$hostpart" ]; then port=80; fi
     hostpart="${hostpart%%:*}"
-    [ -n "$hostpart" ] || return 1
+    __yhl_valid_endpoint "$hostpart" "$port" || return 1
     case "$hostpart" in
-        127.*|localhost|::1|0.0.0.0) return 1 ;;
+        127.*|0.0.0.0) return 1 ;;
         169.254.*) return 1 ;;
         22[4-9].*|23[0-9].*) return 1 ;;
     esac
@@ -187,6 +200,7 @@ __yhl_install_file() {
 
 __yhl_persist() {
     local ip="$1" port="$2" tmp
+    __yhl_valid_endpoint "$ip" "$port" || return 1
 
     # host.env: the coordinate the framework's fetch path and every project
     # script read. Rewritten in place so the file keeps whatever else it
@@ -283,7 +297,7 @@ yuruna_host_locate() {
         attempt=$((attempt + 1))
         new_base=$(__yhl_query_directory "$YURUNA_CACHING_PROXY_SERVICE_IP" "$YURUNA_HOST_ID") || continue
         [ -n "$new_base" ] || continue
-        __yhl_plausible "$new_base" || continue
+        if ! __yhl_plausible "$new_base"; then new_base=''; continue; fi
         # The directory reports where IT reached the host. This guest may sit
         # on a different segment, so the answer is confirmed from here before
         # it is adopted -- an address that does not serve this guest is not an
@@ -300,6 +314,7 @@ yuruna_host_locate() {
     port="${ip##*:}"
     if [ "$port" = "$ip" ]; then port=80; fi
     ip="${ip%%:*}"
+    __yhl_valid_endpoint "$ip" "$port" || return 1
 
     __yhl_note "yuruna-host-locate: host moved to ${ip}:${port} (was ${YURUNA_STATUS_SERVICE_IP:-unset}:${YURUNA_STATUS_SERVICE_PORT:-unset}), resolved via ${YURUNA_CACHING_PROXY_SERVICE_IP}"
     __yhl_persist "$ip" "$port"

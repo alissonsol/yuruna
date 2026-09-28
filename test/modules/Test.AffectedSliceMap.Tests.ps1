@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d54579-288d-4a9f-a983-d5f9e1894a16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,6 +120,15 @@ function Read-FixtureJson {
 }
 
 Describe 'affected-slice map generation' {
+
+    It 'discovers shell and cloud-init literals after filesystem globs' -ForEach @('.sh', '.user-data') {
+        $fixture = New-SliceMapFixture
+        $source = Join-Path $fixture.Root ('src/source-only' + $_)
+        [IO.File]::WriteAllText($source, 'for path in "$root"/*; do echo "sample.ready"; done' + "`n")
+        $run = Invoke-FixtureMap -Fixture $fixture
+        Assert-Equal 1 $run.Code 'a glob must not hide the following wire-code literal'
+        Assert-Match 'unknown/unmapped boundary consumer' $run.Output
+    }
     It 'checks the repository evidence byte for byte' {
         $run = & $script:Pwsh -NoProfile -File $script:Tool -Root $script:RepoRoot -Check -Quiet 2>&1 | Out-String
         Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because $run
@@ -180,6 +189,18 @@ Describe 'affected-slice map generation' {
             ('package fixture' + "`n" + 'var code = "sample.ready"' + "`n"))
         $run = Invoke-FixtureMap -Fixture $fixture -Update
         Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
+    }
+
+    It 'does not scan private tooling that the public tree does not carry' {
+        $fixture = New-SliceMapFixture
+        New-Item -ItemType Directory -Path (Join-Path $fixture.Root 'dev-only/tools') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $fixture.Root 'dev-only/tools/private.ps1'),
+            "if (`$state -eq 'ready') { return }`n")
+        $run = Invoke-FixtureMap -Fixture $fixture -Update
+        Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
+        Remove-Item -LiteralPath (Join-Path $fixture.Root 'dev-only') -Recurse -Force
+        $public = Invoke-FixtureMap -Fixture $fixture -Check
+        Assert-Equal -Expected 0 -Actual $public.Code -Because "the stripped tree disagreed: $($public.Output)"
     }
 
     It 'accepts only an exact reviewed unrelated-literal classification' {

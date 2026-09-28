@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -340,6 +340,47 @@ UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null.
     )
 }
 
+function Get-GuestAddressFromUtmctl {
+<#
+.SYNOPSIS
+The routable address `utmctl ip-address` reports for a guest, or $null.
+.DESCRIPTION
+utmctl is an Apple Events client with no timeout of its own, and this
+lookup sits inside Wait-GuestIp's poll: an unanswered call would hold that
+poll past its own budget instead of falling through to the lease file. The
+call is bounded -- through the macOS driver's Invoke-UtmctlProbe when the
+driver is loaded, through Invoke-BoundedNativeCommand otherwise -- and an
+answer that did not finish, or a non-zero exit, is no answer.
+.PARAMETER VMName
+The guest to ask about.
+.PARAMETER TimeoutSeconds
+The wall-clock cap for the call.
+.OUTPUTS
+System.String, or $null.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
+    )
+    $utmctl = @(Get-Command -Name utmctl -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if (-not $utmctl) { return $null }
+    $arguments = @('ip-address', $VMName)
+    $result = if (Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue) {
+        Invoke-UtmctlProbe -Arguments $arguments -TimeoutSeconds $TimeoutSeconds -UtmctlPath $utmctl.Source -Quiet
+    } else {
+        Invoke-BoundedNativeCommand -FilePath $utmctl.Source -ArgumentList $arguments -TimeoutSeconds $TimeoutSeconds
+    }
+    if (-not (Test-BoundedNativeResultComplete -Result $result) -or $result.ExitCode -ne 0) {
+        Write-Debug "utmctl ip-address for ${VMName} gave no answer (exit $($result.ExitCode), timed out $($result.TimedOut))."
+        return $null
+    }
+    $ipPick = Select-YurunaRoutableAddress -Address @("$($result.StdOut)`n$($result.StdErr)" -split "`r?`n")
+    if ($ipPick) { return [string]$ipPick }
+    return $null
+}
+
 function Get-GuestAddress {
 <#
 .SYNOPSIS
@@ -405,13 +446,10 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
             Write-Debug "Get-VMNetworkAdapter failed for ${VMName}: $_"
         }
     }
-    if ($IsMacOS -and (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+    if ($IsMacOS) {
         try {
-            $output = & utmctl ip-address $VMName 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                $ipPick = Select-YurunaRoutableAddress -Address @($output -split "`r?`n")
-                if ($ipPick) { return [string]$ipPick }
-            }
+            $agentAddress = Get-GuestAddressFromUtmctl -VMName $VMName
+            if ($agentAddress) { return [string]$agentAddress }
         } catch {
             Write-Debug "utmctl ip-address failed for ${VMName}: $_"
         }
@@ -1088,7 +1126,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     $failureClass = if ($cause -eq 'password_expired') { 'credential_expired' } else { 'network_timeout' }
     $severity     = if ($cause -eq 'password_expired') { 'hard' } else { 'soft' }
     Send-CycleEventSafely -EventRecord @{
-        timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         event            = 'ssh_handshake_failed'
         target           = [string]$lastTarget
         user             = [string]$user
@@ -1330,9 +1368,9 @@ function Invoke-GuestSsh {
 .SYNOPSIS
 Runs a command on a guest VM over SSH, bounded by a total-runtime timeout.
 .DESCRIPTION
-Executes the command in a background job so the whole call can be killed if it
-exceeds TimeoutSeconds (ssh's own ConnectTimeout only bounds TCP setup, not the
-command itself). On timeout, the job is stopped and exitCode is set to -1.
+Executes the command through the bounded native-process helper, including
+output draining and cleanup (ssh's own ConnectTimeout only bounds TCP setup).
+On timeout, exitCode is set to -1 and timedOut is true.
 .PARAMETER VMName
 Hostname or IP the VM is reachable by from this host.
 .PARAMETER GuestKey
@@ -1372,8 +1410,9 @@ the initial provider lookup; ordinary calls keep the existing discovery policy.
 Optional existing key path. Avoids key creation or permission convergence during
 a short evidence capture; ordinary calls initialize the harness key as needed.
 .PARAMETER PreservePartialOutputOnTimeout
-Retain up to 524288 characters of stdout and stderr after killing a timed-out
-client, with a one-second drain limit. Default timeout output remains unchanged.
+Retain up to 524288 characters per stream from a timed-out client. Collection
+and cleanup share the command timeout. Ordinary commands retain at most 64 MiB
+per stream; incomplete output is explicitly reported instead of silently used.
 .OUTPUTS
 System.Collections.Hashtable with keys: success (bool), exitCode (int),
 output (string), addressResolved (bool), transportLost (bool).
@@ -1479,7 +1518,7 @@ with a different owner, that is likewise invisible in the exit status.
                 # countable next to the address changes that caused it.
                 if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                     Send-CycleEventSafely -EventRecord @{
-                        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                         event       = 'guest_run_reattach'
                         stack       = 'ssh'
                         vmName      = [string]$VMName
@@ -1535,20 +1574,11 @@ with a different owner, that is likewise invisible in the exit status.
         }
         $attemptTimeout = if ($detached) { [Math]::Max(30, $remainingSeconds) } else { $TimeoutSeconds }
         $target = "$loginUser@$address"
-        Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${attemptTimeout}s attempt=$attempt detached=$detached fromLine=$fromLine"
+        $debugCommand = if ($Command.Contains('yfe --prepare ')) { '[YFE_CONTEXT_REDACTED]' } else { $Command }
+        Write-Debug "Invoke-GuestSsh: target=$target command=$debugCommand timeout=${attemptTimeout}s attempt=$attempt detached=$detached fromLine=$fromLine"
 
-        # Run ssh via an in-process .NET Process with a hard WaitForExit cap so TimeoutSeconds
-        # bounds TOTAL runtime, not just TCP setup (ssh's ConnectTimeout only guards the
-        # handshake). On timeout the child ssh is killed directly with Process.Kill($true) (whole
-        # process tree): a Start-ThreadJob Stop-Job cannot terminate the native ssh child, so those
-        # processes leaked and accumulated across a run, and a half-dead session kept consuming the
-        # target. This mirrors the bounded-probe technique in Wait-SshReady.
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName               = 'ssh'
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError  = $true
-        $psi.UseShellExecute        = $false
-        $psi.CreateNoWindow         = $true
+        # Process exit does not imply pipe EOF, and process-tree cleanup can
+        # block inside the runtime. The shared helper bounds both independently.
         # ServerAliveInterval/CountMax are the only thing that ends a session
         # whose peer stopped answering: without application-level keepalives a
         # half-open connection holds the step until its own timeout, which on a
@@ -1558,7 +1588,7 @@ with a different owner, that is likewise invisible in the exit status.
         # a keepalive regardless of what the remote command is doing -- so a
         # busy guest is never mistaken for an absent one. TCPKeepAlive stays on
         # as the second, kernel-level path to the same verdict.
-        foreach ($sshArg in @(
+        $sshArguments = @(
                 '-i', $keyPath,
                 '-o', 'BatchMode=yes') +
                 (Get-YurunaSshHostKeyOption) +
@@ -1567,48 +1597,61 @@ with a different owner, that is likewise invisible in the exit status.
                 '-o', 'ServerAliveCountMax=4',
                 '-o', 'TCPKeepAlive=yes',
                 '-o', 'LogLevel=ERROR',
-                $target, $cmd)) {
-            $psi.ArgumentList.Add($sshArg)
-        }
-
-        $proc = $null
-        try {
-            $proc = [System.Diagnostics.Process]::Start($psi)
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2052ced41d626878' -Arguments @{ message = "$($_.Exception.Message)" })
-            return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)"; addressResolved = $addressResolved; transportLost = $false }
-        }
-        # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
-        # only after WaitForExit confirms the streams are closed.
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $proc.StandardError.ReadToEndAsync()
-        $completed  = $proc.WaitForExit($attemptTimeout * 1000)
-        if (-not $completed) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_47fb5ca7e06b3e23' -Arguments @{ attemptTimeout = "${attemptTimeout}"; target = "$target" })
-            try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
-            $timeoutOutput = "Timed out after ${TimeoutSeconds}s"
-            if ($PreservePartialOutputOnTimeout -and [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),1000)) {
-                $partialOutput = [string]$stdoutTask.Result + [string]$stderrTask.Result
-                if ($partialOutput.Length -gt 524288) { $partialOutput = $partialOutput.Substring(0,524288) + "`n(output truncated at 524288 characters)" }
-                if ($partialOutput) { $timeoutOutput = "$partialOutput`n$timeoutOutput" }
+                $target, $cmd)
+        if ($IsWindows) {
+            # ProcessStartInfo quotes each argument. This conservative estimate
+            # includes the executable and leaves headroom below CreateProcessW's
+            # 32,767-character command-line limit for native quoting and paths.
+            $nativeChars = 4
+            foreach ($argument in $sshArguments) { $nativeChars += ([string]$argument).Length + 3 }
+            if ($nativeChars -gt 30000) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_context_ssh_command_too_long' -Arguments @{ length = "$nativeChars" })
+                return @{
+                    success = $false; exitCode = 125; output = 'YFE_SSH_COMMAND_TOO_LONG'
+                    addressResolved = $addressResolved; transportLost = $false; runLost = $false
+                    detachToken = $DetachToken; linesConsumed = $fromLine
+                }
             }
-            $proc.Dispose()
+        }
+        $captureLimit = if ($PreservePartialOutputOnTimeout) { 524288 } else { 67108864 }
+        $native = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $sshArguments `
+            -TimeoutSeconds ([Math]::Max(1, $attemptTimeout)) -MaxCapturedChars $captureLimit -StreamEncoding ([Text.Encoding]::UTF8)
+        $stdoutText = [string]$native.StdOut
+        $stderrText = [string]$native.StdErr
+        if (-not (Test-BoundedNativeResultComplete -Result $native)) {
+            $timeoutOutput = ''
+            if (-not $native.Started) {
+                $timeoutOutput = Format-YurunaOperatorMessage -Key 'runner.operator_2052ced41d626878' -Arguments @{ message = [string]$native.StartError }
+                Write-Warning $timeoutOutput
+            }
+            if ($native.TimedOut -or $native.DrainTimedOut) {
+                $timeoutOutput = Format-YurunaOperatorMessage -Key 'runner.operator_47fb5ca7e06b3e23' -Arguments @{ attemptTimeout = "${attemptTimeout}"; target = "$target" }
+                Write-Warning $timeoutOutput
+            }
+            if ($PreservePartialOutputOnTimeout -or $native.OutputTruncated) {
+                $partialOutput = "$stdoutText$stderrText"
+                if ($partialOutput) { $timeoutOutput = "$partialOutput`n$timeoutOutput".TrimEnd() }
+            }
+            if ($detached -and $accumulated.Length -gt 0) {
+                $timeoutOutput = "$($accumulated.ToString())`n$timeoutOutput".TrimEnd()
+            }
             return @{
                 success         = $false
                 exitCode        = -1
                 output          = $timeoutOutput
+                detachToken     = $DetachToken
+                linesConsumed   = $fromLine
+                runLost         = $false
                 addressResolved = $addressResolved
                 transportLost   = $false
+                timedOut        = [bool]($native.TimedOut -or $native.DrainTimedOut)
+                drainTimedOut   = [bool]$native.DrainTimedOut
+                outputTruncated = [bool]$native.OutputTruncated
+                killFailed      = [bool]$native.KillFailed
+                started         = [bool]$native.Started
             }
         }
-        if ($PreservePartialOutputOnTimeout -and -not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),1000)) {
-            $proc.Dispose()
-            return @{ success=$false; exitCode=-1; output="Timed out after ${TimeoutSeconds}s (SSH output did not close)"; addressResolved=$addressResolved; transportLost=$false }
-        }
-        $stdoutText = $stdoutTask.Result
-        $stderrText = $stderrTask.Result
-        $exit       = [int]$proc.ExitCode
-        $proc.Dispose()
+        $exit = [int]$native.ExitCode
         $output = ("$stdoutText$stderrText").TrimEnd()
         # A failure with no address behind it gets its own exit code and says so in
         # the first line. ssh reports every one of these as 255, the same code it
@@ -1661,6 +1704,18 @@ with a different owner, that is likewise invisible in the exit status.
             $lastNewline = $chunk.LastIndexOf("`n")
             if ($lastNewline -ge 0) {
                 $completeLines = $chunk.Substring(0, $lastNewline + 1)
+                # Reconnects share one capture budget; a fresh stream limit
+                # for each attachment must not grow retained output forever.
+                $captureRoom = 67108864 - $accumulated.Length
+                if ($completeLines.Length -gt $captureRoom) {
+                    [void]$accumulated.Append($completeLines, 0, $captureRoom)
+                    return @{
+                        success = $false; exitCode = -1; output = $accumulated.ToString()
+                        addressResolved = $addressResolved; transportLost = $false
+                        timedOut = $false; outputTruncated = $true; runLost = $false
+                        detachToken = $DetachToken; linesConsumed = $fromLine
+                    }
+                }
                 [void]$accumulated.Append($completeLines)
                 $fromLine += ([regex]::Matches($completeLines, "`n")).Count
             }

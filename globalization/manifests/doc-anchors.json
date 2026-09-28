@@ -70,6 +70,44 @@
       ]
     },
     {
+      "id": "42ec79c4",
+      "repo": "yuruna",
+      "source": "docs/alerts.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "42ec79c4-0001",
+          "heading": "Email for each failed test cycle",
+          "slug": "email-for-each-failed-test-cycle"
+        },
+        {
+          "id": "42ec79c4-0002",
+          "heading": "1. Get email delivery ready",
+          "slug": "1-get-email-delivery-ready"
+        },
+        {
+          "id": "42ec79c4-0003",
+          "heading": "2. Check the cycle data",
+          "slug": "2-check-the-cycle-data"
+        },
+        {
+          "id": "42ec79c4-0004",
+          "heading": "3. Route each cycle to its own email",
+          "slug": "3-route-each-cycle-to-its-own-email"
+        },
+        {
+          "id": "42ec79c4-0005",
+          "heading": "4. Create the alert rule",
+          "slug": "4-create-the-alert-rule"
+        },
+        {
+          "id": "42ec79c4-0006",
+          "heading": "5. Verify and understand the limits",
+          "slug": "5-verify-and-understand-the-limits"
+        }
+      ]
+    },
+    {
       "id": "42e568c8",
       "repo": "yuruna",
       "source": "docs/architecture.md",
@@ -838,6 +876,21 @@
           "id": "42185271-000c",
           "heading": "GET /control/control-status",
           "slug": "get-controlcontrol-status"
+        },
+        {
+          "id": "42185271-0011",
+          "heading": "POST /control/host-refresh",
+          "slug": "post-controlhost-refresh"
+        },
+        {
+          "id": "42185271-0012",
+          "heading": "POST /control/start-cycle",
+          "slug": "post-controlstart-cycle"
+        },
+        {
+          "id": "42185271-0013",
+          "heading": "GET /control/host-diagnostic",
+          "slug": "get-controlhost-diagnostic"
         },
         {
           "id": "42185271-000d",
@@ -3828,6 +3881,11 @@
           "slug": "step-6----operate-the-pool"
         },
         {
+          "id": "4207d71a-0023",
+          "heading": "Handing over a re-keyed host",
+          "slug": "handing-over-a-re-keyed-host"
+        },
+        {
           "id": "4207d71a-000a",
           "heading": "Purging a stale host",
           "slug": "purging-a-stale-host"
@@ -3871,6 +3929,26 @@
           "id": "4207d71a-0012",
           "heading": "Unlocking the actions",
           "slug": "unlocking-the-actions"
+        },
+        {
+          "id": "4207d71a-001f",
+          "heading": "Remote host refresh",
+          "slug": "remote-host-refresh"
+        },
+        {
+          "id": "4207d71a-0020",
+          "heading": "The three secrets",
+          "slug": "the-three-secrets"
+        },
+        {
+          "id": "4207d71a-0021",
+          "heading": "Provisioning",
+          "slug": "provisioning"
+        },
+        {
+          "id": "4207d71a-0022",
+          "heading": "Asking a host to refresh",
+          "slug": "asking-a-host-to-refresh"
         },
         {
           "id": "4207d71a-0013",
@@ -4283,6 +4361,31 @@
           "id": "42f909ad-000f",
           "heading": "Pre-spawn cleanup ordering",
           "slug": "pre-spawn-cleanup-ordering"
+        },
+        {
+          "id": "42f909ad-0022",
+          "heading": "Host refresh and the runner",
+          "slug": "host-refresh-and-the-runner"
+        },
+        {
+          "id": "42f909ad-0023",
+          "heading": "The refresh gate",
+          "slug": "the-refresh-gate"
+        },
+        {
+          "id": "42f909ad-0024",
+          "heading": "Handoff and preflight",
+          "slug": "handoff-and-preflight"
+        },
+        {
+          "id": "42f909ad-0025",
+          "heading": "Held-control barrier",
+          "slug": "held-control-barrier"
+        },
+        {
+          "id": "42f909ad-0026",
+          "heading": "A runner restarted by a refresh",
+          "slug": "a-runner-restarted-by-a-refresh"
         },
         {
           "id": "42f909ad-0010",
@@ -4700,6 +4803,11 @@
           "id": "42b11c32-000d",
           "heading": "testCycle.autoRemediation",
           "slug": "testcycleautoremediation"
+        },
+        {
+          "id": "42b11c32-0012",
+          "heading": "testCycle.autoRefreshAfterStalls -- automatic host refresh (default off)",
+          "slug": "testcycleautorefreshafterstalls----automatic-host-refresh-default-off"
         },
         {
           "id": "42b11c32-000e",
@@ -5134,6 +5242,11 @@
           "id": "428e4df6-001c",
           "heading": "retry",
           "slug": "retry"
+        },
+        {
+          "id": "428e4df6-0039",
+          "heading": "startVm",
+          "slug": "startvm"
         },
         {
           "id": "428e4df6-001d",
@@ -6162,6 +6275,11 @@
           "id": "420f54a5-0006",
           "heading": "Verified install (signed release)",
           "slug": "verified-install-signed-release"
+        },
+        {
+          "id": "420f54a5-0008",
+          "heading": "Refresh an installed macOS host",
+          "slug": "refresh-an-installed-macos-host"
         },
         {
           "id": "420f54a5-0007",

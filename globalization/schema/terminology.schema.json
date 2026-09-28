@@ -3,154 +3,30 @@
   "$id": "https://yuruna.com/schema/yuruna.terminology/v1",
   "title": "Yuruna locale terminology source",
   "type": "object",
-  "required": [
-    "schema",
-    "locale",
-    "status",
-    "sources",
-    "approvals",
-    "terms",
-    "retiredNameRulings"
-  ],
+  "required": ["schema", "locale", "terms", "retiredNameRulings"],
   "additionalProperties": false,
   "properties": {
     "schema": { "const": "yuruna.terminology/v1" },
-    "locale": { "const": "pt-BR" },
-    "status": { "enum": ["draft", "approved"] },
-    "sources": {
-      "type": "object",
-      "required": ["definitions", "retiredNames"],
-      "additionalProperties": false,
-      "properties": {
-        "definitions": {
-          "type": "object",
-          "required": ["path", "hashAlgorithm", "sha256"],
-          "additionalProperties": false,
-          "properties": {
-            "path": { "const": "docs/definition.md" },
-            "hashAlgorithm": { "const": "sha256-file-bytes-v1" },
-            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
-          }
-        },
-        "retiredNames": {
-          "type": "object",
-          "required": ["path", "startMarker", "endMarker", "hashAlgorithm", "sha256", "entryCount"],
-          "additionalProperties": false,
-          "properties": {
-            "path": { "const": "tools/githooks/pre-commit" },
-            "startMarker": { "const": "retired_names='" },
-            "endMarker": { "const": "'" },
-            "hashAlgorithm": { "const": "sha256-utf8-lf-retired-pairs-v1" },
-            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            "entryCount": { "type": "integer", "minimum": 1 }
-          }
-        }
-      }
-    },
-    "approvals": {
-      "type": "object",
-      "required": ["translator", "independentReviewer"],
-      "additionalProperties": false,
-      "properties": {
-        "translator": { "$ref": "#/definitions/approval" },
-        "independentReviewer": { "$ref": "#/definitions/approval" }
-      }
-    },
-    "terms": {
-      "type": "array",
-      "minItems": 11,
-      "items": { "$ref": "#/definitions/term" }
-    },
+    "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+    "terms": { "type": "array", "minItems": 11, "items": { "$ref": "#/definitions/term" } },
     "retiredNameRulings": {
-      "type": "array",
-      "minItems": 4,
-      "maxItems": 4,
+      "type": "array", "minItems": 4, "maxItems": 4,
       "items": { "$ref": "#/definitions/retiredNameRuling" }
     }
   },
-  "allOf": [
-    {
-      "if": { "properties": { "status": { "const": "approved" } } },
-      "then": {
-        "properties": {
-          "approvals": {
-            "properties": {
-              "translator": { "properties": { "status": { "const": "approved" } } },
-              "independentReviewer": { "properties": { "status": { "const": "approved" } } }
-            }
-          },
-          "terms": {
-            "items": {
-              "properties": {
-                "ptBRDecision": {
-                  "properties": {
-                    "status": { "enum": ["translated", "retained", "explained"] }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ],
   "definitions": {
-    "approval": {
-      "type": "object",
-      "required": ["status"],
-      "additionalProperties": false,
-      "properties": {
-        "status": { "enum": ["pending", "approved"] },
-        "approvedBy": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "approvedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-        "evidence": { "$ref": "#/definitions/evidence" }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "status": { "const": "approved" } } },
-          "then": { "required": ["approvedBy", "approvedAt", "evidence"] },
-          "else": {
-            "not": {
-              "anyOf": [
-                { "required": ["approvedBy"] },
-                { "required": ["approvedAt"] },
-                { "required": ["evidence"] }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    "evidence": {
-      "type": "object",
-      "required": ["releaseVersion", "approvedContent"],
-      "additionalProperties": false,
-      "properties": {
-        "releaseVersion": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}(\\.[0-9]+)?$" },
-        "approvedContent": {
-          "type": "object",
-          "required": ["algorithm", "sha256"],
-          "additionalProperties": false,
-          "properties": {
-            "algorithm": { "type": "string", "const": "sha256-canonical-approvable-v1" },
-            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
-          }
-        }
-      }
-    },
     "term": {
       "type": "object",
-      "required": ["sourceTerm", "meaning", "sourceHeadings", "ptBRDecision"],
+      "required": ["sourceTerm", "meaning", "sourceHeadings", "decision"],
       "additionalProperties": false,
       "properties": {
         "sourceTerm": { "type": "string", "minLength": 1, "maxLength": 100 },
         "meaning": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "sourceHeadings": {
-          "type": "array",
-          "minItems": 1,
+          "type": "array", "minItems": 1,
           "items": { "type": "string", "minLength": 1, "maxLength": 200 }
         },
-        "ptBRDecision": { "$ref": "#/definitions/termDecision" }
+        "decision": { "$ref": "#/definitions/termDecision" }
       }
     },
     "termDecision": {
@@ -158,34 +34,18 @@
       "required": ["status"],
       "additionalProperties": false,
       "properties": {
-        "status": { "enum": ["pending", "translated", "retained", "explained"] },
+        "status": { "enum": ["translated", "retained", "explained"] },
         "targetTerm": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "rationale": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "origin": { "const": "machine" }
       },
       "allOf": [
-        {
-          "if": { "properties": { "status": { "const": "pending" } } },
-          "then": {
-            "not": {
-              "anyOf": [
-                { "required": ["targetTerm"] },
-                { "required": ["rationale"] }
-              ]
-            }
-          }
-        },
-        {
-          "if": { "properties": { "status": { "enum": ["translated", "explained"] } } },
-          "then": { "required": ["targetTerm"] }
-        },
-        {
-          "if": { "properties": { "status": { "const": "explained" } } },
-          "then": { "required": ["rationale"] }
-        },
-        {
-          "if": { "properties": { "status": { "const": "retained" } } },
-          "then": { "not": { "required": ["targetTerm"] } }
-        }
+        { "if": { "properties": { "status": { "enum": ["translated", "explained"] } } },
+          "then": { "required": ["targetTerm"] } },
+        { "if": { "properties": { "status": { "const": "explained" } } },
+          "then": { "required": ["rationale"] } },
+        { "if": { "properties": { "status": { "const": "retained" } } },
+          "then": { "not": { "required": ["targetTerm"] } } }
       ]
     },
     "retiredNameRuling": {

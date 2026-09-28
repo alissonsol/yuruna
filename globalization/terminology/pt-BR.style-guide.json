@@ -1,38 +1,6 @@
 {
   "schema": "yuruna.style-guide/v1",
   "locale": "pt-BR",
-  "status": "approved",
-  "terminologySource": {
-    "path": "globalization/terminology/pt-BR.terms.json",
-    "hashAlgorithm": "sha256-file-bytes-v1",
-    "sha256": "1f970a259883179e969cf60d9c6cafcff4a4c620ae28c5e9981e1124f36bb377"
-  },
-  "approvals": {
-    "translator": {
-      "status": "approved",
-      "approvedBy": "Alisson Sol",
-      "approvedAt": "2026-09-24",
-      "evidence": {
-        "releaseVersion": "2026.09.24",
-        "approvedContent": {
-          "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "68b8571f605c7be83f3910771f4e0a012f1da70f6ae58a11b84ed2206ec272db"
-        }
-      }
-    },
-    "independentReviewer": {
-      "status": "approved",
-      "approvedBy": "Denise Sol",
-      "approvedAt": "2026-09-24",
-      "evidence": {
-        "releaseVersion": "2026.09.24",
-        "approvedContent": {
-          "algorithm": "sha256-canonical-approvable-v1",
-          "sha256": "68b8571f605c7be83f3910771f4e0a012f1da70f6ae58a11b84ed2206ec272db"
-        }
-      }
-    }
-  },
   "rules": [
     {
       "id": "terminology",

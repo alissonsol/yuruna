@@ -44,7 +44,7 @@ func newTestServer(t *testing.T, gate Gate) *httptest.Server {
 			return map[string]any{"ok": true, "on": in.On}, nil
 		},
 	})
-	srv := httptest.NewServer(NewServer("test-service", "2026.09.24", reg, gate).Handler())
+	srv := httptest.NewServer(NewServer("test-service", "2026.09.27", reg, gate).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -96,7 +96,7 @@ func TestInitializeAnswersThePinnedProtocol(t *testing.T) {
 		}
 	}
 	info, _ := res["serverInfo"].(map[string]any)
-	if info["name"] != "test-service" || info["version"] != "2026.09.24" {
+	if info["name"] != "test-service" || info["version"] != "2026.09.27" {
 		t.Errorf("serverInfo = %v", info)
 	}
 }
@@ -421,5 +421,119 @@ func TestFromRouteSurfacesARouteRefusal(t *testing.T) {
 	_, err := FromRoute(route, http.MethodGet, "/api/thing")(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "auth-unconfigured") {
 		t.Errorf("a refusing route must surface its body, got %v", err)
+	}
+}
+
+// --- REGION: Per-tool gates
+// countingGate records every request it was asked about, so a test can tell
+// "refused by this gate" from "never consulted".
+type countingGate struct {
+	mu     sync.Mutex
+	calls  int
+	allow  bool
+	reason string
+}
+
+func (g *countingGate) Allow(*http.Request) (bool, string, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls++
+	if g.allow {
+		return true, "", ""
+	}
+	return false, g.reason, "tool gate refused"
+}
+
+func (g *countingGate) count() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
+}
+
+func gatedServer(t *testing.T, serverGate Gate, toolGate Gate, ran *int) *httptest.Server {
+	t.Helper()
+	reg := NewRegistry()
+	reg.MustAdd(Tool{
+		Name: "gated_mutation",
+		Gate: toolGate,
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			*ran++
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	srv := httptest.NewServer(NewServer("test-service", "1", reg, serverGate).Handler())
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const gatedCall = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"gated_mutation"}}`
+
+// A tool gate narrows: the server gate admits, the tool gate refuses, and the
+// refusal carries the tool gate's own reason without running the handler.
+func TestToolGateRefusesWhenTheServerGateAllows(t *testing.T) {
+	ran := 0
+	tool := &countingGate{reason: "refresh_credential_required"}
+	srv := gatedServer(t, openGate(), tool, &ran)
+	got := call(t, srv, gatedCall)
+	errObj, ok := got["error"].(map[string]any)
+	if !ok || int(errObj["code"].(float64)) != CodeRefused {
+		t.Fatalf("a tool-gate refusal must be a JSON-RPC refusal: %v", got)
+	}
+	if errObj["data"].(map[string]any)["reason"] != "refresh_credential_required" {
+		t.Errorf("reason = %v, want the tool gate's own", errObj["data"])
+	}
+	if ran != 0 || tool.count() != 1 {
+		t.Errorf("handler ran %d times, tool gate asked %d times", ran, tool.count())
+	}
+}
+
+// The server gate is asked first; when it refuses, the tool gate is never
+// consulted, so a caller the daemon refuses cannot spend the tool gate's
+// failure allowance.
+func TestServerGateRefusesFirst(t *testing.T) {
+	ran := 0
+	tool := &countingGate{allow: true}
+	srv := gatedServer(t, shutGate("unauthorized", "no"), tool, &ran)
+	got := call(t, srv, gatedCall)
+	errObj, ok := got["error"].(map[string]any)
+	if !ok || errObj["data"].(map[string]any)["reason"] != "unauthorized" {
+		t.Fatalf("the server gate's reason must win: %v", got)
+	}
+	if tool.count() != 0 || ran != 0 {
+		t.Errorf("tool gate asked %d times, handler ran %d times", tool.count(), ran)
+	}
+}
+
+func TestBothGatesAllowingRunsTheTool(t *testing.T) {
+	ran := 0
+	tool := &countingGate{allow: true}
+	srv := gatedServer(t, openGate(), tool, &ran)
+	got := call(t, srv, gatedCall)
+	if _, ok := got["result"].(map[string]any); !ok || ran != 1 || tool.count() != 1 {
+		t.Fatalf("both gates allowed, got %v ran=%d asked=%d", got, ran, tool.count())
+	}
+}
+
+func TestNilToolGateChangesNothing(t *testing.T) {
+	ran := 0
+	srv := gatedServer(t, openGate(), nil, &ran)
+	if got := call(t, srv, gatedCall); got["result"] == nil || ran != 1 {
+		t.Fatalf("nil tool gate: %v ran=%d", got, ran)
+	}
+	ran = 0
+	srv = gatedServer(t, shutGate("auth-unconfigured", "no"), nil, &ran)
+	if got := call(t, srv, gatedCall); got["error"] == nil || ran != 0 {
+		t.Fatalf("nil tool gate must not bypass the server gate: %v", got)
+	}
+}
+
+func TestRegistryRejectsAGatedReadOnlyTool(t *testing.T) {
+	reg := NewRegistry()
+	err := reg.Add(Tool{Name: "odd", ReadOnly: true, Gate: openGate(), Handler: func(context.Context, json.RawMessage) (any, error) { return nil, nil }})
+	if err == nil {
+		t.Fatal("a read-only tool with a gate must be rejected")
+	}
+	if _, ok := reg.Get("odd"); ok {
+		t.Fatal("the rejected tool was registered anyway")
 	}
 }

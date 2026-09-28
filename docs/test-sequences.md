@@ -478,6 +478,7 @@ Type a command + Enter, then wait for `waitPattern` to appear on screen
 | `charDelayMs` | number | Default `50`. |
 | `delaySeconds` | number | Drain pause before Enter; default `2`. |
 | `waitPattern` | string | Required completion marker. |
+| `noSegmentMatch` | boolean | Default `false`. Require the completion pattern within one line and a bounded character span, preserving OCR character tolerance. |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 
@@ -494,30 +495,35 @@ held down that the guest kernel auto-repeats at the console default of
 has been lost repeatedly, degrading around character ~416, while the 370- and
 410-character sends in the same sequence were unaffected.
 
-On `host.macos.utm`, a complete `fetchAndExecute` command longer than 400
-characters now uses verified GUI staging. The harness types quoted chunks of
+On GUI hosts, a complete `fetchAndExecute` command longer than 400
+characters uses verified staging. The harness types quoted chunks of
 at most 240 characters into an open Bash subshell, then types a verification
 line below 400 characters. Bash waits for the closing line before executing
 the group. The complete command must match its host-computed SHA-256 before
 evaluation; a missing or changed chunk produces the ordinary failure marker.
+Each chunk assignment ends with a semicolon, counted in the input budget.
+A lost Enter between chunks, including before the verification line, therefore
+cannot join an assignment to the next shell command. Duplicate inter-line
+Enters are harmless; the final Enter is still needed to submit the group.
 The temporary variable stays inside the subshell, and the payload's exit status
 is preserved. Both VNC and the CGEvent fallback receive literal continuation
 lines, without the fallback's per-command shell rewrite.
 
 Staging preserves both file digests, the required-verification flag, the pinned
 fallback source, full invocation IDs and profiling. It uses GUI input throughout
-and needs no new guest helper. Short commands retain one send; other host types
-retain their existing warning behavior. The completion and failure OCR checks
-continue after the final input. The verification line encodes its failure marker
+and needs no new guest helper. Short commands retain one send. The completion
+and failure OCR checks continue after the final input. The verification line encodes its failure marker
 so the echoed command cannot itself trigger the fuzzy failure matcher.
+The existing 20-second shell-rejection window also recognizes Bash syntax
+errors, which can occur before the verification code or payload starts and
+therefore cannot emit the wrapper's failure marker.
 
 **Authors: the budget includes the YAML `text:`, metadata and shell quoting.**
-The incident's 129-character website invocation became 458 characters with its
-integrity envelope, observation IDs and shell wrapper. It now uses four sends
-of 240, 240, 17 and 268 characters. Each send pays the configured drain pause,
-so this example adds three pauses (about 8.4 seconds with the default 2-second
-drain and 800-millisecond settle), plus additional typing. Keep substantive
-work inside the fetched script to limit that overhead.
+The complete invocation includes the integrity envelope, observation IDs,
+shell wrapper, and assignment terminators. Each additional send pays the
+configured drain pause (2 seconds by default) and 800-millisecond settle,
+plus additional typing. Keep substantive work inside the fetched script to
+limit that overhead.
 
 <a id="428e4df6-0015"></a>
 
@@ -589,6 +595,13 @@ non-newline-terminated lines get overwritten on the framebuffer by late
 console messages. Parameters are the same as
 `waitForAndEnter`, minus the explicit `sensitive` flag.
 
+`noSegmentMatch` defaults to `true` for this action, including username
+prompts. A match must fit within one OCR line and a bounded character span;
+character confusion and dropped characters remain tolerated. Installer text
+containing an account name and `/etc/login.defs` must not count as a login
+prompt and trigger input before installation finishes. An explicit `false`
+restores segment matching for a caller that requires reordered OCR text.
+
 A PAM rotation prompt is also the standard case for `sinceStepStart`. The
 banner announcing that the password must be changed carries the words of
 the prompt that follows it, so a wait allowed to read the whole frame
@@ -645,6 +658,46 @@ may nest.
 |---|---|---|
 | `maxAttempts` | integer | Default `3`, must be `>= 1`. |
 | `steps` | array | Step objects, recursive (same shape as a top-level `steps:`). |
+| `restartVmBeforeRetry` | string | Optional. `arm64HyperVColdPowerCycle` cold-restarts only on native ARM64 Hyper-V, only after a `waitForTextWithNudge` timeout, and only when another attempt remains. Other hosts retain ordinary retry behavior. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
+| `stepsAfterVmRestart` | array | Optional recursive steps run only after that cold restart succeeds. Use this to restore or settle boot state (for example, re-answering an installer confirmation or waiting for an installed guest's console) before the next attempt. |
+
+The cold-restart mode is intentionally narrower than a portable “restart on
+failure” switch. It does not run for a matched `failurePatterns` entry, a
+console flood, or a password-prompt failure. Keep credential-changing steps
+outside such a retry block so a partially completed password transaction is
+never replayed after a power cut.
+
+`arm64HyperVInstallerBoot` permits at most two attempts of a single
+`waitForAndEnter` step answering `yes` to `Continue with autoinstall?`.
+It requires a timed-out wait, at least 120 seconds of currently unchanged
+console content, an independent Hyper-V framebuffer verdict of `guest-static`,
+and a live-ISO boot marker in the OCR tail (`/scripts/casper-` or
+`Setting up console keyboard`). Missing evidence, explicit failure patterns,
+and console floods end the retry without restarting. Sensitive input and
+post-restart steps are forbidden in this mode. AMD64 Hyper-V and other
+providers execute the original prompt wait once, with no cold restart.
+
+Ubuntu 26 opts into this mode for its first installer confirmation, retaining
+the 1800-second timeout and blind-answer fallback. Attempt evidence is saved
+before recovery. The retry refreshes the step watchdog heartbeat between
+attempts; each attempt, including capture-repair grace, must fit within the
+configured watchdog budget. With the default 3600-second watchdog, the
+1800-second wait leaves room for diagnostics and the bounded stop/start.
+
+<a id="428e4df6-0039"></a>
+
+### startVm
+
+Wait for a guest-requested clean shutdown, optionally change the processor
+count of an ARM64 Hyper-V guest while it is off, then start it through the host
+driver. On other hosts, and on AMD64 Hyper-V, the processor option changes
+nothing. This is the provisioning-to-workload transition used by Ubuntu 26:
+one vCPU for the serial installer/update path, two for kubeadm afterward.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `timeoutSeconds` | integer | Time to wait for the VM to become stopped; default `120`. |
+| `arm64HyperVProcessorCount` | integer or string | Optional positive target; supports variable substitution. |
 
 <a id="428e4df6-001d"></a>
 
@@ -680,6 +733,9 @@ Mid-sequence checkpoint dump. SSHes into the guest, runs
 `<cycleGuestDataFolder>/yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt`.
 Soft-failing -- unreachable guest or missing pwsh does not break the
 sequence. Capture is opt-in; the runner does not auto-invoke it.
+The complete collection has a 300-second deadline, including sampling,
+fallbacks and process cleanup. Partial evidence and a typed timeout
+manifest survive a hung collector; the workload's result is preserved.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -795,6 +851,7 @@ plus the blind-answer set below.
 | Parameter | Type | Notes |
 |---|---|---|
 | `blindAfterSeconds` | integer | Split the budget: wait this long normally, then, if the console has gone quiet, send `text` anyway and watch for it to be consumed. `0`/absent (default) keeps the plain one-window behavior. Ignored when it is not shorter than `timeoutSeconds`. |
+| `skipInputPattern` | string/array | If the OCR frame that satisfied `pattern` also matches this value, finish without typing. Use a later-state prompt when a recovery may find the guest already past the prompt that needs `text`. |
 | `confirmPattern` | string/array | What proves the blind answer landed. Without it, the proof is the console content changing at all. |
 | `confirmSeconds` | integer | How long to wait for that proof (default `90`). |
 
@@ -823,8 +880,8 @@ Wait a fixed number of seconds.
 ### waitForText
 
 Capture + OCR the VM screen until `pattern` appears. `freshMatch=true`
-waits for the pattern to clear first if already on screen (avoids
-matching the previous step's residue). `failurePatterns` short-circuits
+restricts matching to the last `freshMatchTailLines` lines of each OCR
+result. `failurePatterns` short-circuits
 the wait if an anti-pattern matches -- canonical use: subiquity's
 `install_fail.crash` / `Press enter to start a shell` so an installer
 crash fails the cycle in ~20s instead of waiting the full
@@ -838,6 +895,7 @@ crash fails the cycle in ~20s instead of waiting the full
 | `freshMatch` | boolean | |
 | `freshMatchTailLines` | number | Default `12`. |
 | `sinceStepStart` | boolean | Match only text the guest printed after this wait began. |
+| `noSegmentMatch` | boolean | Default `false`; `passwdPrompt` defaults to `true`. Disable matching words scattered across the screen; retain bounded, per-line OCR tolerance. |
 | `failurePatterns` | string or string[] | Anti-patterns; matching any fails the step with a label naming the matched pattern. |
 
 `sinceStepStart=true` narrows the positive match in time rather than in
@@ -867,6 +925,13 @@ including when it was already visible on arrival. It is independent of
 `freshMatchTailLines` lines and therefore excludes nothing on a screen
 shorter than that window.
 
+Set `noSegmentMatch: true` for login-readiness waits as well as the action
+that types the username. The option applies to every positive-match path:
+each OCR engine, accumulated frames, `sinceStepStart` filtering, and
+fresh-window diagnostics. For `waitForAndEnter`, it also governs
+`skipInputPattern` and `confirmPattern`. Ordinary text waits retain segment
+matching for callers that need OCR word reordering.
+
 <a id="428e4df6-0028"></a>
 
 ### waitForTextWithNudge
@@ -879,7 +944,7 @@ patterns before pressing the key.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `sinceStepStart`, `failurePatterns` | same as `waitForText` | |
+| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `sinceStepStart`, `noSegmentMatch`, `failurePatterns` | same as `waitForText` | |
 | `nudgeKey` | string | Required key name; typically `Enter` for agetty. |
 | `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
 
@@ -1266,6 +1331,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

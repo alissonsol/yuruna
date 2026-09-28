@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,8 +37,9 @@
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
     hook point at for the published artifact.
 
-    It also repoints the one release pin that is still hard-coded -- the README
-    verified-path snippet's signed-download URL -- to `refs/tags/<VERSION>`.
+    It also repoints the release pins that are still hard-coded -- the README
+    verified-path snippets' signed-download URLs and the pinned convenience
+    form of the macOS refresh dispatch -- to `refs/tags/<VERSION>`.
     The installers themselves carry no baked version: -PinVersion / PIN_VERSION
     reads the repo's VERSION file at install time, and the clone DEFAULT stays on
     the moving `main` branch so normal installs auto-update. The pin is rewritten
@@ -250,8 +251,9 @@ function Publish-VerifiedManifestPair {
 }
 
 function Update-ReleasePin {
-    # Repoint the install/README.md verified-path snippet (the signed-download
-    # URL) from refs/tags/<calver> to refs/tags/<Version>. The installers do NOT
+    # Repoint every tagged URL in install/README.md -- the verified-path snippets'
+    # signed-download URLs and the refresh convenience form -- from
+    # refs/tags/<calver> to refs/tags/<Version>. The installers do NOT
     # carry a baked version: -PinVersion / PIN_VERSION reads the repo's VERSION
     # file at install time, and the clone DEFAULT stays on the moving 'main'
     # branch -- so a release never re-pins a fresh install and there is nothing
@@ -262,9 +264,12 @@ function Update-ReleasePin {
     $utf8   = [System.Text.UTF8Encoding]::new($false)
     $calver = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
     $edits = @(
-        # Only the README verified-path snippet hard-codes a tag in its
-        # signed-download URL; the convenience one-liners deliberately stay on
-        # refs/heads/main (unverified latest).
+        # Three README URLs carry a tag: the signed-download base of the
+        # Windows and of the bash verified-path snippet, and the refresh
+        # convenience form, which has to name a refresh-capable release because
+        # an older installer ignores --refresh and runs a full install. One
+        # replace repoints all three. The install convenience one-liners
+        # deliberately stay on refs/heads/main (unverified latest).
         @{ file = 'install/README.md';           pat = '(alissonsol/yuruna/)refs/tags/' + $calver; rep = '${1}refs/tags/' + $Version }
     )
     foreach ($e in $edits) {
@@ -416,7 +421,11 @@ if ($Commit -or $Tag -or $Push) {
         if ((Invoke-GitChecked -GitArgs @('diff', '--cached', '--quiet') -AllowFail) -eq 0) {
             Write-Information "  nothing to commit (release artifacts already committed)." -InformationAction Continue
         } else {
-            Invoke-GitChecked -GitArgs @('commit', '-m', "Release $version") | Out-Null
+            # An automated commit never drafts translations: the commit hook's
+            # translation pass would call a paid API from an unattended run.
+            $previous = $env:YURUNA_TRANSLATE; $env:YURUNA_TRANSLATE = '0'
+            try { Invoke-GitChecked -GitArgs @('commit', '-m', "Release $version") | Out-Null }
+            finally { if ($null -eq $previous) { Remove-Item Env:YURUNA_TRANSLATE -ErrorAction SilentlyContinue } else { $env:YURUNA_TRANSLATE = $previous } }
             Write-Information "  committed: Release $version" -InformationAction Continue
         }
     }

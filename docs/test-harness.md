@@ -27,7 +27,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 `test/` itself holds the seven entry points an operator reaches for daily. The
 rest are grouped by what they act on: `test/lab/` (standing a lab up on this
 host -- the four host-neutral entry points, lab creation, local storage, token
-enrollment, host refresh), `test/pool/` (the pool-admin CLI and the sample intent files),
+enrollment, host refresh and its remote-refresh credentials), `test/pool/` (the pool-admin CLI and the sample intent files),
 `test/service/` (service VM and host-service lifecycle, plus the
 caching-proxy-service operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
 internals, not invoked directly). The repo-wide encoding gate lives at
@@ -150,10 +150,12 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
 | `Test.HostAddressBeacon` | Push half of address discovery: re-announces this host when its address changes instead of waiting for the aggregator's pull |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
-| `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot |
-| `Test.SingleFlightLock` | Cross-process exclusive lock backed by an OS file lock held open for a whole operation's lifetime, not just its metadata write |
-| `Test.HostRefresh`     | Host-neutral hypervisor-repair rung ladder (`Get-VirtualizationRepairRung`); declares what each platform's repair driver can attempt today |
-| `Test.HostRefreshIntent` | Durable request/attempt record for one host-refresh invocation: new/retry/policy-mismatch/active-collision state machine |
+| `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot; the Preserve/Repair policy that decides what an unknown state means (`Test-YurunaServiceVmRunning`), and restoration that carries each probe's reason, skips a service an operator stopped, and verifies the consumer endpoint within a shared deadline |
+| `Test.ServiceCensus`   | Passive service-VM census written by the address beacon without a single Apple Events call, the stop/start intents the service scripts publish, per-service-key operation locks, and the identity rows a host refresh captures before it disrupts anything |
+| `Test.SingleFlightLock` | Cross-process exclusive lock backed by an OS file lock held open for a whole operation's lifetime, not just its metadata write: bounded waits, lock ranks (HostOperation, then ServiceKey, then one of Admission, CensusMerge or Gate), self-verified exclusion, and state, ownership and file-system qualification checks |
+| `Test.HostRefresh`     | Host-refresh repair worker and its host-neutral pieces: the rung declaration (`Get-VirtualizationRepairRung`, available only where an executor exists and the platform is qualified), the 915-second budget and its phases, the verdict and exit-code table, the public `host-refresh.state.json` projection and its heartbeat publisher, the capability summary, and the worker argument vector. Holds no driver import, so the status service can load it |
+| `Test.HostRefreshIntent` | The host-refresh request journal (a critical record under the private root): admission under its own lock, claim, retry and abandonment, recovery records and the obligations a repair must discharge, the start-cycle reservation, and the recorded automation-grant subjects |
+| `Test.HostRefreshAuth` | Remote host-refresh authorization: versioned proof mint and verify with an explicit clock and skew, per-host verifier-key storage and checks (owner-only, no links, host match), the listener's `Test-YurunaHostRefreshAuthorization` layer, the remote-state summary and the provisioning primitives behind `test/lab/Set-HostRefreshCredential.ps1`, including `ConvertTo-YurunaHostRefreshHostKeyLine`, which formats a host verifier key as its one-line secret. Imports only `Yuruna.Globalization`; its suite pins the vectors shared with the Go verifier |
 | `Test.StatusFirewall`  | Per-OS allow rule that makes the status-service port reachable from the LAN |
 | `Test.RootArtifact`    | Finds and clears the root-owned state a `sudo` run of an entry point leaves behind (Unix only) |
 
@@ -168,9 +170,11 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.RunnerHeartbeat` | Threadpool-timer process heartbeat, which keeps ticking while the runspace blocks |
 | `Test.RunnerState`     | Explicit outer-runner state machine with persisted state + NDJSON transition events |
 | `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
-| `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`) |
-| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn and `Invoke-TestProject` |
-| `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind |
+| `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`); the process-table builder and identity classifier that decide which runner processes a repair may stop, the refresh gate that holds spawns during a repair, the handoff token and readiness acknowledgment that bring the runner back, and the persisted launch record a resumed runner starts from |
+| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn and `Invoke-TestProject`; `Start-YurunaDetachedProcess`, which starts a worker that outlives its launcher and confirms it with a handshake |
+| `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind; its refresh-preservation mode keeps operator controls and the reclaimed runner's records when a repair restarts the runner |
+| `Test.HostRefreshTrigger` | Automatic host-refresh policy: per-cycle hypervisor-timeout evidence, the persisted count, the UTC-day attempt budget and the resident runner's post-cycle repair decision -- see [testCycle.autoRefreshAfterStalls](test-config.md) |
+| `Test.OuterLog`        | Timestamped `outer.log` writer shared by the outer loop and the host-refresh worker; never throws when the runtime directory is unset |
 
 **Configuration**:
 
@@ -200,6 +204,8 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.FrameworkSource` | Which framework snapshot a service VM was built from, and whether the guest fell back to the public mirror |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
 | `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); the default extension delivers email via Resend |
+| `Test.StatusControlRoute` | Driver-free helpers behind the status service's host-refresh, start-cycle and host-diagnostic routes: the bounded request-body reader, request validation, the admission replies and the `refresh` summary in `/control/control-status` |
+| `Invoke-StartCycleWorker.ps1` / `Invoke-HostDiagnosticWorker.ps1` | Detached workers the status service launches for *Save and start cycle* and for the host diagnostic, so a slow cleanup or a hung probe never blocks the listener |
 
 **Failure classification and recovery**:
 
@@ -242,8 +248,10 @@ source searches and status-UI click-throughs land on their exported entry point.
 |--------|---------|
 | `Test.Registry`        | `New-YurunaRegistry` -- the closure-bundle + global-anchor primitive every registry above is built on |
 | `Test.StateFile`       | Atomic sidecar writer -- see [State sidecars](#state-sidecars) |
+| `Test.CriticalRecord`  | Checksummed, generation-numbered private records with a retained previous generation and bounded, flushed writes (process-crash durability), for state that authorizes a mutation |
 | `Test.Hash`            | Byte array -> lowercase hex, so every hashing caller shares one encoding |
 | `Test.Assert`          | The suite assertion vocabulary and test scaffolds -- see [One assertion vocabulary](#one-assertion-vocabulary). Imported by suites only, never by harness code |
+| `Test.MacUtmFakeHost`  | Test support: a stand-in macOS/UTM host (fake `utmctl`, `osascript`, `pgrep` and friends) for the macOS driver suites `Test.MacVirtualizationResponsive`, `Test.MacUtmLifecycle` and `Test.MacUtmBoundedNative`. Imported by suites only |
 
 <a id="42d38664-0006"></a>
 
@@ -279,8 +287,15 @@ discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking
 `Test-CacheVMOnExternalNetwork`), caching-proxy-service port maps
 (`Add-PortMap`, `Remove-PortMap`, `Test-CachingProxyServiceAvailable`,
 `Get-CachingProxyServiceVmIp`), host-side proxy (`Set-HostProxy`,
-`Clear-HostProxy`, `Remove-HostProxy`), and virtualization checks
-(`Assert-Virtualization`). Per-host notes for the contracts that
+`Clear-HostProxy`, `Remove-HostProxy`), virtualization checks
+(`Assert-Virtualization`), and virtualization repair
+(`Test-VirtualizationResponsive`, a bounded read-only probe of the
+hypervisor's control channel, and `Start-VirtualizationServiceIfStopped`, which
+starts a hypervisor service only on positive evidence that it is stopped).
+`Test.HostDriverContractParity` checks that all three drivers define, export and
+declare every contract verb, and `Test.KvmStartIfStopped` and
+`Test.HyperVVirtualizationResponsive` cover the two verbs on KVM and Hyper-V.
+Per-host notes for the contracts that
 diverge in operationally significant ways (snapshot + rename, screen
 I/O):
 [Sequence actions and host contracts](test-sequences.md#yurunahost-contract).
@@ -431,8 +446,26 @@ count below its baseline. The last two are what catch SILENT test loss: a
 deleted suite and a `Describe` that quietly stopped discovering half its cases.
 
 `test/modules/suite-baseline.json` is that reference and is tracked. Re-record
-it with `-UpdateBaseline` only as a deliberate, reviewed change -- it is the only
-thing standing between the suite set and a slow leak of coverage.
+all rows with `-UpdateBaseline` only from a passing full run, as a deliberate,
+reviewed change. The refresh rejects lost suites, lower test counts, and new
+skips; deliberate removals or skip allowances require a separate reviewed edit.
+
+To register newly added suites without refreshing historical rows, run:
+
+```powershell
+pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -RegisterNewSuites
+```
+
+Registration runs **every** discovered suite absent from the baseline and
+requires passing NUnit evidence with no skipped tests. It preserves all existing
+rows, skip allowances, and the historical full-run timestamp, and records the
+registration timestamp and new suite source hashes separately. It rejects
+removed suites and changes to discovery, new suite sources, or the baseline
+during execution. Filters and `-UpdateBaseline` cannot be combined with this
+mode. Review and stage the resulting baseline with the new suites.
+
+Registration is not a full-run success claim: existing suites are not re-run,
+and their failures or lost tests still fail an ordinary full run.
 
 `tools/Invoke-GoTest.ps1` is the same idea for the extension services: `go
 build`, `go vet` and `go test` per module, discovered by walking for `go.mod`.
@@ -1054,6 +1087,26 @@ Earlier rungs' text output is not discarded -- `$lastResult` keeps the
 most informative one, so a partial-and-failed earlier capture is still
 written when every later rung ends up empty.
 
+The entire capture runs in `Invoke-GuestDiagnosticWorker.ps1`, supervised
+by a monotonic **300-second deadline**. This includes process startup,
+host and guest samples, host-driver calls, credential lookup, SSH,
+console input and cleanup. Each SSH attempt has a **60-second cap**;
+stream draining, process-tree termination and disposal share that cap.
+Blocking cleanup runs outside the caller's PowerShell runspace.
+
+The worker restores the current guest's SSH username and proven address,
+the host driver and the resolved operator locale. It imports them in a
+separate process so the live runner's driver state remains intact.
+Password SSH passes `SSHPASS` only in the child client's environment.
+
+Atomic, invocation-specific checkpoints preserve completed samples and
+partial SSH output before another fallback starts. The supervisor writes
+the final `.manifest.json`, including `diagnosticOutcome`, `timedOut`,
+`budgetExceeded`, `elapsedSeconds` and worker cleanup status. An expired
+worker yields `reasonCode: diagnostic-deadline-exceeded`; display language
+does not determine the outcome. Diagnostic failure remains nonfatal to
+the sequence, and the cycle watchdog remains independent.
+
 **Wait-SshReady preflight.** Sequences often end with "Reboot the
 VM", so the guest may be mid-reboot when `Save-GuestDiagnostic` runs.
 Without a real-handshake gate, the call would either bail at
@@ -1063,8 +1116,8 @@ sshd-still-binding "half-up sshd" race -- see
 `feedback_save_diag_post_reboot.md`). `Wait-SshReady` polls a real
 `echo yuruna-ssh-ready` handshake and re-resolves `Get-GuestAddress`
 each iteration, so a late-binding KVP entry on the Hyper-V External
-vSwitch is picked up automatically. On timeout we skip: an empty cycle
-folder beats a header-only error file.
+vSwitch is picked up automatically. On timeout, the SSH rungs are skipped
+and the console fallback can use the remaining budget.
 
 The wait budget is capped by `min(180, remaining-of-total-budget)`,
 so a near-deadline call cannot push the cycle past the
@@ -1096,6 +1149,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

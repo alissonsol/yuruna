@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -483,7 +483,7 @@ function Invoke-Tool {
                 $last = $lines[$lines.Count - 1]
                 if ($last -is [int]) {
                     $exit = [int]$last
-                    $lines = $lines[0..($lines.Count - 2)]
+                    $lines = @(if ($lines.Count -gt 1) { $lines[0..($lines.Count - 2)] })
                 }
             }
             $lines | ForEach-Object { Write-Output ([string]$_) }
@@ -566,6 +566,56 @@ function Test-CommandAvailable {
     if ($null -eq $cmd) { return $false }
     if ($cmd.CommandType -ne 'Application') { return $true }
     return (Test-ExecutableFile -Path $cmd.Source)
+}
+
+# utmctl is an Apple Events client with no timeout of its own, and this report
+# is most often wanted when UTM has stopped answering -- exactly when an
+# unbounded `utmctl list` would hang the diagnostic that was meant to explain
+# the hang. The call is bounded through the macOS driver's Invoke-UtmctlProbe
+# when the driver is loaded, through Invoke-BoundedNativeCommand otherwise, and
+# is skipped rather than run unbounded when neither can be loaded.
+function Get-DiagnosticUtmctlListing {
+    <#
+    .SYNOPSIS
+        The `utmctl list` standard output lines, bounded, plus a note when the
+        call did not return a complete answer.
+    .PARAMETER TimeoutSeconds
+        The wall-clock cap for the call.
+    .OUTPUTS
+        [string] one element per line.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 20)
+    $utmctl = @(Get-Command -Name utmctl -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if (-not $utmctl) { return }
+    if (Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue) {
+        $result = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds $TimeoutSeconds -UtmctlPath $utmctl.Source -Quiet
+    } else {
+        if (-not (Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
+        }
+        if (-not (Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Write-Verbose 'Get-DiagnosticUtmctlListing: no bounded runner could be loaded; utmctl list skipped.'
+            return
+        }
+        $result = Invoke-BoundedNativeCommand -FilePath $utmctl.Source -ArgumentList @('list') -TimeoutSeconds $TimeoutSeconds
+    }
+    $text = "$($result.StdOut)".TrimEnd("`r", "`n")
+    if ($text) { $text -split "`r?`n" }
+    # Partial output is printed either way -- it may be all an operator gets --
+    # but any result that is not a complete answer says so: a timeout, a
+    # stream not read to the end, output cut at the capture cap, a child that
+    # could not be stopped, or a call never started.
+    $complete = if (Get-Command -Name Test-BoundedNativeResultComplete -ErrorAction SilentlyContinue) {
+        Test-BoundedNativeResultComplete -Result $result
+    } else {
+        ($result -is [System.Collections.IDictionary]) -and [bool]$result['Started'] -and
+            @(@('TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed', 'DeadlineExhausted') | Where-Object { [bool]$result[$_] }).Count -eq 0
+    }
+    if (-not $complete) {
+        Format-YurunaOperatorMessage -Key 'automation.system_diagnostic_utmctl_list_incomplete' -Arguments @{ seconds = "$TimeoutSeconds" }
+    }
 }
 
 # See ../docs/host-hyperv.md#a-hyper-v-virtual-switch-that-looks-fine-but-is-not-bridging
@@ -1099,8 +1149,8 @@ try {
     Invoke-DiagnosticSection "HOST" {
     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_fddd431669f34dca' -FormatValues ([System.Net.Dns]::GetHostName()) -FormatBindings @{ getHostName = '0' })
     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3d926ec2c9a14019' -FormatValues ([Environment]::UserName) -FormatBindings @{ userName = '0' })
-    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_56fa491fa25bce42' -FormatValues ((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -FormatBindings @{ z = '0' })
-    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13047337e502a109' -FormatValues ((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')) -FormatBindings @{ ssK = '0' })
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_56fa491fa25bce42' -FormatValues ((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -FormatBindings @{ z = '0' })
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_13047337e502a109' -FormatValues ((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK', [Globalization.CultureInfo]::InvariantCulture)) -FormatBindings @{ ssK = '0' })
 
     # --- REGION: https://yuruna.link/423ef7f5-0008
     Write-Sub "Software"
@@ -1372,23 +1422,26 @@ try {
             # clock, not the permitted one. Recording it per cycle is what lets a
             # slow run be told apart from a throttled host without a rerun.
             $scheme = powercfg /getactivescheme 2>$null |
-                Select-String 'GUID:\s+([0-9a-fA-F-]+)\s+\((.+)\)' | Select-Object -First 1
+                Select-String '([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\s+\((.+)\)' | Select-Object -First 1
             if ($scheme) {
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_4c47b23469f21be0' -FormatValues ($scheme.Matches[0].Groups[2].Value.Trim(), $scheme.Matches[0].Groups[1].Value) -FormatBindings @{ trim = '0'; value = '1' })
             }
             $throttleMaxAc = $null
             foreach ($setting in 'PROCTHROTTLEMAX', 'PROCTHROTTLEMIN') {
                 $q = powercfg /query SCHEME_CURRENT SUB_PROCESSOR $setting 2>$null
-                $acHit = $q | Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' | Select-Object -First 1
-                $dcHit = $q | Select-String 'Current DC Power Setting Index:\s+0x([0-9a-fA-F]+)' | Select-Object -First 1
+                # Labels are localized; the final two hexadecimal fields are
+                # the AC and DC values in the stable native output order.
+                $indices = @(foreach ($line in $q) {
+                    if ($line -match ':\s*0x([0-9a-fA-F]+)\s*$') { [Convert]::ToInt64($Matches[1], 16) }
+                })
                 $acText = 'n/a'
                 $dcText = 'n/a'
-                if ($acHit) {
-                    $acVal = [Convert]::ToInt32($acHit.Matches[0].Groups[1].Value, 16)
+                if ($LASTEXITCODE -eq 0 -and $indices.Count -ge 2) {
+                    $acVal = $indices[-2]
                     $acText = "$acVal%"
+                    $dcText = "$($indices[-1])%"
                     if ($setting -eq 'PROCTHROTTLEMAX') { $throttleMaxAc = $acVal }
                 }
-                if ($dcHit) { $dcText = "$([Convert]::ToInt32($dcHit.Matches[0].Groups[1].Value, 16))%" }
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_80a91c7136b5ea24' -FormatValues ($setting, $acText, $dcText) -FormatBindings @{ setting = '0,-16'; acText = '1'; dcText = '2' })
             }
             Write-Output ""
@@ -2396,7 +2449,7 @@ try {
                         $rcNote = " (last rc={0})" -f $rcText.Trim()
                     }
                 }
-                $mtime = $tl.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
+                $mtime = $tl.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
                 Write-Output ''
                 Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_3a40a1163d5c3772' -FormatValues ($tl.FullName, $tl.Length, $mtime, $sizeNote, $rcNote) -FormatBindings @{ fullName = '0'; length = '1'; mtime = '2'; sizeNote = '3'; rcNote = '4' })
                 if ([string]::IsNullOrWhiteSpace($content)) {
@@ -2498,7 +2551,7 @@ try {
                     $last = $imgsOutput[$imgsOutput.Count - 1]
                     if ($last -is [int]) {
                         $imgsExit = [int]$last
-                        $imgsRaw = $imgsOutput[0..($imgsOutput.Count - 2)]
+                        $imgsRaw = @(if ($imgsOutput.Count -gt 1) { $imgsOutput[0..($imgsOutput.Count - 2)] })
                     } else {
                         $imgsRaw = $imgsOutput
                     }
@@ -2912,7 +2965,7 @@ try {
             }
             if (Test-CommandAvailable 'utmctl') {
                 Write-Output ""
-                & utmctl list 2>$null | ForEach-Object { Write-Output $_ }
+                Get-DiagnosticUtmctlListing
             }
 
             # OCR rides Apple Vision through a swiftc-compiled helper; when the
@@ -3879,7 +3932,7 @@ try {
                 $newest = $recent | Select-Object -First 1
                 $ageMinutes = [int]((Get-Date) - $newest.LastWriteTime).TotalMinutes
                 Write-Output ""
-                Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_bfcbf1a3d4f19f5d' -Arguments @{ ss = "$($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss'))" } -FormatValues ($ageMinutes) -FormatBindings @{ ageMinutes = '0' }))
+                Write-Output ((Format-YurunaOperatorMessage -Key 'automation.operator_bfcbf1a3d4f19f5d' -Arguments @{ ss = "$($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture))" } -FormatValues ($ageMinutes) -FormatBindings @{ ageMinutes = '0' }))
             }
         }
     }

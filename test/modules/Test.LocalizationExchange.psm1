@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna globalization localization exchange request attestation
+.TAGS yuruna globalization localization exchange request provenance
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -42,11 +42,10 @@ Set-StrictMode -Version 3.0
 # -Global because a nested import without it defines the dependency's commands
 # only inside this module's own session state, and the caller that imported
 # this one is then missing them.
-Import-Module (Join-Path $PSScriptRoot 'Test.ApprovalDigest.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.CanonicalJson.psm1') -Force -Global -DisableNameChecking
 
 $script:RequestDigestAlgorithm = 'sha256-canonical-request-v1'
 $script:RequestSchema = 'yuruna.localization-request/v1'
-$script:AttestationSchema = 'yuruna.localization-attestation/v1'
 
 function Get-LocalizationExchangeSchema {
     <#
@@ -60,7 +59,6 @@ function Get-LocalizationExchangeSchema {
     param()
     return [ordered]@{
         request = $script:RequestSchema
-        attestation = $script:AttestationSchema
         digestAlgorithm = $script:RequestDigestAlgorithm
     }
 }
@@ -206,8 +204,16 @@ function Get-MessageRow {
                 $variants = [ordered]@{}
                 foreach ($property in $entry.$kind.variants.PSObject.Properties) { $variants[$property.Name] = $property.Value }
                 if ($kind -ceq 'plural' -and $Locale -and $manifest.locales.$Locale.PSObject.Properties['pluralCategories']) {
+                    # A locale answers in its own categories: one it lacks
+                    # cannot be answered and one it has must be, so the question
+                    # offers exactly those, each seeded from the English form of
+                    # the same name or from the English other form.
+                    $variants = [ordered]@{}
                     foreach ($category in @($manifest.locales.$Locale.pluralCategories)) {
-                        if (-not $variants.Contains([string]$category)) { $variants[[string]$category] = [string]$entry.plural.variants.other }
+                        $name = [string]$category
+                        $variants[$name] = if ($entry.plural.variants.PSObject.Properties[$name]) {
+                            [string]$entry.plural.variants.$name
+                        } else { [string]$entry.plural.variants.other }
                     }
                 }
                 ConvertTo-Json -InputObject $variants -Depth 20 -Compress
@@ -254,9 +260,14 @@ function Get-DocumentRow {
         $full = Join-Path $tree $source
         if (-not [IO.File]::Exists($full)) { continue }
         $text = [IO.File]::ReadAllText($full).Replace("`r`n", "`n")
-        $rows.Add((New-LocalizationRow -Id ('document:{0}:{1}' -f $repo, $source) -Kind 'document' `
-                    -Repo $repo -File ('documents/{0}/{1}' -f $repo, $source) -Pointer $source `
-                    -English $text -Context ([string]$document.translated)))
+        $row = New-LocalizationRow -Id ('document:{0}:{1}' -f $repo, $source) -Kind 'document' `
+            -Repo $repo -File ('documents/{0}/{1}' -f $repo, $source) -Pointer $source `
+            -English $text -Context ([string]$document.translated)
+        # A release sweep rewrites only the version sites, and the document's
+        # translation stays current across it, so the row's identity of its
+        # English ignores them too.
+        $row.sourceSha256 = Get-LocalizationDocumentTextHash -Text $text
+        $rows.Add($row)
     }
     return $rows.ToArray()
 }
@@ -327,7 +338,7 @@ function Get-LocalizationProjectSource {
                     $fieldPath = $Pointer + '/' + $field
                     $identity = $Relative + '|' + $fieldPath
                     if (-not $entries.ContainsKey($identity)) {
-                        $entries[$identity] = @{ path = $Relative; fieldPath = $fieldPath; locale = $Locale; sourceHash = Get-TextSha256 -Text $Node[$field].Normalize([Text.NormalizationForm]::FormC); reviewStatus = 'unreviewed' }
+                        $entries[$identity] = @{ path = $Relative; fieldPath = $fieldPath; locale = $Locale; sourceHash = Get-TextSha256 -Text $Node[$field].Normalize([Text.NormalizationForm]::FormC) }
                     }
                 }
             }
@@ -424,10 +435,12 @@ function Get-LocalizationRow {
     )
 
     $rows = [Collections.Generic.List[object]]::new()
-    $rows.AddRange([object[]](Get-TerminologyRow -Root $Root -Locale $Locale))
-    $rows.AddRange([object[]](Get-MessageRow -Root $Root -SourceLocale $SourceLocale -Locale $Locale))
-    $rows.AddRange([object[]](Get-DocumentRow -Root $Root -ProjectRoot $ProjectRoot -Locale $Locale))
-    $rows.AddRange([object[]](Get-ProjectScalarRow -ProjectRoot $ProjectRoot -Locale $Locale))
+    # @() around each call: a source with no rows returns an empty array that
+    # the pipeline unrolls to nothing, and AddRange refuses a null collection.
+    $rows.AddRange([object[]]@(Get-TerminologyRow -Root $Root -Locale $Locale))
+    $rows.AddRange([object[]]@(Get-MessageRow -Root $Root -SourceLocale $SourceLocale -Locale $Locale))
+    $rows.AddRange([object[]]@(Get-DocumentRow -Root $Root -ProjectRoot $ProjectRoot -Locale $Locale))
+    $rows.AddRange([object[]]@(Get-ProjectScalarRow -ProjectRoot $ProjectRoot -Locale $Locale))
 
     $byId = @{}
     foreach ($row in $rows) {
@@ -466,69 +479,102 @@ function Get-LocalizationRequestDigest {
     return [ordered]@{ algorithm = $script:RequestDigestAlgorithm; sha256 = Get-TextSha256 -Text $canonical }
 }
 
-function Test-LocalizationAttestation {
+function Get-LocalizationDocumentTextHash {
     <#
     .SYNOPSIS
-        Whether a returned attestation can be recorded as an approval.
+        The digest of English document text with its version sites normalized.
     .DESCRIPTION
-        Four things have to hold, and each of them has been wrong before in a
-        way that still produced a file that looked complete: the bundle answers
-        the request it claims to, two different people signed it, neither date
-        is in the future, and both roles are present.
+        The same normalization Get-LocalizationDocumentHash applies to a file,
+        applied to text already in hand, so an exchange row and a manifest row
+        agree about whether a release sweep moved a document.
     .OUTPUTS
-        [pscustomobject] Ok, Detail
+        [string] lowercase hex SHA-256
     #>
     [CmdletBinding()]
-    [OutputType([pscustomobject])]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $calVer = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
+    # Anchored to its own line, so a version mentioned inside a sentence is
+    # prose and stays in the hash.
+    $normalized = [regex]::Replace($Text, '(?m)^(Last review: )' + $calVer + '$', '${1}<version>')
+    # Character for character the edit tools/Update-YurunaReleasePins.ps1
+    # makes to the verified-download URL.
+    $normalized = [regex]::Replace($normalized, '(alissonsol/yuruna/)refs/tags/' + $calVer, '${1}refs/tags/<version>')
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($normalized)
+    return ([BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($bytes)) -replace '-', '').ToLowerInvariant()
+}
+
+function Get-LocalizationDocumentHash {
+    <#
+    .SYNOPSIS
+        The digest of an English document with its version sites normalized.
+    .DESCRIPTION
+        A release sweep rewrites two things in a translated document's English
+        source and nothing else: the review footer and the release tag of the
+        verified-download URL. Both are replaced by one sentinel before hashing,
+        so a sweep never makes a translation look stale, while any edit to the
+        prose still does. The version shape includes the optional fourth
+        component of a patch release, and both patterns consume the whole
+        version, so a longer tag is never partially matched.
+    .OUTPUTS
+        [string] lowercase hex SHA-256
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$FullPath)
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($FullPath))
+    return Get-LocalizationDocumentTextHash -Text $text
+}
+
+function Set-ProjectSidecarRow {
+    <#
+    .SYNOPSIS
+        Record the English a project translation was written against.
+    .DESCRIPTION
+        Inserts or replaces the one sidecar entry keyed by path, fieldPath and
+        locale, and keeps every other entry where it is. An accepted
+        translation carries no origin; -Machine marks a machine draft, and the
+        next acceptance without it removes the marker. The file is written as
+        UTF-8 without a byte-order mark, with LF line endings, through a
+        temporary sibling, so a reader never sees half a sidecar.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
     param(
-        [Parameter(Mandatory)]$Attestation,
-        [Parameter(Mandatory)][string]$RequestSha256
+        [Parameter(Mandatory)][string]$SidecarPath,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$FieldPath,
+        [Parameter(Mandatory)][string]$Locale,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$SourceHash,
+        [switch]$Machine
     )
-
-    $problem = [Collections.Generic.List[string]]::new()
-    $names = @($Attestation.PSObject.Properties.Name)
-    if ($names -notcontains 'requestDigest') {
-        $problem.Add('the attestation names no request digest, so nothing says which question it answers')
-    } elseif (-not [string]::Equals([string]$Attestation.requestDigest.sha256, $RequestSha256, [StringComparison]::Ordinal)) {
-        $problem.Add(('the attestation answers request {0}, and this bundle carries {1}' -f
-            [string]$Attestation.requestDigest.sha256, $RequestSha256))
+    if (-not $PSCmdlet.ShouldProcess($SidecarPath, "record $Path $FieldPath for $Locale")) { return }
+    $record = if ([IO.File]::Exists($SidecarPath)) {
+        ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($SidecarPath)) -AsHashtable
+    } else {
+        [ordered]@{ schema = 'yuruna.project-locale-source-hashes/v1'; hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'; entries = @() }
     }
-
-    $people = @{}
-    foreach ($role in 'translator', 'independentReviewer') {
-        if ($names -notcontains $role) {
-            $problem.Add("the attestation has no $role")
-            continue
-        }
-        $entry = $Attestation.$role
-        $entryNames = @($entry.PSObject.Properties.Name)
-        $who = if ($entryNames -contains 'approvedBy') { ([string]$entry.approvedBy).Trim() } else { '' }
-        $when = if ($entryNames -contains 'approvedAt') { ([string]$entry.approvedAt).Trim() } else { '' }
-        if (-not $who) { $problem.Add("the $role is unnamed") }
-        if (-not $when) {
-            $problem.Add("the $role has no date")
+    $row = [ordered]@{ path = $Path; fieldPath = $FieldPath; locale = $Locale; sourceHash = $SourceHash }
+    if ($Machine) { $row['origin'] = 'machine' }
+    $entries = [Collections.Generic.List[object]]::new()
+    $replaced = $false
+    foreach ($entry in @($record['entries'])) {
+        if ([string]$entry['path'] -ceq $Path -and [string]$entry['fieldPath'] -ceq $FieldPath -and [string]$entry['locale'] -ceq $Locale) {
+            if (-not $replaced) { $entries.Add($row) }
+            $replaced = $true
         } else {
-            $parsed = [datetime]::MinValue
-            $styles = [Globalization.DateTimeStyles]::None
-            if (-not [datetime]::TryParseExact($when, 'yyyy-MM-dd',
-                    [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)) {
-                $problem.Add("the $role date '$when' is not a yyyy-MM-dd calendar date")
-            } elseif ($parsed.Date -gt [datetime]::UtcNow.Date) {
-                $problem.Add("the $role date '$when' has not happened yet")
-            }
-        }
-        if ($who) { $people[$role] = $who }
-    }
-    if ($people.Count -eq 2) {
-        $translator = [string]$people['translator']
-        $reviewer = [string]$people['independentReviewer']
-        # Case-insensitive on purpose: a second signature is a second person,
-        # and a different capitalization of one name is the same person.
-        if ([string]::Equals($translator, $reviewer, [StringComparison]::OrdinalIgnoreCase)) {
-            $problem.Add("the independent reviewer '$reviewer' is the translator; a second signature is a second person")
+            $entries.Add($entry)
         }
     }
-    return [pscustomobject]@{ Ok = ($problem.Count -eq 0); Detail = ($problem -join '; ') }
+    if (-not $replaced) { $entries.Add($row) }
+    $record['entries'] = $entries.ToArray()
+    $text = (ConvertTo-Json -InputObject $record -Depth 6).Replace("`r`n", "`n").TrimEnd() + "`n"
+    $temporary = '{0}.tmp-{1}' -f $SidecarPath, $PID
+    try {
+        [IO.File]::WriteAllText($temporary, $text, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporary, $SidecarPath, $true)
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
 }
 
 function Read-LocalizationAnswer {
@@ -542,7 +588,8 @@ function Read-LocalizationAnswer {
         rather than the whole language restarted.
 
         Documents are files rather than fields, so their answer is the file's
-        own text at the path the request placed it.
+        own text at the path the request placed it, unless that text is still
+        the English the request sent.
     .OUTPUTS
         [hashtable] identity -> translated text
     #>
@@ -567,8 +614,15 @@ function Read-LocalizationAnswer {
         if (-not [IO.File]::Exists($path)) { continue }
         if ($group.Group[0].kind -ceq 'document') {
             if ($group.Count -ne 1) { throw 'A document file must have exactly one row.' }
-            $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
-            if ($text.Trim()) { $answer[[string]$group.Group[0].id] = $text }
+            $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n").Replace("`r", "`n")
+            # A document is sent as its English and translated in place, so a
+            # file returned unchanged answers nothing, whatever line endings an
+            # editor gave it. The offline validator applies the same rule, so
+            # both ends agree on what was answered.
+            $english = ([string]$group.Group[0].english).Replace("`r`n", "`n").Replace("`r", "`n")
+            if ($text.Trim() -and -not [string]::Equals($text, $english, [StringComparison]::Ordinal)) {
+                $answer[[string]$group.Group[0].id] = $text
+            }
             continue
         }
         foreach ($entry in @(Read-LocalizationEntry -Path $path -Format $request.format)) {
@@ -586,53 +640,48 @@ function Read-LocalizationAnswer {
 function Get-LocalizationRowState {
     <#
     .SYNOPSIS
-        Whether each row is carried, changed, or new.
+        The state of each row, read from what the tree holds for it today.
     .DESCRIPTION
-        Carried means the English is byte-identical to the round that produced
-        the answer already in hand, so nobody is asked to look at it again.
-        Changed means the English moved under an existing answer. New means no
-        previous round covered it, or a previous round left it blank -- an
-        unanswered row is not a settled one, however many times it was sent.
+        New means the tree holds nothing for the row. Changed means the tree
+        holds a translation of English that has since moved. Machine means the
+        tree holds a machine draft of the current English. Accepted means the
+        tree holds an accepted translation of the current English. The text
+        the tree holds travels with the row as previousTranslation, as context
+        for a person and never as an answer; only an accepted row starts out
+        answered.
+    .PARAMETER Context
+        Row identity -> @{ text; state }, where state is accepted, machine or
+        stale.
     .OUTPUTS
-        [hashtable] identity -> ordered state, previousSourceSha256, previousEnglish, previousTranslation
+        [hashtable] identity -> ordered state, previousTranslation, translation
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Row,
-        [AllowNull()]$PreviousRequest,
-        [Collections.IDictionary]$Answer = @{}
+        [Parameter(Mandatory)][Collections.IDictionary]$Context
     )
 
-    $previous = @{}
-    if ($null -ne $PreviousRequest) {
-        foreach ($entry in @($PreviousRequest.rows)) { $previous[[string]$entry.id] = $entry }
-    }
     $state = @{}
     foreach ($current in $Row) {
         $id = [string]$current.id
-        $translation = if ($Answer.Contains($id)) { [string]$Answer[$id] } else { '' }
-        $known = if ($previous.ContainsKey($id)) { $previous[$id] } else { $null }
-        $previousHash = if ($null -ne $known) { [string]$known.sourceSha256 } else { '' }
-        $previousEnglish = if ($null -ne $known -and
-            @($known.PSObject.Properties.Name) -contains 'english') { [string]$known.english } else { '' }
-        $value = if (-not $translation) {
-            'new'
-        } elseif ([string]::Equals($previousHash, [string]$current.sourceSha256, [StringComparison]::Ordinal)) {
-            'carried'
-        } else {
-            'changed'
+        $known = if ($Context.Contains($id)) { $Context[$id] } else { $null }
+        $text = if ($null -ne $known) { [string]$known.text } else { '' }
+        $value = if ($null -eq $known -or -not $text.Trim()) { 'new' } else {
+            switch -CaseSensitive ([string]$known.state) {
+                'accepted' { 'accepted' }
+                'machine' { 'machine' }
+                default { 'changed' }
+            }
         }
         $state[$id] = [ordered]@{
             state = $value
-            previousSourceSha256 = $previousHash
-            previousEnglish = $previousEnglish
-            previousTranslation = $translation
+            previousTranslation = $(if ($value -cin @('changed', 'machine')) { $text } else { '' })
+            translation = $(if ($value -ceq 'accepted') { $text } else { '' })
         }
     }
     return $state
 }
-
 
 function Resolve-LocalizationPath {
     <#
@@ -643,9 +692,10 @@ function Resolve-LocalizationPath {
     [OutputType([string])]
     param([string]$Root, [string]$Relative)
     if (-not $Relative -or $Relative -match '(^[\\/]|\\|:|(^|/)\.\.(/|$))') { throw "Invalid localization path: $Relative" }
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
     $path = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
     $cursor = $path
-    while ($cursor) {
+    while ($cursor -and -not [string]::Equals($cursor.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar), $rootFull, [StringComparison]::Ordinal)) {
         $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
         if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked localization path: $path" }
         $cursor = Split-Path -Parent $cursor
@@ -658,9 +708,23 @@ function Assert-LocalizationYamlCodec {
     .SYNOPSIS
         Require the real YAML reader and writer before processing project fields.
     #>
-    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or
-        -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
-        Import-Module powershell-yaml -Global -ErrorAction Stop
+    # A script run with -WhatIf or -Confirm holds those preferences in the
+    # global scope, where the module's own alias setup reads them: it would
+    # print what-if lines or ask about each alias. Loading a reader is not an
+    # action to preview or confirm. Get-Command by name loads the module too,
+    # so the check sits inside the guard.
+    $savedWhatIf = $global:WhatIfPreference
+    $savedConfirm = $global:ConfirmPreference
+    try {
+        $global:WhatIfPreference = $false
+        $global:ConfirmPreference = 'None'
+        if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or
+            -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
+            Import-Module powershell-yaml -Global -ErrorAction Stop
+        }
+    } finally {
+        $global:WhatIfPreference = $savedWhatIf
+        $global:ConfirmPreference = $savedConfirm
     }
 }
 
@@ -742,6 +806,15 @@ function Write-LocalizationEntry {
                 $writer.WriteStartElement('file'); $writer.WriteAttributeString('id', 'localization')
                 foreach ($entry in $Entries) {
                     $writer.WriteStartElement('unit'); $writer.WriteAttributeString('id', [string]$entry.id)
+                    # Earlier text is context, never an answer, so it rides in
+                    # a note and the target starts empty.
+                    $names = if ($entry -is [Collections.IDictionary]) { @($entry.Keys) } else { @($entry.PSObject.Properties.Name) }
+                    if ($names -contains 'previousTranslation' -and [string]$entry.previousTranslation) {
+                        $writer.WriteStartElement('notes')
+                        $writer.WriteStartElement('note'); $writer.WriteAttributeString('category', 'previous-translation')
+                        $writer.WriteString([string]$entry.previousTranslation); $writer.WriteEndElement()
+                        $writer.WriteEndElement()
+                    }
                     $writer.WriteStartElement('segment')
                     $writer.WriteElementString('source', [string]$entry.english); $writer.WriteElementString('target', [string]$entry.translation)
                     $writer.WriteEndElement(); $writer.WriteEndElement()
@@ -1010,7 +1083,8 @@ function Set-LocalizationYamlLocaleText {
 
 Export-ModuleMember -Function Get-LocalizationExchangeSchema, Get-TextSha256, New-LocalizationRow,
     Get-TerminologyRow, Get-MessageRow, Get-DocumentRow, Get-ProjectScalarRow, Get-YamlPointerValue,
-    Get-LocalizationProjectSource, Get-LocalizationRow, Get-LocalizationRequestDigest, Test-LocalizationAttestation,
-    Read-LocalizationAnswer, Get-LocalizationRowState, Get-LocalizationMessageHash, Assert-LocalizationYamlCodec,
+    Get-LocalizationProjectSource, Get-LocalizationRow, Get-LocalizationRequestDigest, Get-LocalizationDocumentHash,
+    Get-LocalizationDocumentTextHash,
+    Set-ProjectSidecarRow, Read-LocalizationAnswer, Get-LocalizationRowState, Get-LocalizationMessageHash, Assert-LocalizationYamlCodec,
     Resolve-LocalizationPath, Read-LocalizationEntry, Write-LocalizationEntry, Set-LocalizationYamlValue,
     Set-LocalizationYamlLocaleText

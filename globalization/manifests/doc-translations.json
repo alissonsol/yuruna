@@ -6,104 +6,91 @@
       "source": "docs/authentication.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/authentication.md",
-      "sourceHash": "0c76bc4e50709784df4555644e5f031dff63b1ac7b65eef4fce3520390128f4c",
-      "status": "reviewed"
+      "sourceHash": "109aa5fe54d0fc1a331e347100bd7a0c1d6d9e82e1a084fc0eaa6f3a77bfbe2f"
     },
     {
       "repo": "yuruna",
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "d1a63ec523daec4ac0bdd865151a88b11f026825767c9710de81db46b4576959",
-      "status": "reviewed"
+      "sourceHash": "b10688c6e7c92a7916c9644db00a171123a0f426b5ff2d391c30fdea3d97676f"
     },
     {
       "repo": "yuruna",
       "source": "docs/kubernetes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/kubernetes.md",
-      "sourceHash": "5941e893f8ad5bcda0aa986b6e5ddff85474430aca384f6733163aa72120609e",
-      "status": "reviewed"
+      "sourceHash": "4d4fc0c69bb4fd33afd95429ef916b98e2cd07a3d737984c0bd35f3565775d59"
     },
     {
       "repo": "yuruna",
       "source": "docs/lab-operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/lab-operator.md",
-      "sourceHash": "43601617a0cdc125a6e1d4d17ee0c498f5fc991b958a0037af40643f1f1f75d1",
-      "status": "reviewed"
+      "sourceHash": "1ff7976924fdcdc9bb7017c6722a0957801e28f2999e66f5dc16d47fbca51d9f"
     },
     {
       "repo": "yuruna",
       "source": "docs/operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/operator.md",
-      "sourceHash": "3ca51e3d61b8f1f264a9b748604b4b686e8e352640f867e10bec283349922ee5",
-      "status": "reviewed"
+      "sourceHash": "d27e33d0e89cd5bd72c7864c804165f5bfa2afec62064613ceac8fd71a1186d5"
     },
     {
       "repo": "yuruna",
       "source": "docs/workarounds.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/workarounds.md",
-      "sourceHash": "e13b21bfddc0ed92d9375b5d57c6cbe0dfee66dbab4a74ac4997a0a848dff519",
-      "status": "reviewed"
+      "sourceHash": "2be1ec6877960977c5e891efad6671ae94c37c487a3512685eb8ca7851a856a3"
     },
     {
       "repo": "yuruna",
       "source": "install/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install/README.md",
-      "sourceHash": "39da280a61e3d8872bdf646ea63080d2236d6da4c3eb97469fb059498eca2063",
-      "status": "reviewed"
+      "sourceHash": "ed49c503107ba06f92c6317d9c27982cf598bff2fb36a21ffdcead15f3cbd3b1"
     },
     {
       "repo": "yuruna",
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "743cd97ed556e8e0f6b1c39462c8a10d109bb5bf7b8726a30d109121ae989416",
-      "status": "reviewed"
+      "sourceHash": "c856cc779468a2a5e0adff398e056b0de36eca9e07c3eb9d700cc0ab62404e5d"
     },
     {
       "repo": "yuruna-project",
       "source": "example/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/README.md",
-      "sourceHash": "a67ded5abeaca2599181a3a02bee8a4cbab49a590877c6b7a84d089e31814bc2",
-      "status": "reviewed"
+      "sourceHash": "81b749946278625f8ed5094aaf870add371a84c02f090fcc301939214148c131"
     },
     {
       "repo": "yuruna-project",
       "source": "example/text-to-sql/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/text-to-sql/README.md",
-      "sourceHash": "5fc18233e810ea2201242dd9aa35b335f224e82df1a6df37f5df0ca47e1d7d62",
-      "status": "reviewed"
+      "sourceHash": "8f5d19cd375227d4be508ed74808423d3187bc10708ca0685470fe44c874e21b"
     },
     {
       "repo": "yuruna-project",
       "source": "example/website/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/website/README.md",
-      "sourceHash": "ee0dd715c18b7fe06520a16fc5f7375c6eb102d2c2a20a7cfcbcfe3982b80dd6",
-      "status": "reviewed"
+      "sourceHash": "f7ee40ca694d134ead8e7446ec5d2bb1af5f51bfb2d2a42e9db95152f422b3f0"
     },
     {
       "repo": "yuruna-project",
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "587d124fd84dd3eb4494f16d7847e9b1baf783f3d57d1ba3d79c66589c66aef6",
-      "status": "reviewed"
+      "sourceHash": "4811c53943c0209b3a364fdc5fbd782b9a25996d7d8284f86038544e32b21fe0"
     },
     {
       "repo": "yuruna-project",
       "source": "template/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/template/README.md",
-      "sourceHash": "ea4856b2b055b177855c1164fac879a65a2580fcd25c17bd92b0ec256340e17b",
-      "status": "reviewed"
+      "sourceHash": "6bf66e8551b89415bafbbe9bd0c5e5a981f20e20c52432fabd3948cbfc0b7e58"
     }
   ]
 }

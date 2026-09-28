@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ae3999-2506-b655-3702-3ee74d44e203
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,6 @@
     'stash.audio' = 'Áudio'
     'stash.author_optional' = 'Autor (opcional)'
     'stash.choose_at_least_one_file' = 'Escolha pelo menos um arquivo.'
-    'stash.class' = 'classe'
     'stash.content' = 'Conteúdo'
     'stash.could_not_be_checked' = 'não foi possível verificar'
     'stash.could_not_list_archive_value1' = @(
@@ -194,7 +193,6 @@
         '? Isto não pode ser desfeito.'
     )
     'stash.deleting' = 'A apagar...'
-    'stash.dir' = 'dir'
     'stash.download' = 'Baixar'
     'stash.error_value1' = @(
         'Erro: '
@@ -209,13 +207,11 @@
     'stash.filter_by_host' = 'Filtro por máquina'
     'stash.guide' = 'Guia'
     'stash.host' = 'Máquina'
-    'stash.host_4740ae63' = 'máquina'
     'stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_' = 'Se desbloquear respostas que o código não pôde ser verificado, o código não é o problema -- o agregador de pool que verifica se ele é inacessível, e você não pode desbloquear até que ele esteja de volta.'
     'stash.image' = 'Imagem'
     'stash.incomplete_upload_partial_bytes_available_via_download' = 'Envio incompleto -- bytes parciais disponíveis via Download.'
     'stash.ips' = 'IPs:'
     'stash.lab_token' = 'Token de laboratório'
-    'stash.limit' = 'limite'
     'stash.listed_count' = @{
         'kind' = 'plural'
         'selector' = 'count'
@@ -292,7 +288,6 @@
     )
     'stash.notes_txt' = 'notes.txt'
     'stash.nothing_to_store_paste_some_content_first' = 'Nada para armazenar -- cole algum conteúdo primeiro.'
-    'stash.offset' = 'deslocamento'
     'stash.open_on_that_host' = 'abrir nessa máquina'
     'stash.open_pdf' = 'Abrir PDF'
     'stash.other' = 'Outros'
@@ -304,7 +299,6 @@
     'stash.permalink' = 'Permalink'
     'stash.preview_truncated_download_for_the_full_content' = 'Preview truncated -- Baixe para o conteúdo completo.'
     'stash.preview_unavailable_use_download_to_open_the_file' = 'Antevisão não disponível. Use Download para abrir o arquivo.'
-    'stash.q' = 'q'
     'stash.received' = 'Recebido'
     'stash.received_by_host' = 'Recebido pela máquina'
     'stash.received_host' = @(
@@ -360,7 +354,6 @@
     'stash.short_link' = 'Ligação curta'
     'stash.six_character_lab_token_from_the_dashboard' = 'Token de laboratório de seis caracteres do painel'
     'stash.size' = 'Tamanho'
-    'stash.sort' = 'sort'
     'stash.source' = 'Origem'
     'stash.stash' = 'Stash'
     'stash.stash_not_found' = 'Stash não encontrado.'

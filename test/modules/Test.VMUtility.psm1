@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -354,14 +354,19 @@ function Invoke-GuestDhcpRelease {
     )
     $script:DhcpReleaseAttempted++
     if (-not (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) { return $false }
-    # `|| true` throughout, and the guest is destroyed on the next line, so a guest
-    # whose lib is missing or whose release path fails is never left stranded.
-    $cmd = 'bash /usr/local/lib/yuruna/yuruna-network.sh release 2>/dev/null || true; exit 0'
+    # Acknowledge the scheduled request before release removes this SSH route.
+    # The caller hard-stops the VM as soon as this helper returns, so a successful
+    # acknowledgment needs a bounded grace period for the detached release to run.
+    $cmd = "nohup sh -c 'sleep 1; bash /usr/local/lib/yuruna/yuruna-network.sh release' >/dev/null 2>&1 </dev/null & exit 0"
     try {
         $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd `
                 -TimeoutSeconds $TimeoutSeconds -AddressWaitSeconds 0 -ErrorAction SilentlyContinue
         $ok = ($null -ne $r -and $r.exitCode -eq 0)
-        if ($ok) { $script:DhcpReleaseSucceeded++; Write-Verbose "DHCP release requested on '$VMName' before teardown." }
+        if ($ok) {
+            Start-Sleep -Seconds 2
+            $script:DhcpReleaseSucceeded++
+            Write-Verbose "DHCP release requested on '$VMName' before teardown."
+        }
         else     { Write-Verbose "DHCP release on '$VMName' did not complete; the deterministic MAC reclaims the lease on the next build." }
         return $ok
     } catch {

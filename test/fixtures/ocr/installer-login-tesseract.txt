@@ -1,0 +1,61 @@
+OUTPUT ACCEPT [0:0]
+“A OUTPUT -o lo -j ACCEPT
+-A OUTPUT -m conntrack --ctstate ESTABLISHED RELATED -j ACCEPT
+-A OUTPUT -p icmp -j ACCEPT
+-A OUTPUT -p udp --dport 53 -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -j ACCEPT
+“A OUTPUT -p udp --dport 67:68 -j ACCEPT
+“A OUTPUT -p udp --dport 123 -j ACCEPT
+-A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+“A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+“A OUTPUT -d 192. 168.0.0/16 ~j ACCEPT
+“A OUTPUT -d 169.254.0.0/16 -j ACCEPT
+-A OUTPUT -p tep --dport 80 -j REJECT --reject-with icmp-port-unreachable
+-A OUTPUT -p tcp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+COMMIT
+EOF
+cat > /target/etc/iptables/rules.v6 << ‘EOF
+«filter
+SINPUT ACCEPT [0:0]
+:FORHARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+“A OUTPUT -o lo -j ACCEPT
+-A OUTPUT -m conntrack --ctstate ESTABLISHED RELATED -j ACCEPT
+COMMIT
+EOF
+chmod 0644 /target/etc/iptables/rules.vd /target/etc/iptables/rules.v6
+curtin in-target --target=/target -- systemct] enable netfilter-persistent || true
+fi
+start: subiquity/Late/run/command_3: for f in /target/etc/netplan/*.yaml3 do
+(-# "sf" ] || continue
+grep -q ‘dhep-identifier' "sf" a@ continue
+sed -i -E 's/*([[:space:]]*)dhep4: [[:space:]]*(true|yes) [[:space:]]*$/\idhep4: \2\n\idhep-identifier: mac/' "$f"
+dane
+finish: subiquity/Late/run/command_a: for f in /target/etc/netplan/*.yaml; do
+(-# "sf" ] || continue
+grep -q ‘dhep-identifier' "sf" a@ continue
+sed -i -E 's/*([[:space:]]*)dhep4: [[:space:]]*(true|yes) [[:space:]]*$/\idhep4: \2\n\idhep-identifier: mac/' "$f"
+dane
+start: subiquitu/Late/run/command_4: mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+finish: subiquity/Late/run/command_4: mkdir -p /target/etc/sustemd/system/systemd-networkd-wait-online.service.d
+start: subiguity/Late/run/command_5: cat > /target/etc/systemd/system/systemd-netuorkd-wait-online.service.d/override.conf << ‘EOF
+[service]
+ExecStart=
+ExecStart=/1ib/systemd/systemd-netuorkd-wait-online --any --timeout=15
+EOF
+finish: subiquity/Late/run/command_S: cat > /target/etc/systemd/system/systemd-netuorkd-uait-online.service.d/override.conf << ‘EOF
+[service]
+ExecStart=
+ExecStart=/1ib/systemd/systemd-netuorkd-wait-online --any --timeout=15
+EOF
+start: subiquitu/Late/run/command_s: curtin in-target --target=/target -- passwd --expire amisad-core-admin
+finish: subiquity/Late/run/command_: curtin in-target --target=/target -- passud --expire amisad-core-admin
+start: subiquituy/Late/run/command_7?: bash -c ‘sed -i -€ "/*[#[:space:]]#LOBIN_TIMEQUT/d" /target/etc/login.defs 8& echo "LOGIN_TIMEQUT 180" >> /target/etc/login.defs
+finish: subiquity/Late/run/command_?: bash -c ‘sed -i -E "/“[#[ispace:]]#LOGIN_TIMEQUT/d" /target/etc/login.defs a& echo "LOGIN_TIMEQUT 180" >> /target/etc/login.dets
+start: subiquity/Late/run/command_8: curtin in-target --target=/target -- bash -c ‘echo "amisad-core-admin ALL=(ALL) NOPASSHD:ALL" > /etc/sudoers.d/90-yuruna-amisad-core-admin && chmod 440 /etc/sudoers.d/30-yuruna-amisad-core-admin && chow
+n pootiroot /etc/sudoers.d/30-yuruna-amisad-core-admin
+finish: subiquity/Late/run/command_s: curtin in-target --target=/target -- bash -c ‘echo "amisad-core-admin ALL=(ALL) NOPASSHD:ALL" > /etc/sudoers.d/30-yuruna-amisad-core-admin && chmod 440 /etc/sudoers.d/90-yuruna-amisad-core-admin && cho
+un rootiroat /etc/sudoers.d/30-yuruna-amisad-core-admin
+start: subiquitu/Late/run/command_9: sed -i '/ suap / s/*/#/' /target/ete/fstab
+finish: subiquity/Late/run/command_$: sed -i '/ swap / s/*/#/' /target/etc/fstab
+start: subiquity/Late/run/command_10: curtin in-target --target=/target -- sustemct1 mask swap. targe

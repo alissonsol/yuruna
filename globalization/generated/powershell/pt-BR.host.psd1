@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c40d2c-52f3-f14f-800e-6b343505b865
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,128 @@
 
 @{
     'host.clock_service_description' = 'Serviço de tempo do Windows (W32Time)'
+    'host.enable_automation_no_prompt_confirm_conflict' = 'Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado.'
+    'host.enable_automation_no_prompt_mode' = 'Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas.'
+    'host.enable_automation_no_prompt_unsupported' = 'Enable-TestAutomation: -NoOperatorPrompt requer Set-MacHostConditionSet -NoGuiDisruption, que esta cópia do repositório não fornece; nada foi capturado nem alterado. Em vez disso, execute-o sem -NoOperatorPrompt a partir de uma sessão assistida.'
+    'host.forwarder_identity_unverified' = @(
+        'Stop-CachingProxyServiceForwarder: não foi possível ler o processo com PID '
+        @{
+            'arg' = 'forwarderPid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado.'
+    )
+    'host.hyperv_dism_timed_out' = @(
+        'Assert-HyperVEnabled: dism.exe não informou o estado do recurso Hyper-V em até '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' segundos; o estado do recurso é desconhecido.'
+    )
+    'host.hyperv_rename_source_not_stopped' = @(
+        'Rename-VM: o estado de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' é '
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; uma VM só é renomeada enquanto o Hyper-V a informa, de forma confirmada, como parada.'
+    )
+    'host.hyperv_start_vmms_action' = 'Iniciar o serviço de gerenciamento de máquinas virtuais do Hyper-V, que está parado'
+    'host.hyperv_vm_removal_unconfirmed' = @(
+        'Remove-VM: o Hyper-V não conseguiu confirmar que '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' não está mais registrada; por isso, o diretório de disco dela foi mantido.'
+    )
+    'host.hyperv_vm_state_unknown' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': o Hyper-V não conseguiu determinar se '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' existe; nada foi alterado.'
+    )
+    'host.kvm_force_stop_pid_unverified' = @(
+        'Stop-VMForce: o processo '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' indicado em '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não é o processo qemu de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''; por isso, não foi sinalizado.'
+    )
+    'host.kvm_force_stop_pidfile_invalid' = @(
+        'Stop-VMForce: '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não contém um PID utilizável; por isso, nenhum processo qemu foi sinalizado.'
+    )
+    'host.kvm_force_stop_signal_refused' = @(
+        'Stop-VMForce: o sudo se recusou a sinalizar o processo qemu '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente.'
+    )
+    'host.kvm_rename_source_not_stopped' = @(
+        'Rename-VM: o estado de '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' é '
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; a libvirt só renomeia um domínio confirmado como parado.'
+    )
+    'host.kvm_start_network_action' = 'Iniciar a rede inativa da libvirt'
+    'host.kvm_start_unit_action' = 'Iniciar a unidade parada da libvirt'
     'host.operator_005bab80fe0f8f32' = @(
         'SSH: ssh pool- control- service- admin@ '
         @{
@@ -8458,5 +8580,500 @@
     'host.operator_fe45a4bdfe18d51e' = 'As seguintes imagens de base são o KEPT (não associado a uma VM registada, mas necessária como imagens de base):'
     'host.operator_fea701fd46026b88' = 'Falha ao criar seed.iso com hdiutil.'
     'host.operator_ffa509d9c8227161' = 'FETCH DO FILE DO CONTROLO'
+    'host.orphan_sweep_registration_unknown' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' mantido: o UTM não informou se '
+        @{
+            'arg' = 'target'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' está registrado (utmctl status não terminou).'
+    )
+    'host.orphan_sweep_utmctl_unanswered' = @(
+        'utmctl '
+        @{
+            'arg' = 'verb'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' não terminou em '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder.'
+    )
+    'host.rename_vm_inventory_unavailable' = @(
+        'Rename-VM: não foi possível ler a lista de VMs em execução ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); o UTM não foi encerrado, portanto nenhuma VM de serviço ficou suspensa. Renomeie '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' depois que o UTM voltar a responder.'
+    )
+    'host.rename_vm_relaunch_unconfirmed' = @(
+        'Rename-VM: a reabertura do UTM não foi confirmada ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); estas VMs de serviço não foram retomadas: '
+        @{
+            'arg' = 'names'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Abra o UTM e, em seguida, execute: '
+        @{
+            'arg' = 'commands'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.rename_vm_stop_unconfirmed' = @(
+        'Rename-VM: o UTM não parou ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não foi renomeada e o pacote dela não foi editado.'
+    )
     'host.unified_screen_lock_description' = 'bloqueio de tela unificado sysadminctl'
+    'host.utm_app_census_unknown' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': não foi possível determinar quais processos do UTM pertencem a este usuário ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); nada foi parado nem iniciado.'
+    )
+    'host.utm_app_control_refused' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': recusado ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); o UTM foi mantido como estava.'
+    )
+    'host.utm_app_executable_mismatch' = @(
+        'Stop-UtmApplication: o PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' foi listado como '
+        @{
+            'arg' = 'processName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', mas o executável que ele executa não é o '
+        @{
+            'arg' = 'processName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' deste usuário; ele não foi sinalizado.'
+    )
+    'host.utm_app_flush_skipped_census' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': a limpeza do cache de preferências foi ignorada porque não foi possível contar os processos do UTM deste usuário ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); uma limpeza com o UTM em execução permitiria que ele gravasse de volta suas preferências antigas.'
+    )
+    'host.utm_app_flush_skipped_root' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': a limpeza do cache de preferências foi ignorada porque este processo é executado como root, caso em que o killall atingiria o cfprefsd de todos os usuários.'
+    )
+    'host.utm_app_hard_stop_signal' = @(
+        'Stop-UtmApplication: enviando '
+        @{
+            'arg' = 'signal'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' para '
+        @{
+            'arg' = 'processName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ') porque o processo não terminou após o pedido de encerramento.'
+    )
+    'host.utm_app_identity_changed' = @(
+        'Stop-UtmApplication: o PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' não corresponde mais ao processo '
+        @{
+            'arg' = 'processName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' observado antes; ele não foi sinalizado.'
+    )
+    'host.utm_app_identity_unreadable' = @(
+        @{
+            'arg' = 'operation'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': não foi possível ler a identidade de '
+        @{
+            'arg' = 'processName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ') ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); ele não foi sinalizado.'
+    )
+    'host.utm_app_launch_action' = 'Abrir o UTM para este usuário'
+    'host.utm_app_launch_not_observed' = @(
+        'Start-UtmApplication: o UTM não foi observado em execução para este usuário em até '
+        @{
+            'arg' = 'waitSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's após ''open -a UTM'' (confirmado: '
+        @{
+            'arg' = 'acknowledged'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', código de saída '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'host.utm_app_launch_refused' = @(
+        'Start-UtmApplication: ''open -a UTM'' terminou com o código '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' e o UTM não foi aberto: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.utm_app_quit_action' = 'Encerrar o UTM e aguardar o término de seus processos auxiliares de VM'
+    'host.utm_app_quit_not_confirmed' = @(
+        'Stop-UtmApplication: o UTM não terminou em até '
+        @{
+            'arg' = 'waitSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's após o pedido de encerramento; restam '
+        @{
+            'arg' = 'utmCount'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' processo(s) UTM e '
+        @{
+            'arg' = 'helperCount'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' processo(s) QEMUHelper deste usuário, que foram deixados em execução.'
+    )
+    'host.utm_app_restart_action' = 'Encerrar e reabrir o UTM'
+    'host.utm_app_signal_action' = 'Enviar TERM e depois KILL se o processo persistir, após revalidar a identidade do processo'
+    'host.utm_detached_launch_action' = @(
+        'Executar '
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' sem aguardar o aplicativo que ele abre'
+    )
+    'host.utm_dialog_watchdog_identity_action' = 'Registrar a identidade do watchdog de diálogos que acabou de ser iniciado'
+    'host.utm_dialog_watchdog_start_skipped' = @(
+        'Start-UtmDialogWatchdog: não foi possível confirmar que o watchdog registrado em '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' foi parado; por isso, um segundo não foi iniciado, e o registro dele é mantido para a próxima parada.'
+    )
+    'host.utm_dialog_watchdog_unverified' = @(
+        'Stop-UtmDialogWatchdog: não foi possível verificar se o PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' registrado em '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' é o watchdog de diálogos deste usuário ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); ele não foi sinalizado.'
+    )
+    'host.utm_restart_evidence_refused' = @(
+        'Restart-UtmApplication: reinício recusado, pois a evidência é '
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (idade '
+        @{
+            'arg' = 'ageMs'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ms); somente um tempo limite de controle corroborado, observado nos últimos '
+        @{
+            'arg' = 'maxAgeSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's, permite reiniciar.'
+    )
+    'host.utm_resume_deadline_exhausted' = @(
+        'Resume-YurunaServiceVM: a VM '''
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não foi retomada porque não restava tempo no prazo compartilhado; retome-a manualmente (utmctl start '''
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''').'
+    )
+    'host.utm_start_absent_observed' = @(
+        'A VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' permaneceu não registrada no UTM por '
+        @{
+            'arg' = 'waitSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's na tentativa '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; nenhuma solicitação de início foi enviada.'
+    )
+    'host.utm_start_dropped' = @(
+        'A VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não atingiu o estado ''running'' em '
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' tentativa(s); como o utmctl não relatou erro, o UTM aceitou e descartou cada solicitação.'
+    )
+    'host.utm_start_exit_code' = @(
+        'utmctl start terminou com o código '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.utm_start_exit_detail' = @(
+        'utmctl start terminou com o código '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'text'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.utm_start_not_acted' = @(
+        'O UTM não atendeu à solicitação de início da VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' em '
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' tentativa(s); a última relatou '''
+        @{
+            'arg' = 'lastError'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. O utmctl conseguiu se comunicar com o UTM.app -- as consultas de estado foram respondidas o tempo todo --, mas o início em si nunca foi executado; portanto, a VM nunca foi iniciada e o disco dela está intacto. Tente novamente (utmctl start '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''); reconstruir a VM não resolve nada neste caso.'
+    )
+    'host.utm_start_not_running' = @(
+        'A VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não atingiu o estado ''running'' em '
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' tentativa(s): '
+        @{
+            'arg' = 'lastError'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.utmctl_lifecycle_deadline' = @(
+        'utmctl '
+        @{
+            'arg' = 'verb'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não foi executado: não restava tempo no prazo da operação.'
+    )
+    'host.utmctl_lifecycle_timeout' = @(
+        'utmctl '
+        @{
+            'arg' = 'verb'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não retornou em até '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente.'
+    )
 }

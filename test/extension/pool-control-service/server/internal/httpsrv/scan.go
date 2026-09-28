@@ -12,6 +12,7 @@ import (
 
 	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/state"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // The network scan and the hosts it discovers.
@@ -227,6 +228,7 @@ func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[s
 			Hostname:   h.Hostname,
 			Type:       h.HostType,
 			Control:    "unknown",
+			Refresh:    pool.UnobservedRefresh(),
 			Discovered: true,
 			Address:    h.Address,
 			BaseURL:    h.BaseURL,

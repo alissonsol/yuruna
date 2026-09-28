@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d64f5a-8fc4-44e1-a87f-16aacb2e4fa0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,56 +35,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.RunnerState.Tests.ps1
 #>
 
-BeforeAll {
-$here = Split-Path -Parent $PSCommandPath
-Import-Module (Join-Path $here 'Test.RunnerState.psm1') -Force -DisableNameChecking
-
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
-# Fixtures and helpers live at FILE scope, above the first Describe: a Describe
-# body runs during discovery and its variables and functions are thrown away
-# before any It executes, and the run pass stops descending top-level statements
-# at the first Describe. -TestCases data is read during discovery and belongs
-# here too.
-
-function Initialize-TestRuntimeDir {
-    <#
-    .SYNOPSIS
-        Point YURUNA_RUNTIME_DIR at a fresh empty directory and return it.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-runnerstate-' + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $dir -Force
-    $env:YURUNA_RUNTIME_DIR = $dir
-    return $dir
-}
-
-function Initialize-TestRunId {
-    <#
-    .SYNOPSIS
-        Set the run-id anchor the module reads to detect a prior runner's state.
-    #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Initialize-RunnerState reads global:__YurunaRunId (set by Test.Log at module load); the test has to drive it to exercise boot recovery.')]
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$RunId)
-    $global:__YurunaRunId = $RunId
-}
-
-function Initialize-TestCycleStartUtc {
-    <#
-    .SYNOPSIS
-        Set the cycle-id anchor Set-RunnerState copies onto a cycle-start write.
-    #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Set-RunnerState reads global:__YurunaCycleStartUtc (set by Start-LogFile); the test has to drive it.')]
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$CycleStartUtc)
-    $global:__YurunaCycleStartUtc = $CycleStartUtc
-}
-
+BeforeDiscovery {
 # The adjacency map as the module documents it, restated as data so that
 # widening it without saying so breaks these tests.
 $script:ValidTransitionCase = @(
@@ -125,6 +76,57 @@ $script:UnreadableStateCase = @(
     @{ Name = 'json scalar'; Content = '"just-a-string"' }
     @{ Name = 'json array'; Content = '[1,2]' }
 )
+
+if ($script:ValidTransitionCase.Count -ne 12 -or $script:InvalidTransitionCase.Count -ne 9 -or $script:UnreadableStateCase.Count -ne 5) { throw 'Runner-state discovery must retain every transition and unreadable-state fixture.' }
+}
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.RunnerState.psm1') -Force -DisableNameChecking
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# Runtime helpers are loaded before tests run; case tables above are loaded
+# during discovery so Pester can create every parameterized test.
+
+function Initialize-TestRuntimeDir {
+    <#
+    .SYNOPSIS
+        Point YURUNA_RUNTIME_DIR at a fresh empty directory and return it.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-runnerstate-' + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $dir -Force
+    $env:YURUNA_RUNTIME_DIR = $dir
+    return $dir
+}
+
+function Initialize-TestRunId {
+    <#
+    .SYNOPSIS
+        Set the run-id anchor the module reads to detect a prior runner's state.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Initialize-RunnerState reads global:__YurunaRunId (set by Test.Log at module load); the test has to drive it to exercise boot recovery.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$RunId)
+    $global:__YurunaRunId = $RunId
+}
+
+function Initialize-TestCycleStartUtc {
+    <#
+    .SYNOPSIS
+        Set the cycle-id anchor Set-RunnerState copies onto a cycle-start write.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Set-RunnerState reads global:__YurunaCycleStartUtc (set by Start-LogFile); the test has to drive it.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$CycleStartUtc)
+    $global:__YurunaCycleStartUtc = $CycleStartUtc
+}
+
 
 }
 

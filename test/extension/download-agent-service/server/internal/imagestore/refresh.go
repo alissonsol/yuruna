@@ -68,6 +68,8 @@ const (
 // the client never sees anything but 202 for its whole poll budget.
 const firstDownloadBackoff = 5 * time.Minute
 
+var errChecksumMismatch = errors.New("checksum mismatch")
+
 // AuditEvent is one recorded pool mutation.
 type AuditEvent struct {
 	AtUTC    string
@@ -352,6 +354,7 @@ func NewAgent(base context.Context, opts Options) (*Agent, error) {
 	a.resolver.Fido = fido
 	a.lease = NewLeaseManager(config.LeaseFileFor(opts.PoolDir), opts.HostID, opts.VMName,
 		time.Duration(config.LeaseExpiryFactor)*opts.ScanInterval)
+	a.store.stagingOwner = stagingOwner(a.lease.identity())
 
 	if strings.TrimSpace(opts.ProxyHTTPS) != "" && strings.TrimSpace(opts.ProxyCA) == "" {
 		// squid impersonates the origin on the ssl-bump port, so without its CA
@@ -481,11 +484,12 @@ func (a *Agent) Run(ctx context.Context) {
 	}
 }
 
-// ScanOnce is one full pass: staging hygiene, lease, auto-seed, then a refresh
+// ScanOnce is one full pass: lease, staging hygiene, auto-seed, then a refresh
 // for every entry inside the prefetch window.
 func (a *Agent) ScanOnce(ctx context.Context) {
 	now := a.now()
-	if a.store.Available() {
+	readOnly, holder, _ := a.lease.Renew(now)
+	if !readOnly && a.store.Available() {
 		if swept, err := a.store.SweepStaging(now, nil); err == nil && swept > 0 {
 			a.mu.Lock()
 			a.stagingSwept += swept
@@ -493,7 +497,6 @@ func (a *Agent) ScanOnce(ctx context.Context) {
 			a.logf("swept %d abandoned staging entries", swept)
 		}
 	}
-	readOnly, holder, _ := a.lease.Renew(now)
 	if readOnly {
 		a.logf("lease held by %s: read-only mode, deferring downloads", holder)
 	}
@@ -717,33 +720,50 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 	if err != nil {
 		return err
 	}
-	sha, written, err := a.downloadTo(ctx, res.SourceURL, staged, p)
+	sha, written, viaProxy, err := a.downloadTo(ctx, res.SourceURL, staged, p)
 	if err != nil {
 		_ = os.Remove(staged)
 		return err
 	}
-	// The probe's Content-Length is what sameOrigin compares the sidecar against
-	// on every later scan, so a byteCount that recorded anything else would make
-	// the entry look changed forever and re-download it on every pass. Proving
-	// the two agree here is also the only truncation check the pipeline has
-	// before the checksum.
-	if size > 0 && written != size {
-		_ = os.Remove(staged)
-		return &presentationError{cause: fmt.Errorf("origin %s: HEAD reported %d byte(s), the download produced %d", res.SourceURL, size, written), presentation: errorPresentation{code: "download.refresh_size_mismatch", arguments: map[string]any{"url": res.SourceURL, "expected": size, "actual": written}}}
+	var verdict string
+	for {
+		// A frozen proxy hit can complete successfully with yesterday's bytes.
+		// Compare it with directly fetched origin metadata before promoting it.
+		mismatch := size > 0 && written != size
+		if mismatch {
+			err = &presentationError{cause: fmt.Errorf("origin %s: HEAD reported %d byte(s), the download produced %d", res.SourceURL, size, written), presentation: errorPresentation{code: "download.refresh_size_mismatch", arguments: map[string]any{"url": res.SourceURL, "expected": size, "actual": written}}}
+		} else {
+			p.SetPhase(PhaseVerifying)
+			verdict, err = a.verifyChecksum(ctx, res, sha)
+			mismatch = errors.Is(err, errChecksumMismatch)
+		}
+		if err == nil {
+			break
+		}
+		if !viaProxy || !mismatch || ctx.Err() != nil {
+			// Never replace the current verified generation with bytes that fail
+			// the direct retry, or re-download for a checksum metadata outage.
+			_ = os.Remove(staged)
+			return err
+		}
+		a.logf("proxy content of %s failed origin verification (%v); restarting the fetch direct", res.SourceURL, err)
+		p.Reset()
+		p.SetPhase(PhaseDownloading)
+		direct, directErr := a.openDirectStream(ctx, res.SourceURL)
+		if directErr != nil {
+			_ = os.Remove(staged)
+			return &presentationError{cause: fmt.Errorf("proxy content failed verification (%v); direct retry: %w", err, directErr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": directErr.Error()}}}
+		}
+		sha, written, err = copyStream(direct, staged, p)
+		viaProxy = false
+		if err != nil {
+			_ = os.Remove(staged)
+			return err
+		}
 	}
 	byteCount := size
 	if byteCount <= 0 {
 		byteCount = written
-	}
-
-	p.SetPhase(PhaseVerifying)
-	verdict, err := a.verifyChecksum(ctx, res, sha)
-	if err != nil {
-		// A generation the agent cannot vouch for is discarded and the current
-		// pointer is left untouched, so the previous verified artifact stays
-		// servable.
-		_ = os.Remove(staged)
-		return err
 	}
 
 	p.SetPhase(PhasePromoting)
@@ -834,26 +854,29 @@ func (a *Agent) probe(ctx context.Context, rawURL string) (int64, string, error)
 // refresh for it would leave the pool stale when a direct fetch would have
 // worked. The retry restarts the artifact and the progress counter from zero,
 // because a partially proxied file cannot be resumed against a different peer.
-func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progress) (string, int64, error) {
+// The boolean identifies the final byte source, so origin verification can
+// retry a complete but stale proxy hit without retrying already-direct bytes.
+func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progress) (string, int64, bool, error) {
 	resp, viaProxy, err := a.openStream(ctx, rawURL)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, err
 	}
 	if viaProxy {
 		a.logf("fetching %s via the caching proxy", rawURL)
 	}
 	sha, n, err := copyStream(resp, dstPath, p)
 	if err == nil || !viaProxy || ctx.Err() != nil {
-		return sha, n, err
+		return sha, n, viaProxy, err
 	}
 
 	a.logf("proxy stream of %s broke after %d byte(s) (%v); restarting the fetch direct", rawURL, n, err)
 	p.Reset()
 	direct, derr := a.openDirectStream(ctx, rawURL)
 	if derr != nil {
-		return "", n, &presentationError{cause: fmt.Errorf("proxy stream failed (%v); direct retry: %w", err, derr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": derr.Error()}}}
+		return "", n, false, &presentationError{cause: fmt.Errorf("proxy stream failed (%v); direct retry: %w", err, derr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": derr.Error()}}}
 	}
-	return copyStream(direct, dstPath, p)
+	sha, n, err = copyStream(direct, dstPath, p)
+	return sha, n, false, err
 }
 
 // copyStream writes one response body into dstPath, hashing and counting as it
@@ -951,7 +974,7 @@ func (a *Agent) verifyChecksum(ctx context.Context, res Resolved, sha string) (s
 		return VerdictUnpublished, nil
 	}
 	if !strings.EqualFold(want, sha) {
-		return "", fmt.Errorf("checksum mismatch for %s: published %s, downloaded %s", res.UpstreamFilename, want, sha)
+		return "", fmt.Errorf("%w for %s: published %s, downloaded %s", errChecksumMismatch, res.UpstreamFilename, want, sha)
 	}
 	return VerdictVerified, nil
 }

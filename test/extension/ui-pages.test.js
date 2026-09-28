@@ -234,7 +234,7 @@ function scriptsIn(html) {
 }
 
 // --- REGION: Page checks
-function runPage(page, locale, capabilityOff, state) {
+function runPage(page, locale, capabilityOff, state, options) {
   state = state || 'data';
   locale = locale || 'en-US';
   const dir = webDir(page.service);
@@ -332,6 +332,7 @@ function runPage(page, locale, capabilityOff, state) {
   for (const name of scripts) {
     const file = name === 'yuruna.core.js' ? CORE : path.join(dir, 'assets', name);
     try {
+      if (options && options.beforePage && name !== 'yuruna.core.js' && name !== 'common.js') options.beforePage(box, byId);
       vm.runInContext(fs.readFileSync(file, 'utf8'), box, { filename: name });
       if (name === 'common.js' && locale !== 'en-US') {
         const domain = { 'pool-control-service': 'pool', 'stash-service': 'stash', 'download-agent-service': 'download' }[page.service];

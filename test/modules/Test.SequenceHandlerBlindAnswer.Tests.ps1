@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d9a6c1-58b7-4f0e-9a2e-7c1f6b0d4e33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,9 +70,17 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
             Justification = 'Stub: the signature has to match the real function so the caller binds; only Pattern and TimeoutSeconds are recorded.')]
         param($HostType, $VMName, $Pattern, $TimeoutSeconds, $PollSeconds, $FreshMatch,
-              $FreshMatchTailLines, $FailurePattern, [bool]$SinceStepStart)
+              $FreshMatchTailLines, $FailurePattern, [bool]$SinceStepStart, [switch]$NoSegmentMatch,
+              $NudgeKey, $NudgeIntervalSeconds)
         $script:BlindStub.WaitPatterns += @(,@($Pattern))
         $script:BlindStub.WaitTimeouts += @([int]$TimeoutSeconds)
+        $script:BlindStub.WaitNoSegmentMatch += @([bool]$NoSegmentMatch)
+        if ($null -ne $script:BlindStub.WaitText) {
+            foreach ($candidate in $Pattern) {
+                if (Test-OCRMatch -Text $script:BlindStub.WaitText -Pattern $candidate -NoSegmentMatch:$NoSegmentMatch) { return $true }
+            }
+            return $false
+        }
         if ($script:BlindStub.WaitResults.Count -gt 0) {
             $next = $script:BlindStub.WaitResults[0]
             $script:BlindStub.WaitResults = @($script:BlindStub.WaitResults | Select-Object -Skip 1)
@@ -93,6 +101,8 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
             ChangeBaseline = ''
             WaitPatterns   = @()
             WaitTimeouts   = @()
+            WaitNoSegmentMatch = @()
+            WaitText       = $null
             WaitResults    = @()
             ChangeVerdict  = @{
                 Changed        = $false
@@ -147,6 +157,40 @@ function Invoke-BlindAnswerUnderTest {
     param([hashtable]$Context, [string[]]$Patterns)
     return (& (Get-Module Test.SequenceHandler) { param($c, $p) Invoke-BlindAnswer -Context $c -Patterns $p } $Context $Patterns)
 }
+}
+
+Describe 'Prompt handlers use bounded OCR matching' {
+    It 'does not type a username into installer output by default on <HostKind>' -TestCases @(
+        @{ HostKind = 'host.windows.hyper-v' }, @{ HostKind = 'host.macos.utm' }, @{ HostKind = 'host.ubuntu.kvm' }
+    ) {
+        param($HostKind)
+        $stub = Reset-BlindState
+        $stub.WaitText = "passwd --expire amisad-core-admin`nsed -i ... /target/etc/login.defs"
+        $context = Get-BlindContext -Step @{ pattern = 'amisad-core login:'; text = 'amisad-core-admin' }
+        $context.HostType = $HostKind
+        $handler = (Get-SequenceAction -Name 'passwdPrompt').Handler
+        Assert-False (& $handler $context)
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count -Because 'the installer has no username prompt'
+        Assert-True $stub.WaitNoSegmentMatch[0]
+
+        $stub.WaitText = 'amisad-core logln: _'
+        Assert-True (& $handler $context)
+        Assert-Equal -Expected 1 -Actual $stub.Typed.Count -Because 'genuine prompt input is still delivered once'
+    }
+
+    It 'preserves ordinary wait defaults and honors the explicit matching policy' -TestCases @(
+        @{ Action = 'waitForText' }, @{ Action = 'waitForTextWithNudge' }, @{ Action = 'waitForAndEnter' }, @{ Action = 'passwdPrompt' }
+    ) {
+        param($Action)
+        foreach ($configured in @($null, $true, $false)) {
+            $stub = Reset-BlindState
+            $step = @{ pattern = 'login:'; text = 'username'; nudgeKey = 'Enter'; nudgeIntervalSeconds = 60 }
+            if ($null -ne $configured) { $step.noSegmentMatch = $configured }
+            $null = & (Get-SequenceAction -Name $Action).Handler (Get-BlindContext -Step $step)
+            $expected = if ($null -eq $configured) { $Action -eq 'passwdPrompt' } else { $configured }
+            Assert-Equal -Expected $expected -Actual $stub.WaitNoSegmentMatch[0]
+        }
+    }
 }
 
 Describe 'Invoke-BlindAnswer refuses to type at a console that is still moving' {
@@ -320,11 +364,12 @@ Describe 'Invoke-BlindAnswer answers a parked console and requires proof' {
         # than "something changed".
         $stub = Reset-BlindState
         $stub.WaitResults = @($true)
-        $ctx = Get-BlindContext -Step @{ text = 'yes'; blindAfterSeconds = 120; confirmPattern = 'Installing system' }
+        $ctx = Get-BlindContext -Step @{ text = 'yes'; blindAfterSeconds = 120; confirmPattern = 'Installing system'; noSegmentMatch = $true }
         $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
         Assert-Equal -Expected $true -Actual $result
         Assert-Equal -Expected 0 -Actual $stub.ChangeCalls -Because 'the pattern replaces the change probe, it does not add to it'
         Assert-Equal -Expected 'Installing system' -Actual $stub.WaitPatterns[0][0]
+        Assert-True $stub.WaitNoSegmentMatch[0] 'confirmation uses the same prompt policy'
     }
 }
 
@@ -336,11 +381,12 @@ Describe 'waitForAndEnter spends its budget around the blind answer' {
         $stub = Reset-BlindState
         $stub.WaitResults = @($false)
         $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
-        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120 }
+        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120; noSegmentMatch = $true }
         $result = & $handler $ctx
         Assert-Equal -Expected $true -Actual $result
         Assert-Equal -Expected 1 -Actual $stub.Typed.Count -Because 'the answer the blind path sent is the answer the step needed'
         Assert-Equal -Expected 120 -Actual $stub.WaitTimeouts[0] -Because 'the first window is blindAfterSeconds, not the whole budget'
+        Assert-True $stub.WaitNoSegmentMatch[0]
     }
 
     It 'spends the rest of the budget on the wait when the answer was not warranted' {
@@ -350,10 +396,12 @@ Describe 'waitForAndEnter spends its budget around the blind answer' {
         $stub.Verdict.ConsoleStaticSeconds = 0
         $stub.WaitResults = @($false, $true)
         $handler = (Get-SequenceAction -Name 'waitForAndEnter').Handler
-        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120 }
+        $ctx = Get-BlindContext -Step @{ pattern = 'Continue with autoinstall?'; text = 'yes'; timeoutSeconds = 900; blindAfterSeconds = 120; noSegmentMatch = $true }
         $result = & $handler $ctx
         Assert-Equal -Expected $true -Actual $result
         Assert-Equal -Expected 2 -Actual $stub.WaitTimeouts.Count -Because 'the wait resumes after the blind path declines'
+        Assert-True $stub.WaitNoSegmentMatch[0]
+        Assert-True $stub.WaitNoSegmentMatch[1] 'resuming must not loosen prompt matching'
         Assert-True ($stub.WaitTimeouts[1] -gt 700) `
             "the resumed wait gets what is left of the budget; got $($stub.WaitTimeouts[1])s"
         Assert-Equal -Expected 1 -Actual $stub.Typed.Count -Because 'the normal path types the answer once, after the match'

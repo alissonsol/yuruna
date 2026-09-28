@@ -15,7 +15,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -27,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
@@ -377,28 +377,7 @@ func (g *Gate) verify(ctx context.Context, code string) (Verdict, string) {
 // Any malformed, expired or mismatched input is false, never an error a caller
 // could mistake for a verdict.
 func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
-	if strings.TrimSpace(token) == "" || strings.TrimSpace(wire) == "" {
-		return false
-	}
-	dot := strings.IndexByte(wire, '.')
-	if dot <= 0 || dot >= len(wire)-1 {
-		return false
-	}
-	expiry, err := strconv.ParseInt(wire[:dot], 10, 64)
-	if err != nil {
-		return false
-	}
-	unix := now.Unix()
-	if expiry < unix || expiry > unix+int64(maxTTL/time.Second) {
-		return false
-	}
-	given, err := base64.StdEncoding.DecodeString(wire[dot+1:])
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
-	return hmac.Equal(mac.Sum(nil), given)
+	return controlproof.Verify(token, wire, now, maxTTL)
 }
 
 // verifyProof judges an arriving control proof, locally when it can and by

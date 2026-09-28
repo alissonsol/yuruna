@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -426,5 +426,50 @@ Describe 'Enter-/Exit-PoolStorageDrainLock (single instance across BOTH invocati
             Assert-True (Test-Path -LiteralPath (Join-Path $f.LogDir '000001.2026-08-16.10-00-00.HOSTID')) 'and nothing deleted'
             $null = Exit-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir -Confirm:$false
         } finally { Clear-MoveFixture $f }
+    }
+}
+
+Describe 'Cross-process storage ownership' {
+    It 'recognizes a live owner from a separate PowerShell process for both lock readers' {
+        $f = Get-MoveFixture
+        $child = $null
+        try {
+            $lockPath = Join-Path $f.RuntimeDir 'poolstorage.drain.lock'
+            $stopPath = Join-Path $f.RuntimeDir 'stop'
+            $childCode = @'
+param($LockPath, $StopPath)
+@{ pid = $PID; startTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks } | ConvertTo-Json -Compress | Set-Content -LiteralPath $LockPath
+$until = [datetime]::UtcNow.AddSeconds(20)
+while (-not (Test-Path -LiteralPath $StopPath) -and [datetime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 50 }
+'@
+            $childPath = Join-Path $f.RuntimeDir 'owner.ps1'
+            Set-Content -LiteralPath $childPath -Value $childCode
+            $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+            $info.UseShellExecute = $false
+            foreach ($arg in @('-NoProfile','-File',$childPath,$lockPath,$stopPath)) { $info.ArgumentList.Add($arg) }
+            $child = [Diagnostics.Process]::Start($info)
+            $readyUntil = [datetime]::UtcNow.AddSeconds(10)
+            while (-not (Test-Path -LiteralPath $lockPath) -and [datetime]::UtcNow -lt $readyUntil) { Start-Sleep -Milliseconds 50 }
+            Assert-True (Test-Path -LiteralPath $lockPath) 'child reported ownership'
+            Assert-False (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'a second process cannot steal a live lock'
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'), [ref]$null, [ref]$null)
+            foreach ($name in @('Get-PushProcStartUtc','Test-PushLockHeldLive')) {
+                $fn = $ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name}, $true)
+                . ([scriptblock]::Create($fn.Extent.Text))
+            }
+            Assert-True (Test-PushLockHeldLive -Path $lockPath) 'the push forwarder recognizes the same live owner'
+            $body = Get-Content -Raw -LiteralPath $lockPath | ConvertFrom-Json
+            $body.startTicks = [long]$body.startTicks - [TimeSpan]::TicksPerMinute
+            $body | ConvertTo-Json -Compress | Set-Content -LiteralPath $lockPath
+            Assert-False (Test-PushLockHeldLive -Path $lockPath) 'a reused PID with a different start is stale'
+            Assert-True (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'the stale process identity is reclaimed'
+        } finally {
+            if ($child) {
+                Set-Content -LiteralPath (Join-Path $f.RuntimeDir 'stop') -Value 'stop'
+                if (-not $child.WaitForExit(3000)) { $child.Kill(); $child.WaitForExit() }
+                $child.Dispose()
+            }
+            Clear-MoveFixture $f
+        }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42507b72-36d6-40f8-9a02-4a16e5a058b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,7 +216,7 @@ function Initialize-RunnerState {
         # 2) fault   -> idle   (the boot recovery resolution)
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
             Send-CycleEventSafely -EventRecord @{
-                timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event         = 'runner_state_transition'
                 fromState     = $staleState
                 toState       = 'fault'
@@ -247,7 +247,7 @@ function Initialize-RunnerState {
         )
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
             Send-CycleEventSafely -EventRecord @{
-                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event     = 'runner_state_transition'
                 fromState = 'fault'
                 toState   = 'idle'

@@ -701,6 +701,223 @@ const DataqpsPlocmpool = `{
     },
     "‬ ~~~~~~~~~~~~~]"
   ],
+  "pool.host_refresh_body_invalid": [
+    "[!‮Ţħé řéƒřéšħ řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_busy": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš áļřéáďý ħáñďļíñğ řéƒřéšħ řéʠúéšţ ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_control_proof_unavailable": [
+    "[!‮Ñó çóñţřóļ ƥřóóƒ çóúļď ƀé óƀţáíñéď ƒóř ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_field_unsupported": [
+    "[!‮Ţħé řéƒřéšħ řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ƒóřçé áñď ħářď-šţóƥ óƥţíóñš ářé ñéṽéř áççéƥţéď řéɱóţéļý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_host_address_unknown": [
+    "[!‮Ţħé ƥóóļ áğğřéğáţóř ķñóŵš ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ƀúţ ħáš ñó áďďřéšš ƒóř íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_host_id_invalid": "[!‮ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď.‬ ~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_refresh_host_refused": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " řéƒúšéď ţħé řéƒřéšħ (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_host_unavailable": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çóúļď ñóţ šţářţ ţħé řéƒřéšħ (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); řéţřý ŵíţħ ţħé šáɱé řéʠúéšţ íď ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_host_unknown": [
+    "[!‮Ţħé ƥóóļ áğğřéğáţóř ďóéš ñóţ ķñóŵ ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_host_unreachable": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ďíď ñóţ áñšŵéř; řéţřý ŵíţħ ţħé šáɱé řéʠúéšţ íď ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_mint_failed": [
+    "[!‮Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƒřéšħ řéʠúéšţ ƒóř ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_reply_invalid": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " áñšŵéřéď ŵíţħ á řéƥļý ţħíš šéřṽíçé çáññóţ úšé (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_request_closed": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " óñ ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " áļřéáďý éñďéď (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_request_conflict": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ ţíéř óř çéíļíñğ; řéšéñď ţħé óříğíñáļ ƥóļíçý óř ğéñéřáţé á ñéŵ řéʠúéšţ íď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_request_id_invalid": "[!‮řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_refresh_rung_unsupported": "[!‮ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_refresh_signing_unconfigured": [
+    "[!‮Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƒřéšħ šíğñíñğ áúţħóříţý (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_refresh_tier_unsupported": "[!‮Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_refresh_unavailable": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƒřéšħ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": [
     "[!‮Ħóšţ ",
     {
@@ -1617,7 +1834,6 @@ const DataqpsPlocmpool = `{
   "pool.what_to_do": "[!‮Ŵħáţ ţó ďó‬ ~~~~]",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "[!‮Ŵħíçħ ƀúíļď íš áçţúáļļý řúññíñğ, áñď ƒóř ħóŵ ļóñğ — éšţáƀļíšħéš ŵħéţħéř á ƒíẋ ŵáš ďéƥļóýéď áţ áļļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.which_network_cidr_notation": "[!‮Ŵħíçħ ñéţŵóřķ? (ÇÍĎŘ ñóţáţíóñ)‬ ~~~~~~~~~~~~]",
-  "pool.x": "[!‮ẋ‬ ~]",
   "pool.yuruna_pool_control": "[!‮Ýúřúñá Ƥóóļ Çóñţřóļ‬ ~~~~~~~~]"
 }
 `

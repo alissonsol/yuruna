@@ -24,9 +24,10 @@
           "id": { "type": "string", "minLength": 1 },
           "kind": { "enum": ["term", "ruling", "style-rule", "message", "document", "project-scalar"] },
           "file": { "type": "string", "minLength": 1 },
-          "state": { "enum": ["new", "changed", "carried"] },
+          "state": { "enum": ["new", "changed", "machine", "accepted"] },
           "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "english": { "type": "string" }
+          "english": { "type": "string" },
+          "previousTranslation": { "type": "string", "description": "The text the tree holds for this row today, sent as context: a machine draft, or a translation of English that has since moved. It is never an answer." }
         }
       }
     }

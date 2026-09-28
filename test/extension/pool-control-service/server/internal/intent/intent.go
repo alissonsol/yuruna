@@ -192,8 +192,19 @@ func (r *Runner) AddHost(ctx context.Context, poolID, hostID string) Result {
 	return r.exec(ctx, "pool/Add-HostToPool.ps1", "-PoolId", poolID, "-HostId", hostID)
 }
 
-func (r *Runner) RemoveHost(ctx context.Context, poolID, hostID string) Result {
-	return r.exec(ctx, "pool/Remove-HostFromPool.ps1", "-PoolId", poolID, "-HostId", hostID)
+func (r *Runner) RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) Result {
+	args := []string{"-HostId", hostID}
+	if poolID != "" {
+		args = append(args, "-PoolId", poolID)
+	}
+	if len(exclude) > 0 && exclude[0] {
+		args = append(args, "-Exclude")
+	}
+	return r.exec(ctx, "pool/Remove-HostFromPool.ps1", args...)
+}
+
+func (r *Runner) MoveHostIdentity(ctx context.Context, oldID, newID string) Result {
+	return r.exec(ctx, "pool/Move-PoolHostIdentity.ps1", "-OldHostId", oldID, "-NewHostId", newID)
 }
 
 // AssignTestSet copies a library test-set's triple into the pool's inline testSet.

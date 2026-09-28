@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,15 @@
             )
         }
     }
+    'status.api_admission_unavailable' = @(
+        'the host could not record the request ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'status.api_another_start_cycle_request_is_in_progress_3f51d139' = 'another start-cycle request is in progress'
     'status.api_authentication_extension_unavailable_2ece9896' = 'authentication extension unavailable'
     'status.api_body_must_be_a_json_object_831ab327' = 'body must be a JSON object'
@@ -117,7 +126,37 @@
     'status.api_forbidden_directory_listing_disabled_5d107f5b' = 'Forbidden (directory listing disabled)'
     'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = 'forbidden: missing X-Yuruna request header (cross-site request guard)'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = 'forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP'
+    'status.api_host_refresh_authorization_refused' = @(
+        'refresh authorization refused ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'status.api_host_refresh_busy' = 'another host operation is in progress'
+    'status.api_host_refresh_request_closed' = @(
+        'this request id is already closed ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'status.api_host_refresh_request_conflict' = 'this request id was already used with different settings'
+    'status.api_host_refresh_unavailable' = @(
+        'host refresh is not available on this host ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0' = 'internal authentication key not configured on this host'
+    'status.api_internal_error' = 'the request failed on the host; see server.err'
     'status.api_invalid_json_detail_c907dfc3' = @(
         'invalid JSON: '
         @{
@@ -127,6 +166,8 @@
         }
     )
     'status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c' = 'invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)'
+    'status.api_listener_busy' = 'too many request bodies are being read; retry shortly'
+    'status.api_listener_dependency_missing' = 'a module this route needs could not be loaded; see server.err'
     'status.api_method_not_allowed_be4fb6a2' = 'method not allowed'
     'status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf' = 'method not allowed; POST the checkpoint body'
     'status.api_method_not_allowed_post_the_dump_body_fa73866b' = 'method not allowed; POST the dump body'
@@ -157,12 +198,38 @@
     'status.api_path_escapes_log_root_13754cf8' = 'path escapes log root'
     'status.api_payload_too_large_1_mb_350b49df' = 'payload too large (>1 MB)'
     'status.api_payload_too_large_256_kb_ad49d5cd' = 'payload too large (>256 KB)'
+    'status.api_payload_too_large_4_kb' = 'payload too large (4 KB max)'
     'status.api_payload_too_large_4_mb_3455f869' = 'payload too large (>4 MB)'
     'status.api_payload_too_large_5_mb_ab90ca52' = 'payload too large (>5 MB)'
     'status.api_post_required_663cc07c' = 'POST required'
+    'status.api_private_state_unavailable' = @(
+        'the host''s private state directory is unavailable ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'status.api_project_repo_not_present_on_host_885e6338' = 'project repo not present on host'
     'status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b' = 'proof mismatch (wrong or stale internal authentication key)'
     'status.api_put_or_post_required_1f919659' = 'PUT or POST required'
+    'status.api_request_body_invalid' = @(
+        'invalid request body: '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'status.api_request_body_timeout' = 'the request body did not arrive within 2 seconds'
     'status.api_runner_script_missing' = @(
         'Start-TestRunner.ps1 not found at '
         @{
@@ -175,8 +242,18 @@
     'status.api_test_config_yml_not_found_3b38d785' = 'test.config.yml not found'
     'status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c' = 'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
     'status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c' = 'Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
+    'status.api_unsupported_media_type' = 'Content-Type must be application/json'
     'status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9' = 'user, nonce and proof query parameters are required'
     'status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3' = 'user not referenced by this host''s networkStorage config'
+    'status.api_worker_launcher_failed' = @(
+        'the worker could not be started ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); the request can be retried'
+    )
     'status.api_write_failed_detail_c07681e1' = @(
         'write failed: '
         @{
@@ -654,6 +731,16 @@
     'status.guest_sequence_no_plan' = 'No resolved plan is recorded for the last cycle.'
     'status.guide' = 'Guide'
     'status.host' = 'Host'
+    'status.host_diagnostic_pending' = 'Collecting host diagnostics; this can take a minute...'
+    'status.host_diagnostic_timeout' = @(
+        'Host diagnostics did not finish within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds. Reload the page to try again.'
+    )
     'status.host_diagnostics' = 'Host diagnostics'
     'status.host_ip_addresses' = 'Host IP addresses'
     'status.host_online_count' = @{
@@ -678,6 +765,279 @@
             )
         }
     }
+    'status.host_refresh_action_dispose_obligations' = 'Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.'
+    'status.host_refresh_action_elevate' = 'Next step: the repair needs administrator rights; run it on the host from an elevated session.'
+    'status.host_refresh_action_grant_automation' = 'Next step: allow this host''s automation access to UTM, then refresh again.'
+    'status.host_refresh_action_gui_session' = 'Next step: sign in to a desktop session on the host, then refresh again.'
+    'status.host_refresh_action_install_client' = 'Next step: install the hypervisor''s command-line client on the host, then refresh again.'
+    'status.host_refresh_action_resume_request' = 'Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.'
+    'status.host_refresh_action_start_runner' = 'Next step: start the runner on the host; no recorded launch could be reused to restart it.'
+    'status.host_refresh_authorization_refused' = @(
+        'This refresh needs a refresh proof that this page does not have ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). Use the status page on the host itself, or the pool-control refresh action.'
+    )
+    'status.host_refresh_busy' = @(
+        'Another host refresh ('
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') is in progress; showing its progress.'
+    )
+    'status.host_refresh_check_host' = 'On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.'
+    'status.host_refresh_closed' = @(
+        'Request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' is already closed ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '); start a new refresh.'
+    )
+    'status.host_refresh_confirm' = @(
+        'Refresh this host, up to the '
+        @{
+            'arg' = 'ceiling'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' minutes.'
+    )
+    'status.host_refresh_conflict' = @(
+        'Request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was already sent with different settings; start a new refresh.'
+    )
+    'status.host_refresh_launcher_failed' = 'The host could not start the refresh worker. The request is kept; select Retry to start it again.'
+    'status.host_refresh_lost' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': no outcome after '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one.'
+    )
+    'status.host_refresh_note' = 'Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.'
+    'status.host_refresh_progress' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': step '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'stepName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '), up to '
+        @{
+            'arg' = 'remainingSeconds'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' seconds left.'
+    )
+    'status.host_refresh_recovery_pending' = 'Services or the runner still need restoring. Retry resumes the same request.'
+    'status.host_refresh_rejected' = @(
+        'The host rejected the refresh request: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.host_refresh_retry' = 'Retry'
+    'status.host_refresh_stale' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': no progress report for '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds. The worker may have stopped; check the host before starting another repair.'
+    )
+    'status.host_refresh_start' = 'Refresh host'
+    'status.host_refresh_start_cycle_busy' = 'A start-cycle request is in progress; try again when it finishes.'
+    'status.host_refresh_submitting' = 'Sending the refresh request...'
+    'status.host_refresh_title' = 'Host refresh'
+    'status.host_refresh_unavailable' = @(
+        'Host refresh is not available on this host ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'status.host_refresh_verdict_abandoned' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was abandoned after repeated attempts; its recovery record is kept on the host.'
+    )
+    'status.host_refresh_verdict_already_healthy' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' finished: the host was already healthy, so nothing was changed.'
+    )
+    'status.host_refresh_verdict_failed' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' failed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'status.host_refresh_verdict_partial' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ended incomplete ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '); some services or the runner still need attention.'
+    )
+    'status.host_refresh_verdict_refused' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was refused before any change ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'status.host_refresh_verdict_repaired' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' finished: the host was repaired and the runner is ready.'
+    )
+    'status.host_refresh_verdict_still_unresponsive' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ended: the hypervisor still does not respond.'
+    )
+    'status.host_refresh_verdict_unknown' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ended with an outcome this page does not recognize ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'status.host_refresh_waiting' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was accepted; waiting for the worker''s first report.'
+    )
+    'status.host_refresh_waiting_long' = @(
+        'Refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': no report after '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds. The worker may have failed to start; check the host.'
+    )
     'status.host_value1' = @(
         'Host: '
         @{
@@ -923,6 +1283,8 @@
     'status.pausing_after_step' = 'Test pausing (after step)'
     'status.perf_yuruna' = 'Perf — Yuruna'
     'status.performance' = 'Performance'
+    'status.performance_fit' = 'Fit all'
+    'status.performance_zoom' = 'Time zoom'
     'status.pill_new_vm_resource' = 'New VM'
     'status.pill_start_guestos' = 'Start OS'
     'status.pill_start_guestworkload' = 'Workload'
@@ -1052,6 +1414,51 @@
         }
         ', restart the VM, then resume the sequence'
     )
+    'status.start_cycle_blocked_by_refresh' = @(
+        'A host refresh ('
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') is in progress; the cycle cannot start until it finishes.'
+    )
+    'status.start_cycle_cycle_restarted' = 'Cycle restarted'
+    'status.start_cycle_failed' = @(
+        'Start-cycle failed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'status.start_cycle_no_report' = @(
+        'Start-cycle '
+        @{
+            'arg' = 'operationId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' has not reported after '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds; check the host.'
+    )
+    'status.start_cycle_not_spawned' = @(
+        'The cycle restart was requested, but the runner''s state could not be confirmed, so no second runner was started ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). A running runner restarts its cycle; if none is running, start it on the host.'
+    )
+    'status.start_cycle_queued' = 'Start-cycle accepted; stopping in-progress VMs and starting the runner...'
+    'status.start_cycle_runner_started' = 'Runner started'
     'status.started' = 'Started'
     'status.started_utc' = 'Started (UTC)'
     'status.status' = 'Status'

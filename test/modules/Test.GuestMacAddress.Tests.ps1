@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,9 +356,10 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # not the running configuration.
         $body = [regex]::Match((Get-Content -Raw -LiteralPath $script:UtmModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'Set-GuestMacInBundle') 'the rename re-pins the NIC'
-        $quitAt   = $body.IndexOf('to quit')
+        # The quit and the relaunch are the UTM stop and start primitives.
+        $quitAt   = $body.IndexOf('Stop-UtmApplication')
         $macAt    = $body.IndexOf('Set-GuestMacInBundle')
-        $reopenAt = $body.IndexOf('open -a UTM', $macAt)
+        $reopenAt = $body.IndexOf('Start-UtmApplication', $macAt)
         Assert-True ($quitAt -ge 0 -and $quitAt -lt $macAt) 'UTM is quit before the address is written'
         Assert-True ($reopenAt -gt $macAt) 'and relaunched after, so it loads the new value'
     }

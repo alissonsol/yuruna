@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42aa791a-a124-4a3c-98f2-d6d34623c3d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -377,14 +377,17 @@ Describe 'installer preflight -- what blocks an install and what only advises' {
 
     It 'keeps RAM, free disk, edition and architecture as blocking issues' {
         $cases = @(
-            @{ Name = 'RAM';          Splat = @{ MemGB = 16 } },
-            @{ Name = 'free disk';    Splat = @{ FreeGB = 400 } },
-            @{ Name = 'edition';      Splat = @{ Build = '19045' } },
-            @{ Name = 'architecture'; Splat = @{ Arch = 'x86' } }
+            @{ Name = 'RAM';          Splat = @{ MemGB = 16 }; Pattern = '16GB RAM detected' },
+            @{ Name = 'free disk';    Splat = @{ FreeGB = 400 }; Pattern = '400GB free' },
+            @{ Name = 'edition';      Splat = @{ Build = '19045' }; Pattern = 'Windows edition' },
+            @{ Name = 'architecture'; Splat = @{ Arch = 'x86' }; Pattern = "architecture 'x86' detected" }
         )
         foreach ($case in $cases) {
-            $null = Invoke-Preflight @($case.Splat)[0]
+            $preflightArgs = $case.Splat
+            $said = Invoke-Preflight @preflightArgs
             Assert-True $script:Prompted "a shortfall in $($case.Name) must still ask the operator to confirm"
+            Assert-Match $case.Pattern $said 'the intended requirement must cause the prompt'
+            Assert-Equal 1 ([regex]::Matches($said, '(?m)^WARN\s+-').Count) 'only the intended requirement is below baseline'
         }
     }
 
@@ -401,5 +404,55 @@ Describe 'installer preflight -- what blocks an install and what only advises' {
         $said = Invoke-Preflight -Arch 'unknown'
         Assert-Match "architecture 'unknown' detected" $said `
             'the issue text carries whatever the detector named, so an empty name would surface here'
+    }
+}
+
+Describe 'installer materialization native argument transport' {
+    It 'round trips spaced paths through native argument passing modes' {
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $PSScriptRoot
+        $installerPath = Join-Path $repoRoot 'install/windows.hyper-v.ps1'
+        $source = [IO.File]::ReadAllText($installerPath)
+        $ast = Get-YurunaTestFileAst -Path $installerPath
+        $assignment = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$matArgs' -and
+            $node.Operator -eq [Management.Automation.Language.TokenKind]::Equals
+        }, $true)
+        $launch = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and $node.Extent.Text -eq '& $currentShellExe $matArgs'
+        }, $true)
+        Assert-NotNull $assignment
+        Assert-NotNull $launch
+        $materialize = [scriptblock]::Create('param([string]$YurunaDir, [string]$YurunaRepo, [string]$YurunaBranch, [switch]$PinVersion, [string]$LogPath)' + "`n" + $source.Substring($assignment.Extent.StartOffset, $launch.Extent.EndOffset - $assignment.Extent.StartOffset))
+        $fixture = Join-Path $TestDrive 'installer script with spaces.ps1'
+        Set-Content -LiteralPath $fixture -Value @'
+param([switch]$SkipPreflight, [string]$YurunaDir, [string]$YurunaRepo, [string]$YurunaBranch, [switch]$PinVersion, [string]$LogPath)
+[pscustomobject]@{ SkipPreflight = [bool]$SkipPreflight; YurunaDir = $YurunaDir; YurunaRepo = $YurunaRepo; YurunaBranch = $YurunaBranch; PinVersion = [bool]$PinVersion; LogPath = $LogPath } | ConvertTo-Json -Compress
+'@
+        foreach ($mode in @('Standard', 'Legacy', 'Windows')) {
+            $wire = & {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Variables are the inputs read by the production materialization scriptblock.')]
+                param($Body, $Fixture, $Passing)
+                $PSNativeCommandArgumentPassing = $Passing
+                $currentShellExe = (Get-Process -Id $PID).Path
+                $matTmp = $Fixture
+                $YurunaDir = 'C:\lab checkout\yuruna'
+                $YurunaRepo = 'https://example.invalid/yuruna.git'
+                $YurunaBranch = 'fixture-branch'
+                $PinVersion = $true
+                $LogPath = 'C:\lab logs\installer.log'
+                $null = $currentShellExe, $matTmp, $YurunaDir, $YurunaRepo, $YurunaBranch, $PinVersion, $LogPath
+                . $Body -YurunaDir $YurunaDir -YurunaRepo $YurunaRepo -YurunaBranch $YurunaBranch -PinVersion:$PinVersion -LogPath $LogPath
+                if ($LASTEXITCODE -ne 0) { throw "Materialization failed under $Passing with exit $LASTEXITCODE" }
+            } $materialize $fixture $mode
+            $seen = $wire | ConvertFrom-Json
+            Assert-StringEqual 'C:\lab checkout\yuruna' $seen.YurunaDir "$mode must preserve the checkout argument"
+            Assert-StringEqual 'C:\lab logs\installer.log' $seen.LogPath "$mode must preserve the log argument"
+            Assert-StringEqual 'https://example.invalid/yuruna.git' $seen.YurunaRepo
+            Assert-StringEqual 'fixture-branch' $seen.YurunaBranch
+            Assert-True $seen.PinVersion
+            Assert-True $seen.SkipPreflight
+        }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b4d827-01c6-44d5-935b-fca352ec41b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,7 +119,7 @@ function ConvertTo-PerfSequenceAggregate {
             $runKey = "$source|$id"
             if (-not $runs.ContainsKey($runKey)) {
                 $runs[$runKey] = [ordered]@{
-                    cycleStartUtc = ([DateTimeOffset]::Parse($record.cycle, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+                    cycleStartUtc = ([DateTimeOffset]::Parse($record.cycle, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture))
                     cycleStartedAtUtc = (ConvertTo-PerfUtc $item.cycleStartedAtUtc)
                     hostUuid = [string]$item.hostUuid
                     hostPlatform = [string]$item.hostPlatform
@@ -184,6 +184,11 @@ function Find-PerfCheckpoint {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Step, [AllowEmptyCollection()][object[]]$Sidecar = @())
     if ($Step.checkpointSourceStepInvocationId) { return $null }
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $start = ConvertTo-PerfUtc $Step.startedAtUtc
+    $end = ConvertTo-PerfUtc $Step.endedAtUtc
+    $startInstant = if ($start) { [DateTimeOffset]::Parse($start, $culture) } else { $null }
+    $endInstant = if ($end) { [DateTimeOffset]::Parse($end, $culture) } else { $null }
     foreach ($candidate in $Sidecar) {
         if ($candidate.Consumed) { continue }
         if ($candidate.StepInvocationId -or $candidate.SequenceInvocationId) {
@@ -192,14 +197,17 @@ function Find-PerfCheckpoint {
                 $candidate.SequenceInvocationId -eq $Step.sequenceInvocationId) { return $candidate }
             continue
         }
-        $start = ConvertTo-PerfUtc $Step.startedAtUtc
-        $end = ConvertTo-PerfUtc $Step.endedAtUtc
-        $received = ConvertTo-PerfUtc $candidate.ReceivedAt
-        if (-not $start -or -not $end -or -not $received) { continue }
-        $culture = [Globalization.CultureInfo]::InvariantCulture
-        $instant = [DateTimeOffset]::Parse($received, $culture)
-        if ($instant -ge [DateTimeOffset]::Parse($start, $culture) -and
-            $instant -le [DateTimeOffset]::Parse($end, $culture)) { return $candidate }
+        if ($null -eq $startInstant -or $null -eq $endInstant) { continue }
+        $instant = if ($candidate.ReceivedAt -is [datetime]) {
+            [DateTimeOffset]$candidate.ReceivedAt.ToUniversalTime()
+        } elseif ($candidate.ReceivedAt -is [DateTimeOffset]) {
+            $candidate.ReceivedAt
+        } else {
+            $received = ConvertTo-PerfUtc $candidate.ReceivedAt
+            if (-not $received) { continue }
+            [DateTimeOffset]::Parse($received, $culture)
+        }
+        if ($instant -ge $startInstant -and $instant -le $endInstant) { return $candidate }
     }
     return $null
 }

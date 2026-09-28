@@ -40,6 +40,8 @@
   // leaves the table takes its selection with it.
   var rendered = [];
   var deleting = false;
+  var loadGeneration = 0;
+  var loading = false;
   // Whether this browser is through the delete gate. Nothing about a row can
   // reveal it -- it is a fact about a credential this device holds -- so the
   // page asks, and withholds the controls the daemon would refuse rather than
@@ -58,13 +60,13 @@
     var q = $('q').value.trim();
     var cls = $('class').value;
     var host = $('host').value;
-    if (q) { add(window.YurunaI18n.t("stash.q"), q); }
-    if (cls) { add(window.YurunaI18n.t("stash.class"), cls); }
-    if (host) { add(window.YurunaI18n.t("stash.host_4740ae63"), host); }
-    add(window.YurunaI18n.t("stash.sort"), sortCol);
-    add(window.YurunaI18n.t("stash.dir"), sortAsc ? 'asc' : 'desc');
-    add(window.YurunaI18n.t("stash.limit"), String(PAGE));
-    add(window.YurunaI18n.t("stash.offset"), String(offset));
+    if (q) { add('q', q); }
+    if (cls) { add('class', cls); }
+    if (host) { add('host', host); }
+    add('sort', sortCol);
+    add('dir', sortAsc ? 'asc' : 'desc');
+    add('limit', String(PAGE));
+    add('offset', String(offset));
     return parts.join('&');
   }
 
@@ -178,7 +180,7 @@
   // and the rest of their selection. The counters follow the row out, `offset`
   // included: the server's result window just shrank by one, and leaving offset
   // where it was would make the next "Load more" skip a stash.
-  function dropRow(entry) {
+  function dropRow(entry, focusWasInRow) {
     var i = rendered.indexOf(entry);
     if (i >= 0) { rendered.splice(i, 1); }
     // Removing the row that holds focus drops focus to <body>, and an operator
@@ -187,7 +189,6 @@
     // or the row above it when this was the last one. Y.block's own restore
     // cannot help here -- the element it saved is the button inside this row,
     // which is about to leave the document.
-    var focusWasInRow = entry.tr.contains(document.activeElement);
     var next = null;
     if (focusWasInRow) {
       var after = rendered[i] || rendered[i - 1] || null;
@@ -219,6 +220,7 @@
     // the per-row Delete is the easiest of the three to hit by accident.
     var what = entry.view.originalFilename ? (entry.view.id + ' (' + entry.view.originalFilename + ')') : entry.view.id;
     if (!window.confirm(window.YurunaI18n.t("stash.delete_stash_value1_this_cannot_be_undone", {value1: (what)}))) { return Promise.resolve(); }
+    var focusWasInRow = entry.tr.contains(document.activeElement);
     btn.disabled = true;
     // Blocked like the bulk run, and for the same reason: from the moment the
     // request leaves, this row's Download and its permalink are promises the
@@ -231,7 +233,7 @@
       if (!url) { throw new Error('malformed permalink'); }
       return Y.api(url, { method: 'DELETE' });
     }).then(function () {
-      dropRow(entry);
+      dropRow(entry, focusWasInRow);
     }, function (e) {
       btn.disabled = false;
       showError(window.YurunaI18n.t("stash.delete_failed_for_value1_value2", {value1: (entry.view.id), value2: (e.message)}));
@@ -290,39 +292,51 @@
   }
 
   function load(reset) {
+    // A reset supersedes any older query. Paging waits for the current page so
+    // two clicks cannot request the same offset and append it twice.
+    if (!reset && loading) { return Promise.resolve(); }
+    var generation = ++loadGeneration;
     var readyState = 'error';
+    loading = true;
+    $('more').disabled = true;
     if (reset) { offset = 0; rendered = []; Y.replace($('rows')); clearError(); }
+    var query = filterQuery();
     $('status').textContent = window.YurunaI18n.t("stash.loading");
     // Before the rows, never after: row() reads the gate as it builds each one.
     // This also spends a control proof carried in from the dashboard, so a
     // browser that arrived by that link renders its first page already unlocked.
     return Y.initUnlock(function () { return load(true); }).then(function (sess) {
+      if (generation !== loadGeneration) { return; }
       gate.canDelete = sess.authed;
       gate.labToken = sess.labToken;
-      return Y.api('/api/stashes?' + filterQuery()).then(function (data) {
-return window.YurunaFirstUsable.measure("test/extension/stash-service/server/internal/httpsrv/web/index.html", "data", function () {
-        total = data.total;
-        var list = data.stashes || [];
-        for (var i = 0; i < list.length; i++) {
-          var v = list[i];
-          var entry = row(v);
-          rendered.push(entry);
-          $('rows').appendChild(entry.tr);
-          if (v.hostId && !seenHosts[v.hostId]) {
-            seenHosts[v.hostId] = true;
-            if (!v.local) { $('host').appendChild(Y.el('option', { value: v.hostId, text: Y.shortHost(v.hostId) })); }
+      return Y.api('/api/stashes?' + query).then(function (data) {
+        if (generation !== loadGeneration) { return; }
+        return window.YurunaFirstUsable.measure("test/extension/stash-service/server/internal/httpsrv/web/index.html", "data", function () {
+          total = data.total;
+          var list = data.stashes || [];
+          for (var i = 0; i < list.length; i++) {
+            var v = list[i];
+            var entry = row(v);
+            rendered.push(entry);
+            $('rows').appendChild(entry.tr);
+            if (v.hostId && !seenHosts[v.hostId]) {
+              seenHosts[v.hostId] = true;
+              if (!v.local) { $('host').appendChild(Y.el('option', { value: v.hostId, text: Y.shortHost(v.hostId) })); }
+            }
           }
-        }
-        offset += list.length;
-        readyState = list.length ? 'data' : 'empty';
-        renderStatus();
-        footer.markLoaded();
-
-});
-}, function (e) {
-        $('status').textContent = window.YurunaI18n.t("stash.error_value1", {value1: (e.message)});
+          offset += list.length;
+          readyState = list.length ? 'data' : 'empty';
+          renderStatus();
+          footer.markLoaded();
+        });
       });
+    }).then(null, function (e) {
+      if (generation !== loadGeneration) { return; }
+      $('status').textContent = window.YurunaI18n.t("stash.error_value1", {value1: (e.message)});
     }).then(function () {
+      if (generation !== loadGeneration) { return; }
+      loading = false;
+      $('more').disabled = false;
       renderDeleteNote();
       syncControls();
       window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/index.html', readyState);

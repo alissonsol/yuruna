@@ -3,6 +3,31 @@
   "domain": "runner",
   "locale": "en-US",
   "messages": {
+    "runner.fetch_context_rejected": {
+      "message": "Fetch context rejected before guest execution ({reason}); detail: {detail}.",
+      "description": "Host-side fetch preparation failure. The reason is an invariant YFE_ code and detail is a path, identifier, or numeric bound; neither is translated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": { "type": "detail", "trust": "external", "example": "YFE_CONTEXT_SIZE" },
+        "detail": { "type": "detail", "trust": "external", "example": "4097/4096" }
+      }
+    },
+    "runner.fetch_context_deadline": {
+      "message": "fetchAndExecute: the {timeoutSeconds}s step deadline expired during preparation or completion waiting.",
+      "description": "Console fetch step consumed its shared deadline. No new launch is sent after this warning.",
+      "lifecycle": "active",
+      "placeholders": {
+        "timeoutSeconds": { "type": "detail", "trust": "external", "example": "120" }
+      }
+    },
+    "runner.fetch_context_ssh_command_too_long": {
+      "message": "SSH command needs {length} characters after wrapping; Windows cannot start it. Guest execution was not started.",
+      "description": "The SSH supervisor and nested base64 command exceeded the conservative 30,000-character Windows preflight bound.",
+      "lifecycle": "active",
+      "placeholders": {
+        "length": { "type": "detail", "trust": "external", "example": "30001" }
+      }
+    },
     "runner.assigned_project_denied": {
       "message": "The pool assigned a project this host cannot read.\n  Project: {project}\n  Assigned by: pool '{pool}', test-set '{testSet}'\n  git: {detail}\n  Fix (either): grant this host's GH_TOKEN access to that repo,\n                or reassign the pool to a project every member can read.",
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
@@ -27,6 +52,99 @@
           "type": "detail",
           "trust": "external",
           "example": "detail"
+        }
+      }
+    },
+    "runner.boot_recovery_preserved_controls": {
+      "message": "Boot recovery (refresh preservation) kept {count} operator control files and {pidCount} runner records it could not prove stale.",
+      "description": "Write-Information in test/modules/Test.Recovery.psm1 when the boot sweep of a runner restarted after a host refresh leaves operator pauses, holds and unproven pidfiles in place.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "pidCount": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        }
+      }
+    },
+    "runner.critical_record_replace": {
+      "message": "Replace a private critical record",
+      "description": "ShouldProcess action text in test/modules/Test.CriticalRecord.psm1 for replacing a checksummed private record; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.cycle_record_clear_action": {
+      "message": "Remove the runner cycle record of an exited cycle",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for removing runtime/runner.cycle.json after the cycle process it names has exited; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.cycle_record_write_action": {
+      "message": "Write the runner cycle record",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for writing runtime/runner.cycle.json, the outer's record of the per-cycle process it spawned; keep the file name.",
+      "lifecycle": "active"
+    },
+    "runner.detached_handshake_write_action": {
+      "message": "Write the detached worker's identity handshake",
+      "description": "ShouldProcess action text in test/modules/Test.InnerSpawn.psm1 for a detached worker recording its own process identity for its launcher; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.detached_launch_action": {
+      "message": "Launch a detached worker process",
+      "description": "ShouldProcess action text in test/modules/Test.InnerSpawn.psm1 for starting a pwsh worker that outlives its launcher; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.diagnostic_budget_exhausted": {
+      "message": "The {timeoutSeconds}s diagnostic budget was exhausted before {stage}.",
+      "description": "Operator explanation from test/modules/Test.Diagnostic.psm1 when the shared guest diagnostic deadline expires before a stage starts. The stage is an invariant stage identifier; preserve it. Timeout classification uses a separate reason code, never this text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "timeoutSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 300
+        },
+        "stage": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "credential-lookup"
+        }
+      }
+    },
+    "runner.diagnostic_deadline_exceeded": {
+      "message": "Diagnostic capture exceeded the {timeoutSeconds}s limit for VM {vmName}; partial evidence has been retained.",
+      "description": "Operator warning from test/modules/Test.Diagnostic.psm1 when its supervised guest diagnostic worker reaches the shared deadline. Preserve the VM identifier. Partial evidence already written remains available; the workload result is independent of diagnostic completeness.",
+      "lifecycle": "active",
+      "placeholders": {
+        "timeoutSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 300
+        },
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "test-guest.ubuntu.server.26-01"
+        }
+      }
+    },
+    "runner.diagnostic_worker_failed": {
+      "message": "Diagnostic capture could not finish for VM {vmName} (exit code {exitCode}).",
+      "description": "Operator warning from test/modules/Test.Diagnostic.psm1 when the supervised guest diagnostic worker exits without a valid result. Preserve the VM identifier and numeric process exit code. Classification uses a separate reason code, never this text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "test-guest.ubuntu.server.26-01"
+        },
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
         }
       }
     },
@@ -92,6 +210,1586 @@
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
       "lifecycle": "active"
     },
+    "runner.host_diagnostic_worker_failed": {
+      "message": "Host diagnostic {runId} failed ({reason}).",
+      "description": "Write-Warning in test/modules/Invoke-HostDiagnosticWorker.ps1 when the bounded diagnostic run did not complete (timeout, launch failure, missing script, unwritable report); preserve the run id and the reason code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "runId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "timeout"
+        }
+      }
+    },
+    "runner.host_diagnostic_worker_refused": {
+      "message": "Host diagnostic {runId}: nothing was run ({reason}).",
+      "description": "Write-Warning in test/modules/Invoke-HostDiagnosticWorker.ps1 when the detached diagnostic worker refuses before running anything (an invalid run id, a work directory that is not the private one, or a lock it could not take); preserve the run id and the reason code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "runId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "directory_mismatch"
+        }
+      }
+    },
+    "runner.host_diagnostic_worker_truncated": {
+      "message": "[report truncated at {chars} characters]",
+      "description": "Line appended to the host diagnostic report by test/modules/Invoke-HostDiagnosticWorker.ps1 when a stream was cut at its size cap or did not finish; the report is shown verbatim on the Diagnostics page. Keep the square brackets.",
+      "lifecycle": "active",
+      "placeholders": {
+        "chars": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4194304"
+        }
+      }
+    },
+    "runner.host_refresh_action_dispose_obligations": {
+      "message": "Next step: after checking each item by hand, record it with: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation {obligations}",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for an abandoned request; obligations is a comma-separated list of obligation ids; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "obligations": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "service:stash,runner"
+        }
+      }
+    },
+    "runner.host_refresh_action_elevate": {
+      "message": "Next step: grant this account the privilege rung {rung} needs (the exact command is shown above when one applies), then run the refresh again.",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 after an elevation refusal or a permission denial; rung is a rung name; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "rung": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "start-if-stopped"
+        }
+      }
+    },
+    "runner.host_refresh_action_grant_automation": {
+      "message": "Next step: allow Automation access to UTM for the application that runs this shell, then run the refresh again.",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when the macOS probe was denied by Automation privacy settings; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_action_gui_session": {
+      "message": "Next step: run the refresh from the logged-in desktop session; this session can only observe.",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when a rung needs the macOS desktop session; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_action_install_client": {
+      "message": "Next step: restore the hypervisor command-line client ({client}); refresh does not reinstall it.",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when the hypervisor client is missing; client is a program name; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "client": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "utmctl"
+        }
+      }
+    },
+    "runner.host_refresh_action_resume_request": {
+      "message": "Next step: resume the unresolved request with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when obligations are still outstanding; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_action_start_runner": {
+      "message": "Next step: start the runner by hand: pwsh test/Start-TestRunner.ps1",
+      "description": "Operator next-step line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when the runner could not be restarted (no valid launch record); preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_auth_action_create_authority": {
+      "message": "Create the refresh signing authority and operator credential",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshAuth.psm1 New-YurunaHostRefreshAuthority, shown by -WhatIf before the two secret files are written.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_auth_action_export_host_key": {
+      "message": "Write the refresh verifier key for host {hostId}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshAuth.psm1 Export-YurunaHostRefreshHostKey, shown by -WhatIf before the key file is written.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    "runner.host_refresh_auth_action_install_host_key": {
+      "message": "Install the refresh verifier key for host {hostId}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshAuth.psm1 Install-YurunaHostRefreshVerifierKey, shown by -WhatIf before the key is installed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    "runner.host_refresh_auth_action_remove_host_key": {
+      "message": "Remove the refresh verifier key",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshAuth.psm1 Remove-YurunaHostRefreshVerifierKey, shown by -WhatIf before the key file is deleted.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_auto_action_admit": {
+      "message": "Admit an automatic host refresh request for cycle generation {generation}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Request-HostRefreshAutoAttempt); the target is the host type.",
+      "lifecycle": "active",
+      "placeholders": {
+        "generation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "0123456789abcdef0123456789abcdef:14"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_consume_evidence": {
+      "message": "Consume the host refresh evidence file",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Read-HostRefreshAutoEvidence -Consume); the target is the evidence file path.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_auto_action_decide": {
+      "message": "Decide whether to run an automatic host refresh after outer cycle {cycle}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision); the target is the host type.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_record_outcome": {
+      "message": "Record automatic host refresh outcome {verdict}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Set-HostRefreshAutoReservationOutcome); the target is the private budget ledger path. {verdict} is a token.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "repaired"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_reserve": {
+      "message": "Reserve the automatic host refresh attempt for UTC day {utcDay}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Add-HostRefreshAutoReservation); the target is the private budget ledger path. {utcDay} is a yyyy-MM-dd date.",
+      "lifecycle": "active",
+      "placeholders": {
+        "utcDay": {
+          "type": "text",
+          "trust": "internal",
+          "example": "2026-09-25"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_run_worker": {
+      "message": "Run the host refresh worker for request {requestId}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoWorker); the target is the repair entry script.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_update_streak": {
+      "message": "Set the host refresh evidence count to {streak}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Update-HostRefreshAutoEvidence); the target is the private streak file path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "streak": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_withdraw": {
+      "message": "Withdraw the queued automatic host refresh request {requestId}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Stop-HostRefreshAutoQueuedRequest); the target is the request id.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        }
+      }
+    },
+    "runner.host_refresh_auto_action_write_evidence": {
+      "message": "Record host refresh evidence for cycle generation {generation}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshTrigger.psm1 (Write-HostRefreshAutoEvidence); the target is the evidence file path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "generation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "0123456789abcdef0123456789abcdef:14"
+        }
+      }
+    },
+    "runner.host_refresh_auto_dependency_missing": {
+      "message": "[outer cycle {cycle}] automatic host refresh is unavailable: {command} from {module} could not be loaded.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision), written once per runner process for each module, when a module the automatic repair needs is missing or lacks a command. Keep the command and module names verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Request-HostRefreshAdmission"
+        },
+        "module": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Test.HostRefreshIntent"
+        }
+      }
+    },
+    "runner.host_refresh_auto_error": {
+      "message": "[outer cycle {cycle}] the automatic host refresh decision failed ({message}); the runner continues without it.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when the decision itself hit an unexpected error; the loop keeps its normal behavior. {message} is the platform error text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The file is locked."
+        }
+      }
+    },
+    "runner.host_refresh_auto_evidence_counted": {
+      "message": "[outer cycle {cycle}] host refresh evidence: {phase} saw a hypervisor control timeout ({streak} of {threshold} cycles).",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when a completed cycle carried fresh hypervisor-timeout evidence. {phase} is a runner phase name such as service-vm-restore; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "phase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "service-vm-restore"
+        },
+        "streak": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "threshold": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "runner.host_refresh_auto_evidence_reset": {
+      "message": "[outer cycle {cycle}] host refresh evidence cleared: the hypervisor answered during {phase}.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when a responsive observation reset a non-zero timeout count. {phase} is a runner phase name; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "13"
+        },
+        "phase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "service-vm-restore"
+        }
+      }
+    },
+    "runner.host_refresh_auto_finished": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} finished: {verdict}.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) after the repair worker exited and its result was read. {verdict} is a token such as repaired or partial; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "repaired"
+        }
+      }
+    },
+    "runner.host_refresh_auto_knob_invalid": {
+      "message": "testCycle.autoRefreshAfterStalls is '{value}', which is not a non-negative whole number; automatic host refresh stays off.",
+      "description": "Write-Warning in test/modules/Test.HostRefreshTrigger.psm1 (Get-HostRefreshAutoThreshold) when the local config value cannot be read as a whole number of zero or more; repeated each cycle while the value is wrong. Keep the key path testCycle.autoRefreshAfterStalls unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "text",
+          "trust": "external",
+          "example": "two"
+        }
+      }
+    },
+    "runner.host_refresh_auto_operator_action": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} ended {verdict}; no new automatic attempt starts before UTC day {nextUtcDay}. Check the host; while this request is still open, finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, otherwise run test/lab/Invoke-HostRefresh.ps1.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when an automatic attempt did not repair the host; the normal failure backoff continues. A plain local run is refused while the automatic request is still open, hence -Resume. {nextUtcDay} is a yyyy-MM-dd date; keep it, the script path and the -Resume switch verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "partial"
+        },
+        "nextUtcDay": {
+          "type": "text",
+          "trust": "internal",
+          "example": "2026-09-26"
+        }
+      }
+    },
+    "runner.host_refresh_auto_pause_skipped": {
+      "message": "[outer cycle {cycle}] automatic host refresh repaired the host; the next cycle starts without the failure pause.",
+      "description": "Information line and outer.log entry in the resident outer loop (test/modules/Test.RunnerOuterLoop.psm1) when Invoke-HostRefreshAutoDecision reports a repair on the failure branch and the failure pause is skipped.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        }
+      }
+    },
+    "runner.host_refresh_auto_queued_revoked": {
+      "message": "[outer cycle {cycle}] the queued automatic host refresh {requestId} was withdrawn because the pool is draining.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Stop-HostRefreshAutoQueuedRequest) when a drain withdrew an automatic request no worker had claimed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "20"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        }
+      }
+    },
+    "runner.host_refresh_auto_refused": {
+      "message": "[outer cycle {cycle}] automatic host refresh not started: {reason}.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when the timeout count reached the threshold but the attempt was refused before any worker ran. {reason} is a token such as daily-budget-used or pool-paused; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "daily-budget-used"
+        }
+      }
+    },
+    "runner.host_refresh_auto_resume_caller_changed": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} was started for an earlier runner process, so this runner does not resume it. Finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, or release what it holds with test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision), once per request, when an open automatic request records a different resident runner process as its caller; resuming it would leave the waiting runner unprotected. Keep the script path and the -Resume and -DisposeObligation switches verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        }
+      }
+    },
+    "runner.host_refresh_auto_resume_disabled": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} is not resumed while autoRefreshAfterStalls is 0. An unclaimed request expires on its own; finish a started one with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision), once per request, when an open automatic request that disrupted nothing yet would resume but the effective testCycle.autoRefreshAfterStalls is 0. Keep the key name autoRefreshAfterStalls, the script path and the -Resume switch verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        }
+      }
+    },
+    "runner.host_refresh_auto_resuming": {
+      "message": "[outer cycle {cycle}] resuming automatic host refresh {requestId}, attempt {attempt} of {maxAttempts}: restoring services only, no new teardown.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when an interrupted automatic request is relaunched for restoration.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "15"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        }
+      }
+    },
+    "runner.host_refresh_auto_starting": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} starting after {streak} cycles of hypervisor control timeouts (ceiling {maxRung}); the hypervisor may be restarted, and the services it disrupts are restored afterwards.",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) written before the repair worker is launched. {maxRung} is a repair rung name such as restart-if-hung; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "streak": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "maxRung": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "restart-if-hung"
+        }
+      }
+    },
+    "runner.host_refresh_auto_threshold_raised": {
+      "message": "'testCycle.autoRefreshAfterStalls' is 1; the runner needs the timeout in at least two cycles and treats it as 2.",
+      "description": "Whole Write-Warn message in test/Test-Config.ps1; preserve the key path.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_auto_unavailable": {
+      "message": "[outer cycle {cycle}] automatic host refresh is configured but not available on this host ({reason}); the runner records the evidence and does not act on it. Run test/lab/Invoke-HostRefresh.ps1 locally if the hypervisor needs repair.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision), written once per runner process for each reason, when testCycle.autoRefreshAfterStalls is on but this platform is not qualified for automatic repair. {reason} is a token such as awaiting-native-qualification; keep it and the script path verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "awaiting-native-qualification"
+        }
+      }
+    },
+    "runner.host_refresh_auto_unavailable_on_host": {
+      "message": "'testCycle.autoRefreshAfterStalls' is {value}, but automatic host refresh is not available on this host ({reason}); the runner records the evidence and does not act on it.",
+      "description": "Whole Write-Warn message in test/Test-Config.ps1 when the knob is on and this platform is not qualified for automatic repair. {reason} is a token such as awaiting-native-qualification; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "awaiting-native-qualification"
+        }
+      }
+    },
+    "runner.host_refresh_auto_value_not_integer": {
+      "message": "'testCycle.autoRefreshAfterStalls' is '{value}' -- not a whole number; the runner treats it as 0 (automatic host refresh disabled).",
+      "description": "Whole Write-Warn message in test/Test-Config.ps1; preserve the key path and the quoted value.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value": {
+          "type": "text",
+          "trust": "external",
+          "example": "two"
+        }
+      }
+    },
+    "runner.host_refresh_auto_verdict_mismatch": {
+      "message": "[outer cycle {cycle}] automatic host refresh {requestId} left no matching result ({reason}); treating it as failed.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoDecision) when the worker's recorded result is missing, belongs to another request or channel, predates the launch, or does not show a responsive hypervisor with the runner parked. {reason} is a token; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "14"
+        },
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "readiness-mismatch"
+        }
+      }
+    },
+    "runner.host_refresh_auto_waiting_on_worker": {
+      "message": "Shutdown requested; waiting for the host refresh worker for automatic request {requestId} to finish (at most {seconds} more seconds).",
+      "description": "Information line and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoWorker), written once, when Ctrl+C arrives while the repair worker runs; the worker is never interrupted mid-repair.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "600"
+        }
+      }
+    },
+    "runner.host_refresh_auto_worker_launch_failed": {
+      "message": "Host refresh worker for automatic request {requestId} could not be started: {message}.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoWorker) when starting the repair worker process failed; {message} is the platform error text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "No such file or directory"
+        }
+      }
+    },
+    "runner.host_refresh_auto_worker_timeout": {
+      "message": "Host refresh worker for automatic request {requestId} ran past {seconds} seconds and was stopped; the request stays open. The runner may resume it, or finish it with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Warning and outer.log entry in test/modules/Test.HostRefreshTrigger.psm1 (Invoke-HostRefreshAutoWorker) after the synchronous repair worker overran its bound and only that worker process was stopped. A plain local run is refused while the request is open, hence -Resume. Keep the script path and the -Resume switch verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "token",
+          "trust": "internal",
+          "example": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "975"
+        }
+      }
+    },
+    "runner.host_refresh_command_missing": {
+      "message": "Invoke-HostRefresh: required command {command} ({module}) is not available after loading the refresh module set; refusing.",
+      "description": "Console warning from test/lab/Invoke-HostRefresh.ps1 when a command the worker needs does not resolve; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Write-OuterLog"
+        },
+        "module": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Test.OuterLog"
+        }
+      }
+    },
+    "runner.host_refresh_config_ambiguous": {
+      "message": "Invoke-HostRefresh: {count} configuration snapshots in {runtimeDir} name different source files; pass -ConfigPath to choose one.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the runtime holds snapshots of several configurations; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "runtimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/status/runtime"
+        }
+      }
+    },
+    "runner.host_refresh_config_conflict": {
+      "message": "Invoke-HostRefresh: -ConfigPath {configPath} differs from the runner's recorded configuration {recordedPath}; refusing rather than restart the runner on a different file.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when an explicit configuration differs from the runner launch record; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "configPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/other.yml"
+        },
+        "recordedPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/test.config.yml"
+        }
+      }
+    },
+    "runner.host_refresh_config_missing": {
+      "message": "Invoke-HostRefresh: the configuration recorded for this runtime ({configPath}) does not exist; pass -ConfigPath.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the resolved configuration file is missing; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "configPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/test.config.yml"
+        }
+      }
+    },
+    "runner.host_refresh_convergence_skipped": {
+      "message": "Invoke-HostRefresh: the final probe reads {state} ({reason}); services and the runner were not resumed.",
+      "description": "Warning from Invoke-HostRefreshConvergence in test/modules/Test.HostRefresh.psm1 when the final probe is not responsive; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Unresponsive"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "timeout"
+        }
+      }
+    },
+    "runner.host_refresh_credential_authority_created": {
+      "message": "Set-HostRefreshCredential: created a refresh signing authority (tag {authorityTag}) and an operator credential (tag {credentialTag}) under {path}. Copy authority.key and operator.credential to the pool-control service's /etc/yuruna/host-refresh/ with owner-only permissions; never copy them to a pool host.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 after -NewAuthority. Tags are non-secret names; keep the file names and the /etc path exactly.",
+      "lifecycle": "active",
+      "placeholders": {
+        "authorityTag": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Xiydxrs5mFjVrDqKJVZNBHa0f5nZmbn0L14iBqCtrd8"
+        },
+        "credentialTag": {
+          "type": "token",
+          "trust": "internal",
+          "example": "1fsOAtJUZF3MGtYemhOkRtctHh2FcZqiDbon7ayPrbk"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/operator/.yuruna/host-refresh/authority"
+        }
+      }
+    },
+    "runner.host_refresh_credential_authority_exists": {
+      "message": "Set-HostRefreshCredential: a refresh authority already exists under {path}; pass -Rotate to replace it, which invalidates every installed host key.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 when -NewAuthority finds an existing authority; the script exits 1. Keep the switch name -Rotate.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/operator/.yuruna/host-refresh/authority"
+        }
+      }
+    },
+    "runner.host_refresh_credential_host_key_exported": {
+      "message": "Set-HostRefreshCredential: wrote the refresh key for host {hostId} (tag {keyTag}) to {path}. Move it to that host over a private channel, run this script there with -InstallHostKey -KeyPath, then delete the file.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 after -ExportHostKey. Keep the switch names -InstallHostKey and -KeyPath.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "keyTag": {
+          "type": "token",
+          "trust": "internal",
+          "example": "1fsOAtJUZF3MGtYemhOkRtctHh2FcZqiDbon7ayPrbk"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "./42aa.key"
+        }
+      }
+    },
+    "runner.host_refresh_credential_host_key_installed": {
+      "message": "Set-HostRefreshCredential: installed the refresh key for this host {hostId} (tag {keyTag}); remote refresh requests signed by the matching authority are now verifiable here.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 after -InstallHostKey.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "keyTag": {
+          "type": "token",
+          "trust": "internal",
+          "example": "1fsOAtJUZF3MGtYemhOkRtctHh2FcZqiDbon7ayPrbk"
+        }
+      }
+    },
+    "runner.host_refresh_credential_host_key_removed": {
+      "message": "Set-HostRefreshCredential: removed the refresh key; this host now refuses every non-loopback refresh request.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 after -RemoveHostKey deleted the key.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_credential_output_exists": {
+      "message": "Set-HostRefreshCredential: {path} already exists; choose another -OutputPath or delete it first.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 when -ExportHostKey would overwrite an existing file; the script exits 1. Keep the switch name -OutputPath.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "./42aa.key"
+        }
+      }
+    },
+    "runner.host_refresh_credential_status": {
+      "message": "Set-HostRefreshCredential: host {hostId}: remote refresh key {state} ({reason}); authority {authorityState}.",
+      "description": "Write-Output in test/lab/Set-HostRefreshCredential.ps1 without a switch: the host's verifier key state and reason codes, and whether an authority is present, absent or unreadable in the authority directory; hostId is - when this host has no id yet. The state and reason values are codes; keep them.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "provisioned"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ok"
+        },
+        "authorityState": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "absent"
+        }
+      }
+    },
+    "runner.host_refresh_deadline_exhausted": {
+      "message": "Invoke-HostRefresh: the time budget ran out during {phase}; unfinished work is recorded as outstanding.",
+      "description": "Warning from Invoke-HostRefreshConvergence in test/modules/Test.HostRefresh.psm1 when the convergence deadline expired; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "phase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "converging"
+        }
+      }
+    },
+    "runner.host_refresh_disruption_warning": {
+      "message": "Invoke-HostRefresh: restarting the hypervisor application can suspend running guests; a hard stop, allowed only with -AllowHardStop, can power them off uncleanly.",
+      "description": "Warning from Invoke-HostRefreshRestartIfHungRung in test/modules/Test.HostRefresh.psm1 before UTM is restarted; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_evidence_write_failed": {
+      "message": "Could not record host refresh evidence for this cycle ({reason}); automatic host refresh will not count it.",
+      "description": "Warning in test/modules/Test.HostRefreshTrigger.psm1 (Write-HostRefreshAutoEvidence), run by the inner runner after the service-VM restore sweep, when runtime/runner.refresh-evidence.json could not be written. {reason} is a token: write-failed, or the lowercased exception type name; keep it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "write-failed"
+        }
+      }
+    },
+    "runner.host_refresh_identity_refused": {
+      "message": "Invoke-HostRefresh: refusing to run as {identity} ({reason}); run it as the account that owns {runtimeDir}.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the operator identity is refused; reason is a token such as root-refused; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "identity": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "root"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "root-refused"
+        },
+        "runtimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/status/runtime"
+        }
+      }
+    },
+    "runner.host_refresh_launcher_wait_timeout": {
+      "message": "Invoke-HostRefresh: launcher process {launcherPid} is still running after {waitedSeconds} s; request {requestId} stays queued for a retry.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the launching hop process did not exit in time; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "launcherPid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "waitedSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "60"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "runner.host_refresh_lock_busy": {
+      "message": "Invoke-HostRefresh: another repair holds the lifetime lock ({reason}); refusing to run alongside it.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the lifetime repair lock is held elsewhere; reason is a lock reason token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "held-elsewhere"
+        }
+      }
+    },
+    "runner.host_refresh_manual_command": {
+      "message": "Invoke-HostRefresh: run this by hand, or allow it without a password prompt: sudo {command}",
+      "description": "Console-only warning from Invoke-HostRefreshStartIfStoppedRung in test/modules/Test.HostRefresh.psm1 after sudo -n refused; command is the exact argument vector; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "systemctl --no-ask-password start libvirtd.service"
+        }
+      }
+    },
+    "runner.host_refresh_obligation_disposed": {
+      "message": "Invoke-HostRefresh: {obligation} of request {requestId} recorded as handled by {actor}.",
+      "description": "Information line from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for each obligation -DisposeObligation recorded; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "obligation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "service:stash"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "actor": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ytest"
+        }
+      }
+    },
+    "runner.host_refresh_obligation_unknown": {
+      "message": "Invoke-HostRefresh: {obligation} is not an outstanding item of request {requestId}.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for a -DisposeObligation id that is not outstanding; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "obligation": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "runner"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "runner.host_refresh_operator_instruction": {
+      "message": "  Remedy: {instruction}",
+      "description": "Console-only line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 carrying one rendered macOS privacy-grant instruction line; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "instruction": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "Open System Settings > Privacy & Security > Automation"
+        }
+      }
+    },
+    "runner.host_refresh_preview_group_relaunch": {
+      "message": "  An executing run would first relaunch under the libvirt group ({reason}).",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 when a libvirt group relaunch would be needed; reason is a token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "relaunch-required"
+        }
+      }
+    },
+    "runner.host_refresh_preview_notice": {
+      "message": "  Preview only: nothing was locked, written, signaled or started.",
+      "description": "Last line of the -WhatIf summary from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_preview_would_consider": {
+      "message": "  Rungs an executing run would consider, in order: {rungs}",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1; rungs is a comma-separated list of rung names; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "rungs": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "reclaim, start-if-stopped"
+        }
+      }
+    },
+    "runner.host_refresh_private_root_unavailable": {
+      "message": "Invoke-HostRefresh: the private state root under $HOME/.yuruna/host-refresh could not be secured ({reason}); refusing without an owner-only private root.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the private state root is refused; reason is a token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "owner-mismatch"
+        }
+      }
+    },
+    "runner.host_refresh_progress_degraded": {
+      "message": "Invoke-HostRefresh: progress could not be published; the repair continued and the private journal stays authoritative.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when runtime/host-refresh.state.json could not be written; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_protocol_mismatch": {
+      "message": "Invoke-HostRefresh: {path} declares protocol '{found}'; this entry point implements '{expected}'.",
+      "description": "Console warning from test/lab/Invoke-HostRefresh.ps1 when test/host-refresh.protocol-version does not match; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/host-refresh.protocol-version"
+        },
+        "found": {
+          "type": "token",
+          "trust": "external",
+          "example": "2"
+        },
+        "expected": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        }
+      }
+    },
+    "runner.host_refresh_refused": {
+      "message": "Invoke-HostRefresh: refused before any change ({reason}).",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 and from test/lab/Invoke-HostRefresh.ps1 when a repair is refused before it mutates anything; reason is a token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "recovery-record-unwritable"
+        }
+      }
+    },
+    "runner.host_refresh_request_refused": {
+      "message": "Invoke-HostRefresh: request {requestId} refused ({reason}); the unresolved request {activeRequestId} is {state}.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the request journal refuses the claim; reason and state are tokens; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "refused-active-other-request"
+        },
+        "activeRequestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242bbbb-0000-4000-8000-000000000002"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "running"
+        }
+      }
+    },
+    "runner.host_refresh_resume_none": {
+      "message": "Invoke-HostRefresh: there is no unresolved request to resume.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for -Resume with nothing to resume; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_resume_started": {
+      "message": "Invoke-HostRefresh: resuming request {requestId}, attempt {attempt} ({mode}).",
+      "description": "Information line from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for -Resume; mode is restoration-only or retry; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "mode": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "restoration-only"
+        }
+      }
+    },
+    "runner.host_refresh_rung_finished": {
+      "message": "Invoke-HostRefresh: rung {name} {outcome}; the hypervisor probe now reads {state} ({reason}).",
+      "description": "Information line from Invoke-HostRefreshLadder in test/modules/Test.HostRefresh.psm1 after a rung acted and the hypervisor was probed again; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "start-if-stopped"
+        },
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "succeeded"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Responsive"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "responsive"
+        }
+      }
+    },
+    "runner.host_refresh_rung_reason_broker_recipe_missing": {
+      "message": "requires a verified OS-version-specific label, domain and owner recipe with collateral tests",
+      "description": "Rung unavailable reason (code broker-recipe-missing) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_daemon_layout_unqualified": {
+      "message": "requires daemon-layout and guest-preservation tests passing on a supported host",
+      "description": "Rung unavailable reason (code daemon-layout-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_gui_launch_unqualified": {
+      "message": "starting UTM needs a same-user absence check and a GUI launch path that have not been qualified on a real macOS host",
+      "description": "Rung unavailable reason (code gui-launch-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_lock_unqualified": {
+      "message": "the repair lock's exclusion has not been demonstrated on this platform",
+      "description": "Rung unavailable reason (code lock-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": {
+      "message": "requires a validated recipe for the modular libvirt daemons",
+      "description": "Rung unavailable reason (code modular-daemon-recipe-missing) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_no_reboot_supervision": {
+      "message": "no verified runner and status-service supervision exists across a host reboot",
+      "description": "Rung unavailable reason (code no-reboot-supervision) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_not_implemented": {
+      "message": "no executor for this rung exists in this checkout",
+      "description": "Rung unavailable reason (code not-implemented) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_package_recovery_unqualified": {
+      "message": "requires a self-contained signed bootstrap and a tested package recovery procedure",
+      "description": "Rung unavailable reason (code package-recovery-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_provider_recipe_missing": {
+      "message": "requires a separate provider-recovery recipe tested on a supported host",
+      "description": "Rung unavailable reason (code provider-recipe-missing) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_runner_restart_unqualified": {
+      "message": "runner reclamation and verified restart have not been qualified on a real host of this platform",
+      "description": "Rung unavailable reason (code runner-restart-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_settings_recipe_unsafe": {
+      "message": "the settings recipe still reaches consent dialogs, package installs or unbounded native calls that an unattended repair must not run",
+      "description": "Rung unavailable reason (code settings-recipe-unsafe) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_unsupported_on_platform": {
+      "message": "not offered on this platform",
+      "description": "Rung unavailable reason (code unsupported-on-platform) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_utm_restart_unqualified": {
+      "message": "restarting UTM needs a tested launch and session path, captured guest recovery evidence, runner exclusion and the graceful quit policy, validated on a real macOS host",
+      "description": "Rung unavailable reason (code utm-restart-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_reason_vmms_start_unqualified": {
+      "message": "starting a stopped vmms service is implemented but has not been qualified on a real Windows Hyper-V host",
+      "description": "Rung unavailable reason (code vmms-start-unqualified) rendered by Get-VirtualizationRepairRung in test/modules/Test.HostRefresh.psm1; shown after a rung name in summaries; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_rung_started": {
+      "message": "Invoke-HostRefresh: rung {name} started; {remainingSeconds} s of repair budget left.",
+      "description": "Information line from Invoke-HostRefreshLadder in test/modules/Test.HostRefresh.psm1 before a rung acts; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "start-if-stopped"
+        },
+        "remainingSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "540"
+        }
+      }
+    },
+    "runner.host_refresh_runner_not_ready": {
+      "message": "Invoke-HostRefresh: the restarted runner did not acknowledge readiness ({reason}).",
+      "description": "Warning from Invoke-HostRefreshRunnerConvergence in test/modules/Test.HostRefresh.psm1 when the runner restart did not reach readiness; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "runner-timeout"
+        }
+      }
+    },
+    "runner.host_refresh_runtime_missing": {
+      "message": "Invoke-HostRefresh: runtime directory {runtimeDir} does not exist; set YURUNA_RUNTIME_DIR to the runner's runtime directory.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the resolved runtime directory is missing; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "runtimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/status/runtime"
+        }
+      }
+    },
+    "runner.host_refresh_runtime_owner_mismatch": {
+      "message": "Invoke-HostRefresh: this account's refresh state is registered to runtime {registeredRuntimeDir}, not {runtimeDir}; one owning runtime per account is supported.",
+      "description": "Warning from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 when the runtime differs from the registered owning runtime; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "registeredRuntimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/status/runtime"
+        },
+        "runtimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/other/test/status/runtime"
+        }
+      }
+    },
+    "runner.host_refresh_service_unverified": {
+      "message": "Invoke-HostRefresh: service {key} is not verified after the repair ({outcome}).",
+      "description": "Warning from Invoke-HostRefreshServiceConvergence in test/modules/Test.HostRefresh.psm1 for a service without verified health; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "caching-proxy"
+        },
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "start-timeout"
+        }
+      }
+    },
+    "runner.host_refresh_session_passive": {
+      "message": "Invoke-HostRefresh: session kind is {sessionKind}; steps that need the desktop session are skipped.",
+      "description": "Information line from test/lab/Invoke-HostRefresh.ps1 on macOS when the session is not the desktop session; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sessionKind": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Remote"
+        }
+      }
+    },
+    "runner.host_refresh_should_process_admission": {
+      "message": "Record host-refresh admission",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefreshIntent.psm1 for admission, launch, reservation and grant records; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_should_process_listener": {
+      "message": "Start the status listener in refresh-safe mode",
+      "description": "ShouldProcess action text in Start-HostRefreshStatusService in test/modules/Test.HostRefresh.psm1; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_should_process_publish": {
+      "message": "Publish host-refresh progress",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefresh.psm1 for writes of runtime/host-refresh.state.json; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_should_process_run": {
+      "message": "Run host-refresh request {requestId}",
+      "description": "ShouldProcess action text in test/modules/Test.HostRefresh.psm1 and test/modules/Test.HostRefreshIntent.psm1 for the repair worker and its journal writes; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "runner.host_refresh_summary_active_request": {
+      "message": "  Unresolved request: {requestId} ({state}, attempt {attempt})",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 naming the request that blocks new repairs; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "recovery-pending"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "runner.host_refresh_summary_context": {
+      "message": "  Runtime:          {runtimeDir} (configuration {configPath}, from {configSource})",
+      "description": "Console-only summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 naming the resolved runtime directory and configuration; configSource is a token such as default or launch-record; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "runtimeDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/status/runtime"
+        },
+        "configPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/yuruna/test/test.config.yml"
+        },
+        "configSource": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "default"
+        }
+      }
+    },
+    "runner.host_refresh_summary_header": {
+      "message": "Host refresh ({mode}) on {hostType}",
+      "description": "Header line of the console summary from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 (information stream and outer.log); mode is preview or execute; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "mode": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "preview"
+        },
+        "hostType": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "host.ubuntu.kvm"
+        }
+      }
+    },
+    "runner.host_refresh_summary_ladder": {
+      "message": "  Repair ladder, ceiling {ceiling}:",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 introducing the rung list; ceiling is a rung name; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "ceiling": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "restart-broker"
+        }
+      }
+    },
+    "runner.host_refresh_summary_obligation": {
+      "message": "  Outstanding:      {obligation}",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for one obligation still armed after the attempt (service:<key>, endpoint:<key>, runner, listener, controls); preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "obligation": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "service:caching-proxy"
+        }
+      }
+    },
+    "runner.host_refresh_summary_probe": {
+      "message": "  Hypervisor probe: {state} ({reason}, {elapsedMs} ms)",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 with the latest hypervisor probe state and reason tokens; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Responsive"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "responsive"
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "44"
+        }
+      }
+    },
+    "runner.host_refresh_summary_rung_above_ceiling": {
+      "message": "    [{order}] {name}: above the requested ceiling",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for a rung above the tier or -MaxRung ceiling; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "order": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "5"
+        },
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "reapply-settings"
+        }
+      }
+    },
+    "runner.host_refresh_summary_rung_available": {
+      "message": "    [{order}] {name}: available",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for a rung this host can run; name is a rung name; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "order": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "reclaim"
+        }
+      }
+    },
+    "runner.host_refresh_summary_rung_result": {
+      "message": "    [{order}] {name}: {outcome} ({reason})",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for one rung of an executing run; outcome is attempted, succeeded, failed or skipped and reason a token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "order": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "start-if-stopped"
+        },
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "skipped"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "not-app-stopped"
+        }
+      }
+    },
+    "runner.host_refresh_summary_rung_unavailable": {
+      "message": "    [{order}] {name}: unavailable, {reason}",
+      "description": "Preview summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 for a rung this host cannot run; reason is the rendered rung reason sentence; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "order": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "restart-if-hung"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "not offered on this platform"
+        }
+      }
+    },
+    "runner.host_refresh_summary_runner": {
+      "message": "  Runner:           {status}",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 with the outer runner classification token; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "AliveOwned"
+        }
+      }
+    },
+    "runner.host_refresh_summary_verdict": {
+      "message": "  Verdict:          {verdict} (request {requestId}, attempt {attempt}, state {state})",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 with the attempt verdict and request state tokens; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "repaired"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "completed"
+        }
+      }
+    },
+    "runner.host_refresh_unexpected_error": {
+      "message": "Invoke-HostRefresh: unexpected error during {phase}: {message}",
+      "description": "Console warning from test/lab/Invoke-HostRefresh.ps1 and Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for an unexpected exception; message is the exception text; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "phase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "worker"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access denied"
+        }
+      }
+    },
+    "runner.host_refresh_verified_noop": {
+      "message": "Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.",
+      "description": "Information line from Invoke-HostRefreshWorker in test/modules/Test.HostRefresh.psm1 for a verified healthy no-op; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
     "runner.inner_guest_folder_missing": {
       "message": "Guest folder not found for '{guest}' on {host} (inner '{name}').",
       "description": "Whole operator report; all condition decisions use the separate status and failure-class fields.",
@@ -126,10 +1824,37 @@
         }
       }
     },
+    "runner.launch_record_complete_action": {
+      "message": "Mark the runner launch record ended",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for recording that a runner exited, and whether in an orderly way; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.launch_record_write_action": {
+      "message": "Write the runner launch record",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for persisting the runner's validated launch options to the private state root; keep it short.",
+      "lifecycle": "active"
+    },
     "runner.mac_automation_utm_title": {
       "message": "Automation -> UTM",
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",
       "lifecycle": "active"
+    },
+    "runner.mac_dock_reload_deferred": {
+      "message": "Dock was not restarted because this run must not disturb the desktop session; the hot-corner and Spaces changes take effect the next time Dock starts.",
+      "description": "Write-Information in test/modules/Test.HostCondition.Mac.psm1 (Set-MacHostConditionSet -NoGuiDisruption) when a Dock reload was skipped; preserve product names.",
+      "lifecycle": "active"
+    },
+    "runner.mac_grant_prompt_suppressed": {
+      "message": "{title}: no consent dialog was raised because this run must not prompt; grant it by hand as follows.",
+      "description": "Write-Information in test/modules/Test.HostCondition.Mac.psm1 (Invoke-MacOperatorGrantAssist -NoPrompt) before the shared grant instructions; preserve product names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "title": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "Automation -> UTM"
+        }
+      }
     },
     "runner.mac_permission_enable_terminal": {
       "message": "Add and enable {application} -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing",
@@ -154,6 +1879,57 @@
       },
       "description": "Operator-facing permission or restore description; the corresponding operating-system selector remains invariant.",
       "lifecycle": "active"
+    },
+    "runner.mac_privileged_setting_failed": {
+      "message": "sudo {command} failed (exit {exitCode}): {detail}",
+      "description": "Write-Warning in test/modules/Test.HostCondition.Mac.psm1 (Invoke-MacPrivilegedSetting) when the privileged command exited nonzero; preserve command names and the tool's own text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pmset -a sleep 0"
+        },
+        "exitCode": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "1"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "sudo: a password is required"
+        }
+      }
+    },
+    "runner.mac_privileged_setting_timeout": {
+      "message": "sudo {command} did not finish within {timeoutSeconds}s; the setting is treated as not applied.",
+      "description": "Write-Warning in test/modules/Test.HostCondition.Mac.psm1 (Invoke-MacPrivilegedSetting) when the bounded privileged command hit its cap; preserve command names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "detail",
+          "trust": "external",
+          "example": "pmset -a sleep 0"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "60"
+        }
+      }
+    },
+    "runner.mac_utmctl_link_deadline": {
+      "message": "Set-MacUtmctlLink: no time remained to link utmctl. Run: {macUtmctlRemediation}",
+      "description": "Write-Warning in test/modules/Test.HostCondition.Mac.psm1 (Set-MacUtmctlLink) when the caller's deadline left under one second; preserve the command.",
+      "lifecycle": "active",
+      "placeholders": {
+        "macUtmctlRemediation": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacOS/utmctl /usr/local/bin/utmctl"
+        }
+      }
     },
     "runner.mcp_dependency_drift": {
       "message": "exit 1 from this script means a pinned dependency has drifted, not that the report failed",
@@ -297,6 +2073,28 @@
       "message": "Check the runtime. The verdict is a boolean emitted as the last pipeline object; this script has no exit statement, so the exit code says nothing.",
       "description": "Human-readable MCP tool description for yuruna_test_runtime. Tool names and input schema remain invariant.",
       "lifecycle": "active"
+    },
+    "runner.no_other_runner_refresh_active": {
+      "message": "{callerName}: host refresh {requestId} holds this host's runner (gate {state}); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Write-Information in test/modules/Test.Prelude.psm1 (Assert-NoOtherRunner) when a dev or project entry point refuses to start because the host-refresh gate holds runner spawns; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "callerName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Debug-TestSequence"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "closed"
+        }
+      }
     },
     "runner.operator_00041714738b26ad": {
       "message": "Set clone (duplicate) topology",
@@ -29176,10 +30974,459 @@
         }
       }
     },
+    "runner.outer_log_runtime_dir_unset": {
+      "message": "Write-OuterLog: YURUNA_RUNTIME_DIR is not set, so outer.log cannot be located; this line and later lines are not written to it: {message}",
+      "description": "Write-Warning in test/modules/Test.OuterLog.psm1, emitted once per process when Write-OuterLog runs without a runtime directory; preserve the command name and the environment variable name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "cycle 12 started"
+        }
+      }
+    },
     "runner.prior_runner_cleanup_action": {
       "description": "Complete operator message; stable codes and external details remain separate from translated wording.",
       "lifecycle": "active",
       "message": "  Action:  stopping it and running\n           Remove-TestVMFiles.ps1 before start"
+    },
+    "runner.process_start_record_write_action": {
+      "message": "Write a process start-time record",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for writing a start-time sidecar such as inner.start; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.readiness_ack_remove_action": {
+      "message": "Remove a stale refresh readiness acknowledgment",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for deleting a readiness acknowledgment whose handoff token no longer has a waiter; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.readiness_ack_write_action": {
+      "message": "Write the refresh readiness acknowledgment",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for writing a runner chain's readiness acknowledgment to the private state root; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.refresh_barrier_held": {
+      "message": "Resumed after host refresh {requestId}: held by {controls}. Release them from the status page; no VM is created or changed until then.",
+      "description": "Information line in test/modules/Test.RunnerInnerLoop.psm1 when the first cycle after a host refresh waits for preserved operator controls; the controls are file names such as control.cycle-pause.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "controls": {
+          "type": "text",
+          "trust": "internal",
+          "example": "control.cycle-pause"
+        }
+      }
+    },
+    "runner.refresh_barrier_released": {
+      "message": "Held controls released after {seconds} s; the resumed cycle continues.",
+      "description": "Information line in test/modules/Test.RunnerInnerLoop.psm1 when the preserved operator controls that held the resumed cycle are released.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "95"
+        }
+      }
+    },
+    "runner.refresh_capability_unverified_macos": {
+      "message": "Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only.",
+      "description": "Unavailable-reason text named by Get-YurunaRunnerProtocolCapability in test/modules/Test.SingleInstance.psm1 and rendered by the host-refresh rung table when the reclaim rung is unavailable on a macOS host; keep ps as a command name.",
+      "lifecycle": "active"
+    },
+    "runner.refresh_capability_unverified_windows": {
+      "message": "Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only.",
+      "description": "Unavailable-reason text named by Get-YurunaRunnerProtocolCapability in test/modules/Test.SingleInstance.psm1 and rendered by the host-refresh rung table when the reclaim rung is unavailable on a Windows host; keep CIM as a technology name.",
+      "lifecycle": "active"
+    },
+    "runner.refresh_cycle_held": {
+      "message": "[outer cycle {cycle}] the inner stopped at {site} because a host refresh holds this host; nothing was changed.",
+      "description": "outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the inner reported that it was held at one of its refresh gate sites; the site is a token such as git-pull.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "site": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "git-pull"
+        }
+      }
+    },
+    "runner.refresh_gate_blocks_start": {
+      "message": "Start-TestRunner: host refresh {requestId} holds this host's runner (gate {state}); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when a normal start refuses because the host-refresh gate is not open; keep the script paths and switch; the state is a gate state token.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "closed"
+        }
+      }
+    },
+    "runner.refresh_gate_hold": {
+      "message": "[outer cycle {cycle}] host refresh {requestId} holds the runner (gate {state}); no cycle starts until it releases.",
+      "description": "Write-Warning and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the host-refresh gate holds cycle dispatch; printed once per change of request or state.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "closed"
+        }
+      }
+    },
+    "runner.refresh_gate_orphaned": {
+      "message": "[outer cycle {cycle}] host refresh {requestId} left the runner held (gate {state}) and its worker is no longer running. Run test/lab/Invoke-HostRefresh.ps1 -Resume to finish its recovery.",
+      "description": "Write-Warning and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the gate holding dispatch belongs to a worker that is proven gone, or was left to this resident outer after its handoff failed or expired; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "recovery-pending"
+        }
+      }
+    },
+    "runner.refresh_gate_released": {
+      "message": "[outer cycle {cycle}] the host-refresh gate released the runner; cycles resume.",
+      "description": "Console and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 on the first dispatch after the refresh gate stopped holding the runner.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        }
+      }
+    },
+    "runner.refresh_gate_unreadable": {
+      "message": "[outer cycle {cycle}] the host-refresh gate record could not be read ({reason}); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it.",
+      "description": "Write-Warning and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the gate record is unreadable, of a newer schema, or its helpers are missing, so dispatch fails closed; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "unreadable"
+        }
+      }
+    },
+    "runner.refresh_gate_write_action": {
+      "message": "Write the host-refresh runner gate ({state})",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for writing the per-user runner gate; the placeholder is a gate state token such as closed and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "closed"
+        }
+      }
+    },
+    "runner.refresh_handoff_complete": {
+      "message": "[outer cycle {cycle}] readiness verified for host refresh {requestId}; leaving the refresh gate.",
+      "description": "Information and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when a resident outer verified its preflight chain's acknowledgment and completed the handoff.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        }
+      }
+    },
+    "runner.refresh_handoff_complete_action": {
+      "message": "Complete a host-refresh runner handoff ({verdict})",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for ending a runner handoff; the placeholder is a verdict token such as released and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "released"
+        }
+      }
+    },
+    "runner.refresh_handoff_issue_action": {
+      "message": "Issue a host-refresh runner handoff token ({purpose})",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for moving the runner gate to a handoff; the placeholder is a purpose token such as new-outer and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "purpose": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "new-outer"
+        }
+      }
+    },
+    "runner.refresh_handoff_unverified": {
+      "message": "[outer cycle {cycle}] readiness for host refresh {requestId} could not be verified ({reason}); the runner stays held.",
+      "description": "Write-Warning and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when a resident outer's preflight chain did not produce a verifiable ready acknowledgment, or its handoff token expired before the preflight ran (reason handoff-expired); the reason is a code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ack-timeout"
+        }
+      }
+    },
+    "runner.refresh_launch_record_skipped": {
+      "message": "Start-TestRunner: the runner launch record was not written ({reason}); a host refresh cannot restart this runner, and asks the operator to start it instead.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when the private launch record cannot be written; the reason is a code such as private-root-unavailable; keep the script name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "private-root-unavailable"
+        }
+      }
+    },
+    "runner.refresh_preflight_cycle": {
+      "message": "[outer cycle {cycle}] refresh preflight only: no git pull, VM change or control sweep in this cycle.",
+      "description": "Console and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 at the start of a preflight cycle run for a host-refresh handoff; keep git as a command name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        }
+      }
+    },
+    "runner.refresh_preflight_failed": {
+      "message": "Refresh preflight failed ({reason}); nothing was changed and the runner stays held.",
+      "description": "Information line in test/modules/Test.RunnerInnerLoop.psm1 when the preflight inner acknowledged a failure; the reason is a code such as probe-unresponsive.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "probe-unresponsive"
+        }
+      }
+    },
+    "runner.refresh_preflight_ready": {
+      "message": "Refresh preflight ready for request {requestId}; waiting for the refresh worker to release the runner.",
+      "description": "Information line in test/modules/Test.RunnerInnerLoop.psm1 when the preflight inner acknowledged readiness.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        }
+      }
+    },
+    "runner.refresh_preflight_released": {
+      "message": "Refresh preflight ended ({outcome}); exiting so the runner can continue.",
+      "description": "Information line in test/modules/Invoke-TestRunnerInnerLoop.ps1 when a parked preflight inner stops waiting; the outcome is a code such as released.",
+      "lifecycle": "active",
+      "placeholders": {
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "released"
+        }
+      }
+    },
+    "runner.refresh_preflight_result": {
+      "message": "[outer cycle {cycle}] refresh preflight cycle finished with exit code {exitCode}.",
+      "description": "Console and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when a preflight cycle's inner returns.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "0"
+        }
+      }
+    },
+    "runner.refresh_resume_action": {
+      "message": "Restart the runner after a host refresh",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for launching Start-TestRunner.ps1 detached in refresh-resume mode and waiting for its readiness; keep the script name.",
+      "lifecycle": "active"
+    },
+    "runner.refresh_resume_record_refused": {
+      "message": "Start-TestRunner: {pidFile} is {state}; a refresh resume never takes over or deletes a live or unknown runner record.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when a refresh-resume start finds a runner pidfile it cannot prove dead; the state is an identity class such as AliveOwned or Unknown.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pidFile": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "runner.pid"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Unknown"
+        }
+      }
+    },
+    "runner.refresh_resume_started": {
+      "message": "Start-TestRunner: resuming after host refresh {requestId}; operator pauses, holds and restart requests are preserved.",
+      "description": "outer.log line in test/Start-TestRunner.ps1 when a runner restarted by a host refresh begins its preservation-mode startup.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        }
+      }
+    },
+    "runner.refresh_resume_switch_pair": {
+      "message": "Start-TestRunner: -RefreshResume and -RefreshHandoffToken must be given together; not starting.",
+      "description": "Write-Error in test/Start-TestRunner.ps1 when only one of the two internal refresh-resume parameters is bound; keep the script and parameter names.",
+      "lifecycle": "active"
+    },
+    "runner.refresh_resume_token_refused": {
+      "message": "Start-TestRunner: the refresh handoff was refused ({reason}); not starting.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when a refresh-resume start presents a handoff token that does not validate; the reason is a token check code such as expired.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "expired"
+        }
+      }
+    },
+    "runner.refresh_site_gated": {
+      "message": "Cycle ended before {site}: host refresh {requestId} holds this host (gate {state}). Nothing was changed; the runner waits for the refresh.",
+      "description": "Information line in test/modules/Test.RunnerInnerLoop.psm1 when an inner cycle stops at a refresh gate site before any change; the site is a token such as cycle-start-sweep.",
+      "lifecycle": "active",
+      "placeholders": {
+        "site": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "git-pull"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "closed"
+        }
+      }
+    },
+    "runner.refresh_status_ensure_skipped": {
+      "message": "[outer cycle {cycle}] status-service re-ensure skipped: a host refresh holds this host.",
+      "description": "outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the failure path's status-service restart is skipped because the host-refresh gate is not open.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        }
+      }
+    },
+    "runner.refresh_trigger_call_failed": {
+      "message": "Automatic host-refresh call at {site} failed and was skipped: {message}",
+      "description": "outer.log line in test/modules/Test.RunnerOuterLoop.psm1, and Write-Warning in test/modules/Invoke-TestRunnerInnerLoop.ps1, when a call into the automatic host-refresh trigger throws; the runner continues unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "site": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "evidence"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Cannot bind argument"
+        }
+      }
+    },
+    "runner.runner_process_signal_action": {
+      "message": "Signal a verified runner process ({signal})",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 before signaling one runner process whose identity was just revalidated; the placeholder is a signal name such as TERM and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "signal": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "TERM"
+        }
+      }
+    },
+    "runner.runner_record_remove_action": {
+      "message": "Remove a runner record proven dead or recycled",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for removing one runner pidfile generation that a classification proved dead or recycled; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.runner_stream_remove_action": {
+      "message": "Remove an old restarted-runner stream file",
+      "description": "ShouldProcess action text in test/modules/Test.SingleInstance.psm1 for deleting a restarted runner's old stdout or stderr capture from the private work directory; keep it short.",
+      "lifecycle": "active"
     },
     "runner.sequence_completed": {
       "message": "[All {total} steps completed in {duration}]",
@@ -29307,6 +31554,579 @@
         }
       }
     },
+    "runner.service_cachingproxy_utmctl_start_failed": {
+      "message": "'utmctl start {vmName}' failed (exit {exitCode}).",
+      "description": "Write-Error in test/service/Start-CachingProxyServiceVM.ps1 when the bounded utmctl start of the freshly registered caching-proxy VM fails, times out or cannot be read (exit -1); preserve the command text, VM name and exit code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "yuruna-caching-proxy-service"
+        },
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        }
+      }
+    },
+    "runner.service_census_tick_should_process": {
+      "message": "Probe the service endpoints and merge the results into the service census",
+      "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Invoke-YurunaServiceCensusTick) for one passive census pass; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.service_census_unreadable": {
+      "message": "{script}: the service census at {path} could not be read just now ({reason}); nothing was changed. Retry; if it keeps failing, check the file's permissions and the disk.",
+      "description": "Write-Error text built in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation Message) when reading the census record failed or timed out, which a later attempt may not repeat; reason is a code token; preserve the script name, path and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Start-StashServiceVM.ps1"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/.yuruna/host-refresh/service-census.record"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "io-timeout"
+        }
+      }
+    },
+    "runner.service_census_unusable": {
+      "message": "{script}: the service census at {path} could not be used ({reason}); service start and stop scripts refuse until it is repaired or moved aside. Nothing was changed.",
+      "description": "Write-Error text built in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation Message) when the private state root or the census record cannot be used; reason is a code token; preserve the script name, path and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/.yuruna/host-refresh/service-census.record"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "census-corrupt"
+        }
+      }
+    },
+    "runner.service_census_update_should_process": {
+      "message": "Merge service observations into the service census",
+      "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Update-YurunaServiceCensusObservation) for a census merge under the census lock; keep it short.",
+      "lifecycle": "active"
+    },
+    "runner.service_lockset_should_process": {
+      "message": "Take the operation locks of services {keys}",
+      "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperationLockSet); keys is a comma-separated list of service keys; keep service keys verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "keys": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "caching-proxy, stash"
+        }
+      }
+    },
+    "runner.service_operation_busy": {
+      "message": "{script}: another start or stop of service '{key}' still holds its operation lock (newest recorded request: {detail}). Retry after it finishes; nothing was changed.",
+      "description": "Write-Error text built in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation Message) when the per-service operation lock is held by another start or stop; detail is token text such as operation=start script=... pid=..., or unrecorded; preserve the script name, service key and detail verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "operation=start script=Start-StashServiceVM.ps1 pid=4242"
+        }
+      }
+    },
+    "runner.service_operation_complete_should_process": {
+      "message": "Record the result of the {operation} of service '{key}'",
+      "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Exit-YurunaServiceOperation); operation is the token stop or start and key a service key, both kept verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        }
+      }
+    },
+    "runner.service_operation_lock_unavailable": {
+      "message": "{script}: the operation lock of service '{key}' could not be taken ({reason}); nothing was changed. Check that {path} is writable, has free space and belongs to this user, then retry.",
+      "description": "Write-Error text built in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation Message) when the per-service operation lock cannot be taken for a reason other than another holder (access denied, full or read-only disk, lock-order violation); reason is a code token; preserve the script name, service key, path and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "disk-full"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/.yuruna/host-refresh"
+        }
+      }
+    },
+    "runner.service_operation_refused": {
+      "message": "{script}: the {operation} of service '{key}' was not started ({reason}); nothing was changed.",
+      "description": "Write-Error text built in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation Message) and written by the eight test/service Start/Stop service VM scripts when the service intent cannot be recorded or was superseded; reason is a code token; preserve the script name, service key and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        },
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "intent-not-persisted"
+        }
+      }
+    },
+    "runner.service_operation_result_unrecorded": {
+      "message": "{script}: the result of the {operation} of service '{key}' could not be recorded ({reason}); the census keeps the pending request.",
+      "description": "Write-Warning in test/modules/Test.ServiceCensus.psm1 (Exit-YurunaServiceOperation) when the census write of an operation result fails; reason is a code token; preserve the script name, service key and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        },
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "lock-busy"
+        }
+      }
+    },
+    "runner.service_operation_should_process": {
+      "message": "Record the {operation} request for service '{key}' and take its operation lock",
+      "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Enter-YurunaServiceOperation); operation is the token stop or start and key a service key, both kept verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        }
+      }
+    },
+    "runner.service_operation_superseded": {
+      "message": "{script}: a newer {newerOperation} request for service '{key}' was recorded while this {operation} was in progress; the newer request stands.",
+      "description": "Write-Warning in test/modules/Test.ServiceCensus.psm1 (Exit-YurunaServiceOperation) when a newer start or stop intent superseded this one, including a Start script that stopped at its intent recheck; newerOperation and operation are the tokens stop or start; preserve the script name and service key.",
+      "lifecycle": "active",
+      "placeholders": {
+        "script": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Start-StashServiceVM.ps1"
+        },
+        "newerOperation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        },
+        "key": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash"
+        },
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "start"
+        }
+      }
+    },
+    "runner.service_poolcontrol_pid_unverified": {
+      "message": "The pool-control marker names pid {pid}, but that process could not be verified as the host-side pool-control service ({reason}); it was left running.",
+      "description": "Write-Warning in test/service/Stop-PoolControlServiceVM.ps1 when the pid recorded in the pool-control marker belongs to a process whose name or start time does not match the host-side daemon; reason is a code token; preserve the pid and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "start-time-mismatch"
+        }
+      }
+    },
+    "runner.service_poolcontrol_stop_incomplete": {
+      "message": "Stop-PoolControlServiceVM.ps1: the stop is incomplete; pid {pid} was left running, so the pool-control marker was kept and the stop request stays open. Stop that process by hand, then re-run.",
+      "description": "Write-Warning in test/service/Stop-PoolControlServiceVM.ps1 when the host-side process named by the marker is alive but could not be verified (or its stop was declined), so the script keeps the marker and records the stop as failed; preserve the script name and pid.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        }
+      }
+    },
+    "runner.service_restore_deadline_exhausted": {
+      "message": "the shared deadline ran out before this service was checked",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the caller's deadline expired before the service was examined; lowercase clause shown after the service name.",
+      "lifecycle": "active"
+    },
+    "runner.service_restore_endpoint_stale": {
+      "message": "the guest answers at {address}, but its advertised endpoint still names {advertised}; the advertisement was not changed",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM -ObserveOnly) when the advertised consumer endpoint no longer reaches the guest's fresh address; advertised is address:port; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "address": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.64.12"
+        },
+        "advertised": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.64.9:80"
+        }
+      }
+    },
+    "runner.service_restore_endpoint_unanswered": {
+      "message": "the guest answers at {address}; its advertised endpoint {advertised} did not answer",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM -ObserveOnly) when the guest is healthy but its advertised consumer endpoint did not accept a connection; advertised is address:port; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "address": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.64.12"
+        },
+        "advertised": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.64.12:80"
+        }
+      }
+    },
+    "runner.service_restore_health_unverified": {
+      "message": "running; :{healthPort} did not answer at {address} within {seconds}s",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM -ObserveOnly) when a running guest's health port stayed silent through the bounded wait; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "healthPort": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "80"
+        },
+        "address": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.64.12"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "90"
+        }
+      }
+    },
+    "runner.service_restore_identity_ambiguous": {
+      "message": "its deployed identity is ambiguous ({ambiguity}); not started",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the captured identity is conflicting, duplicated, invalid or an unverified host process; ambiguity is a code token; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "ambiguity": {
+          "type": "token",
+          "trust": "internal",
+          "example": "conflicting-identity"
+        }
+      }
+    },
+    "runner.service_restore_intended_stopped": {
+      "message": "stopped on purpose by an explicit {operation} request; not started",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) for a service whose newest census intent is an explicit stop; operation is the token stop; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operation": {
+          "type": "token",
+          "trust": "internal",
+          "example": "stop"
+        }
+      }
+    },
+    "runner.service_restore_intent_unreadable": {
+      "message": "its start and stop requests could not be read ({reason}); not started",
+      "description": "Restore record Message built in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the service census cannot be read after the operation lock is taken, so a recorded stop request cannot be ruled out; reason is a code token; shown after the service name, keep it lowercase; preserve the code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "io-timeout"
+        }
+      }
+    },
+    "runner.service_restore_lock_unavailable": {
+      "message": "its operation lock under {path} could not be taken ({reason}); not started",
+      "description": "Restore record Message built in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the service's operation lock cannot be taken for a reason other than another holder (an untrusted private root, a lock file that cannot be opened, a full or read-only disk); reason is a code token; shown after the service name, keep it lowercase; preserve the path and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/u/.yuruna/host-refresh"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "owner-mismatch"
+        }
+      }
+    },
+    "runner.service_restore_lock_unavailable_report": {
+      "message": "{displayName}: VM '{vmName}' was not started: {message}.",
+      "description": "Write-Warning in test/modules/Test.ServiceVm.psm1 (Write-YurunaServiceVmRestoreReport) for a service the reboot sweep could not start because its operation lock could not be taken; message is the already localized restore message; preserve the VM name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "displayName": {
+          "type": "text",
+          "trust": "internal",
+          "example": "Stash service"
+        },
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "its operation lock under /home/u/.yuruna/host-refresh could not be taken (disk-full); not started"
+        }
+      }
+    },
+    "runner.service_restore_no_address": {
+      "message": "running, but no address could be resolved; health was not verified",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM -ObserveOnly) when no address was resolved for a running guest within the bounded wait; lowercase clause shown after the service name.",
+      "lifecycle": "active"
+    },
+    "runner.service_restore_not_a_guest": {
+      "message": "runs as a host process (pid {pid}); there is no VM to restore",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) for a service deployed as a verified host process; lowercase clause shown after the service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        }
+      }
+    },
+    "runner.service_restore_operation_busy": {
+      "message": "a start or stop of this service is in progress; not started",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the service operation lock is held by another start or stop; lowercase clause shown after the service name.",
+      "lifecycle": "active"
+    },
+    "runner.service_restore_operation_unowned": {
+      "message": "the caller's operation ownership does not cover this service; not started",
+      "description": "Restore record Message in test/modules/Test.ServiceVm.psm1 (Restore-YurunaServiceVM) when the lock set the caller passed does not hold this service's operation lock; lowercase clause shown after the service name.",
+      "lifecycle": "active"
+    },
+    "runner.service_restore_state_unknown": {
+      "message": "{displayName}: VM '{vmName}' state could not be confirmed ({reason}); it was neither started nor rebuilt.",
+      "description": "Write-Warning in test/modules/Test.ServiceVm.psm1 (Write-YurunaServiceVmRestoreReport) for a service whose state the reboot sweep could not confirm; reason is the probe reason code token; preserve the VM name and code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "displayName": {
+          "type": "text",
+          "trust": "internal",
+          "example": "Stash service"
+        },
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "yuruna-stash-service"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "timeout"
+        }
+      }
+    },
+    "runner.service_stop_final_state_unexpected": {
+      "message": "VM '{vmName}' final state: {finalState} (expected absent after removal). Inspect it with the host's tooling, then re-run Stop-CachingProxyServiceVM.ps1.",
+      "description": "Write-Warning in test/service/Stop-CachingProxyServiceVM.ps1 when the final state check after removal does not read absent; the stop is then recorded as failed; preserve the VM name, state token and script name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "yuruna-caching-proxy-service"
+        },
+        "finalState": {
+          "type": "token",
+          "trust": "internal",
+          "example": "running"
+        }
+      }
+    },
+    "runner.start_cycle_worker_cleanup_failed": {
+      "message": "Start-cycle {operationId}: Remove-TestVMFiles.ps1 ended with exit code {exitCode} (timed out: {timedOut}).",
+      "description": "Write-Warning in test/modules/Invoke-StartCycleWorker.ps1 when the bounded VM cleanup failed or timed out; the runner decision still follows. Preserve the script name, the operation id, the exit code and the true/false value.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operationId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "exitCode": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "timedOut": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "false"
+        }
+      }
+    },
+    "runner.start_cycle_worker_clear_action": {
+      "message": "Clear the pause and lab-hold controls and request a cycle restart",
+      "description": "ShouldProcess action text in test/modules/Invoke-StartCycleWorker.ps1 for the step that removes the pause and lab-hold control files, rewrites status.json and writes the restart request.",
+      "lifecycle": "active"
+    },
+    "runner.start_cycle_worker_completed": {
+      "message": "Start-cycle {operationId}: {result} (runner: {action}).",
+      "description": "Write-Information at the end of test/modules/Invoke-StartCycleWorker.ps1, into the worker's private transcript; result is succeeded, incomplete or failed and action is spawned, restarted, not_spawned or none. Preserve both codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operationId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "result": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "succeeded"
+        },
+        "action": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "spawned"
+        }
+      }
+    },
+    "runner.start_cycle_worker_refused": {
+      "message": "Start-cycle {operationId}: nothing was changed ({reason}).",
+      "description": "Write-Warning in test/modules/Invoke-StartCycleWorker.ps1 when the start-cycle worker refuses before touching any control file: the lifetime repair lock is held, its reservation is gone, a host refresh is active, or a dependency is missing; preserve the operation id and the reason.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operationId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "lock_busy"
+        }
+      }
+    },
+    "runner.start_cycle_worker_runner_unknown": {
+      "message": "Start-cycle {operationId}: the runner's state is unknown after cleanup, so no runner was started; the cycle restart request was written, so a running runner still restarts its cycle.",
+      "description": "Write-Warning in test/modules/Invoke-StartCycleWorker.ps1 when the runner pidfile names a process that cannot be identified or cannot be read after the restart request was written; starting a second runner beside a live one is what this avoids. Preserve the operation id.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operationId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      }
+    },
+    "runner.start_cycle_worker_spawn_failed": {
+      "message": "Start-cycle {operationId}: the runner could not be started ({reason}).",
+      "description": "Write-Warning in test/modules/Invoke-StartCycleWorker.ps1 when the detached launch of Start-TestRunner.ps1 failed; preserve the operation id and the launcher's reason code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "operationId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "launcher_failed"
+        }
+      }
+    },
     "runner.stash_probe_unconfirmed": {
       "description": "Complete operator message; stable codes and external details remain separate from translated wording.",
       "lifecycle": "active",
@@ -29367,6 +32187,120 @@
       "description": "Whole noninteractive status-service forwarder repair guidance.",
       "lifecycle": "active"
     },
+    "runner.status_lan_clients_time_out": {
+      "message": "http://localhost:{port}/status/ works, but LAN clients hitting http://{address}:{port}/status/ will time out.",
+      "description": "Write-Warning in test/service/Start-StatusService.ps1 after a firewall rule blocks the status port: the local URL answers but a LAN client using the host address will time out. Keep the URLs, the path /status/ and the placeholders unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "8080"
+        },
+        "address": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "192.168.7.57"
+        }
+      }
+    },
+    "runner.status_refresh_safe_existing_ready": {
+      "message": "Status service PID {processId} already answers on port {port}; the refresh-safe start left it running.",
+      "description": "Write-Output in test/service/Start-StatusService.ps1 -RefreshSafe when an owned status service already answers; nothing was stopped or restarted. Preserve the process id and port.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4321"
+        },
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "8080"
+        }
+      }
+    },
+    "runner.status_refresh_safe_not_ready": {
+      "message": "The status service started as PID {processId} but did not answer within {seconds} seconds; it was left running.",
+      "description": "Write-Warning in test/service/Start-StatusService.ps1 -RefreshSafe when a newly launched status service did not answer before the deadline; the refresh-safe start never kills it. Preserve the process id.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4321"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "55"
+        }
+      }
+    },
+    "runner.status_refresh_safe_partial": {
+      "message": "Refresh-safe start of the status service on port {port} changed nothing: {outcome} ({reason}).",
+      "description": "Write-Warning in test/service/Start-StatusService.ps1 -RefreshSafe when the start could not complete without disturbing something (an unresponsive owned server, an unidentified owner, a held port, a concurrent start, a generation or launch failure); preserve the outcome and reason codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "8080"
+        },
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "port-conflict"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "port-held"
+        }
+      }
+    },
+    "runner.status_refresh_safe_refused": {
+      "message": "Start-StatusService.ps1 -RefreshSafe refused: {reason}.",
+      "description": "Write-Warning in test/service/Start-StatusService.ps1 when a refresh-safe invocation is refused before anything is started (runtime directory unresolved, invalid port, a result path inside a served directory, private state unavailable). Preserve the script name, the switch and the reason code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "runtime-unresolved"
+        }
+      }
+    },
+    "runner.status_refresh_safe_result_unwritable": {
+      "message": "The refresh-safe start could not write its result record to {path}.",
+      "description": "Write-Warning in test/service/Start-StatusService.ps1 -RefreshSafe when the outcome record could not be written; the exit code still carries the outcome. Preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/lab/.yuruna/host-refresh/work/status-start.json"
+        }
+      }
+    },
+    "runner.status_refresh_safe_started": {
+      "message": "Status service started as PID {processId} on port {port} (refresh-safe start).",
+      "description": "Write-Output in test/service/Start-StatusService.ps1 -RefreshSafe after a new status service was launched and answered. Preserve the process id and port.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4321"
+        },
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "8080"
+        }
+      }
+    },
     "runner.status_restart_changed_head": {
       "message": "Restarting status service (PID {processId}): framework SHA changed ({previous} -> {current}).",
       "description": "Whole status-service restart explanation; the decision uses immutable SHA comparison.",
@@ -29412,6 +32346,16 @@
           "example": "processId"
         }
       }
+    },
+    "runner.status_worker_directory_prepare_action": {
+      "message": "Prepare the private worker directory",
+      "description": "ShouldProcess action text in test/modules/Test.StatusControlRoute.psm1 (Get-StatusWorkerDirectory) for creating the private worker directory and its empty input file and pruning old transcripts.",
+      "lifecycle": "active"
+    },
+    "runner.status_worker_state_write_action": {
+      "message": "Publish the worker state record",
+      "description": "ShouldProcess action text in test/modules/Invoke-StartCycleWorker.ps1 and test/modules/Invoke-HostDiagnosticWorker.ps1 for replacing a detached worker's state file.",
+      "lifecycle": "active"
     },
     "runner.transcript_title": {
       "message": "Yuruna test-runner log",

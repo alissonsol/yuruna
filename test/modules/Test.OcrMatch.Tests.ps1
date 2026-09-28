@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
+$script:OcrFixtureDir = Join-Path $here '../fixtures/ocr'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 }
@@ -286,6 +287,38 @@ Describe 'Test-OCRMatch' {
     }
 }
 
+Describe 'Bounded prompt matching' {
+    It 'rejects installer output from <Engine> even inside the fresh tail' -TestCases @(
+        @{ Engine = 'vision' }, @{ Engine = 'tesseract' }
+    ) {
+        param($Engine)
+        $text = Get-Content -LiteralPath (Join-Path $script:OcrFixtureDir "installer-login-$Engine.txt") -Raw
+        $tail = (($text.Trim() -split "`n") | Select-Object -Last 12) -join "`n"
+        Assert-True (Test-OCRMatch -Text $tail -Pattern 'amisad-core login:') 'the fixture must exercise the segment collision'
+        Assert-False (Test-OCRMatch -Text $text -Pattern 'amisad-core login:' -NoSegmentMatch) 'installer commands are not a login prompt'
+        Assert-False (Test-OCRMatch -Text $tail -Pattern 'amisad-core login:' -NoSegmentMatch) 'tail filtering alone does not establish readiness'
+    }
+
+    It 'preserves bounded OCR tolerance for <Prompt>' -TestCases @(
+        @{ Prompt = 'amisad-core login: _'; Pattern = 'amisad-core login:' },
+        @{ Prompt = 'amisad-core logln: _'; Pattern = 'amisad-core login:' },
+        @{ Prompt = 'Password:'; Pattern = 'Password:' },
+        @{ Prompt = 'New password:'; Pattern = 'New password' },
+        @{ Prompt = 'Ketype new password:'; Pattern = 'Retype new password' }
+    ) {
+        param($Prompt, $Pattern)
+        Assert-True (Test-OCRMatch -Text $Prompt -Pattern $Pattern -NoSegmentMatch)
+    }
+
+    It 'does not describe scattered installer words as a prompt hidden above the tail' {
+        $text = "passwd --expire amisad-core-admin`nsed -i ... /target/etc/login.defs`n" + ((1..15 | ForEach-Object { 'installing packages' }) -join "`n")
+        $engines = @{ vision = @{ Text = $text; Matched = $false } }
+        Assert-Equal -Expected 0 -Actual @(Get-OcrFreshWindowNearMiss -EngineResult $engines -Pattern 'amisad-core login:' -FreshMatchTailLines 12 -NoSegmentMatch).Count
+        $engines.vision.Text = "amisad-core logln: _`n" + $text
+        Assert-Equal -Expected 1 -Actual @(Get-OcrFreshWindowNearMiss -EngineResult $engines -Pattern 'amisad-core login:' -FreshMatchTailLines 12 -NoSegmentMatch).Count
+    }
+}
+
 Describe 'Get-OcrCombineMode' {
     AfterAll {
         if ($null -eq $script:SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
@@ -365,6 +398,20 @@ Describe 'Test-CombinedOcrMatch' {
         Assert-Equal -Expected 'unit-fake-a' -Actual $env:YURUNA_TEST_OCR_CALLS -Because 'the second engine is wasted work once the first matched'
         Assert-Equal -Expected 1 -Actual @($r.EngineResults.Keys).Count
         Assert-Equal -Expected 'login prompt' -Actual $r.EngineResults['unit-fake-a'].MatchedPattern
+    }
+    It 'rejects both installer captures with <Mode> engines and tail <Tail>' -TestCases @(
+        @{ Mode = 'Or'; Tail = 0 }, @{ Mode = 'Or'; Tail = 12 },
+        @{ Mode = 'And'; Tail = 0 }, @{ Mode = 'And'; Tail = 12 }
+    ) {
+        param($Mode, $Tail)
+        $env:YURUNA_OCR_COMBINE = $Mode
+        $env:YURUNA_TEST_OCR_A = Get-Content -LiteralPath (Join-Path $script:OcrFixtureDir 'installer-login-vision.txt') -Raw
+        $env:YURUNA_TEST_OCR_B = Get-Content -LiteralPath (Join-Path $script:OcrFixtureDir 'installer-login-tesseract.txt') -Raw
+        $result = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'amisad-core login:' -FreshMatchTailLines $Tail -NoSegmentMatch
+        Assert-False $result.Match 'no engine read a real login prompt'
+        $env:YURUNA_TEST_OCR_A = 'amisad-core logln: _'
+        $env:YURUNA_TEST_OCR_B = 'amisad-core login: _'
+        Assert-True (Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'amisad-core login:' -FreshMatchTailLines $Tail -NoSegmentMatch).Match
     }
     It 'Or mode falls through to a later engine when the first one misses' {
         $env:YURUNA_OCR_COMBINE = 'Or'

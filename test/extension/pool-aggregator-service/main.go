@@ -38,6 +38,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/controlproof"
+	sdkpool "yuruna.com/test/extension/extension-sdk/pool"
 )
 
 const (
@@ -220,6 +223,17 @@ const (
 	// classifyControl measures a host's clock against.
 	controlProofTTL    = 15 * time.Minute
 	controlProofMaxTTL = 20 * time.Minute
+	// A host's refresh capability is believed for at most this long after it
+	// was last read from the host itself (or three poll intervals, when that
+	// is longer). Unlike Control, a refresh reading is never carried forward
+	// indefinitely: it authorizes a disruptive action, so a reading nobody has
+	// renewed reads as unavailable.
+	refreshObservationFloor = 2 * time.Minute
+	// maxControlStatusBytes caps the control-status document. It is read one
+	// byte past the cap so an oversize answer is refused as oversize rather
+	// than truncated into JSON that fails to parse and leaves every verdict at
+	// its previous value.
+	maxControlStatusBytes = 4096
 	// Port a Windows pool host publishes machine metrics on: the Windows
 	// exporter's registered default. One number for the whole pool, because the
 	// collector and the hosts share no channel to negotiate it on;
@@ -441,6 +455,124 @@ type hostView struct {
 	// condition under which it is refreshed: the sidecar line outlives a resume until
 	// the next step overwrites it, so an unarmed host must not carry it forward.
 	StepPauseReached bool `json:"stepPauseReached,omitempty"`
+	// Refresh is the host's refresh capability as last merged from its
+	// control-status answer. Never serialized from here: every reader goes
+	// through refreshView, which applies the one expiry rule, so no route can
+	// publish a reading older than the observation window allows.
+	Refresh sdkpool.HostRefresh `json:"-"`
+}
+
+// refreshView is the single expiry rule for the refresh capability: an
+// available reading older than ttl reads as unavailable, observation_expired,
+// and a host never read reads as never observed. It also stamps the reading's
+// age, so a consumer can show how old the answer is.
+func (hv *hostView) refreshView(now time.Time, ttl time.Duration) sdkpool.HostRefresh {
+	r := hv.Refresh
+	if r.Availability == "" {
+		return sdkpool.UnobservedRefresh()
+	}
+	if ttl <= 0 {
+		ttl = refreshObservationFloor
+	}
+	r.AgeSeconds = 0
+	if r.ObservedUnixMs > 0 {
+		if age := now.UnixMilli() - r.ObservedUnixMs; age > 0 {
+			r.AgeSeconds = age / 1000
+		}
+	}
+	if r.Availability == sdkpool.RefreshAvailable &&
+		(r.ObservedUnixMs <= 0 || now.UnixMilli()-r.ObservedUnixMs > ttl.Milliseconds()) {
+		r.Availability, r.Reason = sdkpool.RefreshUnavailable, sdkpool.RefreshReasonObservationExpired
+	}
+	return r
+}
+
+// refreshLabels is the metric label pair for a host's refresh capability,
+// clamped to two availabilities and four states so no host-supplied value can
+// grow the series count.
+func (hv *hostView) refreshLabels(now time.Time, ttl time.Duration) (availability, state string) {
+	v := hv.refreshView(now, ttl)
+	availability = sdkpool.RefreshUnavailable
+	if v.Availability == sdkpool.RefreshAvailable {
+		availability = sdkpool.RefreshAvailable
+	}
+	switch v.State {
+	case sdkpool.RefreshStateIdle, sdkpool.RefreshStateActive, sdkpool.RefreshStateRecoveryPending:
+		state = v.State
+	default:
+		state = sdkpool.RefreshStateUnknown
+	}
+	return availability, state
+}
+
+// normalizeRefreshCapability clamps the refresh object a host put in its
+// control-status answer. The host is read without authentication, so every
+// field is held to its vocabulary: a wrong type or an unknown availability is
+// capability_malformed, another protocol is protocol_unsupported, and a
+// ceiling that is not a rung is dropped. An explicit null reads as absent.
+func normalizeRefreshCapability(raw json.RawMessage) *sdkpool.HostRefresh {
+	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return nil
+	}
+	malformed := &sdkpool.HostRefresh{Availability: sdkpool.RefreshUnavailable, Reason: sdkpool.RefreshReasonCapabilityMalformed,
+		Remote: sdkpool.RefreshRemoteUnknown, State: sdkpool.RefreshStateUnknown}
+	var in struct {
+		Protocol     *int    `json:"protocol"`
+		Availability *string `json:"availability"`
+		Ceiling      *string `json:"ceiling"`
+		Reason       *string `json:"reason"`
+		Remote       *string `json:"remote"`
+		State        *string `json:"state"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil || in.Availability == nil || *in.Availability == "" {
+		return malformed
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	r := sdkpool.HostRefresh{Availability: *in.Availability, Ceiling: str(in.Ceiling), Reason: str(in.Reason),
+		Remote: str(in.Remote), State: str(in.State)}
+	if in.Protocol != nil {
+		r.Protocol = *in.Protocol
+	}
+	n := r.Normalized()
+	return &n
+}
+
+// mergeRefresh folds one poll's reading into what the host view holds. A host
+// that answered replaces the reading outright -- with unavailable,
+// not_advertised when it no longer carries the field. A host that did not
+// answer keeps the previous detail for display but is demoted to unavailable:
+// the legacy Control verdict's indefinite last-known value must not be copied
+// onto a capability that authorizes a disruptive action.
+func mergeRefresh(prev sdkpool.HostRefresh, obs *sdkpool.HostRefresh, answered bool, now time.Time) sdkpool.HostRefresh {
+	if !answered {
+		return demoteRefresh(prev, sdkpool.RefreshReasonControlStatusUnreadable)
+	}
+	if obs == nil {
+		return sdkpool.HostRefresh{Availability: sdkpool.RefreshUnavailable, Reason: sdkpool.RefreshReasonNotAdvertised,
+			Remote: sdkpool.RefreshRemoteUnknown, State: sdkpool.RefreshStateUnknown, ObservedUnixMs: now.UnixMilli()}
+	}
+	out := *obs
+	out.ObservedUnixMs, out.AgeSeconds = now.UnixMilli(), 0
+	return out
+}
+
+// demoteRefresh marks a reading unavailable for reason while keeping the rest
+// of its detail, which is display-only once the reading is not current.
+func demoteRefresh(prev sdkpool.HostRefresh, reason string) sdkpool.HostRefresh {
+	out := prev
+	out.Availability, out.Reason = sdkpool.RefreshUnavailable, reason
+	if out.Remote == "" {
+		out.Remote = sdkpool.RefreshRemoteUnknown
+	}
+	if out.State == "" {
+		out.State = sdkpool.RefreshStateUnknown
+	}
+	return out
 }
 
 // controlLabel is Control with the never-learned case folded onto the state that
@@ -511,7 +643,11 @@ type extHealthView struct {
 // announce and falls back to the host's registration.
 type poolStatusEntry struct {
 	*hostView
-	StashBaseURL string `json:"stashBaseUrl,omitempty"`
+	StashBaseURL    string   `json:"stashBaseUrl,omitempty"`
+	PreviousHostIDs []string `json:"previousHostIds,omitempty"`
+	// Refresh is hostView.refreshView at serialization time, so pool-status
+	// never publishes a capability past its observation window.
+	Refresh sdkpool.HostRefresh `json:"refresh"`
 }
 
 // announceHostIDRE / announceAreaRE gate what an unauthenticated announce may
@@ -653,6 +789,7 @@ type poolState struct {
 	announceTtl  time.Duration             // reap an announce entry not refreshed within this window (0 disables /announce)
 	extHealth    map[string]*extHealthView // hostId|area -> this aggregator's own reachability verdict on the advertised address
 	hostTtl      time.Duration             // drop a hostId from the view this long after last contact
+	refreshTTL   time.Duration             // how long a refresh capability reading stays current (refreshView)
 	last         time.Time
 	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
 	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
@@ -706,11 +843,16 @@ type poolState struct {
 	// a slow Loki read never blocks the poll loop or /api/v1/pool-status.
 	statsMu    sync.Mutex
 	statsCache map[string]*poolStatsCacheEntry // range token -> memoized answer
+	statsEpoch uint64                          // invalidates an in-flight pre-handover Loki projection
 	// archiveRoot is the pool share's hosts/ directory as this machine sees it
 	// (the proxy CIFS-mounts the share). Empty disables the /archive/ route and
 	// every archive-aware resolution, which is what a proxy with no pool storage
 	// has. Set once in main before the server starts; not mutated under mu.
 	archiveRoot string
+	// handoverFile is a durable identity ledger. Aliases are loaded before Loki
+	// rehydration, so a retired id cannot be restored as a second live host.
+	handoverFile string
+	handovers    map[string]string // retired hostId -> current hostId; guarded by mu
 	// hostMetricsPort is the port the scrape document points at on each Windows
 	// host. Configurable because the exporter's port is a decision made on the
 	// hosts, and a pool that moved it would otherwise have to rebuild this VM to
@@ -734,11 +876,13 @@ func newPoolState(pool string, statusPort int) *poolState {
 		failWindow: map[string][]failRec{}, incident: map[string]*incidentState{},
 		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
 		announce: map[string]*announceView{}, announceTtl: defaultAnnounceTtl,
-		extHealth: map[string]*extHealthView{},
-		hostTtl:   defaultHostTtl,
-		labFails:  map[string][]time.Time{}, labExchange: map[string]int64{},
+		extHealth:  map[string]*extHealthView{},
+		hostTtl:    defaultHostTtl,
+		refreshTTL: refreshObservationFloor,
+		labFails:   map[string][]time.Time{}, labExchange: map[string]int64{},
 		eventCur:  map[string]*eventCursor{},
 		footprint: map[string]*addressFootprintView{},
+		handovers: map[string]string{},
 
 		hostMetricsPort: defaultHostMetricsPort,
 	}
@@ -1031,19 +1175,21 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	type probeResult struct {
 		ip         string
 		st         *hostStatus
-		errMsg     string            // non-empty when the probe failed: the reason, keyed onto the unreachable host's LastError
-		version    string            // framework VERSION ("" = not fetched this poll; caller keeps prior)
-		regOK      bool              // host.registration.json was fetched + parsed this poll
-		poolID     string            // poolId from the registration record ("" = unpooled/not-yet-derived)
-		poolGuid   string            // poolGuid from the registration record ("" = unpooled/not-yet-derived)
-		gating     *gatingPolicy     // authored gating policy from the record (nil = pool did not author one)
-		activeExt  []string          // extension areas the host is actively running (registration activeExtensions)
-		extTargets map[string]string // per-area deep-link URLs the host advertises (registration extensionTargets)
-		control    string            // classified control state ("" = not fetched this poll; caller keeps prior)
-		stepParked bool              // current-action sidecar says the runner is sitting at a step boundary
-		parkedOK   bool              // the sidecar was read this poll (false = keep the prior reading)
-		runnerDead bool              // runner-status says the outer runner is verifiably not alive
-		runnerOK   bool              // runner-status answered this poll (false = keep the prior reading)
+		errMsg     string               // non-empty when the probe failed: the reason, keyed onto the unreachable host's LastError
+		version    string               // framework VERSION ("" = not fetched this poll; caller keeps prior)
+		regOK      bool                 // host.registration.json was fetched + parsed this poll
+		poolID     string               // poolId from the registration record ("" = unpooled/not-yet-derived)
+		poolGuid   string               // poolGuid from the registration record ("" = unpooled/not-yet-derived)
+		gating     *gatingPolicy        // authored gating policy from the record (nil = pool did not author one)
+		activeExt  []string             // extension areas the host is actively running (registration activeExtensions)
+		extTargets map[string]string    // per-area deep-link URLs the host advertises (registration extensionTargets)
+		control    string               // classified control state ("" = not fetched this poll; caller keeps prior)
+		refresh    *sdkpool.HostRefresh // refresh capability from control-status (nil = the host answered without one)
+		refreshOK  bool                 // control-status answered this poll (false = transport, oversize or parse failure)
+		stepParked bool                 // current-action sidecar says the runner is sitting at a step boundary
+		parkedOK   bool                 // the sidecar was read this poll (false = keep the prior reading)
+		runnerDead bool                 // runner-status says the outer runner is verifiably not alive
+		runnerOK   bool                 // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
 	// published tag is compared against. "" when no internal authentication key is configured,
@@ -1080,8 +1226,13 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 				// a stale "ready" inherited forever. Classified here (in the
 				// probe goroutine) against the poll's clock so the skew reading
 				// is not skewed by the poll's own duration.
+				//
+				// The refresh capability rides the same answer, with the
+				// opposite stickiness: a host that answered replaces it, and a
+				// failed or oversize read demotes it rather than keeping it.
 				if cs, cerr := fetchControlStatus(client, base); cerr == nil {
 					pr.control = classifyControl(proxyTag, cs, now)
+					pr.refresh, pr.refreshOK = cs.Refresh, true
 				}
 				// Best-effort: is anything still driving this host? status.json
 				// alone cannot say -- it is a record of what ran, and it reads
@@ -1127,6 +1278,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	// beaconed to Loki (src=presence) after the unlock so the collector can
 	// re-seed its volatile view from Loki on a restart (rehydrateHostPresenceFromLoki).
 	var presence []presenceTarget
+	var cycleTransitions []map[string]any
 	for _, r := range results {
 		if r == nil {
 			continue // slot never filled (should not happen: every candidate writes one)
@@ -1140,6 +1292,11 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			continue
 		}
 		hid := r.st.HostId
+		// A retired identity may still occur in a stale presence feed or an
+		// in-flight probe. It must never regain a live row after handover.
+		if s.handovers[hid] != "" {
+			continue
+		}
 		base := fmt.Sprintf("http://%s:%d", r.ip, s.statusPort)
 		hv := s.hosts[hid]
 		prevBase := ""
@@ -1170,6 +1327,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		if r.control != "" {
 			hv.Control = r.control
 		}
+		hv.Refresh = mergeRefresh(hv.Refresh, r.refresh, r.refreshOK, now)
 		// Keep the prior runner verdict when the route did not answer this tick, the
 		// same guard as Control: a missed probe is not a runner that started.
 		if r.runnerOK {
@@ -1216,7 +1374,9 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			s.seenAt[key] = now
 			if s.seen[key] != r.st.OverallStatus {
 				s.seen[key] = r.st.OverallStatus
-				pushLoki(client, lokiURL, s.poolFor(hid), r.st, base, now)
+				// Capture only immutable values while state is locked. A slow
+				// log store must not hold up pool status, metrics or announces.
+				cycleTransitions = append(cycleTransitions, cycleTransitionPayload(s.poolFor(hid), r.st, base, now))
 			}
 			if isTerminal(r.st.OverallStatus) && !s.counted[key] {
 				s.counted[key] = true
@@ -1236,6 +1396,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	for hid, hv := range s.hosts {
 		if !refreshed[hid] {
 			hv.Reachable = false
+			hv.Refresh = demoteRefresh(hv.Refresh, sdkpool.RefreshReasonHostUnreachable)
 			// Surface WHY this tick's probe of the host's last-known IP failed, so
 			// /api/v1/pool-status is no longer blind about an unreachable host. Left
 			// as-is when the IP was not a candidate this tick (no fresh reason).
@@ -1244,6 +1405,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			}
 			if now.UnixMilli()-hv.LastSeenUnixMs > s.hostTtl.Milliseconds() {
 				delete(s.hosts, hid)
+				delete(s.footprint, hid)
 				deleted = append(deleted, hid)
 			}
 		}
@@ -1282,6 +1444,10 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	gateEvents := s.evaluatePoolGate(now)
 	s.last = now
 	s.mu.Unlock()
+
+	for _, payload := range cycleTransitions {
+		postToLoki(client, lokiURL, payload, "loki push")
+	}
 
 	// Confirm every advertised extension address from the POOL's vantage point,
 	// and drop the ones that have stayed silent past the grace. Runs after the
@@ -1466,7 +1632,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.24"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.27"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1497,12 +1663,21 @@ func fetchVersion(client *http.Client, base string) (string, error) {
 // has no such route, and reporting that host as uncontrollable would be a
 // guess. UtcNow is the host's clock, so the caller can catch the skew that
 // expires a freshly minted proof.
+//
+// Refresh is the host's refresh capability summary, normalized; nil when the
+// answer did not carry one.
 type controlStatus struct {
 	Present         bool
 	TokenConfigured bool
 	TokenTag        string
 	UtcNow          time.Time
+	Refresh         *sdkpool.HostRefresh
 }
+
+// errControlStatusOversize is a control-status answer larger than the cap.
+// It is an error, not a truncation, so the caller treats it like any other
+// unusable read.
+var errControlStatusOversize = errors.New("control-status answer exceeds the size cap")
 
 // fetchControlStatus reads /control/control-status. The route is open and
 // read-only, so this needs no credential -- which is the point: the aggregator
@@ -1512,9 +1687,12 @@ type controlStatus struct {
 // instead of inheriting a stale verdict forever. A transport failure returns the
 // error so the caller can keep what it last knew.
 func fetchControlStatus(client *http.Client, base string) (controlStatus, error) {
-	status, body, err := probeGet(client, base, "/control/control-status", 4096)
+	status, body, err := probeGet(client, base, "/control/control-status", maxControlStatusBytes+1)
 	if err != nil {
 		return controlStatus{}, err
+	}
+	if len(body) > maxControlStatusBytes {
+		return controlStatus{}, errControlStatusOversize
 	}
 	if status == http.StatusNotFound {
 		return controlStatus{}, nil
@@ -1523,14 +1701,16 @@ func fetchControlStatus(client *http.Client, base string) (controlStatus, error)
 		return controlStatus{}, fmt.Errorf("control-status HTTP %d", status)
 	}
 	var cs struct {
-		TokenConfigured bool   `json:"tokenConfigured"`
-		TokenTag        string `json:"tokenTag"`
-		UtcNow          string `json:"utcNow"`
+		TokenConfigured bool            `json:"tokenConfigured"`
+		TokenTag        string          `json:"tokenTag"`
+		UtcNow          string          `json:"utcNow"`
+		Refresh         json.RawMessage `json:"refresh"`
 	}
 	if err := json.Unmarshal(body, &cs); err != nil {
 		return controlStatus{}, fmt.Errorf("control-status parse: %w", err)
 	}
-	out := controlStatus{Present: true, TokenConfigured: cs.TokenConfigured, TokenTag: cs.TokenTag}
+	out := controlStatus{Present: true, TokenConfigured: cs.TokenConfigured, TokenTag: cs.TokenTag,
+		Refresh: normalizeRefreshCapability(cs.Refresh)}
 	// An unparseable clock leaves UtcNow zero, which the classifier reads as
 	// "no skew evidence" rather than as an enormous skew.
 	if t, perr := time.Parse(time.RFC3339, cs.UtcNow); perr == nil {
@@ -1748,6 +1928,7 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.statsMu.Lock()
+	epoch := s.statsEpoch
 	if e := s.statsCache[window]; e != nil && time.Since(e.at) < poolStatsCacheTTL {
 		payload := e.payload
 		s.statsMu.Unlock()
@@ -1760,13 +1941,25 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 
 	passed, errPass := s.countCyclesByHost("pass", window)
 	failed, errFail := s.countCyclesByHost("fail", window)
-	if errPass != nil && errFail != nil {
-		// Both legs failed: say so rather than serve zeros, which the board
+	if errPass != nil || errFail != nil {
+		// An unavailable leg is not a real zero: say so rather than serve zeros, which the board
 		// would render as a real "0 cycles" and an operator would read as
 		// "nothing ran" instead of "we could not tell".
 		localizedJSONError(w, r, "aggregator.loki_query_failed", http.StatusBadGateway)
 		return
 	}
+	// Loki retains the original hostId label. Project its counts through the
+	// durable alias ledger so pool membership on the live ID sees all cycles.
+	s.mu.Lock()
+	canonicalPassed, canonicalFailed := map[string]int64{}, map[string]int64{}
+	for id, n := range passed {
+		canonicalPassed[canonicalHostID(s.handovers, id)] += n
+	}
+	for id, n := range failed {
+		canonicalFailed[canonicalHostID(s.handovers, id)] += n
+	}
+	s.mu.Unlock()
+	passed, failed = canonicalPassed, canonicalFailed
 
 	type hostRow struct {
 		HostID string `json:"hostId"`
@@ -1802,10 +1995,12 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.statsMu.Lock()
-	if s.statsCache == nil {
-		s.statsCache = map[string]*poolStatsCacheEntry{}
+	if epoch == s.statsEpoch {
+		if s.statsCache == nil {
+			s.statsCache = map[string]*poolStatsCacheEntry{}
+		}
+		s.statsCache[window] = &poolStatsCacheEntry{at: time.Now(), payload: payload}
 	}
-	s.statsCache[window] = &poolStatsCacheEntry{at: time.Now(), payload: payload}
 	s.statsMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1813,11 +2008,11 @@ func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(payload)
 }
 
-// pushLoki POSTs one cycle-status transition to Loki. Labels are strictly
+// cycleTransitionPayload snapshots one cycle-status transition for Loki. Labels are strictly
 // {pool,hostId,cycleStartUtc} (low cardinality); the variable fields -- including the
 // CURRENT baseURL for the dashboard's drill-down deep-link -- live in the line.
 // The value timestamp is the proxy-side INGEST clock, not the host cycleStartUtc.
-func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL string, ingest time.Time) {
+func cycleTransitionPayload(pool string, st *hostStatus, baseURL string, ingest time.Time) map[string]any {
 	// hostname is omitted (pool view is hostname-free). cycleFolderUrl IS carried:
 	// the /go/cycle redirect resolves a PAST cycle's results folder by time off this
 	// line (the in-memory view only knows the current cycle). The folder name is the
@@ -1836,11 +2031,10 @@ func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL
 		m["failureClass"] = st.failClassOf()
 	}
 	line, _ := json.Marshal(m)
-	payload := map[string]any{"streams": []map[string]any{{
+	return map[string]any{"streams": []map[string]any{{
 		"stream": map[string]string{"pool": pool, "hostId": st.HostId, "cycleStartUtc": st.CycleStartUtc, "src": "cycle"},
 		"values": [][]string{{fmt.Sprintf("%d", ingest.UnixNano()), string(line)}},
 	}}}
-	postToLoki(client, lokiURL, payload, "loki push")
 }
 
 // pushLokiStream POSTs one line to Loki under the given stream labels --
@@ -1933,7 +2127,7 @@ func hostIPFromBaseURL(baseURL string) string {
 // an existing (possibly live) entry; LastSeenUnixMs is seeded to `now` so a transient
 // first-probe miss does not evict it before a full hostTtl of retries.
 func (s *poolState) seedHostStubLocked(hostID, baseURL string, now time.Time) bool {
-	if hostID == "" {
+	if hostID == "" || s.handovers[hostID] != "" {
 		return false
 	}
 	if _, ok := s.hosts[hostID]; ok {
@@ -1967,7 +2161,9 @@ func (s *poolState) seedHostStubLocked(hostID, baseURL string, now time.Time) bo
 func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
 	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
-	params.Set("query", fmt.Sprintf(`{pool=%q} | json | overallStatus=~"pass|fail"`, pool))
+	// Hosts publish under their registered pool, which can differ from this
+	// collector's default label. Restore every host stream the collector owns.
+	params.Set("query", `{pool=~".+"} | json | overallStatus=~"pass|fail"`)
 	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
 	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
 	params.Set("limit", "5000")
@@ -2045,7 +2241,8 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 						if cls == "" {
 							cls = "unknown"
 						}
-						s.failWindow[e.HostId] = append(s.failWindow[e.HostId], failRec{t: evTime, class: cls})
+						currentID := canonicalHostID(s.handovers, e.HostId)
+						s.failWindow[currentID] = append(s.failWindow[currentID], failRec{t: evTime, class: cls})
 					}
 				}
 				restored++
@@ -2091,7 +2288,9 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
 	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
-	params.Set("query", fmt.Sprintf(`{pool=%q, src="incident"} | json`, pool))
+	// Per-host incidents use the host's pool label; pool-wide events retain
+	// the collector label. Both belong to the same restart projection.
+	params.Set("query", `{pool=~".+", src="incident"} | json`)
 	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
 	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
 	params.Set("limit", "5000")
@@ -2184,7 +2383,7 @@ func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int
 				continue
 			}
 			// Per-host lifecycle lines.
-			if e.HostId == "" || decided[e.HostId] {
+			if e.HostId == "" || s.handovers[e.HostId] != "" || decided[e.HostId] {
 				continue // only the most recent line per host decides current state
 			}
 			decided[e.HostId] = true
@@ -3010,14 +3209,25 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(ids)
 	// Merge once for the whole snapshot, not once per host: the resolution is
 	// pool-wide, and rebuilding it inside the loop would be quadratic in hosts.
-	cands := s.extensionCandidatesLocked(time.Now())
+	now := time.Now()
+	cands := s.extensionCandidatesLocked(now)
 	for _, id := range ids {
+		if s.handovers[id] != "" {
+			continue
+		}
 		hv := s.hosts[id]
 		// stashBaseUrl: the stash UI's hostId->URL lookup key, resolved through
 		// the same merge the dashboard cell and /go/stash use so the three
 		// cannot disagree.
 		stash := cands[announceKey(id, stashArea)].Target
-		out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash})
+		previous := make([]string, 0)
+		for old := range s.handovers {
+			if canonicalHostID(s.handovers, old) == id {
+				previous = append(previous, old)
+			}
+		}
+		sort.Strings(previous)
+		out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash, PreviousHostIDs: previous, Refresh: hv.refreshView(now, s.refreshTTL)})
 	}
 	annKeys := make([]string, 0, len(s.announce))
 	for k := range s.announce {
@@ -3665,6 +3875,7 @@ func (s *poolState) forgetHost(hid string) bool {
 	defer s.mu.Unlock()
 	_, present := s.hosts[hid]
 	delete(s.hosts, hid)
+	delete(s.footprint, hid)
 	delete(s.pass, hid)
 	delete(s.fail, hid)
 	delete(s.failWindow, hid)
@@ -3903,15 +4114,19 @@ func (s *poolState) lastKnownBaseURL(pool, hostID string) string {
 // the normalized pool is returned for callers that need it downstream.
 func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool string) {
 	s.mu.Lock()
-	if hv := s.hosts[hostID]; hv != nil {
+	currentID := canonicalHostID(s.handovers, hostID)
+	if hv := s.hosts[currentID]; hv != nil {
 		base = hv.BaseURL
 	}
 	if pool == "" {
-		pool = s.poolFor(hostID)
+		pool = s.poolFor(currentID)
 	}
 	s.mu.Unlock()
 	if base == "" {
-		base = s.lastKnownBaseURL(pool, hostID)
+		base = s.lastKnownBaseURL(pool, currentID)
+		if base == "" && currentID != hostID {
+			base = s.lastKnownBaseURL(pool, hostID)
+		}
 	}
 	return base, pool
 }
@@ -3947,28 +4162,7 @@ func mintControlProof(token string, ttl time.Duration) string {
 // HMAC over that same expiry and compares in constant time. Any malformed, expired or
 // mismatched input is false -- never an error a caller could mistake for a verdict.
 func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
-	if strings.TrimSpace(token) == "" || strings.TrimSpace(wire) == "" {
-		return false
-	}
-	dot := strings.IndexByte(wire, '.')
-	if dot <= 0 || dot >= len(wire)-1 {
-		return false
-	}
-	expiry, err := strconv.ParseInt(wire[:dot], 10, 64)
-	if err != nil {
-		return false
-	}
-	unix := now.Unix()
-	if expiry < unix || expiry > unix+int64(maxTTL/time.Second) {
-		return false
-	}
-	given, err := base64.StdEncoding.DecodeString(wire[dot+1:])
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
-	return hmac.Equal(mac.Sum(nil), given)
+	return controlproof.Verify(token, wire, now, maxTTL)
 }
 
 // handleControlProof answers one question for an extension service: was this proof
@@ -4237,7 +4431,7 @@ func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	// locked out, auditing every retry would let an anonymous caller amplify
 	// one request into one log line and one Loki write apiece. The crossing
 	// into throttled IS recorded, so the operator still sees the burst.
-	audit := true
+	audit := !throttled
 	if !throttled {
 		// No early break: every retained code is compared so the timing does
 		// not reveal WHICH slot (if any) matched.
@@ -4254,8 +4448,6 @@ func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 				s.labFails[throttleKey] = append(s.labFails[throttleKey], now)
 			}
 		}
-	} else {
-		audit = recent == labFailLimit
 	}
 	outcome := "ok"
 	if throttled {
@@ -4273,8 +4465,12 @@ func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	// never logged: a refused one is a guess worth nothing, and an accepted
 	// one would put a live credential in the log.
 	if audit {
-		log.Print(operatorMessage("aggregator.log_lab_token_exchange_value1_from_value2_3d2e9e4a", map[string]any{"value1": fmt.Sprintf("%s", outcome), "value2": fmt.Sprintf("%s", srcIP)}))
-		line, _ := json.Marshal(map[string]string{"sourceIp": srcIP, "outcome": outcome})
+		auditOutcome := outcome
+		if !match && recent+1 == labFailLimit {
+			auditOutcome = "refused (now throttled)"
+		}
+		log.Print(operatorMessage("aggregator.log_lab_token_exchange_value1_from_value2_3d2e9e4a", map[string]any{"value1": fmt.Sprintf("%s", auditOutcome), "value2": fmt.Sprintf("%s", srcIP)}))
+		line, _ := json.Marshal(map[string]string{"sourceIp": srcIP, "outcome": auditOutcome})
 		pushLokiStream(s.httpClient, s.lokiURL, "lab-token exchange",
 			map[string]string{"pool": poolLabel, "src": "lab-token"}, line, now)
 	}
@@ -4904,6 +5100,23 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
+	s.handleMetricsWithArchiveProbe(w, func(path string) bool {
+		root, err := os.OpenRoot(path)
+		if err != nil {
+			return false
+		}
+		_ = root.Close()
+		return true
+	})
+}
+
+func (s *poolState) handleMetricsWithArchiveProbe(w http.ResponseWriter, readable func(string) bool) {
+	// The share may stall during reconnect. Probe the fixed startup path before
+	// locking live state so discovery and control remain usable during outages.
+	archiveAvailable := 0
+	if s.archiveRoot != "" && readable(s.archiveRoot) {
+		archiveAvailable = 1
+	}
 	s.mu.Lock()
 	total := len(s.hosts)
 	reachable := 0
@@ -4923,10 +5136,10 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 		hostIDs[h] = true
 	}
 	for h := range s.pass {
-		hostIDs[h] = true
+		hostIDs[canonicalHostID(s.handovers, h)] = true
 	}
 	for h := range s.fail {
-		hostIDs[h] = true
+		hostIDs[canonicalHostID(s.handovers, h)] = true
 	}
 	ids := sortedKeys(hostIDs)
 
@@ -4938,12 +5151,7 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	// human noticing dead links: the CIFS mount is nofail, so when it goes away every
 	// archived cycle silently stops resolving and nothing else says so.
 	if s.archiveRoot != "" {
-		available := 0
-		if root, err := os.OpenRoot(s.archiveRoot); err == nil {
-			root.Close()
-			available = 1
-		}
-		fmt.Fprintf(&b, "# HELP yuruna_pool_archive_available The pool share's archive root is readable on the collector (0 = the NAS mount is away; archived cycle links fall back to the hosts).\n# TYPE yuruna_pool_archive_available gauge\nyuruna_pool_archive_available %d\n", available)
+		fmt.Fprintf(&b, "# HELP yuruna_pool_archive_available The pool share's archive root is readable on the collector (0 = the NAS mount is away; archived cycle links fall back to the hosts).\n# TYPE yuruna_pool_archive_available gauge\nyuruna_pool_archive_available %d\n", archiveAvailable)
 	}
 	fmt.Fprintf(&b, "# HELP yuruna_pool_hosts_reachable Pool hosts answering status.json on the last poll.\n# TYPE yuruna_pool_hosts_reachable gauge\nyuruna_pool_hosts_reachable %d\n", reachable)
 	if !s.last.IsZero() {
@@ -4993,6 +5201,29 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostIdDashed=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleStartUtc=%q,cycleFolderUrl=%q,status=%q,control=%q} %d\n",
 			s.poolFor(h), hv.PoolGuid, h, dashedHostID(h), hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleStartUtc, cfu, hv.statusLabel(), hv.controlLabel(), hv.LastSeenUnixMs/1000)
 	}
+	// Grafana joins the original Loki hostId on this mapping, then groups the
+	// cycle counts by canonicalHostId. Include the identity row for every live
+	// host so unaliased hosts take the same path. A timestamp value makes the
+	// newest mapping win while Prometheus still retains a stale prior series.
+	b.WriteString("# HELP yuruna_pool_host_canonical_info Maps a current or retired host ID to its live identity for dashboard history grouping.\n# TYPE yuruna_pool_host_canonical_info gauge\n")
+	canonicalAt := time.Now().Unix()
+	for _, h := range ids {
+		if s.hosts[h] != nil {
+			fmt.Fprintf(&b, "yuruna_pool_host_canonical_info{hostId=%q,canonicalHostId=%q} %d\n", h, h, canonicalAt)
+		}
+	}
+	for old := range s.handovers {
+		canonical := canonicalHostID(s.handovers, old)
+		if s.hosts[canonical] != nil {
+			fmt.Fprintf(&b, "yuruna_pool_host_canonical_info{hostId=%q,canonicalHostId=%q} %d\n", old, canonical, canonicalAt)
+		}
+	}
+	// Suppress the retired host_info series during Prometheus's staleness
+	// window; its identity mapping above remains so older Loki counts join.
+	b.WriteString("# HELP yuruna_pool_host_retired A host ID transferred to another live identity.\n# TYPE yuruna_pool_host_retired gauge\n")
+	for old := range s.handovers {
+		fmt.Fprintf(&b, "yuruna_pool_host_retired{hostId=%q} 1\n", old)
+	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
 	// needs. No hostname label (pool view is hostname-free). 0=unreachable
@@ -5005,6 +5236,25 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 			continue
 		}
 		fmt.Fprintf(&b, "yuruna_pool_host_status{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), hv.statusCode())
+	}
+	// host_refresh_available: whether each host currently advertises a
+	// refresh it could run, under the single expiry rule. A gauge of its own
+	// rather than a host_info label, because every host_info label becomes a
+	// dashboard column. Its labels are bounded enums only -- never a request
+	// id, a reason string or a rung list.
+	b.WriteString("# HELP yuruna_pool_host_refresh_available Whether the host currently advertises a refresh capability (1 = available, 0 = unavailable), with its request state.\n# TYPE yuruna_pool_host_refresh_available gauge\n")
+	refreshNow := time.Now()
+	for _, h := range ids {
+		hv := s.hosts[h]
+		if hv == nil {
+			continue
+		}
+		availability, state := hv.refreshLabels(refreshNow, s.refreshTTL)
+		value := 0
+		if availability == sdkpool.RefreshAvailable {
+			value = 1
+		}
+		fmt.Fprintf(&b, "yuruna_pool_host_refresh_available{pool=%q,hostId=%q,hostIdDashed=%q,state=%q} %d\n", s.poolFor(h), h, dashedHostID(h), state, value)
 	}
 	// host_last_seen: unix seconds of last successful probe; the table shows age
 	// as `time() - this`. Keeps climbing for an unreachable-but-not-yet-evicted
@@ -5029,13 +5279,13 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	// nothing is watching must not be able to report it.
 	b.WriteString("# HELP yuruna_pool_host_address_changes Address changes this host recorded in its beacon lookback window (-1 = no record; the beacon is not running there).\n# TYPE yuruna_pool_host_address_changes gauge\n")
 	for _, h := range ids {
-		if fp := s.footprint[h]; fp != nil {
+		if fp := s.footprint[h]; fp != nil && s.hosts[h] != nil {
 			fmt.Fprintf(&b, "yuruna_pool_host_address_changes{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), fp.changes)
 		}
 	}
 	b.WriteString("# HELP yuruna_pool_host_address_distinct Distinct addresses this host held in its beacon lookback window; 1 is a bounded host.\n# TYPE yuruna_pool_host_address_distinct gauge\n")
 	for _, h := range ids {
-		if fp := s.footprint[h]; fp != nil {
+		if fp := s.footprint[h]; fp != nil && s.hosts[h] != nil {
 			fmt.Fprintf(&b, "yuruna_pool_host_address_distinct{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), fp.distinct)
 		}
 	}
@@ -5045,7 +5295,7 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	b.WriteString("# HELP yuruna_pool_host_address_footprint Per-host address-footprint verdict and DHCP identity pin (value always 1).\n# TYPE yuruna_pool_host_address_footprint gauge\n")
 	for _, h := range ids {
 		fp := s.footprint[h]
-		if fp == nil {
+		if fp == nil || s.hosts[h] == nil {
 			continue
 		}
 		pinned := "unknown"
@@ -5065,7 +5315,7 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	// for it would understate the total in the one direction that matters.
 	labDistinct, measured := 0, 0
 	for _, h := range ids {
-		if fp := s.footprint[h]; fp != nil {
+		if fp := s.footprint[h]; fp != nil && s.hosts[h] != nil {
 			labDistinct += fp.distinct
 			measured++
 		}
@@ -5351,11 +5601,23 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 
 	b.WriteString("# HELP yuruna_pool_cycles_pass_total Terminal passing cycles observed.\n# TYPE yuruna_pool_cycles_pass_total counter\n")
 	for _, h := range ids {
-		fmt.Fprintf(&b, "yuruna_pool_cycles_pass_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, s.pass[h])
+		var total int64
+		for source, n := range s.pass {
+			if canonicalHostID(s.handovers, source) == h {
+				total += n
+			}
+		}
+		fmt.Fprintf(&b, "yuruna_pool_cycles_pass_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, total)
 	}
 	b.WriteString("# HELP yuruna_pool_cycles_fail_total Terminal failing cycles observed.\n# TYPE yuruna_pool_cycles_fail_total counter\n")
 	for _, h := range ids {
-		fmt.Fprintf(&b, "yuruna_pool_cycles_fail_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, s.fail[h])
+		var total int64
+		for source, n := range s.fail {
+			if canonicalHostID(s.handovers, source) == h {
+				total += n
+			}
+		}
+		fmt.Fprintf(&b, "yuruna_pool_cycles_fail_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, total)
 	}
 	// Materialize the metrics text and release the lock before writing to the client, so a slow
 	// scraper connection cannot hold s.mu across the network write and stall the poll goroutine
@@ -6071,6 +6333,7 @@ func main() {
 	announceTtl := flag.Duration("announce-ttl", defaultAnnounceTtl, operatorMessage("aggregator.help_reap_a_self_announced_extension_post_announce_not_refr_56b49fce", nil))
 	hostTtl := flag.Duration("host-ttl", defaultHostTtl, operatorMessage("aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1", nil))
 	poolArchiveRoot := flag.String("pool-archive-root", "", operatorMessage("aggregator.help_the_pool_share_s_hosts_directory_on_this_machine_e_g_m_bd4bd40e", nil))
+	handoverStateFile := flag.String("handover-state-file", "", "")
 	tlsCert := flag.String("tls-cert", "", operatorMessage("aggregator.help_tls_certificate_file_pem_when_both_tls_cert_and_tls_ke_643d7a8e", nil))
 	tlsKey := flag.String("tls-key", "", operatorMessage("aggregator.help_tls_private_key_file_pem_see_tls_cert_28be9018", nil))
 	authTokenFile := flag.String("auth-token-file", "", operatorMessage("aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952", nil))
@@ -6083,6 +6346,10 @@ func main() {
 	go func() { <-sig; cancel() }()
 
 	state := newPoolState(*pool, *statusPort)
+	state.handoverFile = strings.TrimSpace(*handoverStateFile)
+	if err := state.loadHandovers(); err != nil {
+		log.Fatal(err)
+	}
 	// A port outside the valid range would publish a document Prometheus rejects
 	// whole, taking every host's machine metrics with it; keep the default and
 	// say what was ignored.
@@ -6096,6 +6363,9 @@ func main() {
 	state.crossN = *crossN
 	state.crossWin = *crossWin
 	state.announceTtl = *announceTtl
+	// Three polls without a fresh capability reading is the window; the floor
+	// keeps a short -interval from expiring a reading between two polls.
+	state.refreshTTL = max(refreshObservationFloor, 3**interval)
 	// A non-positive TTL would reap every host on the first tick, emptying the
 	// dashboard; fall back to the default rather than start in that state.
 	if *hostTtl > 0 {
@@ -6223,6 +6493,11 @@ func main() {
 	// + the dashboard NOW instead of after the host TTL. Called by
 	// test/pool/Remove-PoolHost.ps1.
 	mux.HandleFunc("/api/v1/forget-host", state.handleForgetHost)
+	mux.HandleFunc("POST /api/v1/handover-host", state.handleHandoverHost)
+	mux.HandleFunc("GET /api/v1/host-aliases", state.handleHostAliases)
+	// Raw historical events can contain sensitive diagnostics; require the
+	// internal bearer even though alias metadata itself is public.
+	mux.HandleFunc("GET /api/v1/host-history", state.handleHostHistory)
 	// /announce: extension-presence beacon target (stash service et al). Open by
 	// design with self-identity binding -- see handleAnnounce; self-gates on
 	// -announce-ttl (503 when 0).

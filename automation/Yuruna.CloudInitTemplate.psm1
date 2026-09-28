@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,7 +171,7 @@ function Get-YurunaGuestScriptBase64 {
     .SYNOPSIS
         Read the guest-side shell scripts every cloud-init seed bakes in via
         base64 -- yuruna-retry.sh, yuruna-versions.sh, fetch-and-execute.sh,
-        yuruna-network.sh, and yuruna-host-locate.sh -- and return them as a
+        yuruna-fetch-context.sh, yuruna-network.sh, and yuruna-host-locate.sh -- and return them as a
         hashtable keyed by purpose.
     .DESCRIPTION
         Centralizes the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
@@ -182,7 +182,7 @@ function Get-YurunaGuestScriptBase64 {
         Absolute path to the repository root. The scripts live under
         $RepoRoot/automation/.
     .OUTPUTS
-        [hashtable] @{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }
+        [hashtable] @{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; FetchContext = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }
         The Windows peer is NOT here: no cloud-init seed installs it, and the
         Windows bootstrap builder (Yuruna.GuestSeed) reads it directly.
     #>
@@ -193,13 +193,14 @@ function Get-YurunaGuestScriptBase64 {
     $retryPath     = Join-Path $automationDir 'yuruna-retry.sh'
     $versionsPath  = Join-Path $automationDir 'yuruna-versions.sh'
     $faePath       = Join-Path $automationDir 'fetch-and-execute.sh'
+    $fetchContextPath = Join-Path $automationDir 'yuruna-fetch-context.sh'
     $networkPath   = Join-Path $automationDir 'yuruna-network.sh'
     # Seeded, never fetched -- which is the whole reason it needs no digest of
     # its own the way the retry lib does. This script decides WHERE the guest
     # fetches code from, so it must arrive over the same trusted channel as
     # the seed itself rather than over the network it is meant to repair.
     $locatePath    = Join-Path $automationDir 'yuruna-host-locate.sh'
-    foreach ($p in @($retryPath, $versionsPath, $faePath, $networkPath, $locatePath)) {
+    foreach ($p in @($retryPath, $versionsPath, $faePath, $fetchContextPath, $networkPath, $locatePath)) {
         if (-not (Test-Path -LiteralPath $p)) {
             throw (Format-YurunaOperatorMessage -Key 'automation.operator_ed6c4bcd982b86b4' -Arguments @{ p = "$p" })
         }
@@ -208,6 +209,7 @@ function Get-YurunaGuestScriptBase64 {
         RetryLib        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($retryPath))
         VersionsLib     = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($versionsPath))
         FetchAndExecute = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($faePath))
+        FetchContext    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($fetchContextPath))
         NetworkLib      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($networkPath))
         HostLocate      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($locatePath))
     }
@@ -327,7 +329,8 @@ function New-CloudInitUserData {
         $RepoRoot/automation/, from the ambient environment, and from the
         checkout at $RepoRoot:
           YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_VERSIONS_BASE64_PLACEHOLDER,
-          YURUNA_FAE_BASE64_PLACEHOLDER, YURUNA_NETWORK_BASE64_PLACEHOLDER,
+          YURUNA_FAE_BASE64_PLACEHOLDER, YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER,
+          YURUNA_NETWORK_BASE64_PLACEHOLDER,
           YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER, YURUNA_HOST_ID_PLACEHOLDER,
           YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER, YURUNA_GITHUB_REPO_PLACEHOLDER,
           YURUNA_GITHUB_REF_PLACEHOLDER, GH_TOKEN_PLACEHOLDER,
@@ -387,6 +390,9 @@ function New-CloudInitUserData {
     }
     if (-not $fullReplacement.ContainsKey('YURUNA_FAE_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_FAE_BASE64_PLACEHOLDER'] = $b64.FetchAndExecute
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER'] = $b64.FetchContext
     }
     if (-not $fullReplacement.ContainsKey('YURUNA_NETWORK_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_NETWORK_BASE64_PLACEHOLDER'] = $b64.NetworkLib

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,12 +52,12 @@
 # against the per-cycle template reconcile instead of churning on first run.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1')     -Global -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1')    -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1')    -Global -Force -DisableNameChecking
 # Get-PoolStorageUncPath / Get-PoolStorageServerName / Test-PoolStorageHostResolvable:
 # the networkStorage path grammar lives in one module; reusing it keeps this
 # converter and the mount path from ever disagreeing on what a share path means.
-Import-Module (Join-Path $PSScriptRoot 'Test.PoolStorage.psm1')   -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'Test.HostDetection.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.PoolStorage.psm1')   -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.HostDetection.psm1') -Global -Force -DisableNameChecking
 # Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
@@ -889,13 +889,13 @@ function Invoke-ConfigSyncHostAlias {
                 -ScriptArgument @('-ComputerName', $Name, '-IPAddress', $IPAddress) `
                 -NonInteractive:$NonInteractive `
                 -Prompt (Format-YurunaOperatorMessage -Key 'configsync.operator_fd00a4e339d2a5c1' -Arguments @{ name = "$Name" })
-            & sudo @sudoArgs
+            & sudo @sudoArgs | Out-Host
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'configsync.operator_21d662e284475037' -Arguments @{ name = "$Name"; lASTEXITCODE = "$LASTEXITCODE"; iPAddress = "$IPAddress" })
                 return $false
             }
         } else {
-            & $aliasScript -ComputerName $Name -IPAddress $IPAddress
+            & $aliasScript -ComputerName $Name -IPAddress $IPAddress | Out-Host
         }
         return $true
     } catch {
@@ -1088,7 +1088,7 @@ function Resolve-ConfigSyncInternalAuthKey {
     try {
         $proxyModule = Join-Path $RepoRoot 'test/modules/Test.CachingProxyService.psm1'
         if (Test-Path -LiteralPath $proxyModule) {
-            Import-Module $proxyModule -Force -DisableNameChecking
+            Import-Module $proxyModule -Global -Force -DisableNameChecking
             if (Get-Command Get-PoolAggregatorServiceSeedUrl -ErrorAction SilentlyContinue) {
                 $baseUrl = [string](Get-PoolAggregatorServiceSeedUrl -MaxWaitSeconds 30)
             }
@@ -1179,7 +1179,7 @@ function Sync-ConfigSyncVaultCredential {
         [switch]$RequireReferenceValue
     )
     try {
-        Import-Module (Join-Path $RepoRoot 'test/modules/Test.Extension.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $RepoRoot 'test/modules/Test.Extension.psm1') -Global -Force -DisableNameChecking
         $null = Import-Extension -Area 'authentication' -RequireSingle
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee39d57334aa53b8' -Arguments @{ message = "$($_.Exception.Message)" })
@@ -1400,7 +1400,7 @@ function Test-ConfigSyncReferenceFreshness {
     $retired = [System.Collections.Generic.List[string]]::new()
     $namingMod = Join-Path $PSScriptRoot 'Test.ConfigNaming.psm1'
     if ((Test-Path -LiteralPath $namingMod) -and -not (Get-Command Get-RetiredConfigKeyMap -ErrorAction SilentlyContinue)) {
-        Import-Module $namingMod -Force -DisableNameChecking
+        Import-Module $namingMod -Global -Force -DisableNameChecking
     }
     if (Get-Command Get-RetiredConfigKeyMap -ErrorAction SilentlyContinue) {
         # ORDINAL, not the dictionary's own lookup: PowerShell dictionaries compare
@@ -1524,7 +1524,7 @@ function Sync-HostConfiguration {
     # everyone else until it is reconciled.
     $namingModule = Join-Path $RepoRoot 'test/modules/Test.ConfigNaming.psm1'
     if (Test-Path -LiteralPath $namingModule) {
-        Import-Module $namingModule -Force -DisableNameChecking
+        Import-Module $namingModule -Global -Force -DisableNameChecking
         $migrated = @(Update-RetiredConfigKey -Config $reference -Confirm:$false)
         if ($migrated.Count -gt 0) {
             Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_400083668bb425de' -Arguments @{ referenceHost = "${ReferenceHost}"; count = "$($migrated.Count)" }))

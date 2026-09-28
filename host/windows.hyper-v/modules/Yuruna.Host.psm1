@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -574,20 +574,8 @@ function Test-YurunaExternalSwitchUplink {
     })
     if ($management.Count -eq 0) { return 'management-os-detached' }
 
-    # Map the management vNIC onto the host adapter that carries its
-    # addresses. MAC first (survives a renamed vNIC), alias second.
-    #
-    # A management vNIC does not get a Hyper-V MAC -- it CLONES the MAC of the
-    # NIC its switch bridges. So on a host where two External switches have
-    # ever shared one NIC, that single MAC sits on several vEthernet adapters
-    # at once: the live one, plus a leftover for every switch that was later
-    # deleted or demoted to Internal. Taking the first match then reads a
-    # different switch's addresses, and a leftover parked at APIPA turns a
-    # perfectly working bridge into 'management-os-unaddressed' for as long as
-    # the leftover exists. Narrow those by alias; when that still does not
-    # single one out, leave the mapping unresolved so the ladder fails open
-    # rather than guessing -- an arbitrary pick is wrong half the time, and
-    # wrong toward 'unhealthy' demotes the whole host to NAT.
+    # Match the management vNIC by MAC, then alias; ambiguous matches stay unresolved.
+    # See https://yuruna.link/42e220c4-0004
     $hostNic = $null
     foreach ($vnic in $management) {
         $mac = ("$($vnic.MacAddress)" -replace '[^0-9A-Fa-f]', '')
@@ -1090,10 +1078,20 @@ function Repair-YurunaExternalSwitch {
     }
 
     $attempts = 0
+    $firstUtc = [datetime]::MinValue
     if ($state -and $state.switchName -eq $SwitchName) {
         $attempts = [int]$state.attempts
-        $firstUtc = [datetime]::MinValue
-        if ($state.firstAttemptUtc -and [datetime]::TryParse("$($state.firstAttemptUtc)", [ref]$firstUtc)) {
+        $parsedFirstUtc = $false
+        if ($state.firstAttemptUtc -is [datetime]) {
+            $firstUtc = $state.firstAttemptUtc.ToUniversalTime()
+            $parsedFirstUtc = $true
+        } elseif ($state.firstAttemptUtc) {
+            $parsedFirstUtc = [datetime]::TryParse([string]$state.firstAttemptUtc,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal,
+                [ref]$firstUtc)
+        }
+        if ($parsedFirstUtc) {
             if (((Get-Date).ToUniversalTime() - $firstUtc).TotalHours -ge $ResetAfterHours) {
                 Write-Verbose "switch repair budget aged out after $ResetAfterHours h; trying again."
                 $attempts = 0
@@ -1158,8 +1156,8 @@ function Repair-YurunaExternalSwitch {
     $record = [ordered]@{
         switchName      = $SwitchName
         attempts        = $attempts
-        firstAttemptUtc = if ($state -and $state.firstAttemptUtc -and $attempts -gt 1) { "$($state.firstAttemptUtc)" }
-                          else { (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+        firstAttemptUtc = if ($firstUtc -ne [datetime]::MinValue -and $attempts -gt 1) { $firstUtc.ToUniversalTime().ToString('o', [System.Globalization.CultureInfo]::InvariantCulture) }
+                          else { [datetime]::UtcNow.ToString('o', [System.Globalization.CultureInfo]::InvariantCulture) }
         lastVerdict     = $verdict
     }
     try {
@@ -1668,9 +1666,16 @@ function Resolve-CacheHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param([string]$VMName = 'yuruna-caching-proxy-service')
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+        if ((Test-IpAddress $externIp) -and (Test-CachingProxyServicePort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
+            return $externIp
+        }
+        return $null
+    }
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $vm -or $vm.State -ne 'Running') { return $null }
-    $httpPort = Get-CachingProxyServicePort -Scheme http
     foreach ($ip in (Get-CacheVmCandidateIp -VM $vm)) {
         if (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500) {
             return $ip
@@ -1703,7 +1708,7 @@ function Assert-HyperVEnabled {
     <#
     .SYNOPSIS
         Returns $true when Hyper-V is enabled AND vmms is running; $false
-        with a diagnostic Write-Output otherwise.
+        with a diagnostic Write-Information otherwise.
 
     .DESCRIPTION
         Verifies the Hyper-V preconditions every New-VM and tear-down
@@ -1716,7 +1721,10 @@ function Assert-HyperVEnabled {
         Start-CachingProxyServiceVM -> guest.caching-proxy-service/New-VM.ps1. dism.exe is
         the plain Win32 tool the cmdlet wraps; calling it directly
         sidesteps the COM failure (same workaround as
-        install/windows.hyper-v.ps1).
+        install/windows.hyper-v.ps1). The call goes through
+        Get-HyperVFeatureState, which bounds it: a servicing stack busy
+        with an update can leave dism.exe waiting far longer than any
+        caller of this check is prepared to.
 
         Home editions: if Microsoft-Hyper-V-All isn't on the SKU at all,
         dism.exe emits 0x800f080c / "Feature name ... is unknown". We
@@ -1730,29 +1738,29 @@ function Assert-HyperVEnabled {
     [OutputType([bool])]
     param()
 
-    $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
-    if (-not (Test-Path $dismExe)) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_683db69e0f21153d' -Arguments @{ dismExe = "$dismExe" })
-        return $false
-    }
-    $infoOut = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
-    $infoExit = $LASTEXITCODE
-    if ($infoExit -ne 0) {
-        if ($infoOut -match '0x800f080c' -or $infoOut -match 'Feature name .* is unknown') {
-            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3993337ab1c4f142')
-        } else {
-            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_ea0434e09c4fc728' -Arguments @{ infoExit = "$infoExit" })
-            Write-Information ($infoOut -join [Environment]::NewLine)
+    $featureTimeoutSeconds = 120
+    $feature = Get-HyperVFeatureState -TimeoutSeconds $featureTimeoutSeconds
+    switch ($feature.Probe) {
+        'missing-client' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_683db69e0f21153d' -Arguments @{ dismExe = "$($feature.Path)" })
+            return $false
         }
+        'unknown-to-sku' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3993337ab1c4f142')
+            return $false
+        }
+        'timeout' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.hyperv_dism_timed_out' -Arguments @{ seconds = "$featureTimeoutSeconds" })
+            return $false
+        }
+    }
+    if ($feature.Probe -notin @('ok', 'invalid-response') -or $feature.ExitCode -ne 0) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_ea0434e09c4fc728' -Arguments @{ infoExit = "$($feature.ExitCode)" })
+        Write-Information ([string]$feature.Output)
         return $false
     }
-
-    $state = 'Unknown'
-    foreach ($line in $infoOut) {
-        if ($line -match '^State\s*:\s*(\S+)') { $state = $Matches[1]; break }
-    }
-    if ($state -ne 'Enabled') {
-        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_5956121984632a78' -Arguments @{ state = "$state" })
+    if ($feature.State -ne 'Enabled') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_5956121984632a78' -Arguments @{ state = "$($feature.State)" })
         return $false
     }
 
@@ -1774,6 +1782,71 @@ function Assert-HyperVEnabled {
 # points above. Not part of the test-facing host driver contract; test
 # code calls the contract verbs (New-VM / Start-VM / ...) which
 # delegate here.
+
+<#
+.SYNOPSIS
+Decide whether a Hyper-V VM is present, absent, or cannot be established,
+without reading the text of any exception.
+
+.DESCRIPTION
+`Hyper-V\Get-VM -Name` fails the same way for a VM that does not exist and for
+a provider that could not answer (VMMS down, a denied call, a busy host), and
+its message is localized. So a failed or empty name lookup is never read as
+absence on its own: a full inventory is taken, and only an inventory that
+succeeds and does not list the name proves the VM is absent. An inventory that
+lists the name after the lookup missed it, or an inventory that fails, is
+'unknown'. Hyper-V allows duplicate names, so two exact matches are 'unknown'
+as well -- acting on one of them could touch the other. A name holding a
+wildcard or escape character ([ ] * ? `) skips the -Name lookup and is decided
+by an exact match against the inventory alone.
+
+Presence 'absent' is what callers treat as permission to build, reuse a name
+or delete files, which is why every doubtful case answers 'unknown'.
+
+.OUTPUTS
+[pscustomobject] @{ Presence = present|absent|unknown; VM; Cause = ok|
+missing-client|ambiguous|lookup-failed|inventory-failed }
+#>
+function Resolve-HyperVVM {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command -Name 'Hyper-V\Get-VM' -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'missing-client' }
+    }
+    # -Name is a wildcard parameter. A name holding a wildcard or escape
+    # character cannot be looked up as itself: unescaped it matches other VMs
+    # and never itself alone, and whether the provider honors an escaped
+    # pattern cannot be relied on. Such a name is matched exactly against the
+    # full inventory instead, which answers presence as reliably as it answers
+    # absence.
+    $lookupByName = $VMName -notmatch '[\[\]*?`]'
+    if ($lookupByName) {
+        $candidates = @()
+        try {
+            $candidates = @(Hyper-V\Get-VM -Name $VMName -ErrorAction Stop)
+        } catch {
+            Write-Verbose "Resolve-HyperVVM: lookup of '$VMName' failed; deciding from the inventory: $($_.Exception.Message)"
+            $candidates = @()
+        }
+        $exact = @($candidates | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
+        if ($exact.Count -eq 1) { return [pscustomobject]@{ Presence = 'present'; VM = $exact[0]; Cause = 'ok' } }
+        if ($exact.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
+    }
+    $listed = @()
+    try {
+        $listed = @(Hyper-V\Get-VM -ErrorAction Stop | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
+    } catch {
+        Write-Verbose "Resolve-HyperVVM: inventory failed: $($_.Exception.Message)"
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'inventory-failed' }
+    }
+    if ($listed.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
+    if ($listed.Count -eq 1) {
+        if (-not $lookupByName) { return [pscustomobject]@{ Presence = 'present'; VM = $listed[0]; Cause = 'ok' } }
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'lookup-failed' }
+    }
+    return [pscustomobject]@{ Presence = 'absent'; VM = $null; Cause = 'ok' }
+}
 
 <#
 .SYNOPSIS
@@ -1810,8 +1883,13 @@ hosted by a `vmwp.exe` worker process whose command line contains the
 VM's Id GUID; killing that process deallocates the VM and lets
 Remove-VM proceed.
 
+Presence comes from Resolve-HyperVVM: a VM positively absent is already
+stopped, and one whose presence cannot be established is never reported
+stopped -- the function returns $false before touching anything, and a poll
+that reads 'unknown' keeps waiting rather than counting it as Off.
+
 Returns $true when the VM is gone or 'Off'; $false when even the
-vmwp.exe kill didn't clear it.
+vmwp.exe kill didn't clear it, or when its state is unknown.
 #>
 function Stop-HyperVVMForce {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1820,8 +1898,13 @@ function Stop-HyperVVMForce {
         [Parameter(Mandatory)][string]$VMName,
         [int]$StopTimeoutSeconds = 20
     )
-    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if (-not $vm) { return $true }
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'absent') { return $true }
+    if ($resolved.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Stop-VMForce'; vMName = "$VMName" })
+        return $false
+    }
+    $vm = $resolved.VM
     if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_53198937e6a2855f'))) {
         return $false
@@ -1835,12 +1918,13 @@ function Stop-HyperVVMForce {
 
     $deadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-        if (-not $vm -or $vm.State -eq 'Off') {
+        $poll = Resolve-HyperVVM -VMName $VMName
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) {
             Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
             Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
             return $true
         }
+        if ($poll.Presence -eq 'present') { $vm = $poll.VM }
         Start-Sleep -Milliseconds 500
     }
     Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
@@ -1880,12 +1964,13 @@ function Stop-HyperVVMForce {
 
     $deadline = (Get-Date).AddSeconds(10)
     while ((Get-Date) -lt $deadline) {
-        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-        if (-not $vm -or $vm.State -eq 'Off') { return $true }
+        $poll = Resolve-HyperVVM -VMName $VMName
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
         Start-Sleep -Milliseconds 500
     }
 
-    $finalState = (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue).State
+    $final = Resolve-HyperVVM -VMName $VMName
+    $finalState = if ($final.Presence -eq 'present') { [string]$final.VM.State } else { [string]$final.Presence }
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_23fb4d89d4ecb64b' -Arguments @{ vMName = "$VMName"; finalState = "$finalState" })
     return $false
 }
@@ -1899,18 +1984,30 @@ Brings the VM to Off via Stop-HyperVVMForce, closes any vmconnect
 viewer attached to the VM (deleting a VM with its viewer open leaves a
 modal "has been deleted" dialog that blocks until dismissed by hand),
 calls Remove-VM, and then removes the per-VM subdirectory under
-Get-VMHost.VirtualHardDiskPath. Returns $true only when the VM is no
-longer registered after Remove-VM returns; disk-cleanup failures are
-warned but do not flip the result.
+Get-VMHost.VirtualHardDiskPath.
+
+Presence comes from Resolve-HyperVVM. When it cannot be established the
+function removes nothing -- not the registration and not the disk directory
+-- and returns $false. After Remove-VM the VM must read positively 'absent';
+a VM still listed, or one whose presence is again unknown, counts as not
+removed. The disk directory is deleted only once the registration is
+positively gone: files deleted from under a VM that still exists would leave
+a registered VM that can never boot, and the next run would find it "already
+there". Returns $true only when the VM is positively not registered;
+disk-cleanup failures are warned but do not flip the result.
 #>
 function Remove-HyperVTestVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
-    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'unknown') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Remove-VM'; vMName = "$VMName" })
+        return $false
+    }
     $registryRemoved = $true
-    if ($vm) {
+    if ($resolved.Presence -eq 'present') {
         $null = Stop-HyperVVMForce -VMName $VMName -Confirm:$false
         # Close the VM's vmconnect viewer before unregistering. vmconnect has
         # no setting to suppress the modal "The virtual machine ... has been
@@ -1923,17 +2020,22 @@ function Remove-HyperVTestVM {
             Stop-Process -Force -ErrorAction SilentlyContinue
         try {
             Hyper-V\Remove-VM -Name $VMName -Force -Confirm:$false -ErrorAction Stop 6>$null
-            if (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+            $after = Resolve-HyperVVM -VMName $VMName
+            if ($after.Presence -eq 'absent') {
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9c763f8a46614503' -Arguments @{ vMName = "$VMName" })
+            } elseif ($after.Presence -eq 'present') {
                 $registryRemoved = $false
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d660ea14d5a1e764' -Arguments @{ vMName = "$VMName" })
             } else {
-                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9c763f8a46614503' -Arguments @{ vMName = "$VMName" })
+                $registryRemoved = $false
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_removal_unconfirmed' -Arguments @{ vMName = "$VMName" })
             }
         } catch {
             $registryRemoved = $false
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_be96c470ac033b2c' -Arguments @{ vMName = "$VMName"; value = "$_" })
         }
     }
+    if (-not $registryRemoved) { return $false }
     $vhdPath = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
     if ($vhdPath) {
         $vmDir = Join-Path $vhdPath $VMName
@@ -2373,8 +2475,9 @@ the caller. A guest that cannot answer (no integration services, stuck at a
 firmware prompt) makes Stop-VM return quickly without ever reaching Off; the
 job-completed check below stops waiting out the full timeout in that case.
 
-Returns $true when the VM is gone or reached Off, $false when the guest did
-not follow through -- the caller decides whether to escalate.
+Returns $true when the VM is positively gone or reached Off, $false when the
+guest did not follow through or its presence could not be established -- the
+caller decides whether to escalate.
 #>
 function Request-HyperVVMShutdown {
     [CmdletBinding(SupportsShouldProcess)]
@@ -2383,8 +2486,15 @@ function Request-HyperVVMShutdown {
         [Parameter(Mandatory)][string]$VMName,
         [int]$ShutdownTimeoutSeconds = 120
     )
-    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if (-not $vm) { return $true }
+    # A VM whose presence cannot be established is not stopped: returning
+    # $false sends the caller to its escalation, which refuses the same way.
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'absent') { return $true }
+    if ($resolved.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Stop-VM'; vMName = "$VMName" })
+        return $false
+    }
+    $vm = $resolved.VM
     if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_8cb88c0dfdc75d37'))) { return $false }
 
@@ -2398,8 +2508,9 @@ function Request-HyperVVMShutdown {
         # state has settled to Off, so a completed job is not by itself a refusal.
         $graceSeconds = 5
         while ((Get-Date) -lt $deadline) {
-            $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-            if (-not $vm -or $vm.State -eq 'Off') { return $true }
+            $poll = Resolve-HyperVVM -VMName $VMName
+            if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
+            if ($poll.Presence -eq 'present') { $vm = $poll.VM }
             if ($shutdownJob.State -notin @('NotStarted', 'Running')) {
                 if ($null -eq $jobDoneAt) { $jobDoneAt = Get-Date }
                 elseif (((Get-Date) - $jobDoneAt).TotalSeconds -gt $graceSeconds) {
@@ -3874,13 +3985,31 @@ function Rename-VM {
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e9e1683d4b60f469' -Arguments @{ newName = "$NewName" }))) { return $false }
     if ($VMName -eq $NewName) { return $true }
-    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if (-not $vm) {
+    # The source must be positively present and stopped, and the destination
+    # positively absent. Hyper-V allows duplicate names, so a destination that
+    # only reads as missing because the provider failed would create one, and
+    # an ambiguous source could rename the wrong VM; the storage move that
+    # follows is only safe for a guest that is not running.
+    $source = Resolve-HyperVVM -VMName $VMName
+    if ($source.Presence -eq 'absent') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5104cefeb7625d7d' -Arguments @{ vMName = "$VMName" })
         return $false
     }
-    if (Hyper-V\Get-VM -Name $NewName -ErrorAction SilentlyContinue) {
+    if ($source.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$VMName" })
+        return $false
+    }
+    if ([string]$source.VM.State -notin @('Off', 'Saved', 'OffCritical')) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_rename_source_not_stopped' -Arguments @{ vMName = "$VMName"; state = "$($source.VM.State)" })
+        return $false
+    }
+    $destination = Resolve-HyperVVM -VMName $NewName
+    if ($destination.Presence -eq 'present') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f69adb6b2f614a13' -Arguments @{ newName = "$NewName" })
+        return $false
+    }
+    if ($destination.Presence -ne 'absent') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$NewName" })
         return $false
     }
     try {
@@ -3959,18 +4088,8 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$Id
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_dd94ac62ae57701c' -Arguments @{ id = "$Id" }))) { return $false }
-    # The checkpoint is only as good as the disk under it: the guest has to
-    # flush before the bytes are frozen, or the snapshot is crash-consistent
-    # and silently missing the tail of whatever the sequence just installed
-    # (see Request-HyperVVMShutdown). A force-stop here still beats leaving the
-    # VM running -- Checkpoint-VM on a live VM would capture the same dirty
-    # state -- but it makes the snapshot untrustworthy, so say so loudly rather
-    # than persisting a corrupt baseline every later restore inherits.
-    # Gate on "not genuinely off" rather than -eq 'running': Get-VMState
-    # reports transitional Hyper-V states (Paused, Starting, Stopping, ...)
-    # as 'unknown', and skipping the stop for those would checkpoint a
-    # non-Off guest -- the same dirty-state capture the warning below is
-    # about, taken silently.
+    # Stop every non-Off state before checkpointing; warn if shutdown needs force.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -notin @('stopped', 'absent')) {
         if (-not (Stop-VM -VMName $VMName)) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f14a8d0740e60f7c' -Arguments @{ vMName = "$VMName"; id = "$Id" })
@@ -4100,39 +4219,22 @@ function Get-VMName {
 .SYNOPSIS
     Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
 .DESCRIPTION
-    -ErrorAction SilentlyContinue on the prior implementation's Get-VM call
-    swallowed every failure -- a genuinely missing VM, VMMS unreachable, a
-    denied RPC call, a snapshot/merge in progress -- into the same $null,
-    which this function then reported as 'absent'. Callers on the other
-    drivers treat 'absent' as license to build or reuse a name, so a
-    provider fault that VMMS could not even answer must not produce it here
-    either. Only a completed response that Hyper-V itself reports as "no
-    such VM" is 'absent'; every other failure is 'unknown'.
-
-    UNVERIFIED AGAINST A REAL WINDOWS HOST: the not-found detection below
-    matches on documented Hyper-V cmdlet wording ("unable to find a virtual
-    machine", "cannot find ... virtual machine", "does not exist"). Confirm
-    the exact exception text on a supported Windows/Hyper-V version before
-    relying on this in production; if it does not match, every failure
-    (including genuine absence) currently falls through to 'unknown', which
-    is the safe direction to fail in the meantime.
+    Presence comes from Resolve-HyperVVM, which proves absence from a
+    successful inventory rather than from the text of a lookup failure, so the
+    answer does not depend on the host's display language. A provider fault
+    (VMMS unreachable, a denied call, a busy host) and a duplicate name are
+    'unknown', never 'absent': callers treat 'absent' as permission to build or
+    reuse a name. A present VM maps Running/Saving to 'running',
+    Off/Saved/OffCritical to 'stopped', and every transitional or unrecognized
+    state to 'unknown'.
 #>
 function Get-VMState {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    $vm = $null
-    try {
-        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
-    } catch {
-        $message = $_.Exception.Message
-        if ($message -match 'unable to find a virtual machine|cannot find .*virtual machine|does not exist') {
-            return 'absent'
-        }
-        return 'unknown'
-    }
-    if (-not $vm) { return 'unknown' }
-    switch ($vm.State) {
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -ne 'present') { return [string]$resolved.Presence }
+    switch ([string]$resolved.VM.State) {
         'Running'      { return 'running' }
         'Saving'       { return 'running' }
         'Off'          { return 'stopped' }
@@ -4144,52 +4246,213 @@ function Get-VMState {
 
 <#
 .SYNOPSIS
-    A versioned, bounded control-channel probe (state/reason/started/
-    timedOut/observedUtc/elapsedMs) -- the structured evidence section 3
-    requires, distinct from the plain [bool] Assert-Virtualization other
-    callers already depend on, which this leaves unchanged.
+    Build one Yuruna.VirtualizationProbe record (schema version 1).
 .DESCRIPTION
-    DISM feature state and the vmms service being Running are prerequisites,
-    not proof Hyper-V answers a real request: Assert-HyperVEnabled already
-    establishes both (bounding its own dism.exe call, which this reuses
-    rather than duplicating), then this function makes one bounded,
-    module-qualified read-only provider round-trip (Hyper-V\Get-VM) in a
-    child process so a wedged VMMS reports a classified timeout instead of
-    hanging the caller. UNVERIFIED AGAINST A REAL WINDOWS HOST: the bounded
-    child below assumes the Hyper-V module auto-loads in a fresh pwsh -File
-    invocation; confirm that on a supported Windows/Hyper-V version, and add
-    an explicit Import-Module Hyper-V if it does not.
+    Every return path of the probe goes through here so the record always has
+    every field and every evidence key, whichever branch produced it.
+#>
+function New-HyperVVirtualizationProbeRecord {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Reason,
+        [bool]$Started,
+        [bool]$TimedOut,
+        [bool]$DeadlineExhausted,
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ObservedTick,
+        [long]$ElapsedMs,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
+        [AllowEmptyString()][string]$Diagnostic = ''
+    )
+    return [pscustomobject]@{
+        PSTypeName        = 'Yuruna.VirtualizationProbe'
+        schemaVersion     = 1
+        hostType          = (Resolve-HostTag)
+        state             = $State
+        reason            = $Reason
+        started           = $Started
+        timedOut          = $TimedOut
+        deadlineExhausted = $DeadlineExhausted
+        corroborated      = $false
+        observedUtc       = $ObservedUtc
+        observedTick      = $ObservedTick
+        elapsedMs         = $ElapsedMs
+        evidence          = [pscustomobject]$Evidence
+        diagnostic        = (Format-VirtualizationProbeDiagnostic -Text $Diagnostic)
+    }
+}
+
+<#
+.SYNOPSIS
+    Bounded, read-only probe of Hyper-V. Returns the versioned
+    Yuruna.VirtualizationProbe record (schema version 1).
+.DESCRIPTION
+    The DISM feature state and the vmms service being Running are
+    prerequisites, not proof Hyper-V answers a request, so the probe makes one
+    read-only provider round trip in a single bounded child pwsh
+    ($script:HyperVProbeScript): Get-Service vmms, an explicit
+    `Import-Module Hyper-V` (no reliance on autoload in a -NoProfile child),
+    then `Hyper-V\Get-VM`. The child reports what it saw as
+    `yuruna-probe <key>=<token>` lines written through [Console]::Out, which
+    flushes each line, so the evidence survives a kill at the cap. Status and
+    start-type tokens are .NET enum names and error categories are enum
+    values, so nothing here depends on the display language.
+
+    DISM runs only on unhealthy paths, through Get-HyperVFeatureState, inside
+    the probe's remaining time, and its answer is kept separate from the
+    service status: a feature that is not installed is a missing client, a
+    stopped vmms with the feature Enabled is 'app-stopped'.
+
+    Classification of the child:
+      * not launchable                       -> Undetermined/missing-client
+      * less than one second of budget left  -> Undetermined/deadline-exhausted
+                                                 (nothing is launched)
+      * no answer inside the cap after the   -> Unresponsive/timeout (the
+        child reported module=loaded             running-but-unresponsive VMMS
+                                                 case: the child was waiting on
+                                                 Hyper-V\Get-VM)
+      * no answer inside the cap before      -> Undetermined/timeout (a slow pwsh
+        module=loaded                            start, service query or first
+                                                 module load is not a hung VMMS)
+      * output not drained or truncated      -> Undetermined/invalid-response
+      * exit 0 with provider=ok              -> Responsive/responsive
+      * exit 2, vmms not installed           -> Undetermined/missing-client
+      * exit 5, vmms Stopped                 -> Unresponsive/app-stopped when the
+                                                 feature is Enabled; missing-client
+                                                 when it is Disabled, pending or
+                                                 unavailable; permission-denied when
+                                                 DISM needs elevation; otherwise
+                                                 provider-error
+      * exit 5, any other service status     -> Undetermined/provider-error
+      * exit 3, Hyper-V module missing       -> Undetermined/missing-client
+      * exit 4, PermissionDenied category or -> Undetermined/permission-denied
+        access-denied wording
+      * exit 4 otherwise, exit 6             -> Undetermined/provider-error
+      * any other exit                       -> Undetermined/invalid-response
+
+    Evidence keys, always present: serviceStatus, serviceStartType,
+    featureState, featureProbe, providerModule, elevated, exitCode,
+    drainTimedOut, outputTruncated. The diagnostic field is private.
+
+    Never throws, never prompts, changes nothing.
+.PARAMETER TimeoutSeconds
+    Upper bound for the probe.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
+    the probe never outlives it.
+.OUTPUTS
+    [pscustomobject] Yuruna.VirtualizationProbe
 #>
 function Test-VirtualizationResponsive {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 20)
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
+        [object]$Deadline
+    )
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $observedUtc = [DateTime]::UtcNow.ToString('o')
-    $emit = {
-        param($State, $Reason, $Started, $TimedOut)
-        [pscustomobject]@{
-            state = $State; reason = $Reason; started = $Started; timedOut = $TimedOut
-            observedUtc = $observedUtc; elapsedMs = $stopwatch.ElapsedMilliseconds
-        }
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $evidence = [ordered]@{
+        serviceStatus    = 'Unknown'
+        serviceStartType = 'Unknown'
+        featureState     = 'NotProbed'
+        featureProbe     = 'not-probed'
+        providerModule   = 'not-probed'
+        elevated         = [bool](Test-IsAdministrator)
+        exitCode         = -1
+        drainTimedOut    = $false
+        outputTruncated  = $false
     }
-    if (-not (Assert-HyperVEnabled)) {
-        return (& $emit 'Undetermined' 'app-stopped' $false $false)
+    $state = 'Undetermined'; $reason = 'invalid-response'
+    $started = $false; $timedOut = $false; $deadlineExhausted = $false; $diagnostic = ''
+    try {
+        do {
+            $capSeconds = $TimeoutSeconds
+            if ($null -ne $Deadline) {
+                $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 600
+                if ($null -eq $bounded) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $capSeconds = [Math]::Min($TimeoutSeconds, [int]$bounded)
+            }
+            $probeDeadline = New-YurunaDeadlineFromExpiry -ExpiryTick ([long](& $clock) + [long]$capSeconds * 1000) -ClockTicks $clock
+            $result = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+                -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVProbeScript) `
+                -TimeoutSeconds $capSeconds
+            $started = [bool]$result.Started
+            $evidence.exitCode        = [int]$result.ExitCode
+            $evidence.drainTimedOut   = [bool]$result['DrainTimedOut']
+            $evidence.outputTruncated = [bool]$result['OutputTruncated']
+            $facts = ConvertFrom-HyperVProbeOutput -Text ([string]$result.StdOut)
+            if ($facts.ContainsKey('service')) { $evidence.serviceStatus = ConvertTo-HyperVServiceToken -Value $facts['service'] }
+            if ($facts.ContainsKey('start')) { $evidence.serviceStartType = ConvertTo-HyperVStartTypeToken -Value $facts['start'] }
+            if ($facts.ContainsKey('module')) { $evidence.providerModule = if ($facts['module'] -eq 'loaded') { 'loaded' } else { 'missing' } }
+            $diagnostic = [string]$result.StdErr
+            if (-not $started) { $reason = 'missing-client'; break }
+            if ($result.TimedOut) {
+                $reason = 'timeout'; $timedOut = $true
+                # Only a child that had already loaded the Hyper-V module was
+                # waiting on VMMS itself. A slow pwsh start, service query or
+                # first module load says nothing about VMMS, so a timeout that
+                # never got that far is not evidence it is hung.
+                if ($facts['module'] -eq 'loaded') { $state = 'Unresponsive' }
+                break
+            }
+            if (-not (Test-DriverNativeResultComplete -Result $result)) { $reason = 'invalid-response'; break }
+            # The feature probe explains the unhealthy exits; it shares the budget.
+            $probeFeature = {
+                $featureCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 120
+                if ($null -eq $featureCap) { return $false }
+                $feature = Get-HyperVFeatureState -TimeoutSeconds $featureCap
+                $evidence.featureState = [string]$feature.State
+                $evidence.featureProbe = if ($feature.Probe -eq 'unknown-to-sku') { 'ok' } else { [string]$feature.Probe }
+                return $true
+            }
+            switch ([int]$result.ExitCode) {
+                0 {
+                    if ($facts['provider'] -eq 'ok') { $state = 'Responsive'; $reason = 'responsive' }
+                    else { $reason = 'invalid-response' }
+                }
+                2 {
+                    $evidence.serviceStatus = 'Missing'
+                    $null = & $probeFeature
+                    $reason = 'missing-client'
+                }
+                3 {
+                    $evidence.providerModule = 'missing'
+                    $null = & $probeFeature
+                    $reason = 'missing-client'
+                }
+                4 {
+                    $category = [string]$facts['error-category']
+                    if ($category -eq 'PermissionDenied' -or $diagnostic -match '(?i)access is denied|required permission|not authorized') { $reason = 'permission-denied' }
+                    else { $reason = 'provider-error' }
+                }
+                5 {
+                    if ($evidence.serviceStatus -ne 'Stopped') { $reason = 'provider-error'; break }
+                    if (-not (& $probeFeature)) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                    if ($evidence.featureState -eq 'Enabled') { $state = 'Unresponsive'; $reason = 'app-stopped' }
+                    elseif ($evidence.featureState -in @('Disabled', 'DisablePending', 'EnablePending', 'Unavailable')) { $reason = 'missing-client' }
+                    elseif ($evidence.featureProbe -eq 'not-elevated') { $reason = 'permission-denied' }
+                    else { $reason = 'provider-error' }
+                }
+                6 { $reason = 'provider-error' }
+                default { $reason = 'invalid-response' }
+            }
+        } while ($false)
+    } catch {
+        # The record is the contract: an unexpected fault (under a caller's
+        # ErrorActionPreference of Stop any non-terminating error is one)
+        # becomes an Undetermined answer, which authorizes nothing.
+        $state = 'Undetermined'; $reason = 'provider-error'
+        $diagnostic = "$diagnostic $($_.Exception.Message)"
     }
-    $pwshPath = (Get-Process -Id $PID).Path
-    if (-not $pwshPath) { $pwshPath = 'pwsh' }
-    $result = Invoke-BoundedNativeCommand -FilePath $pwshPath `
-        -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-            "`$ErrorActionPreference = 'Stop'; `$null = Hyper-V\Get-VM -ErrorAction Stop; exit 0") `
-        -TimeoutSeconds $TimeoutSeconds
-    if (-not $result.Started) { return (& $emit 'Undetermined' 'missing-client' $false $false) }
-    if ($result.TimedOut)     { return (& $emit 'Unresponsive' 'timeout' $true $true) }
-    if ($result.ExitCode -eq 0) { return (& $emit 'Responsive' 'responsive' $true $false) }
-    $text = "$($result.StdOut)`n$($result.StdErr)"
-    if ($text -match 'access is denied|not authorized|permission') {
-        return (& $emit 'Undetermined' 'permission-denied' $true $false)
-    }
-    return (& $emit 'Undetermined' 'provider-error' $true $false)
+    return New-HyperVVirtualizationProbeRecord -State $state -Reason $reason -Started $started -TimedOut $timedOut `
+        -DeadlineExhausted $deadlineExhausted -ObservedUtc $observedUtc -ObservedTick ([long](& $clock)) `
+        -ElapsedMs $stopwatch.ElapsedMilliseconds -Evidence $evidence -Diagnostic $diagnostic
 }
 
 <#
@@ -4252,6 +4515,7 @@ function Get-ImagePath {
     $fileNames = @{
         'guest.amazon.linux.2023'    = 'host.windows.hyper-v.guest.amazon.linux.2023.vhdx'
         'guest.ubuntu.server.24'   = 'host.windows.hyper-v.guest.ubuntu.server.24.iso'
+        'guest.ubuntu.server.26'   = 'host.windows.hyper-v.guest.ubuntu.server.26.iso'
         'guest.windows.11'      = 'host.windows.hyper-v.guest.windows.11.iso'
     }
     $fileName = $fileNames[$GuestKey]
@@ -4599,7 +4863,7 @@ function Save-VMDhcpCapture {
         Set-Content -LiteralPath (Join-Path $OutputDirectory 'dhcp.capture.info.txt') -Encoding utf8NoBOM -Value @(
             "vmName:   $VMName"
             "guestMac: $(if ($guestMac) { $guestMac } else { '(unresolved)' })"
-            "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+            "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))"
             'reading:  dhcp.capture.txt shows each packet at every component it crossed;'
             '          a DISCOVER present on the VM switch port but absent at the NIC'
             '          died on this host, present at the NIC with no OFFER back means'
@@ -4659,16 +4923,8 @@ function Get-VMIp {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    # Two-stage lookup. KVP is the primary source of truth, but on the
-    # External vSwitch path hv_kvp_daemon can take 5-15 min to publish
-    # (memory note: hyperv_external_vswitch_arp_discovery), so we ALSO
-    # consult the host's ARP/neighbor cache filtered by the VM's MAC.
-    # The MAC filter is sufficient -- only this VM can populate ARP
-    # cache entries for its own MAC. Active probing (the slow part)
-    # lives in Invoke-YurunaExternalArpProbe; that is called by
-    # consumers that need fresh data (Save-GuestDiagnostic) and by
-    # the caching-proxy-service discovery path. This Get-VMIp is the cheap
-    # lookup -- safe to call from polling loops.
+    # Read KVP first, then the VM's MAC-filtered neighbor entries without probing.
+    # See https://yuruna.link/42e220c4-0004
     try {
         $vmAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop
         $addrs = $vmAdapter.IPAddresses
@@ -4849,7 +5105,7 @@ function Add-PortMap {
         if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}", (Format-YurunaOperatorMessage -Key 'host.operator_33e4bdda661323b1'))) { continue }
         $desc = "Yuruna caching-proxy service: forward host :${hostPort} to VM :${vmPort}${proxyTag}"
         & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
-        Stop-WindowsCachingProxyServiceForwarder -Port $hostPort -Quiet
+        $null = Stop-WindowsCachingProxyServiceForwarder -Port $hostPort -Quiet
         Add-CachingProxyServiceFirewallRule -Port $hostPort -Description $desc -IncludeProgram:$useProxy -Confirm:$false
         if ($useProxy) {
             $spawn = Start-WindowsCachingProxyServiceForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
@@ -4900,7 +5156,7 @@ function Add-PortMap {
                 proxyProtocol = $proxyProtoSet.ContainsKey([int]$_.HostPort)
             }
         })
-        createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
     }
     $tmp = "$statePath.tmp"
     $state | ConvertTo-Json -Depth 5 | Set-Content -Path $tmp -Encoding utf8
@@ -5155,6 +5411,534 @@ function Assert-Virtualization {
     return [bool](Assert-HyperVEnabled)
 }
 
+# Child scripts run by the bounded probe and the rung-2 helpers in a fresh
+# `pwsh -NoLogo -NoProfile -NonInteractive -Command`. Each prints only
+# `yuruna-probe <key>=<token>` lines through [Console]::Out, which flushes per
+# line, so what the child saw survives a kill at the cap; tokens are enum names
+# and never localized. Single quotes only, so the text crosses the process
+# command line without any quoting to undo.
+$script:HyperVProbeScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    function Write-ProbeFact([string]$Name, [string]$Value) { [Console]::Out.WriteLine('yuruna-probe ' + $Name + '=' + $Value) }
+    try {
+        $service = Get-Service -Name 'vmms' -ErrorAction Stop
+    } catch {
+        if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound) {
+            Write-ProbeFact 'service' 'Missing'
+            exit 2
+        }
+        Write-ProbeFact 'service' 'Unknown'
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 6
+    }
+    Write-ProbeFact 'service' ([string]$service.Status)
+    Write-ProbeFact 'start' ([string]$service.StartType)
+    if ([string]$service.Status -ne 'Running') { exit 5 }
+    try {
+        Import-Module Hyper-V -ErrorAction Stop
+    } catch {
+        Write-ProbeFact 'module' 'missing'
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 3
+    }
+    Write-ProbeFact 'module' 'loaded'
+    try {
+        $null = Hyper-V\Get-VM -ErrorAction Stop
+    } catch {
+        Write-ProbeFact 'error-category' ([string]$_.CategoryInfo.Category)
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 4
+    }
+    Write-ProbeFact 'provider' 'ok'
+    exit 0
+'@
+$script:HyperVServiceScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $service = Get-Service -Name 'vmms' -ErrorAction Stop
+    } catch {
+        if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound) {
+            [Console]::Out.WriteLine('yuruna-probe service=Missing')
+            exit 2
+        }
+        [Console]::Out.WriteLine('yuruna-probe service=Unknown')
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 6
+    }
+    [Console]::Out.WriteLine('yuruna-probe service=' + [string]$service.Status)
+    [Console]::Out.WriteLine('yuruna-probe start=' + [string]$service.StartType)
+    exit 0
+'@
+$script:HyperVStartScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        Start-Service -Name vmms -ErrorAction Stop -WarningAction SilentlyContinue
+    } catch {
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 1
+    }
+    exit 0
+'@
+# Tokens the probe and rung 2 accept from the child; anything else is Unknown.
+$script:HyperVServiceStatusToken = @('Running', 'Stopped', 'StartPending', 'StopPending', 'ContinuePending', 'PausePending', 'Paused', 'Missing', 'Unknown')
+$script:HyperVStartTypeToken = @('Boot', 'System', 'Automatic', 'Manual', 'Disabled')
+
+<#
+.SYNOPSIS
+    Parse the `yuruna-probe <key>=<token>` lines a child script printed into a
+    hashtable; any other line is ignored.
+#>
+function ConvertFrom-HyperVProbeOutput {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    $facts = @{}
+    if ([string]::IsNullOrEmpty($Text)) { return $facts }
+    foreach ($line in ($Text -split '\r?\n')) {
+        $m = [regex]::Match($line.Trim(), '^yuruna-probe (?<key>[a-z-]+)=(?<value>\S+)$')
+        if ($m.Success) { $facts[$m.Groups['key'].Value] = $m.Groups['value'].Value }
+    }
+    return $facts
+}
+
+<#
+.SYNOPSIS
+    Map a child-reported service status to its token, or 'Unknown'.
+#>
+function ConvertTo-HyperVServiceToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+    $match = @($script:HyperVServiceStatusToken | Where-Object { $_ -ceq $Value }) | Select-Object -First 1
+    if ($match) { return [string]$match }
+    return 'Unknown'
+}
+
+<#
+.SYNOPSIS
+    Map a child-reported service start type to its token, or 'Unknown'.
+#>
+function ConvertTo-HyperVStartTypeToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+    $match = @($script:HyperVStartTypeToken | Where-Object { $_ -ceq $Value }) | Select-Object -First 1
+    if ($match) { return [string]$match }
+    return 'Unknown'
+}
+
+<#
+.SYNOPSIS
+    $true when a bounded-command result is a complete answer: the process
+    launched and none of TimedOut, DrainTimedOut, OutputTruncated or KillFailed
+    is set. A missing key counts as not set.
+.DESCRIPTION
+    An exit code read from an incomplete result can describe a process whose
+    output was cut, so nothing positive (responsive, absent, stopped) is ever
+    concluded from one.
+#>
+function Test-DriverNativeResultComplete {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
+    if ($null -eq $Result) { return $false }
+    if (-not $Result['Started']) { return $false }
+    foreach ($flag in 'TimedOut', 'DrainTimedOut', 'OutputTruncated', 'KillFailed') {
+        if ($Result[$flag]) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Reduce captured native output to a single private diagnostic line of at most
+    1024 characters, with ANSI sequences and control characters removed.
+.DESCRIPTION
+    The probe record carries this for the worker's private log only. Stripping
+    control characters keeps a hostile or garbled tool from writing terminal
+    escapes or forged log lines through it.
+#>
+function Format-VirtualizationProbeDiagnostic {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $clean = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
+    $clean = [regex]::Replace($clean, '\x1B[@-Z\\-_]', '')
+    $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F-\x9F]+', ' ')
+    $clean = [regex]::Replace($clean, ' {2,}', ' ').Trim()
+    if ($clean.Length -gt 1024) { $clean = $clean.Substring(0, 1024) }
+    return $clean
+}
+
+<#
+.SYNOPSIS
+    Read the Microsoft-Hyper-V-All feature state through a bounded dism.exe
+    call, keeping a failed query apart from a feature that is not enabled.
+.DESCRIPTION
+    Runs `dism.exe /English /Online /Get-FeatureInfo
+    /FeatureName:Microsoft-Hyper-V-All` from %WINDIR%\System32 (C:\Windows when
+    WINDIR is unset) under Invoke-BoundedNativeCommand. /English keeps the
+    'State :' label and values parseable on any display language. The whole
+    value after 'State :' is read, so 'Enable Pending' is not mistaken for
+    'Enable'.
+
+    State: Enabled | Disabled (including 'Disabled with Payload Removed') |
+    EnablePending | DisablePending | Unavailable (the edition does not carry the
+    feature) | Unknown.
+    Probe: ok | timeout | not-elevated (exit 740 or the elevation wording) |
+    missing-client (dism.exe not launchable) | provider-error | invalid-response
+    (output not drained, truncated, or with no recognizable state) |
+    unknown-to-sku (0x800f080c: the feature does not exist on this edition).
+    Output is the raw captured text, capped, for a private log only.
+.PARAMETER TimeoutSeconds
+    Cap for the dism.exe call.
+.OUTPUTS
+    [pscustomobject] @{ State; Probe; ExitCode; ElapsedMs; Output; Path }
+#>
+function Get-HyperVFeatureState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 120)
+    $windowsRoot = if ($env:WINDIR) { $env:WINDIR } else { 'C:\Windows' }
+    $dismExe = [IO.Path]::Combine($windowsRoot, 'System32', 'dism.exe')
+    $result = Invoke-BoundedNativeCommand -FilePath $dismExe `
+        -ArgumentList @('/English', '/Online', '/Get-FeatureInfo', '/FeatureName:Microsoft-Hyper-V-All') `
+        -TimeoutSeconds $TimeoutSeconds
+    $text = "$($result.StdOut)`n$($result.StdErr)".Trim()
+    if ($text.Length -gt 8192) { $text = $text.Substring(0, 8192) }
+    $emit = {
+        param([string]$State, [string]$Probe)
+        [pscustomobject]@{
+            State = $State; Probe = $Probe; ExitCode = [int]$result.ExitCode
+            ElapsedMs = [long]$result['ElapsedMs']; Output = $text; Path = $dismExe
+        }
+    }
+    if (-not $result.Started) { return (& $emit 'Unknown' 'missing-client') }
+    if ($result.TimedOut) { return (& $emit 'Unknown' 'timeout') }
+    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit 'Unknown' 'invalid-response') }
+    if ($text -match '(?i)0x800f080c|Feature name .* is unknown') { return (& $emit 'Unavailable' 'unknown-to-sku') }
+    if ($result.ExitCode -eq 740 -or $text -match '(?i)Elevated permissions are required') { return (& $emit 'Unknown' 'not-elevated') }
+    if ($result.ExitCode -ne 0) { return (& $emit 'Unknown' 'provider-error') }
+    $value = $null
+    foreach ($line in ([string]$result.StdOut -split '\r?\n')) {
+        $m = [regex]::Match($line, '^\s*State\s*:\s*(?<value>.+?)\s*$')
+        if ($m.Success) { $value = $m.Groups['value'].Value; break }
+    }
+    if ($null -eq $value) { return (& $emit 'Unknown' 'invalid-response') }
+    switch -Regex ($value) {
+        '^Enabled$'         { return (& $emit 'Enabled' 'ok') }
+        '^Enable Pending$'  { return (& $emit 'EnablePending' 'ok') }
+        '^Disable Pending$' { return (& $emit 'DisablePending' 'ok') }
+        '^Disabled\b'       { return (& $emit 'Disabled' 'ok') }
+    }
+    return (& $emit 'Unknown' 'invalid-response')
+}
+
+<#
+.SYNOPSIS
+    Read the vmms service status and start type in a bounded child process.
+.DESCRIPTION
+    Get-Service against a wedged Service Control Manager has no timeout of its
+    own, so the read runs in a child pwsh under Invoke-BoundedNativeCommand.
+    Status is one of Running, Stopped, StartPending, StopPending,
+    ContinuePending, PausePending, Paused, Missing (vmms is not installed) or
+    Unknown (anything that is not a complete answer). StartType is Boot, System,
+    Automatic, Manual, Disabled or Unknown.
+.PARAMETER TimeoutSeconds
+    Cap for the child process.
+.OUTPUTS
+    [pscustomobject] @{ Status; StartType; TimedOut; Started; ExitCode; ElapsedMs }
+#>
+function Get-HyperVServiceEvidence {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 15)
+    $result = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+        -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVServiceScript) `
+        -TimeoutSeconds $TimeoutSeconds
+    $status = 'Unknown'
+    $startType = 'Unknown'
+    if ((Test-DriverNativeResultComplete -Result $result) -and $result.ExitCode -in @(0, 2)) {
+        $facts = ConvertFrom-HyperVProbeOutput -Text ([string]$result.StdOut)
+        $status = ConvertTo-HyperVServiceToken -Value ([string]$facts['service'])
+        if ($result.ExitCode -eq 2 -and $status -ne 'Missing') { $status = 'Unknown' }
+        if ($result.ExitCode -eq 0 -and $status -eq 'Missing') { $status = 'Unknown' }
+        $startType = ConvertTo-HyperVStartTypeToken -Value ([string]$facts['start'])
+    }
+    return [pscustomobject]@{
+        Status    = $status
+        StartType = $startType
+        TimedOut  = [bool]$result.TimedOut
+        Started   = [bool]$result.Started
+        ExitCode  = [int]$result.ExitCode
+        ElapsedMs = [long]$result['ElapsedMs']
+    }
+}
+
+<#
+.SYNOPSIS
+    Build one action row of a Yuruna.VirtualizationStartResult.
+#>
+function New-VirtualizationStartAction {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('unit-start', 'service-start', 'network-start', 'wait', 'app-launch')][string]$Kind,
+        [AllowEmptyString()][string]$Before = '',
+        [AllowEmptyString()][string]$After = '',
+        [Parameter(Mandatory)][ValidateSet('started', 'already-running', 'socket-live', 'refused', 'failed', 'unknown', 'skipped', 'preview')][string]$Result,
+        [Parameter(Mandatory)][string]$Reason,
+        [AllowEmptyCollection()][string[]]$Command = @(),
+        [AllowNull()][Nullable[int]]$ExitCode = $null,
+        [bool]$TimedOut = $false,
+        [long]$ElapsedMs = 0
+    )
+    return [pscustomobject]@{
+        target    = $Target
+        kind      = $Kind
+        before    = $Before
+        after     = $After
+        result    = $Result
+        reason    = $Reason
+        command   = [string[]]@($Command)
+        exitCode  = $ExitCode
+        timedOut  = $TimedOut
+        elapsedMs = $ElapsedMs
+    }
+}
+
+<#
+.SYNOPSIS
+    Build a Yuruna.VirtualizationStartResult (schema version 1), deriving the
+    outcome from the actions unless one is given.
+.DESCRIPTION
+    Derived precedence: any failed action -> failed; else any unknown ->
+    unknown; else any started -> started; else any preview -> preview; else
+    already-running. The reason is the first matching action's reason.
+#>
+function New-VirtualizationStartResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateSet('started', 'already-running', 'refused', 'failed', 'unknown', 'unavailable', 'preview', '')][string]$Outcome = '',
+        [AllowEmptyString()][string]$Reason = '',
+        [Parameter(Mandatory)][string]$Layout,
+        [AllowEmptyCollection()][object[]]$Action = @(),
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ElapsedMs
+    )
+    $rows = @($Action | Where-Object { $null -ne $_ })
+    if (-not $Outcome) {
+        $Outcome = 'already-running'
+        foreach ($candidate in 'failed', 'unknown', 'started', 'preview') {
+            $first = @($rows | Where-Object { $_.result -eq $candidate }) | Select-Object -First 1
+            if ($first) { $Outcome = $candidate; $Reason = [string]$first.reason; break }
+        }
+        if ($Outcome -eq 'already-running') {
+            $Reason = if (@($rows | Where-Object { $_.result -eq 'socket-live' }).Count -gt 0) { 'socket-live' } else { 'already-running' }
+        }
+    }
+    return [pscustomobject]@{
+        PSTypeName    = 'Yuruna.VirtualizationStartResult'
+        schemaVersion = 1
+        hostType      = (Resolve-HostTag)
+        outcome       = $Outcome
+        reason        = $Reason
+        layout        = $Layout
+        actions       = [object[]]$rows
+        observedUtc   = $ObservedUtc
+        elapsedMs     = $ElapsedMs
+    }
+}
+
+<#
+.SYNOPSIS
+    Poll vmms through a pending state until it reports Running or the wait
+    runs out; returns the last evidence read.
+.DESCRIPTION
+    Polls every two seconds for at most min(MaximumSeconds, the budget's
+    remaining time), each read capped at min(remaining, 15) seconds.
+#>
+function Wait-HyperVServicePendingState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)]$Budget,
+        [Parameter(Mandatory)]$Evidence,
+        [ValidateRange(1, 600)][int]$MaximumSeconds = 30
+    )
+    $clock = if ($Budget.ClockTicks) { $Budget.ClockTicks } else { { [Environment]::TickCount64 } }
+    $wait = New-YurunaDeadlineFromExpiry -ExpiryTick ([Math]::Min([long](& $clock) + [long]$MaximumSeconds * 1000, [long]$Budget.ExpiryTick)) -ClockTicks $clock
+    $last = $Evidence
+    while ($last.Status -in @('StartPending', 'ContinuePending')) {
+        $remaining = Get-YurunaDeadlineRemainingMs -Deadline $wait
+        if ($remaining -le 0) { break }
+        Start-Sleep -Milliseconds ([int][Math]::Min(2000, $remaining))
+        $readCap = Get-YurunaDeadlineBoundedSeconds -Deadline $wait -Ceiling 15
+        if ($null -eq $readCap) { break }
+        $last = Get-HyperVServiceEvidence -TimeoutSeconds $readCap
+    }
+    return $last
+}
+
+<#
+.SYNOPSIS
+    Start the Hyper-V Virtual Machine Management service (vmms) only when this
+    function positively observes it Stopped and the process is elevated;
+    refuse on anything it cannot establish. Returns a
+    Yuruna.VirtualizationStartResult.
+.DESCRIPTION
+    Runs its own bounded detection (Get-HyperVServiceEvidence) immediately
+    before acting and never trusts an earlier probe:
+      * status Unknown or a timed-out read     -> refused/service-state-unknown
+      * vmms not installed                     -> refused/service-missing, with
+                                                  the DISM feature state in the
+                                                  action's 'before'
+      * Running                                -> already-running
+      * start type Disabled                    -> refused/service-disabled (an
+                                                  operator's choice)
+      * StopPending                            -> refused/pending-stop: something
+                                                  is deliberately stopping it
+      * Paused or PausePending                 -> refused/service-paused
+      * StartPending or ContinuePending        -> a bounded wait; Running gives
+                                                  already-running, otherwise
+                                                  refused/pending-timeout
+      * Stopped                                -> start, when elevated; otherwise
+                                                  refused/not-elevated (no
+                                                  relaunch is attempted)
+    The start runs `Start-Service -Name vmms` in a bounded child and is
+    confirmed by a fresh read: Running is 'started'; a start still pending gets
+    the bounded wait; anything else is failed/start-failed after a failing
+    child, unknown/start-timed-out after a timeout, or
+    unknown/postcondition-unknown.
+
+    -WhatIf runs only the read-only detection and reports the planned start as
+    'preview'. Every child is capped by the remaining time of
+    min(TimeoutSeconds, -Deadline); with less than one second left nothing is
+    launched. -DependentVMName is accepted for contract parity and not used:
+    Hyper-V needs no per-guest network start here. Never throws and never
+    prompts.
+.PARAMETER TimeoutSeconds
+    Upper bound for the whole call.
+.PARAMETER Deadline
+    Optional shared deadline; the call never outlives it.
+.PARAMETER DependentVMName
+    Guests whose restoration depends on this hypervisor (not used on Hyper-V).
+.OUTPUTS
+    [pscustomobject] Yuruna.VirtualizationStartResult
+#>
+function Start-VirtualizationServiceIfStopped {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DependentVMName',
+        Justification = 'Declared by the host contract on every driver; Hyper-V has no per-guest network to start.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
+        [object]$Deadline,
+        [AllowEmptyCollection()][string[]]$DependentVMName = @()
+    )
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $expiry = [long](& $clock) + [long]$TimeoutSeconds * 1000
+    if ($null -ne $Deadline) { $expiry = [Math]::Min($expiry, [long]$Deadline.ExpiryTick) }
+    $budget = New-YurunaDeadlineFromExpiry -ExpiryTick $expiry -ClockTicks $clock
+    $actions = [System.Collections.Generic.List[object]]::new()
+    $finish = {
+        param([string]$Outcome, [string]$Reason)
+        New-VirtualizationStartResult -Outcome $Outcome -Reason $Reason -Layout 'not-applicable' -Action $actions.ToArray() `
+            -ObservedUtc $observedUtc -ElapsedMs $stopwatch.ElapsedMilliseconds
+    }
+    $refuse = {
+        param([string]$Reason, [string]$Before, [string]$Kind = 'service-start')
+        $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind $Kind -Before $Before -After $Before -Result 'refused' -Reason $Reason))
+        & $finish 'refused' $Reason
+    }
+
+    $mutated = $false
+    try {
+        $readCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 15
+        if ($null -eq $readCap) { return (& $finish 'refused' 'deadline-exhausted') }
+        $service = Get-HyperVServiceEvidence -TimeoutSeconds $readCap
+        if ($service.TimedOut -or $service.Status -eq 'Unknown') { return (& $refuse 'service-state-unknown' 'Unknown') }
+        if ($service.Status -eq 'Missing') {
+            $featureWord = 'NotProbed'
+            $featureCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 120
+            if ($null -ne $featureCap) { $featureWord = [string](Get-HyperVFeatureState -TimeoutSeconds $featureCap).State }
+            return (& $refuse 'service-missing' $featureWord)
+        }
+        if ($service.Status -eq 'Running') {
+            $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'service-start' -Before 'Running' -After 'Running' -Result 'already-running' -Reason 'already-running'))
+            return (& $finish 'already-running' 'already-running')
+        }
+        if ($service.StartType -eq 'Disabled') { return (& $refuse 'service-disabled' $service.Status) }
+        switch ($service.Status) {
+            'StopPending' { return (& $refuse 'pending-stop' 'StopPending') }
+            { $_ -in @('Paused', 'PausePending') } { return (& $refuse 'service-paused' $service.Status) }
+            { $_ -in @('StartPending', 'ContinuePending') } {
+                $settled = Wait-HyperVServicePendingState -Budget $budget -Evidence $service
+                if ($settled.Status -eq 'Running') {
+                    $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'wait' -Before $service.Status -After 'Running' -Result 'already-running' -Reason 'already-running'))
+                    return (& $finish 'already-running' 'already-running')
+                }
+                return (& $refuse 'pending-timeout' $service.Status 'wait')
+            }
+            'Stopped' { break }
+            default { return (& $refuse 'service-state-unknown' $service.Status) }
+        }
+
+        if (-not (Test-IsAdministrator)) { return (& $refuse 'not-elevated' 'Stopped') }
+        $startCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 60
+        if ($null -eq $startCap) { return (& $refuse 'deadline-exhausted' 'Stopped') }
+        $command = @('Start-Service', '-Name', 'vmms')
+        if (-not $PSCmdlet.ShouldProcess('vmms', (Format-YurunaOperatorMessage -Key 'host.hyperv_start_vmms_action'))) {
+            $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'service-start' -Before 'Stopped' -Result 'preview' -Reason 'preview' -Command $command))
+            return (& $finish 'preview' 'preview')
+        }
+        $start = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+            -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVStartScript) `
+            -TimeoutSeconds $startCap
+        $mutated = [bool]$start.Started
+        $common = @{ Target = 'vmms'; Kind = 'service-start'; Before = 'Stopped'; Command = $command
+            ExitCode = [int]$start.ExitCode; TimedOut = [bool]$start.TimedOut; ElapsedMs = [long]$start['ElapsedMs'] }
+        if (-not $start.Started) {
+            $actions.Add((New-VirtualizationStartAction @common -Result 'refused' -Reason 'missing-client'))
+            return (& $finish 'refused' 'missing-client')
+        }
+        $after = [pscustomobject]@{ Status = 'Unknown' }
+        $postCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 15
+        if ($null -ne $postCap) { $after = Get-HyperVServiceEvidence -TimeoutSeconds $postCap }
+        if ($after.Status -in @('StartPending', 'ContinuePending')) { $after = Wait-HyperVServicePendingState -Budget $budget -Evidence $after }
+        $afterWord = [string]$after.Status
+        if ($afterWord -eq 'Running') {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'started' -Reason 'started'))
+        } elseif ($start.TimedOut -or $afterWord -in @('StartPending', 'ContinuePending')) {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'unknown' -Reason 'start-timed-out'))
+        } elseif ($start.ExitCode -ne 0) {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'failed' -Reason 'start-failed'))
+        } else {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'unknown' -Reason 'postcondition-unknown'))
+        }
+        return (& $finish '' '')
+    } catch {
+        # Never throw: under a caller's ErrorActionPreference of Stop any
+        # non-terminating error is a throw. After the start child ran its
+        # outcome is unknown until a fresh probe; before, nothing changed.
+        Write-Verbose "Start-VirtualizationServiceIfStopped: $($_.Exception.Message)"
+        if ($mutated) { return (& $finish 'unknown' 'postcondition-unknown') }
+        return (& $finish 'refused' 'service-state-unknown')
+    }
+}
+
 function Get-YurunaVMAccountSid {
     <#
     .SYNOPSIS
@@ -5345,10 +6129,11 @@ function Limit-HyperVLinuxGuestCoreCount {
         an order of magnitude longer to reach its installer, its login prompt
         and everything gated behind them.
 
-        The cap is two rather than one because kubeadm's preflight check refuses
-        to initialize a control plane on a single processor, and the guests this
-        applies to go on to run one. Two is the smallest count that keeps that
-        workload possible while halving the intercept rate against four.
+        The default cap is two because kubeadm's preflight check refuses to
+        initialize a control plane on a single processor, and the guests this
+        applies to go on to run one. A provisioning caller may select a lower
+        temporary cap when its sequence includes an explicit, offline transition
+        back to two before kubeadm starts.
 
         A caller that has asked for a specific count is still capped: the ask
         expresses how much work the guest has to do, which is exactly the thing
@@ -5369,9 +6154,51 @@ function Limit-HyperVLinuxGuestCoreCount {
     return $MaximumCores
 }
 
+function Set-HyperVArm64LinuxGuestProcessorCount {
+    <#
+    .SYNOPSIS
+        Set the post-provisioning processor count of a stopped ARM64 Linux VM.
+    .DESCRIPTION
+        The Ubuntu ARM64 installer and package-update path is fastest with one
+        virtual processor on affected Hyper-V hosts, while kubeadm requires two.
+        This helper performs the offline transition between those phases. It is
+        deliberately a no-op on AMD64 so the shared Ubuntu sequence preserves
+        the normal host-sizing policy there.
+    .OUTPUTS
+        [bool] true when the requested state is established (or is not needed
+        on this architecture); false when the VM is absent, not stopped, or the
+        Hyper-V update cannot be confirmed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][ValidateRange(1, 1024)][int]$Count
+    )
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $true
+    }
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -ne 'present' -or [string]$resolved.VM.State -ne 'Off') {
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName)) {
+        return $false
+    }
+    try {
+        Hyper-V\Set-VMProcessor -VMName $VMName -Count $Count -ErrorAction Stop
+        $processor = Hyper-V\Get-VMProcessor -VMName $VMName -ErrorAction Stop
+        return ([int]$processor.Count -eq $Count)
+    } catch {
+        Write-Verbose "Set-HyperVArm64LinuxGuestProcessorCount: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # --- REGION: Exports
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
@@ -5386,7 +6213,7 @@ Export-ModuleMember -Function `
     Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-YurunaExternalSwitchUplink, Test-CachingProxyServicePort, Invoke-YurunaExternalArpProbe, `
     Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyServiceUrl, `
     Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
-    Save-CachedHttpUri, Assert-HyperVEnabled, `
+    Save-CachedHttpUri, Assert-HyperVEnabled, Get-HyperVFeatureState, Get-HyperVServiceEvidence, Resolve-HyperVVM, `
     Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
     Start-HyperVVM, Stop-HyperVVM, Request-HyperVVMShutdown, Confirm-HyperVVMStarted, `
     Get-HostMemoryStatus, Format-HostMemoryStatus, Test-HostResourceExhaustionError, Wait-HostMemoryHeadroom, Get-HyperVVMStartupMemory, `
@@ -5399,7 +6226,7 @@ Export-ModuleMember -Function `
     Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
-    Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount
+    Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount, Set-HyperVArm64LinuxGuestProcessorCount
 
 # --- REGION: Contract coverage
 # Validate actual exports against the common contract after publishing them.
@@ -5416,7 +6243,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' `
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization',
-    'Test-VirtualizationResponsive'
+    'Test-VirtualizationResponsive','Start-VirtualizationServiceIfStopped'
 )
 
 # Load-time guard for the cache-download wrapper precedence. The image helpers

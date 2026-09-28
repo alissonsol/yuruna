@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,5 +175,56 @@ Describe 'Resolve-YurunaRunnerProcessTarget -- new child race' {
         $r2 = Resolve-YurunaRunnerProcessTarget -ProcessTable $tableAfter `
             -VerifiedRoot @([pscustomobject]@{ Pid = 1; StartTimeUnixMs = 1000; Role = 'outer' })
         @($r2.Descendants.Pid) | Should -Be @(5, 1) -Because 'a fresh snapshot picks up a child that spawned since the last call -- re-snapshotting before the hypervisor step is the caller''s job, not this function''s'
+    }
+}
+
+Describe 'Resolve-YurunaRunnerProcessTarget -- protected nodes and reason records' {
+    It 'never signals a protected root, but still signals its children' {
+        # outer(1, resident, protected) -> cycle(2) -> inner(3)
+        $table = @(
+            (New-Proc -ProcessId 1 -ParentPid 0)
+            (New-Proc -ProcessId 2 -ParentPid 1)
+            (New-Proc -ProcessId 3 -ParentPid 2)
+        )
+        $r = Resolve-YurunaRunnerProcessTarget -ProcessTable $table -ProtectedPid @(1) `
+            -VerifiedRoot @([pscustomobject]@{ Pid = 1; StartTimeUnixMs = 1000; Role = 'outer' })
+        @($r.Descendants.Pid) | Should -Be @(3, 2)
+        @($r.ReasonRecords | Where-Object Code -eq 'protected').Pid | Should -Be @(1)
+        $r.Protected | Should -Contain 1
+    }
+
+    It 'does not let an ancestor shared with the worker prune a runner below it' {
+        # tmux(1) -> worker(2); tmux(1) -> runner(3) -> inner(4)
+        $table = @(
+            (New-Proc -ProcessId 1 -ParentPid 0 -Executable 'tmux')
+            (New-Proc -ProcessId 2 -ParentPid 1)
+            (New-Proc -ProcessId 3 -ParentPid 1)
+            (New-Proc -ProcessId 4 -ParentPid 3)
+        )
+        $r = Resolve-YurunaRunnerProcessTarget -ProcessTable $table -ExcludedPid @(2) -ProtectedPid @(1) `
+            -VerifiedRoot @([pscustomobject]@{ Pid = 3; StartTimeUnixMs = 1000; Role = 'outer' })
+        @($r.Descendants.Pid) | Should -Be @(4, 3) -Because 'protecting the shared ancestor prunes nothing below it'
+    }
+
+    It 'records a data row for every rejected root and pruned subtree' {
+        $table = @(
+            (New-Proc -ProcessId 1 -ParentPid 0)
+            (New-Proc -ProcessId 2 -ParentPid 1)
+            (New-Proc -ProcessId 5 -ParentPid 0 -StartTimeUnixMs 9999)
+            (New-Proc -ProcessId 6 -ParentPid 0)
+        )
+        $r = Resolve-YurunaRunnerProcessTarget -ProcessTable $table -ExcludedPid @(2, 6) -VerifiedRoot @(
+            [pscustomobject]@{ Pid = 1; StartTimeUnixMs = 1000; Role = 'outer' }
+            [pscustomobject]@{ Pid = 4; StartTimeUnixMs = 1000; Role = 'cycle' }
+            [pscustomobject]@{ Pid = 5; StartTimeUnixMs = 1000; Role = 'inner' }
+            [pscustomobject]@{ Pid = 6; StartTimeUnixMs = 1000; Role = 'stray' }
+        )
+        $codes = @($r.ReasonRecords | ForEach-Object { "$($_.Pid):$($_.Code)" })
+        $codes | Should -Contain '2:subtree-excluded'
+        $codes | Should -Contain '4:root-missing'
+        $codes | Should -Contain '5:root-start-mismatch'
+        $codes | Should -Contain '6:root-excluded'
+        $r.ReasonRecords.GetType().IsArray | Should -Be $true
+        @($r.Descendants.Pid) | Should -Be @(1)
     }
 }

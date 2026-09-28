@@ -139,3 +139,43 @@ Describe 'setup -logLevel -- every script the setup starts honors the inherited 
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'setup elevated rebuild intent' {
+    It 'preserves an explicit rebuild across the elevated argument assembly' {
+        $assignment = $script:setupAst.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$relaunchArgs' -and
+            $node.Operator -eq [Management.Automation.Language.TokenKind]::Equals
+        }, $true)
+        $launch = $script:setupAst.Find({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Start-Process' -and $node.Extent.Text -match '\$relaunchArgs'
+        }, $true)
+        $guard = $launch
+        while ($guard -and $guard -isnot [Management.Automation.Language.TryStatementAst]) { $guard = $guard.Parent }
+        Assert-NotNull $assignment
+        Assert-NotNull $guard
+        $assembly = [scriptblock]::Create($script:setupSrc.Substring($assignment.Extent.StartOffset, $guard.Extent.StartOffset - $assignment.Extent.StartOffset))
+        foreach ($rebuildRequested in @($false, $true)) {
+            $forwarded = & {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Variables are the inputs read by the production argument-assembly scriptblock.')]
+                param($Body, $Requested)
+                $previousRebuild = $script:Rebuild
+                $previousLogFile = $script:LogFile
+                try {
+                    $script:Rebuild = $Requested
+                    $script:LogFile = ''
+                    $AnswerFile = ''
+                    $EffectiveLogLevel = 'Debug'
+                    $null = $AnswerFile, $EffectiveLogLevel
+                    . $Body
+                    return $relaunchArgs
+                } finally {
+                    $script:Rebuild = $previousRebuild
+                    $script:LogFile = $previousLogFile
+                }
+            } $assembly $rebuildRequested
+            Assert-Equal $rebuildRequested ($forwarded -contains '-Rebuild') 'the elevated child must receive the same rebuild choice'
+        }
+    }
+}

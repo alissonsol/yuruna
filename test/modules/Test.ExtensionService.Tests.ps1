@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -250,6 +250,125 @@ Describe 'the runtime marker' {
         [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:dir -Active $true)
         Assert-True  (Remove-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:dir -Confirm:$false)
         Assert-False (Remove-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:dir -Confirm:$false)
+    }
+}
+
+Describe 'the deployment identity a marker records' {
+    BeforeEach {
+        $script:dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ext-" + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:dir -Force
+    }
+    AfterEach {
+        if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
+            Remove-Item -LiteralPath $script:dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'writes hostingMode only when a caller passes it, so existing markers stay byte-identical' {
+        $stamp  = '2026-08-03T12:00:00Z'
+        $params = @{ Area = 'stash-service'; RuntimeDir = $script:dir; Active = $true; BaseUrl = 'http://10.0.0.9'; StartedAtUtc = $stamp }
+        $plain = Get-Content -Raw -LiteralPath (Write-ExtensionServiceMarker @params)
+        Assert-False ($plain -match 'hostingMode') 'no key appears for a caller that did not ask for one'
+        $withMode = Get-Content -Raw -LiteralPath (Write-ExtensionServiceMarker @params -HostingMode 'vm')
+        $m = $withMode | ConvertFrom-Json
+        Assert-Equal 'vm' $m.hostingMode
+        $names = @($m.PSObject.Properties.Name)
+        Assert-Equal ([Array]::IndexOf($names, 'baseUrl') + 1) ([Array]::IndexOf($names, 'hostingMode')) -Because 'hostingMode follows baseUrl, ahead of the per-service key'
+        $again = Get-Content -Raw -LiteralPath (Write-ExtensionServiceMarker @params)
+        Assert-Equal $plain $again -Because 'dropping the parameter again restores the original bytes'
+    }
+
+    It 'reports no deployment when there is no marker' {
+        $id = Get-ExtensionServiceDeploymentIdentity -Area 'pool-control-service' -RuntimeDir $script:dir
+        Assert-False $id.MarkerPresent
+        Assert-Equal 'unknown' $id.HostingMode
+        Assert-Equal 'none' $id.HostingModeSource
+    }
+
+    It 'reads an explicit host-process marker with its pid, port and start time' {
+        [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $script:dir -Active $true -BaseUrl 'http://10.0.0.5:8090/' `
+                -HostingMode 'host-process' -Extra ([ordered]@{ pid = 4242; port = 8090; processStartUnixMs = 1790000000000 }))
+        $id = Get-ExtensionServiceDeploymentIdentity -Area 'pool-control-service' -RuntimeDir $script:dir
+        Assert-True $id.MarkerPresent
+        Assert-Equal 'host-process' $id.HostingMode
+        Assert-Equal 'marker' $id.HostingModeSource
+        Assert-Equal 4242 $id.Pid
+        Assert-Equal 8090 $id.Port
+        Assert-Equal 1790000000000 $id.ProcessStartUnixMs
+        Assert-Equal 'yuruna-pool-control-service' $id.VMName -Because 'the marker writer still fills the manifest VM name'
+    }
+
+    It 'infers host-process from a legacy marker that only carries a pid' {
+        [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $script:dir -Active $true -Extra ([ordered]@{ pid = 77; port = 8090 }))
+        $id = Get-ExtensionServiceDeploymentIdentity -Area 'pool-control-service' -RuntimeDir $script:dir
+        Assert-Equal 'host-process' $id.HostingMode
+        Assert-Equal 'inferred-pid' $id.HostingModeSource
+        Assert-Null $id.ProcessStartUnixMs
+    }
+
+    It 'infers a VM from a marker without a pid, and keeps a custom VM name' {
+        [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:dir -Active $true -VMName 'custom-stash')
+        $id = Get-ExtensionServiceDeploymentIdentity -Area 'stash-service' -RuntimeDir $script:dir
+        Assert-Equal 'vm' $id.HostingMode
+        Assert-Equal 'inferred-default' $id.HostingModeSource
+        Assert-Equal 'custom-stash' $id.VMName
+    }
+
+    It 'calls an unrecognized hostingMode unknown, and survives a malformed marker' {
+        $odd = [ordered]@{ active = $true; vmName = 'yuruna-stash-service'; hostingMode = 'container'; pid = 'not-a-number' }
+        [System.IO.File]::WriteAllText((Join-Path $script:dir 'stash-service.json'), ($odd | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+        $id = Get-ExtensionServiceDeploymentIdentity -Area 'stash-service' -RuntimeDir $script:dir
+        Assert-Equal 'unknown' $id.HostingMode
+        Assert-Null $id.Pid -Because 'a non-numeric pid is not a pid'
+        Set-Content -LiteralPath (Join-Path $script:dir 'stash-service.json') -Value '{not json'
+        $broken = Get-ExtensionServiceDeploymentIdentity -Area 'stash-service' -RuntimeDir $script:dir
+        Assert-False $broken.MarkerPresent
+    }
+}
+
+Describe 'Get-ExtensionServiceHostProcessState' {
+    It 'verifies a live process by name and recorded start time' {
+        $lookup = { param($ProcessId) $null = $ProcessId; [pscustomobject]@{ Name = 'pool-control-service'; Path = '/x/pool-control-service'; StartUnixMs = [long]1790000000500 } }
+        $state = Get-ExtensionServiceHostProcessState -ProcessId 4242 -ProcessStartUnixMs 1790000000000 -ProcessLookup $lookup
+        Assert-True $state.IdentityVerified
+        Assert-True $state.StartTimeMatches
+        Assert-Equal 'ok' $state.Reason
+    }
+    It 'refuses a recycled pid whose start time moved' {
+        $lookup = { param($ProcessId) $null = $ProcessId; [pscustomobject]@{ Name = 'pool-control-service'; Path = ''; StartUnixMs = [long]1790000090000 } }
+        $state = Get-ExtensionServiceHostProcessState -ProcessId 4242 -ProcessStartUnixMs 1790000000000 -ProcessLookup $lookup
+        Assert-False $state.IdentityVerified
+        Assert-Equal 'start-time-mismatch' $state.Reason
+    }
+    It 'refuses a process with another name' {
+        $lookup = { param($ProcessId) $null = $ProcessId; [pscustomobject]@{ Name = 'bash'; Path = '/usr/bin/bash'; StartUnixMs = [long]1 } }
+        $state = Get-ExtensionServiceHostProcessState -ProcessId 4242 -ProcessLookup $lookup
+        Assert-True $state.Alive
+        Assert-False $state.IdentityVerified
+        Assert-Equal 'name-mismatch' $state.Reason
+    }
+    It 'accepts the kernel''s fifteen-character truncation of the name when no start time was recorded' {
+        $lookup = { param($ProcessId) $null = $ProcessId; [pscustomobject]@{ Name = 'pool-control-se'; Path = ''; StartUnixMs = $null } }
+        $state = Get-ExtensionServiceHostProcessState -ProcessId 4242 -ProcessLookup $lookup
+        Assert-True $state.IdentityVerified
+        Assert-Null $state.StartTimeMatches
+    }
+    It 'reports a dead pid as not-running' {
+        $state = Get-ExtensionServiceHostProcessState -ProcessId 4242 -ProcessLookup { param($ProcessId) $null = $ProcessId; $null }
+        Assert-False $state.Alive
+        Assert-Equal 'not-running' $state.Reason
+    }
+    It 'checks a real disposable process through the default lookup' {
+        $child = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 30') -PassThru
+        try {
+            $start = [DateTimeOffset]::new($child.StartTime).ToUnixTimeMilliseconds()
+            $state = Get-ExtensionServiceHostProcessState -ProcessId $child.Id -ProcessStartUnixMs $start -ExpectedName 'pwsh'
+            Assert-True $state.IdentityVerified "a live pwsh is verified by name and start time ($($state.Reason))"
+            $wrong = Get-ExtensionServiceHostProcessState -ProcessId $child.Id -ExpectedName 'pool-control-service'
+            Assert-Equal 'name-mismatch' $wrong.Reason
+        } finally {
+            Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

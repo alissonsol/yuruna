@@ -3,7 +3,11 @@
 
 package intent
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 // The pool-admin CLIs report failure as JSON on stdout with an empty stderr, so
 // the stdout document is the only place the actionable message exists.
@@ -47,5 +51,19 @@ func TestCLIErrorFromStdout(t *testing.T) {
 				t.Errorf("cliErrorFromStdout() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRemoveHostExclusionArguments(t *testing.T) {
+	r := &Runner{Pwsh: "nonexistent-fixture-pwsh", RepoDir: t.TempDir()}
+	result := r.RemoveHost(context.Background(), "", "42fixture", true)
+	argv := strings.Join(result.Argv, " ")
+	if !strings.Contains(argv, "-HostId 42fixture -Exclude") || strings.Contains(argv, "-PoolId") {
+		t.Fatalf("exclusion arguments: %v", result.Argv)
+	}
+	result = r.RemoveHost(context.Background(), "lab", "42fixture")
+	argv = strings.Join(result.Argv, " ")
+	if !strings.Contains(argv, "-PoolId lab") || strings.Contains(argv, "-Exclude") {
+		t.Fatalf("ordinary removal arguments: %v", result.Argv)
 	}
 }

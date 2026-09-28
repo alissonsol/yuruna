@@ -1117,6 +1117,16 @@
       "sourceHash": "f266e05a05a528110aff0fbcb8d7ea6f36b109b0ed2ba46858e370abbcfd0c9b",
       "message": "Desempenho"
     },
+    "status.performance_fit": {
+      "sourceHash": "146a96eb9a4cf9ed231ed1f6b5abc2c91ad469ff6cb81ee56f63eed182e315ba",
+      "message": "Mostrar tudo",
+      "origin": "machine"
+    },
+    "status.performance_zoom": {
+      "sourceHash": "eb17fcdc5f28e69509dfe2c811e41b1f65368090ee6557a7744ebe21e4c64a5a",
+      "message": "Zoom do tempo",
+      "origin": "machine"
+    },
     "status.pill_new_vm_resource": {
       "sourceHash": "fc0ff9ccda45cf8b47401b751916a236b4e6d157e3a17c08e84cbd9447a4452d",
       "message": "Nova VM"
@@ -1466,6 +1476,306 @@
     "status.yuruna_status": {
       "sourceHash": "3f18d89f931e700c90035cedd6786c0fdcbade6a2ad9292c0efca8a1b6c60be4",
       "message": "Estado do Yuruna"
+    },
+    "status.api_admission_unavailable": {
+      "sourceHash": "88f2f1665f9c5f7df475af36ea910017c1407b871256badf4cebde9ae9fa236f",
+      "origin": "machine",
+      "message": "the host could not record the request ({reason})"
+    },
+    "status.api_host_refresh_authorization_refused": {
+      "sourceHash": "f793591c7563d3b843f464cfbd3df28d3684e7fd5e863bc085ea41754d75779d",
+      "origin": "machine",
+      "message": "refresh authorization refused ({reason})"
+    },
+    "status.api_host_refresh_busy": {
+      "sourceHash": "a185926eefe4934ed8a85d387b12af84e363d095167fa67f63547409ed32196e",
+      "origin": "machine",
+      "message": "another host operation is in progress"
+    },
+    "status.api_host_refresh_request_closed": {
+      "sourceHash": "99681fb11c3ecd473723e55b4d9f64b4fc421b616349578f9f2c4ca3b6ade4f4",
+      "origin": "machine",
+      "message": "this request id is already closed ({state})"
+    },
+    "status.api_host_refresh_request_conflict": {
+      "sourceHash": "9f9e4d4be06c66558bf2115cda5471c8f9995288222b38aef15a2ed388b06709",
+      "origin": "machine",
+      "message": "this request id was already used with different settings"
+    },
+    "status.api_host_refresh_unavailable": {
+      "sourceHash": "c939f9097fa4068b1e720faa677d751a8d2fe909a45dff9a9d5f463066508089",
+      "origin": "machine",
+      "message": "host refresh is not available on this host ({reason})"
+    },
+    "status.api_internal_error": {
+      "sourceHash": "bfe48a2f94a6554ed148551b776368a32930c18d6409356671df30256d2942f7",
+      "origin": "machine",
+      "message": "the request failed on the host; see server.err"
+    },
+    "status.api_listener_busy": {
+      "sourceHash": "030963685ca1cbbc9b35def6bdf5545f7630032a310db9fe1f683784a0c41dac",
+      "origin": "machine",
+      "message": "too many request bodies are being read; retry shortly"
+    },
+    "status.api_listener_dependency_missing": {
+      "sourceHash": "7710a12aa231c40ee15c7ad80608fcf34296db69b6aadfc4b684a753a095d43c",
+      "origin": "machine",
+      "message": "a module this route needs could not be loaded; see server.err"
+    },
+    "status.api_payload_too_large_4_kb": {
+      "sourceHash": "ab47184a0e20ddc2160e8b26ecbb4dd72f997768434226cd614e705a8f7be3b6",
+      "origin": "machine",
+      "message": "payload too large (4 KB max)"
+    },
+    "status.api_private_state_unavailable": {
+      "sourceHash": "fff5790c1c71a948a3ec7a6da94618ef0c7379da71c1e1520029734ace631c0c",
+      "origin": "machine",
+      "message": "the host's private state directory is unavailable ({reason})"
+    },
+    "status.api_request_body_invalid": {
+      "sourceHash": "fb38a27aa5d71053c8ef2f3c2347dd88e6c23de4ca92ff310458ec65344e4b08",
+      "origin": "machine",
+      "message": "invalid request body: {reason} ({field})"
+    },
+    "status.api_request_body_timeout": {
+      "sourceHash": "98ddcf47e7950d633f96b81c92a063151c32656dabb31260e0c6f603bb06b5fa",
+      "origin": "machine",
+      "message": "the request body did not arrive within 2 seconds"
+    },
+    "status.api_unsupported_media_type": {
+      "sourceHash": "afcb4e55e721fc04d420f489813e33168b3f72a65afd4495dfe66463312d6e3c",
+      "origin": "machine",
+      "message": "Content-Type must be application/json"
+    },
+    "status.api_worker_launcher_failed": {
+      "sourceHash": "aea77d2b1dca40319f3d5deee6b0d5b43b56a6e5cbdd5d0b3c3b75996fc346fa",
+      "origin": "machine",
+      "message": "the worker could not be started ({reason}); the request can be retried"
+    },
+    "status.host_diagnostic_pending": {
+      "sourceHash": "e41be205f4a0d4590efdb96d5368ae33b1acbf55209c233ea42575acdd60d1c2",
+      "origin": "machine",
+      "message": "Collecting host diagnostics; this can take a minute..."
+    },
+    "status.host_diagnostic_timeout": {
+      "sourceHash": "d30843f2bc788316b3df4a32b727c9ad0e1adc22351ff7c05ec6215971c17a84",
+      "origin": "machine",
+      "message": "Host diagnostics did not finish within {seconds} seconds. Reload the page to try again."
+    },
+    "status.host_refresh_action_dispose_obligations": {
+      "sourceHash": "9a76de0bc8b101254982bf07a5cfd2afb2e3b1ac82ceb908848322b344db0a9a",
+      "origin": "machine",
+      "message": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+    },
+    "status.host_refresh_action_elevate": {
+      "sourceHash": "ee4e76642b0018d511eece8dd6d3c7765c54d1786aa138b9a1123fbb83cdbd8d",
+      "origin": "machine",
+      "message": "Next step: the repair needs administrator rights; run it on the host from an elevated session."
+    },
+    "status.host_refresh_action_grant_automation": {
+      "sourceHash": "0c85dd0306f7cd48c2ef3c093311adc02db37fe2716bd3573425abb3ffac2c3b",
+      "origin": "machine",
+      "message": "Next step: allow this host's automation access to UTM, then refresh again."
+    },
+    "status.host_refresh_action_gui_session": {
+      "sourceHash": "ab53cf784ab25a4dfbf21cf1d5de0c0e52e1d847d064b6bb80a28f461d57d365",
+      "origin": "machine",
+      "message": "Next step: sign in to a desktop session on the host, then refresh again."
+    },
+    "status.host_refresh_action_install_client": {
+      "sourceHash": "359681126bbea61c9185c269c2d247539276e2388cc6c1c242402ad1bc7cb9f2",
+      "origin": "machine",
+      "message": "Next step: install the hypervisor's command-line client on the host, then refresh again."
+    },
+    "status.host_refresh_action_resume_request": {
+      "sourceHash": "f9a1d4c3bbc9bb2e83f89401d975b272cb0ca9a51e6d3d2d6066dcb39f1934bb",
+      "origin": "machine",
+      "message": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "status.host_refresh_action_start_runner": {
+      "sourceHash": "1cd17614d0f7d168ae043ab3776fa593265eff6508052dd150fd4e567847d360",
+      "origin": "machine",
+      "message": "Next step: start the runner on the host; no recorded launch could be reused to restart it."
+    },
+    "status.host_refresh_authorization_refused": {
+      "sourceHash": "bc616071f68187cb02cd0fdf802f51b22b68cdff1ec47a17b577723d68098e36",
+      "origin": "machine",
+      "message": "This refresh needs a refresh proof that this page does not have ({reason}). Use the status page on the host itself, or the pool-control refresh action."
+    },
+    "status.host_refresh_busy": {
+      "sourceHash": "7cf0dd5bf96f819d4824123d90f3c396f1c6d61ae3af8c4f94eccf85d12f7e25",
+      "origin": "machine",
+      "message": "Another host refresh ({requestId}) is in progress; showing its progress."
+    },
+    "status.host_refresh_check_host": {
+      "sourceHash": "559cf785a80fadc87b7d963e23841e0a8c1dd624f55913d87612765b9456e32e",
+      "origin": "machine",
+      "message": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state."
+    },
+    "status.host_refresh_closed": {
+      "sourceHash": "c49538118d42f49cad0d0b9b3399c35ca1efdedbd9d658ebff00049131417dae",
+      "origin": "machine",
+      "message": "Request {requestId} is already closed ({state}); start a new refresh."
+    },
+    "status.host_refresh_confirm": {
+      "sourceHash": "6dae5956200014040f9dd965beb3bd2376e34b7ff782b34ce644e8bba9f83b23",
+      "origin": "machine",
+      "message": "Refresh this host, up to the {ceiling} step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to {minutes} minutes."
+    },
+    "status.host_refresh_conflict": {
+      "sourceHash": "6366e45e764b8bd907e4c22d9ae1de2ba9d54286eaec0a1f8a4bf6e611023836",
+      "origin": "machine",
+      "message": "Request {requestId} was already sent with different settings; start a new refresh."
+    },
+    "status.host_refresh_launcher_failed": {
+      "sourceHash": "951c587d039276d53cc474891f3bb1b196792ec3304a240dfffe3b49eff0050e",
+      "origin": "machine",
+      "message": "The host could not start the refresh worker. The request is kept; select Retry to start it again."
+    },
+    "status.host_refresh_lost": {
+      "sourceHash": "ef4234b56c9b61ed0a42ef85c8f80aa5eb0bce9416615ea95f7b355ba2f2bfcb",
+      "origin": "machine",
+      "message": "Refresh {requestId}: no outcome after {seconds} seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one."
+    },
+    "status.host_refresh_note": {
+      "sourceHash": "ff4a991c377f474f23e75005f4dfb72c289a85546a83d2f80d406deddf69c152",
+      "origin": "machine",
+      "message": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers."
+    },
+    "status.host_refresh_progress": {
+      "sourceHash": "f4070f825719d309006f68db81e14c31c0539d1df577f3328073338e73164f63",
+      "origin": "machine",
+      "message": "Refresh {requestId}: step {step} of {count} ({stepName}), up to {remainingSeconds} seconds left."
+    },
+    "status.host_refresh_recovery_pending": {
+      "sourceHash": "fdffa422bcdf33e553308a1ee2811d9d03c5020e5bc1ffb68344ce7430b24cc9",
+      "origin": "machine",
+      "message": "Services or the runner still need restoring. Retry resumes the same request."
+    },
+    "status.host_refresh_rejected": {
+      "sourceHash": "36d39c63373a68279a159e35c7e503fbece467ea263e58588c95e81a3a8e10b7",
+      "origin": "machine",
+      "message": "The host rejected the refresh request: {detail}"
+    },
+    "status.host_refresh_retry": {
+      "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
+      "origin": "machine",
+      "message": "Retry"
+    },
+    "status.host_refresh_stale": {
+      "sourceHash": "9c37138e39a2370139984ac58a67e01d78c7f7404a97b6eb8a4d57f040a2661f",
+      "origin": "machine",
+      "message": "Refresh {requestId}: no progress report for {seconds} seconds. The worker may have stopped; check the host before starting another repair."
+    },
+    "status.host_refresh_start": {
+      "sourceHash": "27b87fc90c23120cebb056358cfeb8658af53847046cf53c28ebc704dea8e134",
+      "origin": "machine",
+      "message": "Refresh host"
+    },
+    "status.host_refresh_start_cycle_busy": {
+      "sourceHash": "96b34d90f4619bc989f3c72999e183edfbe58819920becd934aa930ed1b59ae5",
+      "origin": "machine",
+      "message": "A start-cycle request is in progress; try again when it finishes."
+    },
+    "status.host_refresh_submitting": {
+      "sourceHash": "517542e0aa19065c72df764f40d46adf463b73cf020696a7b3a7bd81e5e55978",
+      "origin": "machine",
+      "message": "Sending the refresh request..."
+    },
+    "status.host_refresh_title": {
+      "sourceHash": "d77727e001caaccb24b397e414affbd5b5629b4dd149987a5d08720e307d0ca2",
+      "origin": "machine",
+      "message": "Host refresh"
+    },
+    "status.host_refresh_unavailable": {
+      "sourceHash": "54e71ffc2ae26845eec8bed3469f074c777e142faf0761131d6320ab19051b9c",
+      "origin": "machine",
+      "message": "Host refresh is not available on this host ({reason})."
+    },
+    "status.host_refresh_verdict_abandoned": {
+      "sourceHash": "15274dc45a970e00ec860d5f0d83fcfa8075758860933b665f7f07cad204100a",
+      "origin": "machine",
+      "message": "Refresh {requestId} was abandoned after repeated attempts; its recovery record is kept on the host."
+    },
+    "status.host_refresh_verdict_already_healthy": {
+      "sourceHash": "512c1744f283a09d8f5848855cd8b1a0e23f5cc7dd915d4e74c04bd498b3913e",
+      "origin": "machine",
+      "message": "Refresh {requestId} finished: the host was already healthy, so nothing was changed."
+    },
+    "status.host_refresh_verdict_failed": {
+      "sourceHash": "70e923c1b5df48d2aa779a70c3b178a152a3fb0e34fd980303de12210333338f",
+      "origin": "machine",
+      "message": "Refresh {requestId} failed ({reason})."
+    },
+    "status.host_refresh_verdict_partial": {
+      "sourceHash": "7ec24ee6933b95015b229b937272a1ea000911ba932831fc13ac8014862dbc53",
+      "origin": "machine",
+      "message": "Refresh {requestId} ended incomplete ({reason}); some services or the runner still need attention."
+    },
+    "status.host_refresh_verdict_refused": {
+      "sourceHash": "e4861c26e35c89e46beca88b22fb2752f8ed11474acd445bcd27e988e80cea18",
+      "origin": "machine",
+      "message": "Refresh {requestId} was refused before any change ({reason})."
+    },
+    "status.host_refresh_verdict_repaired": {
+      "sourceHash": "63ed8dc658f67612c9960e246669a08bd976be588b76079fea2c4fac3537ef50",
+      "origin": "machine",
+      "message": "Refresh {requestId} finished: the host was repaired and the runner is ready."
+    },
+    "status.host_refresh_verdict_still_unresponsive": {
+      "sourceHash": "6c20d4b5e9d4d9e24bbb2705d2b504185dcbe260b909b7b1aee8ff674363f431",
+      "origin": "machine",
+      "message": "Refresh {requestId} ended: the hypervisor still does not respond."
+    },
+    "status.host_refresh_verdict_unknown": {
+      "sourceHash": "5f03881897779c9885487edb448fac62b64974d577215d7d38532012b81d2a32",
+      "origin": "machine",
+      "message": "Refresh {requestId} ended with an outcome this page does not recognize ({verdict})."
+    },
+    "status.host_refresh_waiting": {
+      "sourceHash": "c8a793b93748a78c11e2a49d45b020be9971edffe2a43bbed62860fc4e58ab15",
+      "origin": "machine",
+      "message": "Refresh {requestId} was accepted; waiting for the worker's first report."
+    },
+    "status.host_refresh_waiting_long": {
+      "sourceHash": "ebfb71153041df44ffd6e31c1c58f38115e179c8bbc1253f23cf31f506284909",
+      "origin": "machine",
+      "message": "Refresh {requestId}: no report after {seconds} seconds. The worker may have failed to start; check the host."
+    },
+    "status.start_cycle_blocked_by_refresh": {
+      "sourceHash": "3897b3a96059016fb7fb36fe7f1ffb9aa9de34ec5ec7e7071353437bae5eedb4",
+      "origin": "machine",
+      "message": "A host refresh ({requestId}) is in progress; the cycle cannot start until it finishes."
+    },
+    "status.start_cycle_cycle_restarted": {
+      "sourceHash": "777f87538467b94b76119cfba7f06cf9b399e88621f084591bfdcc89ec5b5eba",
+      "origin": "machine",
+      "message": "Cycle restarted"
+    },
+    "status.start_cycle_failed": {
+      "sourceHash": "3a056f2340554ab93603f39e56ae0fcd3abfb9afac0a8325edcfb059940f0929",
+      "origin": "machine",
+      "message": "Start-cycle failed ({reason})."
+    },
+    "status.start_cycle_no_report": {
+      "sourceHash": "0dcf50e7f8ed17d2327243ae2a8ee522c28a36e93a4230eeb89d5b5280a8f70f",
+      "origin": "machine",
+      "message": "Start-cycle {operationId} has not reported after {seconds} seconds; check the host."
+    },
+    "status.start_cycle_not_spawned": {
+      "sourceHash": "3101d0e30a6dd60ecf87a31369713f8c55ccabbb7b4605455fda09b3b2f9f158",
+      "origin": "machine",
+      "message": "The cycle restart was requested, but the runner's state could not be confirmed, so no second runner was started ({reason}). A running runner restarts its cycle; if none is running, start it on the host."
+    },
+    "status.start_cycle_queued": {
+      "sourceHash": "fcc2f0ce8fc2d1fb6c09522be088f3f85e935af5deef316d82ce2e1df9ba89ca",
+      "origin": "machine",
+      "message": "Start-cycle accepted; stopping in-progress VMs and starting the runner..."
+    },
+    "status.start_cycle_runner_started": {
+      "sourceHash": "58f43380871f4e102a1123638c086cfad39c13e95373d64d4998efcc78ff4227",
+      "origin": "machine",
+      "message": "Runner started"
     }
   }
 }

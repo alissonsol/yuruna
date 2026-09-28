@@ -42,6 +42,10 @@ write_files:
     encoding: base64
     content: YURUNA_FAE_BASE64_PLACEHOLDER
     permissions: '0755'
+  - path: /usr/local/bin/yfe
+    encoding: base64
+    content: YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER
+    permissions: '0755'
   - path: /usr/local/lib/yuruna/yuruna-network.sh
     encoding: base64
     content: YURUNA_NETWORK_BASE64_PLACEHOLDER

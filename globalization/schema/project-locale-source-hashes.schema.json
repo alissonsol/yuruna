@@ -8,39 +8,20 @@
   "properties": {
     "schema": { "const": "yuruna.project-locale-source-hashes/v1" },
     "hashAlgorithm": { "const": "sha256-utf8-nfc-scalar-v1" },
-    "entries": {
-      "type": "array",
-      "items": { "$ref": "#/definitions/entry" }
-    }
+    "entries": { "type": "array", "items": { "$ref": "#/definitions/entry" } }
   },
   "definitions": {
     "entry": {
       "type": "object",
-      "required": ["path", "fieldPath", "locale", "sourceHash", "reviewStatus"],
+      "required": ["path", "fieldPath", "locale", "sourceHash"],
       "additionalProperties": false,
       "properties": {
         "path": { "type": "string", "minLength": 1, "maxLength": 512 },
         "fieldPath": { "type": "string", "pattern": "^/", "maxLength": 1024 },
         "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$", "maxLength": 35 },
         "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "reviewStatus": { "enum": ["unreviewed", "reviewed"] },
-        "reviewer": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "reviewedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "reviewStatus": { "const": "reviewed" } } },
-          "then": { "required": ["reviewer", "reviewedAt"] },
-          "else": {
-            "not": {
-              "anyOf": [
-                { "required": ["reviewer"] },
-                { "required": ["reviewedAt"] }
-              ]
-            }
-          }
-        }
-      ]
+        "origin": { "const": "machine" }
+      }
     }
   }
 }

@@ -663,6 +663,223 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
+  "pool.host_refresh_body_invalid": [
+    "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_busy": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já está processando a solicitação de atualização ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; acompanhe essa solicitação em vez de iniciar outra."
+  ],
+  "pool.host_refresh_control_proof_unavailable": [
+    "Não foi possível obter uma prova de controle para o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_field_unsupported": [
+    "A solicitação de atualização contém o campo não suportado ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
+  ],
+  "pool.host_refresh_host_address_unknown": [
+    "O agregador do grupo conhece o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", mas não tem um endereço para ele."
+  ],
+  "pool.host_refresh_host_id_invalid": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais.",
+  "pool.host_refresh_host_refused": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " recusou a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_refresh_host_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não conseguiu iniciar a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); tente novamente com o mesmo id da solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_host_unknown": [
+    "O agregador do grupo não conhece o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_host_unreachable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não respondeu; tente novamente com o mesmo id da solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_mint_failed": [
+    "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_reply_invalid": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " enviou uma resposta que este serviço não consegue usar (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_request_closed": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " no hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já terminou (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); gere um novo id de solicitação para atualizar novamente."
+  ],
+  "pool.host_refresh_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
+  ],
+  "pool.host_refresh_request_id_invalid": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa.",
+  "pool.host_refresh_rung_unsupported": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker.",
+  "pool.host_refresh_signing_unconfigured": [
+    "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_tier_unsupported": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local.",
+  "pool.host_refresh_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não anuncia suporte à atualização remota (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
   "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": [
     "Host ",
     {
@@ -1699,7 +1916,6 @@ const DataptBRpool = `{
   "pool.what_to_do": "O que fazer",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Que construção está realmente em execução, e por quanto tempo — estabelece se uma correção foi implementada em tudo.",
   "pool.which_network_cidr_notation": "Que rede? (Notação do CIDR)",
-  "pool.x": "x",
   "pool.yuruna_pool_control": "Controle de Piscinas Yuruna"
 }
 `

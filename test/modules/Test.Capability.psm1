@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,8 @@ function Get-SequenceActionsUsed {
     <#
     .SYNOPSIS
         Walk one or more sequence YAML files and return the set of action
-        verbs that appear in any step (including nested `retry` blocks).
+        verbs that appear in any step (including nested `retry` blocks and
+        post-restart recovery blocks).
     .DESCRIPTION
         Uses Read-SequenceFile from Test.SequenceEngine.psm1 when available
         (centralized parser + caching); falls back to a direct
@@ -221,8 +222,9 @@ function Get-SequenceActionsUsed {
 }
 
 function Add-SequenceActionFromStep {
-    # Private. Recurses through retry-nested steps so a retry block's
-    # inner verbs count toward the cycle's verb set.
+    # Private. Recurses through retry-nested steps and the steps run only
+    # after a retry power-cycles a VM, so every reachable verb counts toward
+    # capability preflight even when the recovery path is cold.
     #
     # $Verbs is NOT marked Mandatory: an empty HashSet trips the
     # parameter binder's "Cannot bind argument because it is an empty
@@ -240,8 +242,10 @@ function Add-SequenceActionFromStep {
     foreach ($step in $Steps) {
         if ($step -is [System.Collections.IDictionary] -and $step.Contains('action')) {
             [void]$Verbs.Add([string]$step.action)
-            if ($step.Contains('steps') -and $step.steps) {
-                Add-SequenceActionFromStep -Steps $step.steps -Verbs $Verbs
+            foreach ($nestedStepKey in 'steps', 'stepsAfterVmRestart') {
+                if ($step.Contains($nestedStepKey) -and $step[$nestedStepKey]) {
+                    Add-SequenceActionFromStep -Steps $step[$nestedStepKey] -Verbs $Verbs
+                }
             }
         }
     }
@@ -510,7 +514,12 @@ function Write-HostRegistrationRecord {
             $repoRootForProject = Split-Path -Parent (Split-Path -Parent $runtimeDir)
             if (Test-Path -LiteralPath (Join-Path $projectDir '.git')) {
                 $u = & git -C $projectDir config --get remote.origin.url 2>$null
-                if ($LASTEXITCODE -eq 0 -and $u) { $projectUrl = "$u".Trim() }
+                if ($LASTEXITCODE -eq 0 -and $u) {
+                    if (-not (Get-Command Resolve-GitRemoteLink -ErrorAction SilentlyContinue)) {
+                        Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking -ErrorAction Stop
+                    }
+                    $projectUrl = (Resolve-GitRemoteLink -Url "$u").Url
+                }
                 $c = & git -C $projectDir rev-parse --short HEAD 2>$null
                 if ($LASTEXITCODE -eq 0 -and $c) { $projectCommit = "$c".Trim() }
             }
@@ -568,7 +577,7 @@ function Write-HostRegistrationRecord {
                     # republish a locale-formatted, zone-less value that no pool
                     # consumer can parse back into an instant. Re-emit UTC Z.
                     $sinceUtc = if ($nm.sinceUtc -is [DateTime]) {
-                        ([DateTime]$nm.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        ([DateTime]$nm.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                     } else {
                         [string]$nm.sinceUtc
                     }
@@ -601,7 +610,7 @@ function Write-HostRegistrationRecord {
             runId           = [string]$global:__YurunaRunId
             pid             = $PID
             statusPort      = $statusPort
-            writtenAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            writtenAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             # Reserved for the Horizon B resilience gates (IP/capacity admission,
             # caching-proxy-service circuit breaker, disk headroom -- docs/opportunities.md)
             # + the pool-planner's host selection; populated when those land.

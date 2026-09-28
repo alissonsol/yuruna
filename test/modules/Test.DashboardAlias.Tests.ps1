@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4252ca7f-dcdd-4cf0-893b-f8d1bb64deb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,17 @@ function Get-HintLine {
 }
 function Write-SetupMessage { param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '') Write-Information $Message }
 
+    $operatorPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Globalization.psm1'
+    $script:FixtureOperatorModule = Import-Module $operatorPath -Global -PassThru -DisableNameChecking
+    $script:PreviousOperatorContext = & $script:FixtureOperatorModule { $script:OperatorContext }
+    $null = Get-YurunaOperatorLocale
+    & $script:FixtureOperatorModule {
+        $script:OperatorContext = New-LocaleContext -ConfigLanguage 'en-US' -ProcessCulture 'en-US'
+    }
+}
+
+AfterAll {
+    & $script:FixtureOperatorModule { param($Previous) $script:OperatorContext = $Previous } $script:PreviousOperatorContext
 }
 
 Describe 'the dashboard alias is only offered once it resolves' {

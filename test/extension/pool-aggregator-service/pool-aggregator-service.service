@@ -12,6 +12,7 @@ Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
 EnvironmentFile=-/etc/yuruna/globalization.env
 User=proxy
 Group=proxy
+StateDirectory=pool-aggregator-service
 # -tls-cert/-tls-key activate TLS on :9400 (proxy-CA leaf minted in cloud-init),
 # served ALONGSIDE plain HTTP on the same port: the dashboard's /go/* deep-links
 # are plain-http (they only redirect the operator's browser to plain-http host
@@ -54,7 +55,7 @@ Group=proxy
 # keep resolving after a host has moved its logs to the NAS (or has been switched off
 # entirely). The path is only captured at start; the directory is opened per request,
 # because the CIFS mount is nofail and arrives asynchronously after boot.
-ExecStart=/usr/local/bin/pool-aggregator-service -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h -lab-token-rotate 60s -pool-archive-root /mnt/ypool-nas/hosts
+ExecStart=/usr/local/bin/pool-aggregator-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE} -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h -lab-token-rotate 60s -pool-archive-root /mnt/ypool-nas/hosts -handover-state-file /var/lib/pool-aggregator-service/handovers.json
 Restart=on-failure
 RestartSec=5
 # Auto-discovers pool members by reading the squid access log (proxy owns it,
@@ -62,8 +63,8 @@ RestartSec=5
 # status service, and pushing to Loki on loopback; serves :9400 (TLS + plain HTTP
 # on the one port when the leaf is present) including the authenticated POST
 # /ingest push surface. Disk reads are the squid log, the TLS leaf, the auth token,
-# and -- read-only, for the /archive/ route -- the pool share under /mnt/ypool-nas;
-# state is in memory.
+# and -- read-only, for the /archive/ route -- the pool share under /mnt/ypool-nas.
+# The host handover ledger is the only durable write and lives in StateDirectory.
 ReadOnlyPaths=/var/log/squid
 NoNewPrivileges=true
 ProtectSystem=strict

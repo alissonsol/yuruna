@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fadadf-22f5-4510-87bc-365af8d1047c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,7 +77,7 @@ function Invoke-YurunaFirewallNative {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string[]]$CommandLine)
     $exe  = $CommandLine[0]
-    $rest = if ($CommandLine.Count -gt 1) { $CommandLine[1..($CommandLine.Count - 1)] } else { @() }
+    $rest = @(if ($CommandLine.Count -gt 1) { $CommandLine[1..($CommandLine.Count - 1)] })
     try {
         $out = & $exe @rest 2>&1 | Out-String
         return @{ ExitCode = $LASTEXITCODE; Output = $out }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42e5b8b9-d9cd-4ae5-92e1-a3fd96227e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,9 @@
     pool, and evicts it from the aggregator's live view.
 .PARAMETER PoolId
     Target pool id.
+.PARAMETER Exclude
+    Remove the host from every pool and persist an auto-enrollment exclusion.
+    PoolId may be omitted; the exclusion also applies to an already-unpooled host.
 .PARAMETER HostId
     Stable hostId to remove (runtime/host.uuid, 42-prefixed 32-hex). The GUID-dashed
     spelling every panel and UI reveals a full id in is accepted too, so a value
@@ -40,9 +43,11 @@
     ./Remove-HostFromPool.ps1 -PoolId lab -HostId 42abcdef-0123-4567-89ab-cdef01234567
 #>
 
-[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Pool')]
 param(
-    [Parameter(Mandatory)][string]$PoolId,
+    [Parameter(Mandatory, ParameterSetName = 'Pool')]
+    [Parameter(ParameterSetName = 'Exclude')][string]$PoolId,
+    [Parameter(Mandatory, ParameterSetName = 'Exclude')][switch]$Exclude,
     [Parameter(Mandatory)][string]$HostId,
     [string]$IntentGitUrl,
     [string]$IntentDir
@@ -85,20 +90,39 @@ if (-not $open.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.oper
 
 # --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
-$pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
-if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_610916ed46dbb06b' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
-
-$members = @($pool['members'])
-if ($members -notcontains $HostId) {
+$changed = $false
+if ($Exclude) {
+    $selectedPools = @($doc['pools'])
+} else {
+    $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
+    if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_610916ed46dbb06b' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
+    $selectedPools = @($pool)
+}
+foreach ($pool in $selectedPools) {
+    $members = @($pool['members'])
+    if ($members -contains $HostId) {
+        $pool['members'] = @($members | Where-Object { $_ -ne $HostId })
+        $changed = $true
+    }
+}
+if ($Exclude) {
+    if ($doc['autoEnrollment'] -isnot [System.Collections.IDictionary]) { $doc['autoEnrollment'] = [ordered]@{} }
+    $excluded = @($doc['autoEnrollment']['excluded'] | Where-Object { $_ })
+    if ($excluded -notcontains $HostId) {
+        $doc['autoEnrollment']['excluded'] = @($excluded) + @($HostId)
+        $changed = $true
+    }
+}
+if (-not $changed) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5938fa2155471b2b' -Arguments @{ shownHostId = "$shownHostId"; poolId = "$PoolId" }) -InformationAction Continue
     exit $ExitOk
 }
-$pool['members'] = @($members | Where-Object { $_ -ne $HostId })
 
 # --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
 if (-not $save.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_9c27a25b6843707d' -Arguments @{ error = "$($save.Error)" }) -ErrorAction Continue; exit $ExitFailure }
-$pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: remove $HostId from $PoolId" -Confirm:$false
+$message = if ($Exclude) { "pool: exclude $HostId from auto-enrollment" } else { "pool: remove $HostId from $PoolId" }
+$pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message $message -Confirm:$false
 if (-not $pub.Ok) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_493d8875345272bb' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_d7dcddaba0a5b0ef' -Arguments @{ error = "$($pub.Error)" }) -ErrorAction Continue

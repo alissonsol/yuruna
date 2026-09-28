@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,10 +132,9 @@ function Get-OCRNormalized {
     distance apart -- so a multi-word pattern whose segments normalize to
     two- and four-character tokens is satisfied by coincidence once the
     screen carries a few KB of dense output such as a package or asset
-    fetch listing URLs. That looseness is affordable where a miss costs a
-    wait its timeout and nothing else. It is not affordable for an
-    anti-pattern, where a match ends a run that was healthy, so callers
-    matching anti-patterns pass this.
+    fetch listing URLs. Prompt checks and anti-patterns pass this switch:
+    accepting scattered words can type input before the guest is ready or
+    end a healthy run. Callers that need reordered text can retain Strategy 3.
 #>
 function Test-OCRMatch {
     param([string]$Text, [string]$Pattern, [switch]$NoSegmentMatch)
@@ -234,9 +233,8 @@ function Test-OCRMatch {
     #
     # Unlike the two strategies above this one is bounded by nothing: no line,
     # no order, no span. Every segment merely has to exist somewhere. A caller
-    # whose match decides that something has gone wrong asks for it to be
-    # skipped, because for that caller a coincidence is not a slow answer, it
-    # is a wrong one.
+    # matching a prompt or deciding that something has gone wrong skips it:
+    # a coincidence must not send input early or fail a healthy guest.
     if ($NoSegmentMatch) { return $false }
     $normFull = Get-OCRNormalized $Text
     $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
@@ -308,6 +306,10 @@ function Get-OcrCombineMode {
     When greater than 0, only the last N lines of each engine's OCR text are
     tested. Defaults to 0 (test all lines). Typically set to 12 for freshMatch.
 
+.PARAMETER NoSegmentMatch
+    Require a bounded match within one OCR line, retaining character-confusion
+    and dropped-character tolerance. Do not assemble a match from scattered words.
+
 .OUTPUTS
     A hashtable with:
       Match        -- [bool] combined result
@@ -318,7 +320,8 @@ function Test-CombinedOcrMatch {
     param(
         [Parameter(Mandatory)] [string]$ImagePath,
         [Parameter(Mandatory)] [string[]]$Pattern,
-        [int]$FreshMatchTailLines = 0
+        [int]$FreshMatchTailLines = 0,
+        [switch]$NoSegmentMatch
     )
 
     # No Import-Module here: Wait-ForText (the only caller in the hot path)
@@ -358,7 +361,7 @@ function Test-CombinedOcrMatch {
         $matchedPattern = $null
         if ($textForMatch) {
             foreach ($p in $Pattern) {
-                if (Test-OCRMatch -Text $textForMatch -Pattern $p) {
+                if (Test-OCRMatch -Text $textForMatch -Pattern $p -NoSegmentMatch:$NoSegmentMatch) {
                     $matched = $true
                     $matchedPattern = $p
                     break
@@ -436,6 +439,8 @@ function Test-CombinedOcrMatch {
 .PARAMETER FreshMatchTailLines
     The window that was actually applied. 0 or less means no window was in
     force, so there is nothing to report.
+.PARAMETER NoSegmentMatch
+    Apply the same bounded matching policy as the wait being diagnosed.
 .OUTPUTS
     [string[]] one line per engine+pattern near miss; empty when the window was
     not the reason -- nothing matched anywhere, or the frame was short enough
@@ -450,7 +455,8 @@ function Get-OcrFreshWindowNearMiss {
     param(
         [AllowNull()][System.Collections.IDictionary]$EngineResult,
         [string[]]$Pattern,
-        [int]$FreshMatchTailLines
+        [int]$FreshMatchTailLines,
+        [switch]$NoSegmentMatch
     )
     $found = [System.Collections.Generic.List[string]]::new()
     if ($null -eq $EngineResult -or $FreshMatchTailLines -le 0) { return [string[]]$found.ToArray() }
@@ -477,10 +483,10 @@ function Get-OcrFreshWindowNearMiss {
             if ([string]::IsNullOrWhiteSpace($p)) { continue }
             # The tail already failed, so a hit on the full text is by
             # construction a hit above the window.
-            if (-not (Test-OCRMatch -Text $text -Pattern $p)) { continue }
+            if (-not (Test-OCRMatch -Text $text -Pattern $p -NoSegmentMatch:$NoSegmentMatch)) { continue }
             $lastHit = -1
             for ($i = $windowStart - 1; $i -ge 0; $i--) {
-                if (Test-OCRMatch -Text $lines[$i] -Pattern $p) { $lastHit = $i; break }
+                if (Test-OCRMatch -Text $lines[$i] -Pattern $p -NoSegmentMatch:$NoSegmentMatch) { $lastHit = $i; break }
             }
             $where = if ($lastHit -ge 0) { "$($windowStart - $lastHit) line(s) above" } else { 'above' }
             $found.Add("[$engineName] read '$p' $where the ${FreshMatchTailLines}-line freshMatch window: the text WAS on screen, just outside what was tested. Raise freshMatchTailLines for this step, or stop the guest printing after the marker.")

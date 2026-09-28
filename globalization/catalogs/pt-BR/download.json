@@ -589,10 +589,6 @@
       "sourceHash": "a5fb88d8fbbdeba5af4fa19b0ed01ec642fbf93ebac347a1317d063dacb91e0b",
       "message": "Desbloquear ações primeiro -- insira o token do laboratório acima."
     },
-    "download.v": {
-      "sourceHash": "be19718b6e0b77a9a04e9182080d2fab1b3387dd7a9cf244aea13718f93d34c5",
-      "message": "v"
-    },
     "download.value1_failed_for_value2_value3": {
       "sourceHash": "ef9d4e344066a1a80330bfe62aef19dc94d683db4acb048c5caba69d2d3a248c",
       "message": "{value1} falhou para {value2}: {value3}"

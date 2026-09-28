@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -40,7 +40,8 @@ kubectl --kubeconfig="$cfg" config unset "users.${dst}" >/dev/null 2>&1 || true
 # top-level names + the two intra-context references to the destination.
 # Drop current-context so the merge does not stomp on our restore below.
 tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
+combined=''
+trap 'rm -f "$tmp"; if [ -n "$combined" ]; then rm -f "$combined"; fi' EXIT
 
 kubectl --kubeconfig="$cfg" config view --minify --raw=true --context "$src" -o yaml \
     | python3 -c '
@@ -56,8 +57,9 @@ data.pop("current-context", None)
 yaml.safe_dump(data, sys.stdout, default_flow_style=False)
 ' "$dst" >"$tmp"
 
-combined="${HOME}/.kube/config.yuruna"
-rm -f "$combined"
+# The merged config embeds credentials. mktemp creates a private 0600 file
+# beside the destination, preserving that mode when the atomic rename replaces it.
+combined=$(mktemp "${HOME}/.kube/config.yuruna.XXXXXX")
 KUBECONFIG="${cfg}:${tmp}" kubectl config view --flatten >"$combined"
 
 [ -s "$combined" ] || err "K8S configuration problems. Try deleting invalid contexts: $cfg"

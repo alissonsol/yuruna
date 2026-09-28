@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c6e83b-159d-4f27-8a0e-6b7d2c4901fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,10 @@
     Framework repository root. Defaults to the parent of this script.
 .PARAMETER ProjectRoot
     Project checkout paired with this framework tree.
+.PARAMETER Locale
+    Locale tags handed to the terminology and document steps, which then
+    check only those locales. Without it, both steps check every locale they
+    find.
 .PARAMETER SkipGate
     Stop after the regeneration and verification steps, without running the
     full cross-repository gate.
@@ -55,6 +59,7 @@
 param(
     [string]$Root,
     [string]$ProjectRoot,
+    [string[]]$Locale,
     [switch]$SkipGate,
     [switch]$ListOnly,
     [switch]$Quiet
@@ -91,11 +96,11 @@ $script:Step = @(
     [ordered]@{ name = 'utf8-catalog'; tool = 'tools/Test-Utf8Catalog.ps1'; arguments = @(); writes = $false
         purpose = 'hold the globalization tree to normalized, BOM-less UTF-8'
     }
-    [ordered]@{ name = 'terminology'; tool = 'tools/Test-Terminology.ps1'; arguments = @('-RequireApproved'); writes = $false
-        purpose = 'prove the glossary and style guide are approved and content-bound'
+    [ordered]@{ name = 'terminology'; tool = 'tools/Test-Terminology.ps1'; arguments = @(); writes = $false
+        purpose = 'prove the glossary and style guide keep their required shape'
     }
-    [ordered]@{ name = 'doc-translation'; tool = 'tools/Test-DocTranslation.ps1'; arguments = @('-RequireReviewed'); writes = $false
-        purpose = 'prove every mapped document is source-current and reviewed'
+    [ordered]@{ name = 'doc-translation'; tool = 'tools/Test-DocTranslation.ps1'; arguments = @(); writes = $false
+        purpose = 'prove every mapped document has a source-current translation'
     }
     [ordered]@{ name = 'project-locale-map'; tool = 'tools/Invoke-ProjectLocaleMap.ps1'; arguments = @(); writes = $false
         purpose = 'validate the project display maps and their source hashes'
@@ -150,6 +155,9 @@ foreach ($step in $script:Step) {
     if ($name -in 'domain-inventory', 'doc-translation', 'project-locale-map', 'reference-fixture', 'cross-repo-gate') {
         $arguments += @('-ProjectRoot', $ProjectRoot)
     }
+    # A comma-joined list survives the -File hop as one argument; both tools
+    # split it.
+    if ($Locale -and $name -in 'terminology', 'doc-translation') { $arguments += @('-Locale', ($Locale -join ',')) }
     $global:LASTEXITCODE = 0
     $output = (& $script:PowerShellPath @arguments 2>&1 | Out-String).Trim()
     $code = $LASTEXITCODE

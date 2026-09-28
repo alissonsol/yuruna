@@ -2,9 +2,11 @@
 
 # Yuruna
 
-**Yuruna asserts resources are configured to verify components against anticipated workloads.**
+ A cross-platform framework for instant lab provisioning and reliable user scenario verification.
 
-Three capabilities: reproducible host/guest VM setups for development
+**Yuruna asserts resources are configured to verify components against anticipated workloads.** Designed to bridge the gap between fragile prototypes and hardened enterprise deployments, Yuruna automates the complex infrastructure required for deterministic testing. It enables organizations to rapidly provision isolated host environments across diverse architectures, instantly solving the bottlenecks of manual setup and dependency management. With a clean baseline established, teams can continuously execute automated workflows to guarantee that high-stakes user scenarios perform reliably under actual operational stress
+
+Three main capabilities: reproducible host/guest VM setups for development
 workspaces, Kubernetes deployment across multiple clouds, and a VM-based
 test harness. Architecture and conventions: [Yuruna Architecture](docs/architecture.md).
 
@@ -95,6 +97,8 @@ After the guest OS is up, test workloads:
 - **[All documentation](docs/README.md)** -- what every doc under `docs/` covers
 - [Requirements](docs/operator.md#b2-preflight-dependencies) - [Workarounds & FAQ](docs/workarounds.md) - [Roadmap](docs/opportunities.md#roadmap)
 - Machine [operator](docs/operator.md) and [lab operator](docs/lab-operator.md) guides
+- [Failed-cycle email alerts](docs/alerts.md) -- configure Grafana to email
+  once per observed failed test cycle
 - [Contributing](CONTRIBUTING.md) - [Contributors](CONTRIBUTING.md#contributors) - [Opportunities](docs/opportunities.md)
 - [Changelog](CHANGELOG.md) - [Security policy](SECURITY.md) - [License](LICENSE.md)
 
@@ -107,4 +111,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27

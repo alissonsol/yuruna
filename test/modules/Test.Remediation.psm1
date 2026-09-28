@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -469,7 +469,7 @@ function Invoke-Remediation {
     # values are dropped so the typed-string schema check passes cleanly.
     if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
         $emit = [ordered]@{
-            timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event          = 'remediation_recommended'
             failureClass   = $failureClass
             severity       = $severity
@@ -501,7 +501,7 @@ function Invoke-Remediation {
         if ($targetDir -and (Test-Path -LiteralPath $targetDir -PathType Container)) {
             $record = [ordered]@{
                 schemaVersion  = 1
-                timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 # The record lands in the log ROOT, which outlives any single
                 # cycle, so whoever archives it into a cycle folder cannot tell a
                 # record THIS cycle produced from one an earlier cycle left

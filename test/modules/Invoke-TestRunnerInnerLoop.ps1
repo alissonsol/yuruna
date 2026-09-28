@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,10 +28,21 @@
 .PARAMETER NoStatusService       Skip the built-in HTTP status service
 .PARAMETER CycleDelaySeconds     Pause between cycles (default 30)
 .PARAMETER logLevel              One of Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority levels (Error highest). Omit to read test.config.yml.logLevel (default "Information").
+
+Strict binding: an unknown or misspelled parameter is a binding error, never
+a value silently absorbed into $args while the cycle runs on defaults.
+
+A chain restarted by a host refresh runs this script in one of two extra
+roles, chosen from the environment the cycle process sets around the spawn:
+preflight (YURUNA_REFRESH_PREFLIGHT with YURUNA_REFRESH_HANDOFF_TOKEN) proves
+the host, acknowledges readiness and parks without any git, VM, control or
+status-document work; barrier (YURUNA_REFRESH_BARRIER) runs an ordinary
+cycle that first waits for the operator's preserved pauses and holds.
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = '$global:__YurunaLogFile is the cross-module channel with Yuruna.Log; the proxy reads it to mirror Write-* output to the per-cycle log.')]
+[CmdletBinding()]
 param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
@@ -145,6 +156,9 @@ $null = Initialize-YurunaLogDir
 $global:__YurunaHostId = Get-YurunaHostId
 $StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR "status.json"
 
+# Refresh role of this inner: normal, preflight or barrier (see the help).
+$RefreshMode = Get-YurunaRefreshInnerMode -RuntimeDir $env:YURUNA_RUNTIME_DIR
+
 # Per-cycle helpers live in Test.RunnerInnerLoop.psm1 (imported with the Inner
 # module set): Write-InnerLog (exit-path timeline log), the cycle-start
 # working-tree-drift guard (Convert-LocalRepoUrlToPath /
@@ -238,6 +252,10 @@ $StepHeartbeatFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.stepHeartbeat"
 # proxy is not imported yet, and the call-op spawn does not redirect stderr), so
 # also mirror it to outer.log via Write-InnerLog where it stays durable and
 # diagnosable next to the outer/watchdog entries.
+# The start record goes first, so a reader never pairs a new PID with an old
+# start time: inner.start + inner.pid are the exact identity a host refresh
+# checks before it may reclaim this inner.
+$null = Write-YurunaProcessStartRecord -Path (Join-Path $env:YURUNA_RUNTIME_DIR 'inner.start') -Confirm:$false
 $innerPidWritten = Write-YurunaStateFile -Path $InnerPidFile -Content ([string]$PID) -Confirm:$false
 if (-not $innerPidWritten) {
     $innerPidWarn = "inner.pid write to '$InnerPidFile' failed; the outer watchdog cannot target this inner by PID (a hung inner will run unguarded this cycle). Check YURUNA_RUNTIME_DIR permissions/free space."
@@ -331,7 +349,9 @@ if (Test-Path $yurunaRetryModule) {
 $global:VerbosePreference = $savedVerbose
 
 # --- REGION: Bootstrap status.json from template if missing
-if (-not (Test-Path $StatusFile)) {
+# A preflight inner writes no status document: the dashboard keeps the last
+# real cycle until the first ordinary cycle of the resumed chain.
+if ($RefreshMode.Mode -ne 'preflight' -and -not (Test-Path $StatusFile)) {
     if (Test-Path $StatusTmpl) {
         Copy-Item -Path $StatusTmpl -Destination $StatusFile
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9073dca2f5030e8f')
@@ -357,7 +377,16 @@ $script:RunnerCfgState = New-RunnerConfigState -CmdLineLogLevel $script:CmdLineL
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ac92ad6675163216' -Arguments @{ configPath = "$ConfigPath"; templatePath = "$TemplatePath" }); exit $ExitFailure
 }
-$Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
+if ($RefreshMode.Mode -eq 'preflight') {
+    # Read only: the preflight must not rewrite the operator's config file.
+    $Config = $null
+    try { $Config = Read-TestConfig -Path $ConfigPath } catch {
+        Write-Verbose "Refresh preflight: config unreadable: $($_.Exception.Message)"
+        $Config = $null
+    }
+} else {
+    $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
+}
 $script:Config = $Config
 # Re-resolve now that JSON values are loaded -- the early Resolve-LogLevel
 # at the top of the script saw cmdline-only data. Per-step refreshes inside a
@@ -378,12 +407,45 @@ Resolve-LogLevel
 # check per stage: the gate reaches the network, and a remote that stops
 # answering between two stages would otherwise abort a healthy cycle
 # mid-flight and discard every stage already built.
-Write-RunnerPhase -Phase 'config-gate'
-$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
-if (-not $gate.passed) { exit $ExitFailure }
+# A preflight inner skips the gate: the resumed outer ran its startup gate in
+# the same chain seconds earlier, and the first ordinary cycle gates again.
+if ($RefreshMode.Mode -ne 'preflight') {
+    Write-RunnerPhase -Phase 'config-gate'
+    $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
+    if (-not $gate.passed) { exit $ExitFailure }
+}
 
 # --- REGION: Bootstrap
 $HostType = Get-HostType
+
+# --- REGION: Host-refresh preflight
+# The whole preflight: prove the host from this ancestry, acknowledge, park
+# until the refresh releases the runner, and exit. Nothing below this block
+# runs in preflight -- no host registration, no stash marker (an Apple Events
+# call on macOS), no host-condition set, no VM stop or service restore, no
+# status service.
+if ($RefreshMode.Mode -eq 'preflight') {
+    $preflightDeadline = New-YurunaDeadline -TotalMilliseconds 120000
+    $preflight = Invoke-YurunaRefreshPreflight -Mode $RefreshMode -HostType ([string]$HostType) -RepoRoot $RepoRoot `
+        -Config $Config -StepHeartbeatFile $StepHeartbeatFile -Deadline $preflightDeadline -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    $preflightExit = $ExitFailure
+    if ($preflight.State -eq 'ready') {
+        $release = Wait-YurunaRefreshRelease -TokenId ([string]$RefreshMode.TokenId) -Purpose ([string]$RefreshMode.Purpose) `
+            -StepHeartbeatFile $StepHeartbeatFile -ShutdownState @{ Requested = $false } -RuntimeDir $env:YURUNA_RUNTIME_DIR
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_released' -Arguments @{ outcome = [string]$release.Outcome }) -InformationAction Continue
+        if ($release.Outcome -in @('released', 'not-parked')) { $preflightExit = $ExitOk }
+    }
+    try { Stop-RunnerHeartbeat } catch { $null = $_ }
+    try {
+        $innerFilePid = 0
+        try { $innerFilePid = [int]((Get-Content $InnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $innerFilePid = 0 }
+        if ($innerFilePid -eq $PID) { Remove-Item $InnerPidFile -Force -ErrorAction SilentlyContinue }
+    } catch { $null = $_ }
+    Clear-RunnerPhase
+    Write-InnerLog "refresh preflight finished ($($preflight.State)); exiting with code $preflightExit"
+    exit $preflightExit
+}
+
 if (-not $HostType) { exit $ExitFailure }
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_82bcd42076e94095' -Arguments @{ hostType = "$HostType" })
 Write-RunnerPhase -Phase 'host-detect'
@@ -407,6 +469,21 @@ if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
 # Stop-VM, Send-Text, Get-VMScreenshot, ...) are resolvable from this
 # script's session without any HostType branches.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
+
+# --- REGION: Held-control barrier
+# The first ordinary cycle after a host refresh adopts the operator's
+# preserved pauses and holds before anything below can touch a VM or the
+# host: the stash marker refresh, the host-condition set, the concurrent-VM
+# stop, the service-VM restore and the cycle sweeps all come after this. The
+# Ctrl+C handler is not registered yet, so a local handle stands in.
+if ($RefreshMode.Mode -eq 'barrier') {
+    Write-RunnerPhase -Phase 'refresh-barrier'
+    $barrier = Wait-YurunaHeldControlBarrier -RuntimeDir $env:YURUNA_RUNTIME_DIR -StepHeartbeatFile $StepHeartbeatFile `
+        -ShutdownState @{ Requested = $false } -Config $Config -HostType $HostType -RequestId ([string]$RefreshMode.RequestId)
+    if ($barrier.Outcome -eq 'shutdown') { exit $ExitOk }
+    if ($barrier.Outcome -eq 'lab-exhausted') { exit $ExitFailure }
+    Write-RunnerPhase -Phase 'host-detect'
+}
 
 # Keep a stash-service host's advertised address current: re-resolve the stash-service VM's guest IP
 # (single-shot, now that Get-VMIp is wired) and rewrite the marker's stashBaseUrl when
@@ -543,7 +620,7 @@ if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
     # the count could never advance past one.
     $hostNetworkDegradedSwitch  = "$hostNetworkDegradedSwitch"
     $hostNetworkDegradedVerdict = "$hostNetworkDegradedVerdict"
-    $hostNetworkSinceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $hostNetworkSinceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     $hostNetworkCycles   = 1
     if (Test-Path -LiteralPath $HostNetworkRecordFile) {
         try {
@@ -558,7 +635,7 @@ if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
                 # would rewrite the record with a locale-formatted, zone-less
                 # value that drifts one conversion further every cycle.
                 if ($priorDegraded.sinceUtc -is [DateTime]) {
-                    $hostNetworkSinceUtc = ([DateTime]$priorDegraded.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    $hostNetworkSinceUtc = ([DateTime]$priorDegraded.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 } elseif ($priorDegraded.sinceUtc) {
                     $hostNetworkSinceUtc = [string]$priorDegraded.sinceUtc
                 }
@@ -642,11 +719,14 @@ if (-not $hostNetwork.Healthy) {
         Write-Warning "========"
         # Leave the host no dirtier than a normal cycle start: the sweep that
         # removes VMs stranded by the previous cycle lives inside the cycle
-        # body, which this refusal skips.
-        try {
-            & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Quiet
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "$_" })
+        # body, which this refusal skips. Not while a host refresh holds the
+        # host: the sweep is a VM mutation the refresh has not released.
+        if (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
+            try {
+                & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Quiet
+            } catch {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "$_" })
+            }
         }
         exit $ExitFailure
     }
@@ -705,6 +785,7 @@ Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -F
 # and discards a warm squid cache; a start is seconds and keeps it.
 Write-RunnerPhase -Phase 'service-vm-restore'
 if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
+    $serviceRestore = @()
     try {
         $serviceRestore = @(Restore-YurunaServiceVM -Confirm:$false)
         Write-YurunaServiceVmRestoreReport -Result $serviceRestore
@@ -712,6 +793,25 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
         # Never fatal: a host that cannot check its service VMs still runs the
         # cycle, and the gates below report what is actually reachable.
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_96a9c1c4155d58e1' -Arguments @{ message = "$($_.Exception.Message)" })
+    }
+    # Automatic host-refresh evidence for the outer: the per-service probe
+    # reasons of this restore, tagged with the generation the outer issued for
+    # this cycle so the loop never counts a sidecar from another cycle. Written
+    # even when the cycle later passes, and never allowed to change the cycle.
+    if ($env:YURUNA_CYCLE_GENERATION) {
+        try {
+            if (-not (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue)) {
+                $triggerModule = Join-Path $ModulesDir 'Test.HostRefreshTrigger.psm1'
+                if (Test-Path -LiteralPath $triggerModule) { Import-Module $triggerModule -Global -ErrorAction SilentlyContinue }
+            }
+            if (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue) {
+                $null = Write-HostRefreshAutoEvidence -RuntimeDir $env:YURUNA_RUNTIME_DIR -Generation $env:YURUNA_CYCLE_GENERATION `
+                    -Phase 'service-vm-restore' -ServiceRestoreResult $serviceRestore -HostType $HostType `
+                    -HostId ([string]$global:__YurunaHostId) -Confirm:$false
+            }
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = 'service-vm-restore'; message = "$($_.Exception.Message)" })
+        }
     }
 }
 
@@ -827,13 +927,13 @@ if (-not $cpPortLock.Acquired) {
 # Start-TestRunner.ps1 before the loop) or an /etc/sudoers.d drop-in -- never
 # mid-cycle, where nobody is at the console to answer.
 #
-# The prime that used to sit here also gated on Test-CacheVMOnExternalNetwork,
-# which asks "is the LOCAL cache VM bridged?" and returns false BOTH for a
-# NAT'd local cache that needs forwarders AND for a host whose cache is a
-# different machine entirely. On the latter the prime fired every cycle and the
-# dispatch below then took the external branch, where Remove-PortMap finds no
-# units and issues no sudo at all: a password prompt, every cycle, for work that
-# never happened.
+# A prime gated on Test-CacheVMOnExternalNetwork would be wrong as well: that
+# asks "is the LOCAL cache VM bridged?" and returns false BOTH for a NAT'd
+# local cache that needs forwarders AND for a host whose cache is a different
+# machine entirely. On the latter a prime would fire every cycle while the
+# dispatch below takes the external branch, where Remove-PortMap finds no units
+# and issues no sudo at all: a password prompt, every cycle, for work that
+# never happens.
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
@@ -1026,12 +1126,18 @@ try {
         consecutiveSuccesses = $ConsecutiveSuccesses
         consecutiveCrashes   = $ConsecutiveCrashes
         alertArmed           = $AlertArmed
-        savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
 } catch {
     Write-Verbose "Gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }
 Write-InnerLog "post-loop cleanup: gating state saved"
+if ($cycleState.RefreshGated) {
+    # Held by a host refresh before any change: the cycle process reads
+    # runner.refresh-gated.json and reports refresh-gated, so there is no
+    # failure to announce here.
+    Write-InnerLog "cycle held by the host-refresh gate; nothing was changed"
+}
 
 # --- REGION: Heartbeat cleanup
 # Dispose the threadpool timer first so it can't race a final file write
@@ -1081,7 +1187,7 @@ try {
 }  # end of: if YURUNA_RUNNER_RELAUNCH -ne '1' (pidfile cleanup)
 
 # --- REGION: Failure notification (only reached when stopOnFailure breaks the loop)
-if (-not $OverallPassed -and $FailedGuest) {
+if (-not $OverallPassed -and $FailedGuest -and -not $cycleState.RefreshGated) {
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_729aea0314e609b0')
@@ -1161,7 +1267,7 @@ try {
         consecutiveSuccesses = $ConsecutiveSuccesses
         consecutiveCrashes   = $ConsecutiveCrashes
         alertArmed           = $AlertArmed
-        savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
 } catch {
     Write-Verbose "Final gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"

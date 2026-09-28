@@ -5,9 +5,11 @@ package pool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -175,6 +177,56 @@ func TestStatusIsCachedForTheConfiguredWindow(t *testing.T) {
 	}
 }
 
+func TestHandoverHostAuthenticatesAndInvalidatesStatusCache(t *testing.T) {
+	var handed atomic.Bool
+	var posts atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/pool-status", func(w http.ResponseWriter, _ *http.Request) {
+		if handed.Load() {
+			_, _ = w.Write([]byte(`{"hosts":[{"hostId":"new"}]}`))
+		} else {
+			_, _ = w.Write([]byte(`{"hosts":[{"hostId":"old"},{"hostId":"new"}]}`))
+		}
+	})
+	mux.HandleFunc("POST /api/v1/handover-host", func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			t.Error("handover omitted the internal bearer")
+		}
+		handed.Store(true)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := New(Options{BaseURL: srv.URL, CacheTTL: time.Minute})
+	before, err := c.Status(context.Background())
+	if err != nil || len(before.Hosts) != 2 {
+		t.Fatalf("before = %+v, %v", before, err)
+	}
+	if err := c.HandoverHost(context.Background(), "old", "new", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := c.Status(context.Background())
+	if err != nil || len(after.Hosts) != 1 || after.Hosts[0].HostID != "new" || posts.Load() != 1 {
+		t.Fatalf("cached status survived handover: %+v, %v", after, err)
+	}
+}
+
+func TestHandoverHostDoesNotDowngradeBearerAfterTLSFailure(t *testing.T) {
+	var posts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+	}))
+	defer srv.Close()
+	c := New(Options{BaseURL: strings.Replace(srv.URL, "http://", "https://", 1)})
+	if err := c.HandoverHost(context.Background(), "old", "new", "secret"); err == nil {
+		t.Fatal("TLS failure was accepted")
+	}
+	if posts.Load() != 0 {
+		t.Fatal("bearer request fell back to plaintext HTTP")
+	}
+}
+
 func TestExtensionHostAnswersOneAreaAndDistinguishesNotServed(t *testing.T) {
 	agg := newFakeAggregator(t)
 	agg.extBody = `{"area":"stash-service","host":"10.0.0.9","target":"http://10.0.0.9",
@@ -298,5 +350,165 @@ func TestHealthzAndGetReachTheAggregator(t *testing.T) {
 	}
 	if err := c.GetURL(context.Background(), agg.srv.URL+"/api/v1/pool-status", &raw); err != nil {
 		t.Fatalf("GetURL: %v", err)
+	}
+}
+
+// --- REGION: Refresh capability
+// An aggregator that predates the refresh field must never make a host look
+// remotely refreshable: the zero value decodes, normalizes to "never
+// observed", and is not usable.
+func TestAnOldAggregatorPayloadIsNotRemoteUsable(t *testing.T) {
+	agg := newFakeAggregator(t)
+	agg.statusBody = twoHostStatus
+	c := New(Options{BaseURL: agg.srv.URL, CacheTTL: NoCache})
+	s, err := c.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	for _, h := range s.Hosts {
+		if h.Refresh.RemoteUsable() {
+			t.Errorf("%s: a payload without refresh reads as usable: %+v", h.HostID, h.Refresh)
+		}
+		if h.Refresh != UnobservedRefresh() {
+			t.Errorf("%s: refresh = %+v, want the unobserved value", h.HostID, h.Refresh)
+		}
+	}
+}
+
+// A capability the aggregator did carry survives the decode unchanged, and the
+// Control string keeps its old shape beside it.
+func TestANewPayloadRoundTripsTheRefreshCapability(t *testing.T) {
+	agg := newFakeAggregator(t)
+	agg.statusBody = `{"pool":"default","hosts":[{"hostId":"aaa","control":"ready",
+	  "refresh":{"protocol":1,"availability":"available","ceiling":"start-if-stopped","remote":"provisioned","state":"idle","observedUnixMs":1900000000000,"ageSeconds":12}}]}`
+	c := New(Options{BaseURL: agg.srv.URL, CacheTTL: NoCache})
+	s, err := c.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	h, _ := s.Host("aaa")
+	want := HostRefresh{Protocol: 1, Availability: RefreshAvailable, Ceiling: RungStartIfStopped, Remote: RefreshRemoteProvisioned,
+		State: RefreshStateIdle, ObservedUnixMs: 1900000000000, AgeSeconds: 12}
+	if h.Refresh != want {
+		t.Fatalf("refresh = %+v, want %+v", h.Refresh, want)
+	}
+	if !h.Refresh.RemoteUsable() {
+		t.Fatal("a provisioned, available protocol-1 capability must be usable")
+	}
+	if h.Control != ControlReady {
+		t.Fatalf("control = %q; the refresh field must not disturb the control string", h.Control)
+	}
+	body, err := json.Marshal(h.Refresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back HostRefresh
+	if err := json.Unmarshal(body, &back); err != nil || back != want {
+		t.Fatalf("re-encode round trip = %+v (%v), want %+v", back, err, want)
+	}
+}
+
+func TestUnobservedRefreshIsUnavailable(t *testing.T) {
+	u := UnobservedRefresh()
+	if u.Availability != RefreshUnavailable || u.Reason != RefreshReasonNeverObserved ||
+		u.Remote != RefreshRemoteUnknown || u.State != RefreshStateUnknown || u.RemoteUsable() {
+		t.Fatalf("unobserved = %+v", u)
+	}
+}
+
+// Every value reaches the pool over unauthenticated reads, so each field is
+// clamped to its vocabulary and any doubt reads as unavailable.
+func TestNormalizedClampsEveryField(t *testing.T) {
+	ok := HostRefresh{Protocol: 1, Availability: RefreshAvailable, Ceiling: RungReclaim, Remote: RefreshRemoteProvisioned, State: RefreshStateIdle}
+	cases := []struct {
+		name    string
+		in      HostRefresh
+		avail   string
+		reason  string
+		ceiling string
+		remote  string
+		state   string
+		usable  bool
+	}{
+		{"valid", ok, RefreshAvailable, "", RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, true},
+		{"protocol 2", with(ok, func(r *HostRefresh) { r.Protocol = 2 }), RefreshUnavailable, RefreshReasonProtocolUnsupported, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"protocol 0", with(ok, func(r *HostRefresh) { r.Protocol = 0 }), RefreshUnavailable, RefreshReasonProtocolUnsupported, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"unknown availability", with(ok, func(r *HostRefresh) { r.Availability = "maybe" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"available without ceiling", with(ok, func(r *HostRefresh) { r.Ceiling = "" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, "", RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"ceiling not a rung", with(ok, func(r *HostRefresh) { r.Ceiling = "rm -rf" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, "", RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"reason out of shape", with(ok, func(r *HostRefresh) { r.Availability, r.Reason = RefreshUnavailable, "Has Spaces" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"remote unknown word", with(ok, func(r *HostRefresh) { r.Remote = "yes" }), RefreshAvailable, "", RungReclaim, RefreshRemoteUnknown, RefreshStateIdle, false},
+		{"state unknown word", with(ok, func(r *HostRefresh) { r.State = "busy" }), RefreshAvailable, "", RungReclaim, RefreshRemoteProvisioned, RefreshStateUnknown, true},
+		{"unavailable keeps its reason", with(ok, func(r *HostRefresh) { r.Availability, r.Reason = RefreshUnavailable, "no_qualified_rung" }), RefreshUnavailable, "no_qualified_rung", RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+	}
+	for _, c := range cases {
+		got := c.in.Normalized()
+		if got.Availability != c.avail || got.Reason != c.reason || got.Ceiling != c.ceiling || got.Remote != c.remote || got.State != c.state {
+			t.Errorf("%s: normalized = %+v", c.name, got)
+		}
+		if got.RemoteUsable() != c.usable {
+			t.Errorf("%s: usable = %v, want %v", c.name, got.RemoteUsable(), c.usable)
+		}
+	}
+	neg := with(ok, func(r *HostRefresh) { r.ObservedUnixMs, r.AgeSeconds = -5, -7 }).Normalized()
+	if neg.ObservedUnixMs != 0 || neg.AgeSeconds != 0 {
+		t.Errorf("negative instants must clamp to zero: %+v", neg)
+	}
+}
+
+func with(r HostRefresh, f func(*HostRefresh)) HostRefresh {
+	f(&r)
+	return r
+}
+
+// The ladder is eight rungs in Order, the constants spell the same names, and
+// the exported list is a copy nobody can reorder for everyone else.
+func TestRefreshRungNamesAreTheOrderedLadder(t *testing.T) {
+	want := []string{RungProbe, RungReclaim, RungStartIfStopped, RungRestartIfHung, RungRestartBroker, RungReapplySettings, RungReinstall, RungReboot}
+	got := RefreshRungNames()
+	if len(got) != len(want) {
+		t.Fatalf("%d rungs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rung %d = %q, want %q", i, got[i], want[i])
+		}
+		if order, ok := RefreshRungOrder(want[i]); !ok || order != i {
+			t.Fatalf("RefreshRungOrder(%q) = %d,%v, want %d", want[i], order, ok, i)
+		}
+	}
+	got[0] = "tampered"
+	if RefreshRungNames()[0] != RungProbe {
+		t.Fatal("RefreshRungNames exposed its backing array")
+	}
+	if _, ok := RefreshRungOrder("Probe"); ok {
+		t.Fatal("rung names are case-sensitive vocabulary")
+	}
+}
+
+func TestAuthenticatedOperationsRejectMissingTokenBeforeRequest(t *testing.T) {
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	client := New(Options{BaseURL: srv.URL})
+	for name, operation := range map[string]func() error{
+		"handover": func() error { return client.HandoverHost(context.Background(), "old", "new", "") },
+		"history": func() error {
+			var out any
+			return client.GetAuthenticated(context.Background(), "/api/v1/host-history", "", &out)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := operation()
+			if err == nil || err.Error() != "internal authentication token missing" {
+				t.Fatalf("missing token = %v", err)
+			}
+		})
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("missing credentials sent %d requests", requests.Load())
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,9 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# The refresh-preservation mode classifies records with the strict identity
+# rules; imported here so that mode never runs without them.
+Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 
 
 <#
@@ -65,7 +68,24 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     the Write-YurunaStateFile primitive: every state class either
     has a marker that this sweep can act on, or is reconstructible
     from the artifacts the cycle folder preserved.
+
+    Refresh preservation is a stricter mode for a runner restarted by a
+    host refresh. The operator's controls outlive the repair: pauses, lab
+    holds and a pending cycle restart stay until their normal consumer
+    handles them. Nothing is deleted on a failed lookup or an unreadable
+    record -- inner.pid goes only as the exact generation proven dead,
+    runner.pid is left for the resume path's own strict check, and the
+    service pidfiles are not touched. break-active.json is archived only
+    for a reclaimed inner proven dead with no live inner in its place, and
+    an orphaned cycle folder only when the process that wrote its marker is
+    proven gone.
 #>
+
+# Operator control files a refresh-preservation sweep leaves in place.
+$script:RefreshPreservedControlName = @(
+    'control.step-pause', 'control.cycle-pause', 'control.pause',
+    'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release', 'control.cycle-restart'
+)
 
 # Cycle-folder name patterns. Two shapes:
 #
@@ -165,7 +185,7 @@ function Resolve-OrphanIncompleteCycle {
     if (-not (Test-Path -LiteralPath $MarkerPath)) { return $null }
     if (-not $PSCmdlet.ShouldProcess($MarkerPath, (Format-YurunaOperatorMessage -Key 'runner.operator_d3778fb2e379356a'))) { return $null }
 
-    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $now   = (Get-Date).ToUniversalTime().ToString('o')
 
     # Detect shape: file (marker) vs directory (folder-with-suffix). -Force
@@ -386,7 +406,7 @@ function Resolve-StaleBreakActive {
     $path = Join-Path $RuntimeDir 'break-active.json'
     if (-not (Test-Path -LiteralPath $path)) { return $null }
     if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_6b84ccbde66f6a97'))) { return $null }
-    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $archived = Join-Path $RuntimeDir "break-active.$stamp.json.aborted"
     try {
         Move-Item -LiteralPath $path -Destination $archived -Force -ErrorAction Stop
@@ -496,12 +516,17 @@ function Clear-StaleControlState {
         and pause flags untouched.
     .PARAMETER RuntimeDir
         test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
+    .PARAMETER RefreshPreservation
+        A chain resumed after a host refresh: neither scope consumes
+        control.cycle-restart or sweeps interactive state; the controls
+        present are reported under preserved and left for their consumers.
     .OUTPUTS
         [hashtable] {
             cycleRestartCleared = [bool]
             cycleRestartAgeSeconds = [int] or $null  (age of the consumed flag)
             breakActive = archive result or $null
             pauseFlags = string[] basenames cleared
+            preserved = string[] control basenames left in place (refresh preservation)
             warnings = string[]
         }
     #>
@@ -510,16 +535,24 @@ function Clear-StaleControlState {
     param(
         [Parameter(Mandatory)][ValidateSet('Startup','PreSpawn')][string]$Scope,
         [switch]$SkipInteractiveState,
-        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [switch]$RefreshPreservation
     )
     $summary = @{
         cycleRestartCleared    = $false
         cycleRestartAgeSeconds = $null
         breakActive            = $null
         pauseFlags             = @()
+        preserved              = @()
         warnings               = @()
     }
     if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $summary }
+    if ($RefreshPreservation) {
+        $summary.preserved = @($script:RefreshPreservedControlName + @('break-active.json') | Where-Object {
+            Test-Path -LiteralPath (Join-Path $RuntimeDir $_)
+        })
+        return $summary
+    }
     if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.operator_deee2e46013a9e37' -Arguments @{ scope = "$Scope" }))) { return $summary }
 
     # control.cycle-restart: only a Startup caller IS the restart, so only
@@ -561,6 +594,164 @@ function Clear-StaleControlState {
     return $summary
 }
 
+function ConvertTo-YurunaRecoveryIdentity {
+    <#
+    .SYNOPSIS
+        { Pid; StartTimeUnixMs } from a hashtable or object in either key
+        spelling, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()]$Identity)
+    if ($null -eq $Identity) { return $null }
+    $read = {
+        param([string[]]$Names)
+        foreach ($name in $Names) {
+            if ($Identity -is [System.Collections.IDictionary]) {
+                if ($Identity.Contains($name)) { return $Identity[$name] }
+            } elseif ($Identity.PSObject.Properties[$name]) {
+                return $Identity.$name
+            }
+        }
+        return $null
+    }
+    $idPid = & $read @('Pid', 'pid')
+    if ($null -eq $idPid -or [int]$idPid -le 0) { return $null }
+    $idStart = & $read @('StartTimeUnixMs', 'startTimeUnixMs')
+    return [pscustomobject]@{ Pid = [int]$idPid; StartTimeUnixMs = if ($null -ne $idStart) { [long]$idStart } else { $null } }
+}
+
+function Invoke-YurunaRefreshPreservationSweep {
+    <#
+    .SYNOPSIS
+        The refresh-preservation half of Invoke-YurunaBootRecovery.
+    .DESCRIPTION
+        Every removal needs positive proof, and anything that cannot be
+        classified is preserved and reported: the strict classifier and
+        removal come from Test.SingleInstance, and without them nothing is
+        removed at all.
+    .OUTPUTS
+        [hashtable] the completed summary.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Summary,
+        [AllowEmptyString()][string]$RuntimeDir,
+        [AllowEmptyString()][string]$LogDir,
+        [AllowNull()][psobject]$ReclaimedInner,
+        [AllowNull()][psobject]$ProcessTable
+    )
+    $Summary.Mode = 'refresh-preservation'
+    $strict = @('Get-YurunaProcessTable', 'Get-YurunaRunnerRecordState', 'Remove-YurunaRunnerRecordGeneration', 'Get-YurunaProcessIdentityState')
+    $available = @($strict | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }).Count -eq $strict.Count
+    if (-not $available) {
+        $Summary.Warnings += 'refresh preservation: strict identity helpers unavailable; nothing removed'
+    }
+    $table = $null
+    if ($available) {
+        $table = if ($ProcessTable) { $ProcessTable } else { Get-YurunaProcessTable }
+    }
+    $innerState = $null
+    if ($RuntimeDir -and (Test-Path -LiteralPath $RuntimeDir)) {
+        $innerPidFile   = Join-Path $RuntimeDir 'inner.pid'
+        $innerStartFile = Join-Path $RuntimeDir 'inner.start'
+        if ($available) {
+            $innerState = Get-YurunaRunnerRecordState -PidFile $innerPidFile -StartFile $innerStartFile -ProcessTable $table
+            if ($innerState.State -eq 'DeadOrRecycled' -and $PSCmdlet.ShouldProcess($innerPidFile, (Format-YurunaOperatorMessage -Key 'runner.operator_1826536dca2a0287'))) {
+                $removal = Remove-YurunaRunnerRecordGeneration -PidFile $innerPidFile -StartFile $innerStartFile -Fingerprint ([string]$innerState.Fingerprint) -Confirm:$false
+                if ($removal.Removed) {
+                    $Summary.ClearedPidFiles += @{ pidFile = 'inner.pid'; stalePid = [int]$innerState.Pid; reason = [string]$innerState.Reason }
+                } else {
+                    $Summary.PreservedPidFiles += @{ file = 'inner.pid'; state = "removal-$($removal.Reason)" }
+                }
+            } elseif ($innerState.State -ne 'Missing') {
+                $Summary.PreservedPidFiles += @{ file = 'inner.pid'; state = [string]$innerState.State }
+            }
+        } elseif (Test-Path -LiteralPath $innerPidFile) {
+            $Summary.PreservedPidFiles += @{ file = 'inner.pid'; state = 'Unknown' }
+        }
+        foreach ($entry in @(@{ file = 'runner.pid'; state = 'deferred' }, @{ file = 'server.pid'; state = 'untouched' }, @{ file = 'config-server.pid'; state = 'untouched' })) {
+            if (Test-Path -LiteralPath (Join-Path $RuntimeDir $entry.file)) { $Summary.PreservedPidFiles += $entry }
+        }
+        $reclaimed = ConvertTo-YurunaRecoveryIdentity -Identity $ReclaimedInner
+        if ($available -and $reclaimed -and (Test-Path -LiteralPath (Join-Path $RuntimeDir 'break-active.json'))) {
+            $identity = @{ ProcessId = $reclaimed.Pid; ProcessTable = $table; SelfPid = -1 }
+            if ($null -ne $reclaimed.StartTimeUnixMs) { $identity.RecordedStartTimeUnixMs = $reclaimed.StartTimeUnixMs }
+            $reclaimedState = Get-YurunaProcessIdentityState @identity
+            if ($reclaimedState.State -eq 'DeadOrRecycled' -and $innerState -and $innerState.State -ne 'AliveOwned') {
+                try {
+                    $archivedBreak = Resolve-StaleBreakActive -RuntimeDir $RuntimeDir -Confirm:$false
+                    if ($archivedBreak) { $Summary.ArchivedBreakActive = $archivedBreak }
+                } catch {
+                    $Summary.Warnings += "Resolve-StaleBreakActive failed: $($_.Exception.Message)"
+                }
+            }
+        }
+        $Summary.PreservedControls = @($script:RefreshPreservedControlName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
+    }
+    if ($LogDir -and (Test-Path -LiteralPath $LogDir)) {
+        foreach ($marker in (Find-OrphanIncompleteCycle -LogDir $LogDir)) {
+            $archive = $false
+            if ($available -and $marker -is [System.IO.FileInfo]) {
+                try {
+                    $doc = Get-Content -LiteralPath $marker.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    $writerPid = 0
+                    if ($doc -and [int]::TryParse([string]$doc.pid, [ref]$writerPid) -and $writerPid -gt 0) {
+                        $identity = @{ ProcessId = $writerPid; ProcessTable = $table; SelfPid = -1 }
+                        $written = [datetime]::MinValue
+                        $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal
+                        if ($doc.startedAtUtc -is [datetime]) {
+                            $identity.RecordWrittenUtc = ([datetime]$doc.startedAtUtc).ToUniversalTime()
+                        } elseif ([datetime]::TryParse([string]$doc.startedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$written)) {
+                            $identity.RecordWrittenUtc = $written
+                        }
+                        $archive = ((Get-YurunaProcessIdentityState @identity).State -eq 'DeadOrRecycled')
+                    }
+                } catch {
+                    $Summary.Warnings += "orphan marker unreadable ($($marker.FullName)): $($_.Exception.Message)"
+                }
+            }
+            if (-not $archive) {
+                $Summary.PreservedOrphans += $marker.FullName
+                continue
+            }
+            try {
+                $archived = Resolve-OrphanIncompleteCycle -MarkerPath $marker.FullName -Confirm:$false
+                if ($archived) { $Summary.ArchivedCycles += $archived }
+            } catch {
+                $Summary.Warnings += "Resolve-OrphanIncompleteCycle failed for $($marker.FullName): $($_.Exception.Message)"
+            }
+        }
+    }
+    $Summary.CompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    $touched = ($Summary.ArchivedCycles.Count -gt 0) -or ($Summary.ClearedPidFiles.Count -gt 0) -or
+        ($null -ne $Summary.ArchivedBreakActive) -or ($Summary.Warnings.Count -gt 0) -or
+        ($Summary.PreservedControls.Count -gt 0) -or ($Summary.PreservedPidFiles.Count -gt 0) -or ($Summary.PreservedOrphans.Count -gt 0)
+    if ($touched -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
+        Send-CycleEventSafely -EventRecord @{
+            timestamp              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            event                  = 'boot_recovery_completed'
+            mode                   = 'refresh-preservation'
+            archivedCycleCount     = [int]$Summary.ArchivedCycles.Count
+            clearedPidFileCount    = [int]$Summary.ClearedPidFiles.Count
+            archivedBreakActive    = [bool]($null -ne $Summary.ArchivedBreakActive)
+            clearedPauseFlagCount  = 0
+            preservedControlCount  = [int]$Summary.PreservedControls.Count
+            preservedPidFileCount  = [int]$Summary.PreservedPidFiles.Count
+            preservedOrphanCount   = [int]$Summary.PreservedOrphans.Count
+            warningCount           = [int]$Summary.Warnings.Count
+            startedAtUtc           = [string]$Summary.StartedAtUtc
+            completedAtUtc         = [string]$Summary.CompletedAtUtc
+        }
+    }
+    if ($Summary.PreservedControls.Count -gt 0 -or $Summary.PreservedPidFiles.Count -gt 0) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.boot_recovery_preserved_controls' -Arguments @{
+            count = "$($Summary.PreservedControls.Count)"; pidCount = "$($Summary.PreservedPidFiles.Count)" }) -InformationAction Continue
+    }
+    return $Summary
+}
+
 function Invoke-YurunaBootRecovery {
     <#
     .SYNOPSIS
@@ -590,16 +781,33 @@ function Invoke-YurunaBootRecovery {
         test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
     .PARAMETER LogDir
         test/status/log/. Defaults to $env:YURUNA_LOG_DIR.
+    .PARAMETER RefreshPreservation
+        Sweep for a runner restarted by a host refresh: no pause, hold or
+        restart sweep; inner.pid removed only as a generation proven dead;
+        runner.pid deferred to the resume path; server.pid and
+        config-server.pid untouched; break-active.json archived only for a
+        dead reclaimed inner; an orphaned cycle archived only when its
+        writer is proven gone.
+    .PARAMETER ReclaimedInner
+        { Pid; StartTimeUnixMs } of the inner the refresh reclaimed.
+    .PARAMETER ProcessTable
+        A process-table snapshot for the preservation mode's checks; one is
+        taken when omitted.
     .OUTPUTS
         Hashtable summary: ArchivedCycles, ClearedPidFiles,
         ArchivedBreakActive, ClearedPauseFlags, Warnings,
-        StartedAtUtc, CompletedAtUtc.
+        StartedAtUtc, CompletedAtUtc, Mode (default|refresh-preservation),
+        PreservedControls, PreservedPidFiles ({ file; state }),
+        PreservedOrphans.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
-        [string]$LogDir     = $env:YURUNA_LOG_DIR
+        [string]$LogDir     = $env:YURUNA_LOG_DIR,
+        [switch]$RefreshPreservation,
+        [psobject]$ReclaimedInner,
+        [psobject]$ProcessTable
     )
     $summary = @{
         StartedAtUtc        = (Get-Date).ToUniversalTime().ToString('o')
@@ -608,10 +816,18 @@ function Invoke-YurunaBootRecovery {
         ArchivedBreakActive = $null
         ClearedPauseFlags   = @()
         Warnings            = @()
+        Mode                = 'default'
+        PreservedControls   = @()
+        PreservedPidFiles   = @()
+        PreservedOrphans    = @()
     }
     if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_d46434d3b554dbcc'), (Format-YurunaOperatorMessage -Key 'runner.operator_8412fad70c1a7049'))) {
         $summary.CompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         return $summary
+    }
+    if ($RefreshPreservation) {
+        return (Invoke-YurunaRefreshPreservationSweep -Summary $summary -RuntimeDir $RuntimeDir -LogDir $LogDir `
+            -ReclaimedInner $ReclaimedInner -ProcessTable $ProcessTable)
     }
 
     if ($RuntimeDir -and (Test-Path -LiteralPath $RuntimeDir)) {
@@ -673,7 +889,7 @@ function Invoke-YurunaBootRecovery {
                ($summary.Warnings.Count -gt 0)
     if ($touched -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
         Send-CycleEventSafely -EventRecord @{
-            timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event                 = 'boot_recovery_completed'
             archivedCycleCount    = [int]$summary.ArchivedCycles.Count
             clearedPidFileCount   = [int]$summary.ClearedPidFiles.Count

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -375,8 +375,10 @@ Describe 'Removal cuts whole blocks and nothing else' {
     }
 }
 
+AfterAll {
 Remove-Item -Path 'Function:\Get-VMIp' -ErrorAction SilentlyContinue
 Remove-Item -Path 'Function:\Test-StashServiceHost' -ErrorAction SilentlyContinue
-if (Test-Path -LiteralPath $StashTestHome) {
+if ($StashTestHome -and (Test-Path -LiteralPath $StashTestHome)) {
     Remove-Item -LiteralPath $StashTestHome -Recurse -Force -ErrorAction SilentlyContinue
+}
 }

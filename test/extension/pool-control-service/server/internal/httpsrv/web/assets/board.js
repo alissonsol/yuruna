@@ -227,7 +227,9 @@
   // the indicator. A poll keeps its numbers on screen and signals in the footer
   // instead: a wall display that blanked every half minute would read as
   // failing rather than as refreshing.
+  var loadGeneration = 0;
   function load(opts) {
+    var generation = ++loadGeneration;
     window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = function () { };
@@ -239,7 +241,8 @@
     }
     chrome.busy(true);
     var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
-    return Y.api('/api/board?range=' + encodeURIComponent(state.range)).then(function (d) {
+    return Y.api('/api/board?range=' + encodeURIComponent(state.range), { timeoutMs: 60000 }).then(function (d) {
+      if (generation !== loadGeneration) { return; }
       chrome.stamp();
       state.cards = d.cards || [];
       state.offers = d.offers || [];
@@ -254,6 +257,7 @@
       }
       render();
     }, function (e) {
+      if (generation !== loadGeneration) { return; }
       if (Y.notice) { Y.notice('error', e.message); }
       // A failed poll leaves the cards it could not refresh alone -- they are
       // stale, not wrong, and the footer time says how stale.

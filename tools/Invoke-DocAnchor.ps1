@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -303,8 +303,8 @@ foreach ($doc in $documents) {
     # this file, so it is read back here too and those suffixes stay spent.
     $used = [Collections.Generic.HashSet[string]]::new()
     if ($existingManifest.ContainsKey($key)) {
-        foreach ($past in @($existingManifest[$key].anchors)) {
-            $suffix = ([string]$past.id) -replace '^42[0-9a-f]{6}-', ''
+        foreach ($pastId in @($existingManifest[$key].anchors.id) + @($existingManifest[$key].retiredAnchorIds)) {
+            $suffix = ([string]$pastId) -replace '^42[0-9a-f]{6}-', ''
             if ($suffix) { [void]$used.Add($suffix) }
         }
     }
@@ -411,13 +411,25 @@ foreach ($doc in $documents) {
         }
     }
 
-    $manifestFiles.Add([ordered]@{
+    $entry = [ordered]@{
         id           = $fileId
         repo         = $doc.Repo
         source       = $doc.Source
         translations = $translations
         anchors      = @($anchorRows)
-    })
+    }
+    $activeIds = @($anchorRows | ForEach-Object { $_.id })
+    $retiredIds = @($used | ForEach-Object { "$fileId-$_" } | Where-Object { $_ -notin $activeIds } | Sort-Object)
+    if ($retiredIds.Count -gt 0) { $entry.retiredAnchorIds = $retiredIds }
+    $manifestFiles.Add($entry)
+}
+
+# A scoped run owns only the records it processed. Preserve records for
+# filtered documents and unavailable sibling repositories, including retired ids.
+$processedKeys = @{}
+foreach ($entry in $manifestFiles) { $processedKeys["$($entry.repo)|$($entry.source)"] = $true }
+foreach ($key in $existingManifest.Keys) {
+    if (-not $processedKeys.ContainsKey($key)) { $manifestFiles.Add($existingManifest[$key]) }
 }
 
 $manifestJson = ([ordered]@{

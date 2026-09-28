@@ -27069,99 +27069,6 @@
       ]
     },
     {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 148,
-      "sink": "Write-Output",
-      "key": "runner.operator_1a5944a737ed4e90",
-      "arguments": [
-        "report"
-      ]
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 149,
-      "sink": "Write-Output",
-      "key": "runner.operator_0d2117a74cbfa3ca",
-      "arguments": [
-        "hostType"
-      ]
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 150,
-      "sink": "Write-Output",
-      "key": "runner.operator_5b278ab6be06e98e",
-      "arguments": [
-        "state",
-        "reason",
-        "elapsedMs"
-      ]
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 154,
-      "sink": "Write-Output",
-      "key": "runner.operator_507f379237cefeeb",
-      "arguments": []
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 156,
-      "sink": "Write-Output",
-      "key": "runner.operator_8f85b3fcba9cd85d",
-      "arguments": []
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 180,
-      "sink": "Write-Error",
-      "key": "runner.operator_2fb31966478fca46",
-      "arguments": []
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 187,
-      "sink": "Write-Output",
-      "key": "runner.operator_6eca51811f4cfdd3",
-      "arguments": [
-        "reason"
-      ]
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 196,
-      "sink": "Write-Output",
-      "key": "runner.operator_a6cceb1dcf23a282",
-      "arguments": [
-        "reason",
-        "state"
-      ]
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 203,
-      "sink": "Write-Output",
-      "key": "runner.operator_dfd19c97aaa9ff6e",
-      "arguments": []
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 208,
-      "sink": "Write-Output",
-      "key": "runner.operator_292bf0f1ef450037",
-      "arguments": []
-    },
-    {
-      "path": "test/lab/Invoke-HostRefresh.ps1",
-      "line": 213,
-      "sink": "Write-Output",
-      "key": "runner.operator_88f502760b28fd59",
-      "arguments": [
-        "state",
-        "reason"
-      ]
-    },
-    {
       "path": "test/lab/Lab-Diag.ps1",
       "line": 102,
       "sink": "Write-Error",
@@ -35742,111 +35649,6 @@
       ]
     },
     {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 108,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_62623b0d8a914893",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 111,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_f669f22210b44d93",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 114,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_43e526c4ec3b14eb",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 117,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_7dd6240c15d45471",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 120,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_24aa5f00a8cd0037",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 134,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_28f2c58cec967f94",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 137,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_c3450b84a855bad6",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 140,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_7747dc14e2089beb",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 143,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_d38c137cc75cebe4",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 146,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_24aa5f00a8cd0037",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 160,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_dcc1cf1dcee82cd5",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 163,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_d38c137cc75cebe4",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 166,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_c3f2e879d98b84de",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 169,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_d38c137cc75cebe4",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.HostRefresh.psm1",
-      "line": 172,
-      "sink": "New-YurunaRepairRung -UnavailableReason",
-      "key": "runner.operator_24aa5f00a8cd0037",
-      "arguments": []
-    },
-    {
       "path": "test/modules/Test.HostRefreshIntent.psm1",
       "line": 117,
       "sink": "ShouldProcess-prompt",
@@ -37151,6 +36953,17 @@
         "passCount",
         "failCount",
         "skipCount"
+      ]
+    },
+    {
+      "path": "test/modules/Test.OuterLog.psm1",
+      "line": 103,
+      "sink": "Write-Warning",
+      "key": "runner.operator_4ceb90c3873a42c7",
+      "arguments": [
+        "logPath",
+        "maxAttempts",
+        "message"
       ]
     },
     {
@@ -42341,17 +42154,6 @@
     },
     {
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "line": 653,
-      "sink": "Write-Warning",
-      "key": "runner.operator_4ceb90c3873a42c7",
-      "arguments": [
-        "logPath",
-        "maxAttempts",
-        "message"
-      ]
-    },
-    {
-      "path": "test/modules/Test.RunnerOuterLoop.psm1",
       "line": 893,
       "sink": "Write-Warning",
       "key": "runner.operator_c75314523fa23a21",
@@ -44199,24 +44001,6 @@
     },
     {
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "line": 1305,
-      "sink": "Write-Warning",
-      "key": "runner.operator_00403c4aae99968d",
-      "arguments": [
-        "rel"
-      ]
-    },
-    {
-      "path": "test/modules/Test.SequenceHandler.psm1",
-      "line": 1310,
-      "sink": "Write-Warning",
-      "key": "runner.operator_6603f9463ffd92bc",
-      "arguments": [
-        "rel"
-      ]
-    },
-    {
-      "path": "test/modules/Test.SequenceHandler.psm1",
       "line": 1347,
       "sink": "Write-Warning",
       "key": "runner.operator_d9b7f7780d748cd8",
@@ -44242,24 +44026,22 @@
     },
     {
       "path": "test/modules/Test.SequenceHandler.psm1",
+      "line": 1378,
+      "sink": "throw",
+      "key": "runner.fetch_context_rejected",
+      "arguments": [
+        "reason",
+        "detail"
+      ]
+    },
+    {
+      "path": "test/modules/Test.SequenceHandler.psm1",
       "line": 1383,
       "sink": "Write-Information",
       "key": "runner.operator_0ed289c55b84fcb5",
       "arguments": [
         "length",
         "count"
-      ]
-    },
-    {
-      "path": "test/modules/Test.SequenceHandler.psm1",
-      "line": 1389,
-      "sink": "operator-warning",
-      "key": "runner.operator_51bc77d2f69ec90e",
-      "arguments": [
-        "length",
-        "length2",
-        "payloadLen",
-        "fetchExecuteTypedCharWarn"
       ]
     },
     {
@@ -44275,6 +44057,15 @@
       "sink": "Register-SequenceAction -Description",
       "key": "runner.operator_241d50d60bce8e27",
       "arguments": []
+    },
+    {
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "line": 1530,
+      "sink": "Write-Warning",
+      "key": "runner.fetch_context_deadline",
+      "arguments": [
+        "timeoutSeconds"
+      ]
     },
     {
       "path": "test/modules/Test.SequenceHandler.psm1",

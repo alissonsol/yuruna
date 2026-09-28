@@ -34,6 +34,71 @@ const DataenUSrunner = `{
     },
     "\n  Fix (either): grant this host's GH_TOKEN access to that repo,\n                or reassign the pool to a project every member can read."
   ],
+  "runner.boot_recovery_preserved_controls": [
+    "Boot recovery (refresh preservation) kept ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " operator control files and ",
+    {
+      "arg": "pidCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " runner records it could not prove stale."
+  ],
+  "runner.critical_record_replace": "Replace a private critical record",
+  "runner.cycle_record_clear_action": "Remove the runner cycle record of an exited cycle",
+  "runner.cycle_record_write_action": "Write the runner cycle record",
+  "runner.detached_handshake_write_action": "Write the detached worker's identity handshake",
+  "runner.detached_launch_action": "Launch a detached worker process",
+  "runner.diagnostic_budget_exhausted": [
+    "The ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s diagnostic budget was exhausted before ",
+    {
+      "arg": "stage",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.diagnostic_deadline_exceeded": [
+    "Diagnostic capture exceeded the ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s limit for VM ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; partial evidence has been retained."
+  ],
+  "runner.diagnostic_worker_failed": [
+    "Diagnostic capture could not finish for VM ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (exit code ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")."
+  ],
   "runner.failure_alert_state": {
     "kind": "select",
     "selector": "state",
@@ -70,6 +135,39 @@ const DataenUSrunner = `{
       ]
     }
   },
+  "runner.fetch_context_deadline": [
+    "fetchAndExecute: the ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s step deadline expired during preparation or completion waiting."
+  ],
+  "runner.fetch_context_rejected": [
+    "Fetch context rejected before guest execution (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); detail: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.fetch_context_ssh_command_too_long": [
+    "SSH command needs ",
+    {
+      "arg": "length",
+      "type": "detail",
+      "trust": "external"
+    },
+    " characters after wrapping; Windows cannot start it. Guest execution was not started."
+  ],
   "runner.git_recovery_command": [
     "  Recover with: git -C '",
     {
@@ -100,6 +198,1268 @@ const DataenUSrunner = `{
     }
   ],
   "runner.host_diagnostic_timeout": "Host diagnostics timed out after 120s; see the earlier host sample.",
+  "runner.host_diagnostic_worker_failed": [
+    "Host diagnostic ",
+    {
+      "arg": "runId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " failed (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_diagnostic_worker_refused": [
+    "Host diagnostic ",
+    {
+      "arg": "runId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": nothing was run (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_diagnostic_worker_truncated": [
+    "[report truncated at ",
+    {
+      "arg": "chars",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " characters]"
+  ],
+  "runner.host_refresh_action_dispose_obligations": [
+    "Next step: after checking each item by hand, record it with: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation ",
+    {
+      "arg": "obligations",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_action_elevate": [
+    "Next step: grant this account the privilege rung ",
+    {
+      "arg": "rung",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " needs (the exact command is shown above when one applies), then run the refresh again."
+  ],
+  "runner.host_refresh_action_grant_automation": "Next step: allow Automation access to UTM for the application that runs this shell, then run the refresh again.",
+  "runner.host_refresh_action_gui_session": "Next step: run the refresh from the logged-in desktop session; this session can only observe.",
+  "runner.host_refresh_action_install_client": [
+    "Next step: restore the hypervisor command-line client (",
+    {
+      "arg": "client",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); refresh does not reinstall it."
+  ],
+  "runner.host_refresh_action_resume_request": "Next step: resume the unresolved request with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume",
+  "runner.host_refresh_action_start_runner": "Next step: start the runner by hand: pwsh test/Start-TestRunner.ps1",
+  "runner.host_refresh_auth_action_create_authority": "Create the refresh signing authority and operator credential",
+  "runner.host_refresh_auth_action_export_host_key": [
+    "Write the refresh verifier key for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auth_action_install_host_key": [
+    "Install the refresh verifier key for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auth_action_remove_host_key": "Remove the refresh verifier key",
+  "runner.host_refresh_auto_action_admit": [
+    "Admit an automatic host refresh request for cycle generation ",
+    {
+      "arg": "generation",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_consume_evidence": "Consume the host refresh evidence file",
+  "runner.host_refresh_auto_action_decide": [
+    "Decide whether to run an automatic host refresh after outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_record_outcome": [
+    "Record automatic host refresh outcome ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_reserve": [
+    "Reserve the automatic host refresh attempt for UTC day ",
+    {
+      "arg": "utcDay",
+      "type": "text",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_run_worker": [
+    "Run the host refresh worker for request ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_update_streak": [
+    "Set the host refresh evidence count to ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_withdraw": [
+    "Withdraw the queued automatic host refresh request ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_action_write_evidence": [
+    "Record host refresh evidence for cycle generation ",
+    {
+      "arg": "generation",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_auto_dependency_missing": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh is unavailable: ",
+    {
+      "arg": "command",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " from ",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " could not be loaded."
+  ],
+  "runner.host_refresh_auto_error": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the automatic host refresh decision failed (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); the runner continues without it."
+  ],
+  "runner.host_refresh_auto_evidence_counted": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] host refresh evidence: ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " saw a hypervisor control timeout (",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " of ",
+    {
+      "arg": "threshold",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " cycles)."
+  ],
+  "runner.host_refresh_auto_evidence_reset": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] host refresh evidence cleared: the hypervisor answered during ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_auto_finished": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " finished: ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_auto_knob_invalid": [
+    "testCycle.autoRefreshAfterStalls is '",
+    {
+      "arg": "value",
+      "type": "text",
+      "trust": "external"
+    },
+    "', which is not a non-negative whole number; automatic host refresh stays off."
+  ],
+  "runner.host_refresh_auto_operator_action": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ended ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; no new automatic attempt starts before UTC day ",
+    {
+      "arg": "nextUtcDay",
+      "type": "text",
+      "trust": "internal"
+    },
+    ". Check the host; while this request is still open, finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, otherwise run test/lab/Invoke-HostRefresh.ps1."
+  ],
+  "runner.host_refresh_auto_pause_skipped": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh repaired the host; the next cycle starts without the failure pause."
+  ],
+  "runner.host_refresh_auto_queued_revoked": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the queued automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " was withdrawn because the pool is draining."
+  ],
+  "runner.host_refresh_auto_refused": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh not started: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_auto_resume_caller_changed": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " was started for an earlier runner process, so this runner does not resume it. Finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, or release what it holds with test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+  ],
+  "runner.host_refresh_auto_resume_disabled": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " is not resumed while autoRefreshAfterStalls is 0. An unclaimed request expires on its own; finish a started one with test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.host_refresh_auto_resuming": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] resuming automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " of ",
+    {
+      "arg": "maxAttempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ": restoring services only, no new teardown."
+  ],
+  "runner.host_refresh_auto_starting": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " starting after ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " cycles of hypervisor control timeouts (ceiling ",
+    {
+      "arg": "maxRung",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the hypervisor may be restarted, and the services it disrupts are restored afterwards."
+  ],
+  "runner.host_refresh_auto_threshold_raised": "'testCycle.autoRefreshAfterStalls' is 1; the runner needs the timeout in at least two cycles and treats it as 2.",
+  "runner.host_refresh_auto_unavailable": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh is configured but not available on this host (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the runner records the evidence and does not act on it. Run test/lab/Invoke-HostRefresh.ps1 locally if the hypervisor needs repair."
+  ],
+  "runner.host_refresh_auto_unavailable_on_host": [
+    "'testCycle.autoRefreshAfterStalls' is ",
+    {
+      "arg": "value",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", but automatic host refresh is not available on this host (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the runner records the evidence and does not act on it."
+  ],
+  "runner.host_refresh_auto_value_not_integer": [
+    "'testCycle.autoRefreshAfterStalls' is '",
+    {
+      "arg": "value",
+      "type": "text",
+      "trust": "external"
+    },
+    "' -- not a whole number; the runner treats it as 0 (automatic host refresh disabled)."
+  ],
+  "runner.host_refresh_auto_verdict_mismatch": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] automatic host refresh ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " left no matching result (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); treating it as failed."
+  ],
+  "runner.host_refresh_auto_waiting_on_worker": [
+    "Shutdown requested; waiting for the host refresh worker for automatic request ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " to finish (at most ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " more seconds)."
+  ],
+  "runner.host_refresh_auto_worker_launch_failed": [
+    "Host refresh worker for automatic request ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " could not be started: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.host_refresh_auto_worker_timeout": [
+    "Host refresh worker for automatic request ",
+    {
+      "arg": "requestId",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ran past ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds and was stopped; the request stays open. The runner may resume it, or finish it with test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.host_refresh_command_missing": [
+    "Invoke-HostRefresh: required command ",
+    {
+      "arg": "command",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") is not available after loading the refresh module set; refusing."
+  ],
+  "runner.host_refresh_config_ambiguous": [
+    "Invoke-HostRefresh: ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " configuration snapshots in ",
+    {
+      "arg": "runtimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " name different source files; pass -ConfigPath to choose one."
+  ],
+  "runner.host_refresh_config_conflict": [
+    "Invoke-HostRefresh: -ConfigPath ",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " differs from the runner's recorded configuration ",
+    {
+      "arg": "recordedPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; refusing rather than restart the runner on a different file."
+  ],
+  "runner.host_refresh_config_missing": [
+    "Invoke-HostRefresh: the configuration recorded for this runtime (",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ") does not exist; pass -ConfigPath."
+  ],
+  "runner.host_refresh_convergence_skipped": [
+    "Invoke-HostRefresh: the final probe reads ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); services and the runner were not resumed."
+  ],
+  "runner.host_refresh_credential_authority_created": [
+    "Set-HostRefreshCredential: created a refresh signing authority (tag ",
+    {
+      "arg": "authorityTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") and an operator credential (tag ",
+    {
+      "arg": "credentialTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") under ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Copy authority.key and operator.credential to the pool-control service's /etc/yuruna/host-refresh/ with owner-only permissions; never copy them to a pool host."
+  ],
+  "runner.host_refresh_credential_authority_exists": [
+    "Set-HostRefreshCredential: a refresh authority already exists under ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; pass -Rotate to replace it, which invalidates every installed host key."
+  ],
+  "runner.host_refresh_credential_host_key_exported": [
+    "Set-HostRefreshCredential: wrote the refresh key for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (tag ",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") to ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Move it to that host over a private channel, run this script there with -InstallHostKey -KeyPath, then delete the file."
+  ],
+  "runner.host_refresh_credential_host_key_installed": [
+    "Set-HostRefreshCredential: installed the refresh key for this host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (tag ",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); remote refresh requests signed by the matching authority are now verifiable here."
+  ],
+  "runner.host_refresh_credential_host_key_removed": "Set-HostRefreshCredential: removed the refresh key; this host now refuses every non-loopback refresh request.",
+  "runner.host_refresh_credential_output_exists": [
+    "Set-HostRefreshCredential: ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " already exists; choose another -OutputPath or delete it first."
+  ],
+  "runner.host_refresh_credential_status": [
+    "Set-HostRefreshCredential: host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": remote refresh key ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); authority ",
+    {
+      "arg": "authorityState",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_deadline_exhausted": [
+    "Invoke-HostRefresh: the time budget ran out during ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; unfinished work is recorded as outstanding."
+  ],
+  "runner.host_refresh_disruption_warning": "Invoke-HostRefresh: restarting the hypervisor application can suspend running guests; a hard stop, allowed only with -AllowHardStop, can power them off uncleanly.",
+  "runner.host_refresh_evidence_write_failed": [
+    "Could not record host refresh evidence for this cycle (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); automatic host refresh will not count it."
+  ],
+  "runner.host_refresh_identity_refused": [
+    "Invoke-HostRefresh: refusing to run as ",
+    {
+      "arg": "identity",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); run it as the account that owns ",
+    {
+      "arg": "runtimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_launcher_wait_timeout": [
+    "Invoke-HostRefresh: launcher process ",
+    {
+      "arg": "launcherPid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " is still running after ",
+    {
+      "arg": "waitedSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s; request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " stays queued for a retry."
+  ],
+  "runner.host_refresh_lock_busy": [
+    "Invoke-HostRefresh: another repair holds the lifetime lock (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); refusing to run alongside it."
+  ],
+  "runner.host_refresh_manual_command": [
+    "Invoke-HostRefresh: run this by hand, or allow it without a password prompt: sudo ",
+    {
+      "arg": "command",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_obligation_disposed": [
+    "Invoke-HostRefresh: ",
+    {
+      "arg": "obligation",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " of request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " recorded as handled by ",
+    {
+      "arg": "actor",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_obligation_unknown": [
+    "Invoke-HostRefresh: ",
+    {
+      "arg": "obligation",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " is not an outstanding item of request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_operator_instruction": [
+    "  Remedy: ",
+    {
+      "arg": "instruction",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_preview_group_relaunch": [
+    "  An executing run would first relaunch under the libvirt group (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_preview_notice": "  Preview only: nothing was locked, written, signaled or started.",
+  "runner.host_refresh_preview_would_consider": [
+    "  Rungs an executing run would consider, in order: ",
+    {
+      "arg": "rungs",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_private_root_unavailable": [
+    "Invoke-HostRefresh: the private state root under $HOME/.yuruna/host-refresh could not be secured (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); refusing without an owner-only private root."
+  ],
+  "runner.host_refresh_progress_degraded": "Invoke-HostRefresh: progress could not be published; the repair continued and the private journal stays authoritative.",
+  "runner.host_refresh_protocol_mismatch": [
+    "Invoke-HostRefresh: ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " declares protocol '",
+    {
+      "arg": "found",
+      "type": "token",
+      "trust": "external"
+    },
+    "'; this entry point implements '",
+    {
+      "arg": "expected",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "'."
+  ],
+  "runner.host_refresh_refused": [
+    "Invoke-HostRefresh: refused before any change (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_request_refused": [
+    "Invoke-HostRefresh: request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " refused (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the unresolved request ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_refresh_resume_none": "Invoke-HostRefresh: there is no unresolved request to resume.",
+  "runner.host_refresh_resume_started": [
+    "Invoke-HostRefresh: resuming request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "mode",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_rung_finished": [
+    "Invoke-HostRefresh: rung ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; the hypervisor probe now reads ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_rung_reason_broker_recipe_missing": "requires a verified OS-version-specific label, domain and owner recipe with collateral tests",
+  "runner.host_refresh_rung_reason_daemon_layout_unqualified": "requires daemon-layout and guest-preservation tests passing on a supported host",
+  "runner.host_refresh_rung_reason_gui_launch_unqualified": "starting UTM needs a same-user absence check and a GUI launch path that have not been qualified on a real macOS host",
+  "runner.host_refresh_rung_reason_lock_unqualified": "the repair lock's exclusion has not been demonstrated on this platform",
+  "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": "requires a validated recipe for the modular libvirt daemons",
+  "runner.host_refresh_rung_reason_no_reboot_supervision": "no verified runner and status-service supervision exists across a host reboot",
+  "runner.host_refresh_rung_reason_not_implemented": "no executor for this rung exists in this checkout",
+  "runner.host_refresh_rung_reason_package_recovery_unqualified": "requires a self-contained signed bootstrap and a tested package recovery procedure",
+  "runner.host_refresh_rung_reason_provider_recipe_missing": "requires a separate provider-recovery recipe tested on a supported host",
+  "runner.host_refresh_rung_reason_runner_restart_unqualified": "runner reclamation and verified restart have not been qualified on a real host of this platform",
+  "runner.host_refresh_rung_reason_settings_recipe_unsafe": "the settings recipe still reaches consent dialogs, package installs or unbounded native calls that an unattended repair must not run",
+  "runner.host_refresh_rung_reason_unsupported_on_platform": "not offered on this platform",
+  "runner.host_refresh_rung_reason_utm_restart_unqualified": "restarting UTM needs a tested launch and session path, captured guest recovery evidence, runner exclusion and the graceful quit policy, validated on a real macOS host",
+  "runner.host_refresh_rung_reason_vmms_start_unqualified": "starting a stopped vmms service is implemented but has not been qualified on a real Windows Hyper-V host",
+  "runner.host_refresh_rung_started": [
+    "Invoke-HostRefresh: rung ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " started; ",
+    {
+      "arg": "remainingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s of repair budget left."
+  ],
+  "runner.host_refresh_runner_not_ready": [
+    "Invoke-HostRefresh: the restarted runner did not acknowledge readiness (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_runtime_missing": [
+    "Invoke-HostRefresh: runtime directory ",
+    {
+      "arg": "runtimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " does not exist; set YURUNA_RUNTIME_DIR to the runner's runtime directory."
+  ],
+  "runner.host_refresh_runtime_owner_mismatch": [
+    "Invoke-HostRefresh: this account's refresh state is registered to runtime ",
+    {
+      "arg": "registeredRuntimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ", not ",
+    {
+      "arg": "runtimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; one owning runtime per account is supported."
+  ],
+  "runner.host_refresh_service_unverified": [
+    "Invoke-HostRefresh: service ",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is not verified after the repair (",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_refresh_session_passive": [
+    "Invoke-HostRefresh: session kind is ",
+    {
+      "arg": "sessionKind",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; steps that need the desktop session are skipped."
+  ],
+  "runner.host_refresh_should_process_admission": "Record host-refresh admission",
+  "runner.host_refresh_should_process_listener": "Start the status listener in refresh-safe mode",
+  "runner.host_refresh_should_process_publish": "Publish host-refresh progress",
+  "runner.host_refresh_should_process_run": [
+    "Run host-refresh request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_summary_active_request": [
+    "  Unresolved request: ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.host_refresh_summary_context": [
+    "  Runtime:          ",
+    {
+      "arg": "runtimeDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (configuration ",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ", from ",
+    {
+      "arg": "configSource",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.host_refresh_summary_header": [
+    "Host refresh (",
+    {
+      "arg": "mode",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") on ",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_summary_ladder": [
+    "  Repair ladder, ceiling ",
+    {
+      "arg": "ceiling",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ":"
+  ],
+  "runner.host_refresh_summary_obligation": [
+    "  Outstanding:      ",
+    {
+      "arg": "obligation",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_summary_probe": [
+    "  Hypervisor probe: ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ",
+    {
+      "arg": "elapsedMs",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ms)"
+  ],
+  "runner.host_refresh_summary_rung_above_ceiling": [
+    "    [",
+    {
+      "arg": "order",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": above the requested ceiling"
+  ],
+  "runner.host_refresh_summary_rung_available": [
+    "    [",
+    {
+      "arg": "order",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": available"
+  ],
+  "runner.host_refresh_summary_rung_result": [
+    "    [",
+    {
+      "arg": "order",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.host_refresh_summary_rung_unavailable": [
+    "    [",
+    {
+      "arg": "order",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": unavailable, ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_summary_runner": [
+    "  Runner:           ",
+    {
+      "arg": "status",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_refresh_summary_verdict": [
+    "  Verdict:          ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", attempt ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", state ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.host_refresh_unexpected_error": [
+    "Invoke-HostRefresh: unexpected error during ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_refresh_verified_noop": "Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.",
   "runner.inner_guest_folder_missing": [
     "Guest folder not found for '",
     {
@@ -130,7 +1490,18 @@ const DataenUSrunner = `{
     },
     "' has no 'baseline:' OS key; not a runnable guest sequence."
   ],
+  "runner.launch_record_complete_action": "Mark the runner launch record ended",
+  "runner.launch_record_write_action": "Write the runner launch record",
   "runner.mac_automation_utm_title": "Automation -> UTM",
+  "runner.mac_dock_reload_deferred": "Dock was not restarted because this run must not disturb the desktop session; the hot-corner and Spaces changes take effect the next time Dock starts.",
+  "runner.mac_grant_prompt_suppressed": [
+    {
+      "arg": "title",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": no consent dialog was raised because this run must not prompt; grant it by hand as follows."
+  ],
   "runner.mac_permission_enable_terminal": [
     "Add and enable ",
     {
@@ -148,6 +1519,49 @@ const DataenUSrunner = `{
       "trust": "external"
     },
     " in the list and turn ON the UTM row underneath it. This pane has no + button -- an application appears in it only after it has asked once, which is exactly what the first utmctl call does."
+  ],
+  "runner.mac_privileged_setting_failed": [
+    "sudo ",
+    {
+      "arg": "command",
+      "type": "detail",
+      "trust": "external"
+    },
+    " failed (exit ",
+    {
+      "arg": "exitCode",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.mac_privileged_setting_timeout": [
+    "sudo ",
+    {
+      "arg": "command",
+      "type": "detail",
+      "trust": "external"
+    },
+    " did not finish within ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s; the setting is treated as not applied."
+  ],
+  "runner.mac_utmctl_link_deadline": [
+    "Set-MacUtmctlLink: no time remained to link utmctl. Run: ",
+    {
+      "arg": "macUtmctlRemediation",
+      "type": "detail",
+      "trust": "internal"
+    }
   ],
   "runner.mcp_dependency_drift": "exit 1 from this script means a pinned dependency has drifted, not that the report failed",
   "runner.mcp_dependency_invalid_json": "expected JSON from -AsJson but the output did not parse",
@@ -204,6 +1618,26 @@ const DataenUSrunner = `{
   "runner.mcp_yuruna_test_configuration": "Validate the test configuration. Exits non-zero with a transcript when a check fails, and returns a bare False while exiting 0 when the root set will not resolve at all.",
   "runner.mcp_yuruna_test_requirement": "Check that this host meets the requirements a cycle needs. Exits non-zero on a failed requirement.",
   "runner.mcp_yuruna_test_runtime": "Check the runtime. The verdict is a boolean emitted as the last pipeline object; this script has no exit statement, so the exit code says nothing.",
+  "runner.no_other_runner_refresh_active": [
+    {
+      "arg": "callerName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " holds this host's runner (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
   "runner.operator_00041714738b26ad": "Set clone (duplicate) topology",
   "runner.operator_0021edc0297e700d": [
     "  Forwarded env: (none of ",
@@ -20714,7 +22148,353 @@ const DataenUSrunner = `{
     },
     " -- should be 0 (disabled) or a positive integer."
   ],
+  "runner.outer_log_runtime_dir_unset": [
+    "Write-OuterLog: YURUNA_RUNTIME_DIR is not set, so outer.log cannot be located; this line and later lines are not written to it: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.prior_runner_cleanup_action": "  Action:  stopping it and running\n           Remove-TestVMFiles.ps1 before start",
+  "runner.process_start_record_write_action": "Write a process start-time record",
+  "runner.readiness_ack_remove_action": "Remove a stale refresh readiness acknowledgment",
+  "runner.readiness_ack_write_action": "Write the refresh readiness acknowledgment",
+  "runner.refresh_barrier_held": [
+    "Resumed after host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": held by ",
+    {
+      "arg": "controls",
+      "type": "text",
+      "trust": "internal"
+    },
+    ". Release them from the status page; no VM is created or changed until then."
+  ],
+  "runner.refresh_barrier_released": [
+    "Held controls released after ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s; the resumed cycle continues."
+  ],
+  "runner.refresh_capability_unverified_macos": "Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only.",
+  "runner.refresh_capability_unverified_windows": "Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only.",
+  "runner.refresh_cycle_held": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the inner stopped at ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " because a host refresh holds this host; nothing was changed."
+  ],
+  "runner.refresh_gate_blocks_start": [
+    "Start-TestRunner: host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " holds this host's runner (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.refresh_gate_hold": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " holds the runner (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); no cycle starts until it releases."
+  ],
+  "runner.refresh_gate_orphaned": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " left the runner held (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") and its worker is no longer running. Run test/lab/Invoke-HostRefresh.ps1 -Resume to finish its recovery."
+  ],
+  "runner.refresh_gate_released": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the host-refresh gate released the runner; cycles resume."
+  ],
+  "runner.refresh_gate_unreadable": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the host-refresh gate record could not be read (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it."
+  ],
+  "runner.refresh_gate_write_action": [
+    "Write the host-refresh runner gate (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.refresh_handoff_complete": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] readiness verified for host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; leaving the refresh gate."
+  ],
+  "runner.refresh_handoff_complete_action": [
+    "Complete a host-refresh runner handoff (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.refresh_handoff_issue_action": [
+    "Issue a host-refresh runner handoff token (",
+    {
+      "arg": "purpose",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.refresh_handoff_unverified": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] readiness for host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " could not be verified (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); the runner stays held."
+  ],
+  "runner.refresh_launch_record_skipped": [
+    "Start-TestRunner: the runner launch record was not written (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); a host refresh cannot restart this runner, and asks the operator to start it instead."
+  ],
+  "runner.refresh_preflight_cycle": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] refresh preflight only: no git pull, VM change or control sweep in this cycle."
+  ],
+  "runner.refresh_preflight_failed": [
+    "Refresh preflight failed (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); nothing was changed and the runner stays held."
+  ],
+  "runner.refresh_preflight_ready": [
+    "Refresh preflight ready for request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; waiting for the refresh worker to release the runner."
+  ],
+  "runner.refresh_preflight_released": [
+    "Refresh preflight ended (",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); exiting so the runner can continue."
+  ],
+  "runner.refresh_preflight_result": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] refresh preflight cycle finished with exit code ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.refresh_resume_action": "Restart the runner after a host refresh",
+  "runner.refresh_resume_record_refused": [
+    "Start-TestRunner: ",
+    {
+      "arg": "pidFile",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; a refresh resume never takes over or deletes a live or unknown runner record."
+  ],
+  "runner.refresh_resume_started": [
+    "Start-TestRunner: resuming after host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; operator pauses, holds and restart requests are preserved."
+  ],
+  "runner.refresh_resume_switch_pair": "Start-TestRunner: -RefreshResume and -RefreshHandoffToken must be given together; not starting.",
+  "runner.refresh_resume_token_refused": [
+    "Start-TestRunner: the refresh handoff was refused (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); not starting."
+  ],
+  "runner.refresh_site_gated": [
+    "Cycle ended before ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " holds this host (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). Nothing was changed; the runner waits for the refresh."
+  ],
+  "runner.refresh_status_ensure_skipped": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] status-service re-ensure skipped: a host refresh holds this host."
+  ],
+  "runner.refresh_trigger_call_failed": [
+    "Automatic host-refresh call at ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " failed and was skipped: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.runner_process_signal_action": [
+    "Signal a verified runner process (",
+    {
+      "arg": "signal",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.runner_record_remove_action": "Remove a runner record proven dead or recycled",
+  "runner.runner_stream_remove_action": "Remove an old restarted-runner stream file",
   "runner.sequence_completed": [
     "[All ",
     {
@@ -20817,6 +22597,492 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
+  "runner.service_cachingproxy_utmctl_start_failed": [
+    "'utmctl start ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' failed (exit ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.service_census_tick_should_process": "Probe the service endpoints and merge the results into the service census",
+  "runner.service_census_unreadable": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the service census at ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " could not be read just now (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); nothing was changed. Retry; if it keeps failing, check the file's permissions and the disk."
+  ],
+  "runner.service_census_unusable": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the service census at ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " could not be used (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); service start and stop scripts refuse until it is repaired or moved aside. Nothing was changed."
+  ],
+  "runner.service_census_update_should_process": "Merge service observations into the service census",
+  "runner.service_lockset_should_process": [
+    "Take the operation locks of services ",
+    {
+      "arg": "keys",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.service_operation_busy": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": another start or stop of service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' still holds its operation lock (newest recorded request: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "). Retry after it finishes; nothing was changed."
+  ],
+  "runner.service_operation_complete_should_process": [
+    "Record the result of the ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " of service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'"
+  ],
+  "runner.service_operation_lock_unavailable": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the operation lock of service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' could not be taken (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); nothing was changed. Check that ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " is writable, has free space and belongs to this user, then retry."
+  ],
+  "runner.service_operation_refused": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " of service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' was not started (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); nothing was changed."
+  ],
+  "runner.service_operation_result_unrecorded": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the result of the ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " of service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' could not be recorded (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); the census keeps the pending request."
+  ],
+  "runner.service_operation_should_process": [
+    "Record the ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " request for service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' and take its operation lock"
+  ],
+  "runner.service_operation_superseded": [
+    {
+      "arg": "script",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a newer ",
+    {
+      "arg": "newerOperation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " request for service '",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' was recorded while this ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " was in progress; the newer request stands."
+  ],
+  "runner.service_poolcontrol_pid_unverified": [
+    "The pool-control marker names pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", but that process could not be verified as the host-side pool-control service (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); it was left running."
+  ],
+  "runner.service_poolcontrol_stop_incomplete": [
+    "Stop-PoolControlServiceVM.ps1: the stop is incomplete; pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " was left running, so the pool-control marker was kept and the stop request stays open. Stop that process by hand, then re-run."
+  ],
+  "runner.service_restore_deadline_exhausted": "the shared deadline ran out before this service was checked",
+  "runner.service_restore_endpoint_stale": [
+    "the guest answers at ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", but its advertised endpoint still names ",
+    {
+      "arg": "advertised",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; the advertisement was not changed"
+  ],
+  "runner.service_restore_endpoint_unanswered": [
+    "the guest answers at ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; its advertised endpoint ",
+    {
+      "arg": "advertised",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " did not answer"
+  ],
+  "runner.service_restore_health_unverified": [
+    "running; :",
+    {
+      "arg": "healthPort",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " did not answer at ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s"
+  ],
+  "runner.service_restore_identity_ambiguous": [
+    "its deployed identity is ambiguous (",
+    {
+      "arg": "ambiguity",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); not started"
+  ],
+  "runner.service_restore_intended_stopped": [
+    "stopped on purpose by an explicit ",
+    {
+      "arg": "operation",
+      "type": "token",
+      "trust": "internal"
+    },
+    " request; not started"
+  ],
+  "runner.service_restore_intent_unreadable": [
+    "its start and stop requests could not be read (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); not started"
+  ],
+  "runner.service_restore_lock_unavailable": [
+    "its operation lock under ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " could not be taken (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); not started"
+  ],
+  "runner.service_restore_lock_unavailable_report": [
+    {
+      "arg": "displayName",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' was not started: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.service_restore_no_address": "running, but no address could be resolved; health was not verified",
+  "runner.service_restore_not_a_guest": [
+    "runs as a host process (pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "); there is no VM to restore"
+  ],
+  "runner.service_restore_operation_busy": "a start or stop of this service is in progress; not started",
+  "runner.service_restore_operation_unowned": "the caller's operation ownership does not cover this service; not started",
+  "runner.service_restore_state_unknown": [
+    {
+      "arg": "displayName",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' state could not be confirmed (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); it was neither started nor rebuilt."
+  ],
+  "runner.service_stop_final_state_unexpected": [
+    "VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' final state: ",
+    {
+      "arg": "finalState",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (expected absent after removal). Inspect it with the host's tooling, then re-run Stop-CachingProxyServiceVM.ps1."
+  ],
+  "runner.start_cycle_worker_cleanup_failed": [
+    "Start-cycle ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": Remove-TestVMFiles.ps1 ended with exit code ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (timed out: ",
+    {
+      "arg": "timedOut",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.start_cycle_worker_clear_action": "Clear the pause and lab-hold controls and request a cycle restart",
+  "runner.start_cycle_worker_completed": [
+    "Start-cycle ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "result",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (runner: ",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.start_cycle_worker_refused": [
+    "Start-cycle ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": nothing was changed (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.start_cycle_worker_runner_unknown": [
+    "Start-cycle ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the runner's state is unknown after cleanup, so no runner was started; the cycle restart request was written, so a running runner still restarts its cycle."
+  ],
+  "runner.start_cycle_worker_spawn_failed": [
+    "Start-cycle ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": the runner could not be started (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
   "runner.stash_probe_unconfirmed": {
     "kind": "select",
     "selector": "mode",
@@ -20886,6 +23152,111 @@ const DataenUSrunner = `{
     }
   ],
   "runner.status_forwarder_sudo_unavailable": "  Root-owned caching-proxy forwarder detected and this run is non-interactive, so it cannot be stopped: sudo has no live authorization. Run 'sudo -v' and re-run, or stop it by hand. Continuing without it.",
+  "runner.status_lan_clients_time_out": [
+    "http://localhost:",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "/status/ works, but LAN clients hitting http://",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ":",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "/status/ will time out."
+  ],
+  "runner.status_refresh_safe_existing_ready": [
+    "Status service PID ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " already answers on port ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "; the refresh-safe start left it running."
+  ],
+  "runner.status_refresh_safe_not_ready": [
+    "The status service started as PID ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " but did not answer within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds; it was left running."
+  ],
+  "runner.status_refresh_safe_partial": [
+    "Refresh-safe start of the status service on port ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " changed nothing: ",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.status_refresh_safe_refused": [
+    "Start-StatusService.ps1 -RefreshSafe refused: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.status_refresh_safe_result_unwritable": [
+    "The refresh-safe start could not write its result record to ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.status_refresh_safe_started": [
+    "Status service started as PID ",
+    {
+      "arg": "processId",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " on port ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (refresh-safe start)."
+  ],
   "runner.status_restart_changed_head": [
     "Restarting status service (PID ",
     {
@@ -20925,6 +23296,8 @@ const DataenUSrunner = `{
     },
     "): current HEAD unknown."
   ],
+  "runner.status_worker_directory_prepare_action": "Prepare the private worker directory",
+  "runner.status_worker_state_write_action": "Publish the worker state record",
   "runner.transcript_title": "Yuruna test-runner log",
   "runner.vault_retired_entries": [
     "removed ",

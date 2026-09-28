@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -268,8 +268,11 @@ function New-YurunaConfigServerCertificate {
     $serverPfx = Join-Path $dir 'server.pfx'
     $flags     = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
     if (-not $Force -and (Test-Path -LiteralPath $serverPfx)) {
-        return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+        $existing = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
             [System.IO.File]::ReadAllBytes($serverPfx), '', $flags)
+        if ($existing.NotAfter.ToUniversalTime() -gt [DateTime]::UtcNow.AddDays(30) -and
+            $existing.NotBefore.ToUniversalTime() -le [DateTime]::UtcNow) { return $existing }
+        $existing.Dispose()
     }
     if (-not $PSCmdlet.ShouldProcess($serverPfx, (Format-YurunaOperatorMessage -Key 'runner.operator_9bdb15f7589987dd'))) {
         if (Test-Path -LiteralPath $serverPfx) {

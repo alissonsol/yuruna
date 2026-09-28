@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f3b7c1-6e04-4a95-b1d8-27a5c9603ef4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,20 +19,21 @@
 <#
 .SYNOPSIS
     Run the parts that must not care what culture the host is set to, on hosts
-    set to six different ones.
+    set to eight different ones.
 .DESCRIPTION
     Almost every locale defect in this project has the same shape: a value that
     should be decided by data is decided instead by the machine the code
     happens to be running on. It never shows up on the machine it was written
     on, which is why it needs a matrix rather than a test.
 
-    The six cultures are the ones the plan names, and each is there for a
-    reason. `de-DE` and `pt-BR` swap the decimal and grouping separators.
+    Each of the eight cultures is there for a reason. `de-DE` and `pt-BR`
+    swap the decimal and grouping separators.
     `tr-TR` is the dotted-I: upper-casing "i" gives a character that is not
     "I", so any comparison that upper-cases first stops matching. `th-TH` uses
     a non-Gregorian calendar by default. `ar-SA` uses Arabic-Indic digits AND a
     non-Gregorian calendar, and is the one where a wrong parse does not merely
-    shift a decimal point -- it fails outright and leaves a zero.
+    shift a decimal point -- it fails outright and leaves a zero. `zh-CN` and
+    `he-IL` are the hosts a Chinese or a Hebrew operator runs.
 
     That last case is worth stating plainly, because it is demonstrated below
     rather than described: `[double]::TryParse('1.5', [ref]$x)` returns 15 on a
@@ -53,9 +54,10 @@ Import-Module (Join-Path $here 'Test.Locale.psm1') -Force -Global -DisableNameCh
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 
-# The six the plan names. Each is present because it breaks something a
-# different way; none is here for coverage.
-$script:Cultures = @('en-US', 'pt-BR', 'de-DE', 'tr-TR', 'th-TH', 'ar-SA')
+# Eight host cultures. Each is present because it breaks something a
+# different way -- zh-CN and he-IL are also the host a Chinese or Hebrew
+# operator runs; none is here for coverage.
+$script:Cultures = @('en-US', 'pt-BR', 'de-DE', 'tr-TR', 'th-TH', 'ar-SA', 'zh-CN', 'he-IL')
 
 $script:Manifest = @{
     Default         = 'en-US'
@@ -99,7 +101,7 @@ function Invoke-UnderCulture {
 
 Describe 'the host culture decides nothing a reader sees' {
 
-    It 'renders every enabled production domain and selector under all six cultures without fallback' {
+    It 'renders every enabled production domain and selector under all eight cultures without fallback' {
         $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
             (Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
         $locales = @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -in @('supported', 'pseudo') } | Sort-Object)
@@ -163,7 +165,7 @@ Describe 'the host culture decides nothing a reader sees' {
     }
 
 
-    It 'renders every catalog message identically on all six hosts' {
+    It 'renders every catalog message identically on all eight hosts' {
         $findings = @()
         $baseline = $null
         foreach ($culture in $script:Cultures) {
@@ -187,7 +189,7 @@ Describe 'the host culture decides nothing a reader sees' {
         Assert-NoFinding $findings 'the host culture leaked into what a reader is shown'
     }
 
-    It 'resolves a locale identically on all six hosts' {
+    It 'resolves a locale identically on all eight hosts' {
         # tr-TR is the case that matters here. A comparison that upper-cases
         # before matching turns "i" into a character that is not "I", so a tag
         # like "pt-BR" stops matching itself on exactly one host in the world.
@@ -211,7 +213,7 @@ Describe 'the host culture decides nothing a reader sees' {
         Assert-NoFinding $findings 'the host culture changed which language a reader would be served'
     }
 
-    It 'chooses the same plural form on all six hosts' {
+    It 'chooses the same plural form on all eight hosts' {
         $findings = @()
         foreach ($culture in $script:Cultures) {
             foreach ($pair in @(@{ N = 0; Want = 'other' }, @{ N = 1; Want = 'one' }, @{ N = 2; Want = 'other' })) {
@@ -244,7 +246,7 @@ Describe 'a machine value is read the same on every host' {
             'the Arabic-Indic case no longer yields a silent zero; re-check what it does now'
     }
 
-    It 'reads a machine value invariantly on all six hosts' {
+    It 'reads a machine value invariantly on all eight hosts' {
         $findings = @()
         foreach ($culture in $script:Cultures) {
             $got = Invoke-UnderCulture -Culture $culture -Script {
@@ -259,7 +261,7 @@ Describe 'a machine value is read the same on every host' {
         Assert-NoFinding $findings 'an invariant parse still depends on the host'
     }
 
-    It 'reads a Prometheus metric identically on all six hosts' {
+    It 'reads a Prometheus metric identically on all eight hosts' {
         # Exposition format fixes the decimal point as a dot regardless of who
         # reads it. Parsed through the host's culture, a healthy fraction of
         # 0.75 becomes 75 -- and the thresholds compare against 1, so a healthy
@@ -288,7 +290,7 @@ Describe 'a machine value is read the same on every host' {
         Assert-NoFinding $findings 'a metric value depends on the culture of the host reading it'
     }
 
-    It 'migrates a config factor identically on all six hosts' {
+    It 'migrates a config factor identically on all eight hosts' {
         # The value comes out of a config FILE, so its decimal point is a dot
         # wherever the file was written. Read through the host's culture, "1.5"
         # becomes 15, the migration multiplies THAT by the factor, and writes
@@ -348,7 +350,7 @@ Describe 'a machine value is read the same on every host' {
         Assert-NoFinding $findings 'a float read from a machine boundary depends on the host that reads it'
     }
 
-    It 'reads the locale manifest identically on all six hosts' {
+    It 'reads the locale manifest identically on all eight hosts' {
         # The manifest carries the separators every runtime formats from. If
         # reading it depended on the host, every number in the project would.
         $findings = @()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c6a229-b03a-4ffe-979e-1360be03ef47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,7 +48,7 @@ function Get-CachingProxyServiceLockUtcNow {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Get-CachingProxyServiceLockPath {
@@ -168,10 +168,11 @@ function Enter-CachingProxyServiceLock {
     $startPath = $paths.StartPath
     $dir = Split-Path -Parent $pidPath
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-        try { New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null } catch { $null = $_ }
+        New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
     }
     $deadline = (Get-Date).ToUniversalTime().AddSeconds([Math]::Max(0, $TimeoutSeconds))
     $result = @{ Acquired = $false; HolderPid = 0; HolderRole = ''; PidPath = $pidPath; StartPath = $startPath; Role = $Role }
+    $drainAttempts = 0
     while ($true) {
         try {
             # Atomic compare-and-set: CreateNew throws if the file exists. Write the
@@ -186,10 +187,16 @@ function Enter-CachingProxyServiceLock {
             $result.Acquired = $true
             return $result
         } catch [System.IO.IOException] {
+            if (-not (Test-Path -LiteralPath $pidPath)) { throw }
             $holder = Get-CachingProxyServiceLockHolder -PidPath $pidPath -StartPath $startPath
             if (-not $holder.Alive) {
                 # Stale holder (dead / PID reused) -> drain and retry immediately.
-                Remove-Item -LiteralPath $pidPath, $startPath -Force -ErrorAction SilentlyContinue
+                foreach ($stalePath in @($pidPath, $startPath)) {
+                    if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force -ErrorAction Stop }
+                }
+                $drainAttempts++
+                if ($drainAttempts -ge 20 -or ($TimeoutSeconds -gt 0 -and [DateTime]::UtcNow -ge $deadline)) { return $result }
+                Start-Sleep -Milliseconds 25
                 continue
             }
             if ($holder.Pid -eq $PID) {
@@ -206,7 +213,12 @@ function Enter-CachingProxyServiceLock {
                 # by definition. Warned (not Verbose): it means an earlier bring-up
                 # in this shell died, which the operator should know about.
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc0ae585e86ec0a2' -Arguments @{ pID = "$PID"; role = "$($holder.Role)" })
-                Remove-Item -LiteralPath $pidPath, $startPath -Force -ErrorAction SilentlyContinue
+                foreach ($stalePath in @($pidPath, $startPath)) {
+                    if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force -ErrorAction Stop }
+                }
+                $drainAttempts++
+                if ($drainAttempts -ge 20 -or ($TimeoutSeconds -gt 0 -and [DateTime]::UtcNow -ge $deadline)) { return $result }
+                Start-Sleep -Milliseconds 25
                 continue
             }
             $holderAge = Get-CachingProxyServiceLockAge -StartPath $startPath
@@ -217,7 +229,12 @@ function Enter-CachingProxyServiceLock {
                 # the liveness drain nor the self-owned reclaim applies. An unknown age
                 # ($null -- no sidecar, or an unreadable stamp) never drains.
                 Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_ef9804a60837bfd2' -Arguments @{ pid = "$($holder.Pid)"; role = "$($holder.Role)" } -FormatValues (($holderAge / 3600), ($script:CachingProxyServiceLockMaxAgeSeconds / 3600)) -FormatBindings @{ holderAge = '0:N1'; cachingProxyServiceLockMaxAgeSeconds = '1:N1' }))
-                Remove-Item -LiteralPath $pidPath, $startPath -Force -ErrorAction SilentlyContinue
+                foreach ($stalePath in @($pidPath, $startPath)) {
+                    if (Test-Path -LiteralPath $stalePath) { Remove-Item -LiteralPath $stalePath -Force -ErrorAction Stop }
+                }
+                $drainAttempts++
+                if ($drainAttempts -ge 20 -or ($TimeoutSeconds -gt 0 -and [DateTime]::UtcNow -ge $deadline)) { return $result }
+                Start-Sleep -Milliseconds 25
                 continue
             }
             $result.HolderPid = $holder.Pid

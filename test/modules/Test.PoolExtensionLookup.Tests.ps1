@@ -104,6 +104,14 @@ function Get-HttpResponderJob {
 }
 
 Describe 'pool-extension-lookup' {
+    It 'bypasses ambient proxies when asking the LAN aggregator' {
+        Mock Invoke-WebRequest -ModuleName default {
+            return [pscustomobject]@{ StatusCode = 200; Content = '{"host":"192.168.7.227"}' }
+        }
+        Assert-Equal '192.168.7.227' (Get-PoolExtensionHostFrom -BaseUrl 'https://192.168.7.42:9400' -Area 'stash-service')
+        Should -Invoke Invoke-WebRequest -ModuleName default -Times 1 -Exactly -ParameterFilter { $NoProxy }
+    }
+
 
     It 'returns the address the pool reports for an area' {
         $bound = Get-LoopbackHttpListener

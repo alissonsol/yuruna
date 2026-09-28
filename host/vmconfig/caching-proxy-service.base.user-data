@@ -1736,9 +1736,9 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
-      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
   # See https://yuruna.link/429f3d06-002a
   # See https://yuruna.link/429f3d06-0054
@@ -1917,7 +1917,7 @@ write_files:
         "title": "Yuruna hosts",
         "tags": ["yuruna", "pool"],
         "schemaVersion": 39,
-        "version": 10,
+        "version": 11,
         "editable": true,
         "refresh": "30s",
         "timezone": "utc",
@@ -1972,7 +1972,7 @@ write_files:
             "id": 19,
             "type": "stat",
             "title": "Success%",
-            "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Includes historical cycles from hosts no longer in the live table. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -1985,7 +1985,7 @@ write_files:
             "id": 4,
             "type": "stat",
             "title": "Failed cycles",
-            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right), including hosts no longer in the live table. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -1998,7 +1998,7 @@ write_files:
             "id": 20,
             "type": "stat",
             "title": "Total cycles",
-            "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Terminal cycles lab-wide within the selected time range, including hosts no longer in the live table; also the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -2075,51 +2075,76 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
-              { "refId": "A", "expr": "topk(1, yuruna_pool_host_info{pool=~\".+\"}) by (hostId)", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
-              { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
-              { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
-              { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+              { "refId": "A", "expr": "topk(1, yuruna_pool_host_info{pool=~\".+\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+              { "refId": "B", "expr": "(time() - yuruna_pool_host_last_seen_seconds{pool=~\".+\"}) unless on(hostId) yuruna_pool_host_retired", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+              { "refId": "C", "expr": "sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+              { "refId": "D", "expr": "sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+              { "refId": "E", "expr": "(topk(1, yuruna_pool_host_canonical_info) by (hostId)) * 1", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
             ],
             "transformations": [
               { "id": "merge", "options": {} },
+              { "id": "groupBy", "options": { "fields": {
+                "canonicalHostId": { "aggregations": [], "operation": "groupby" },
+                "control": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "poolGuid": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "version": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "commit": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "status": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "hostType": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "Value #D": { "aggregations": ["sum"], "operation": "aggregate" },
+                "Value #C": { "aggregations": ["sum"], "operation": "aggregate" },
+                "Value #B": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "cycleStartUtc": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "baseUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "cycleFolderUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "commitUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "projectCommitUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+                "hostIdDashed": { "aggregations": ["lastNotNull"], "operation": "aggregate" }
+              } } },
+              { "id": "filterByValue", "options": { "filters": [ { "config": { "id": "isNotNull", "options": {} }, "fieldName": "baseUrl (lastNotNull)" } ], "match": "all", "type": "include" } },
               {
                 "id": "organize",
                 "options": {
-                  "excludeByName": { "Time": true, "pool": true, "hostname": true, "Value #A": true, "__name__": true, "job": true, "instance": true },
+                  "excludeByName": {},
                   "renameByName": {
-                    "hostId": "Host ID",
-                    "control": "Control",
-                    "poolGuid": "Pool ID",
-                    "hostType": "Type",
-                    "version": "Version",
-                    "commit": "Commit",
-                    "status": "Status",
-                    "cycleStartUtc": "Last cycle",
-                    "Value #B": "Last seen",
-                    "Value #C": "Pass",
-                    "Value #D": "Fail"
+                    "canonicalHostId": "Host ID",
+                    "control (lastNotNull)": "Control",
+                    "poolGuid (lastNotNull)": "Pool ID",
+                    "hostType (lastNotNull)": "Type",
+                    "version (lastNotNull)": "Version",
+                    "commit (lastNotNull)": "Commit",
+                    "status (lastNotNull)": "Status",
+                    "cycleStartUtc (lastNotNull)": "Last cycle",
+                    "Value #B (lastNotNull)": "Last seen",
+                    "Value #C (sum)": "Pass",
+                    "Value #D (sum)": "Fail",
+                    "baseUrl (lastNotNull)": "baseUrl",
+                    "cycleFolderUrl (lastNotNull)": "cycleFolderUrl",
+                    "commitUrl (lastNotNull)": "commitUrl",
+                    "projectCommitUrl (lastNotNull)": "projectCommitUrl",
+                    "hostIdDashed (lastNotNull)": "hostIdDashed"
                   },
                   "indexByName": {
-                    "hostId": 0,
-                    "control": 1,
-                    "poolGuid": 2,
-                    "version": 3,
-                    "commit": 4,
-                    "status": 5,
-                    "hostType": 6,
-                    "Value #D": 7,
-                    "Value #C": 8,
-                    "Value #B": 9,
-                    "cycleStartUtc": 10,
-                    "baseUrl": 11,
-                    "cycleFolderUrl": 12,
-                    "commitUrl": 13,
-                    "projectCommitUrl": 14,
-                    "hostIdDashed": 15
+                    "canonicalHostId": 0,
+                    "control (lastNotNull)": 1,
+                    "poolGuid (lastNotNull)": 2,
+                    "version (lastNotNull)": 3,
+                    "commit (lastNotNull)": 4,
+                    "status (lastNotNull)": 5,
+                    "hostType (lastNotNull)": 6,
+                    "Value #D (sum)": 7,
+                    "Value #C (sum)": 8,
+                    "Value #B (lastNotNull)": 9,
+                    "cycleStartUtc (lastNotNull)": 10,
+                    "baseUrl (lastNotNull)": 11,
+                    "cycleFolderUrl (lastNotNull)": 12,
+                    "commitUrl (lastNotNull)": 13,
+                    "projectCommitUrl (lastNotNull)": 14,
+                    "hostIdDashed (lastNotNull)": 15
                   }
                 }
               }
@@ -2430,9 +2455,8 @@ write_files:
       that directory (updateIntervalSeconds: 30), so the resize lands without a
       Grafana restart.
 
-      Counts come from Prometheus and Loki, and the row count is their UNION: the Pool
-      hosts table merges a Prometheus frame with two Loki frames, so a host with cycles
-      in the window but no live Prometheus series still lands a row.
+      The Pool hosts table groups old Loki IDs into the current Prometheus host row,
+      so its size follows the live host count. The timeline retains historical rows.
 
       Grid geometry, the round-UP rule, the 24h-window caveat and the zero-count no-op:
       https://yuruna.link/429f3d06-0056
@@ -2450,7 +2474,6 @@ write_files:
           "YURUNA_POOL_DASHBOARD", "/var/lib/grafana/dashboards/pool.json"
       )
       PROMETHEUS = "http://127.0.0.1:9090/api/v1/query"
-      LOKI = "http://127.0.0.1:3100/loki/api/v1/query"
       POOL = os.environ.get("YURUNA_POOL", "default")
       WINDOW = "24h"  # the dashboard's default time range
       TIMEOUT = 10
@@ -2529,16 +2552,15 @@ write_files:
 
 
       def main():
-          prom_hosts = query(PROMETHEUS, 'count(yuruna_pool_host_info{pool="%s"})' % POOL)
+          prom_hosts = query(
+              PROMETHEUS,
+              'count(topk(1, yuruna_pool_host_info{pool="%s"}) by (hostId) '
+              'unless on(hostId) yuruna_pool_host_retired)' % POOL,
+          )
           if not prom_hosts:
               # No collector, no hosts, or Prometheus not up yet: keep the last layout.
               return 0
 
-          loki_hosts = query(
-              LOKI,
-              'count(sum by (hostId) (count_over_time({pool="%s"} | json '
-              '| overallStatus=~"pass|fail" [%s])))' % (POOL, WINDOW),
-          )
           extensions = query(
               PROMETHEUS, 'count(yuruna_pool_host_extension{pool="%s"})' % POOL
           )
@@ -2548,7 +2570,7 @@ write_files:
               % (POOL, WINDOW),
           )
 
-          pool_rows = clamp(max(prom_hosts, loki_hosts or 0))
+          pool_rows = clamp(prom_hosts)
           ext_rows = clamp(extensions if extensions is not None else 0)
           timeline_rows = clamp(timeline if timeline else prom_hosts)
 
@@ -3966,10 +3988,10 @@ runcmd:
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
     fi
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
     cd /opt/pool-aggregator-service
     PA_OK=1
-    for f in go.mod beacon/beacon.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
       if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
     done
@@ -3990,7 +4012,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /opt/pool-aggregator-service
-    for f in main.go mcp.go localization.go internal/catalog/registry.go go.mod pool-aggregator-service.service; do
+    for f in main.go handover.go mcp.go localization.go internal/catalog/registry.go go.mod pool-aggregator-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator-service/$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -4016,7 +4038,7 @@ runcmd:
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
-    for f in go.mod beacon/beacon.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go; do
       if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
     done
     # VERSION_STR the way every other service derives it: first line, whitespace

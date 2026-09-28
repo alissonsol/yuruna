@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424726b4-f226-4fcb-9a7e-5b0459912dc9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ param (
 )
 
 # logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
@@ -62,7 +63,10 @@ Set-YurunaLogLevel -LogLevel $logLevel
 # wildcard or multi-match project path cannot slip through), before the Yuruna.*
 # eviction sweeps up the leaf resolver.
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
-if (-not $roots) { return $false }
+if (-not $roots) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_36db573bfe1ac885') -WarningAction Continue
+    exit 1
+}
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
 # The transcript path is decided here, beside the root set and before the

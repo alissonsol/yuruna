@@ -230,7 +230,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 	sha := sha256Hex(body)
 	srv := originServer(t, "img.iso", body, sha, "Thu, 23 Jul 2026 09:14:02 GMT")
 
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.09.24"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.09.27"})
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
 	res := Resolved{
 		Family: FamilyUbuntuISO, UpstreamFilename: "img.iso",
@@ -251,7 +251,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &Progress{}
-	gotSHA, written, err := a.downloadTo(context.Background(), res.SourceURL, staged, p)
+	gotSHA, written, _, err := a.downloadTo(context.Background(), res.SourceURL, staged, p)
 	if err != nil {
 		t.Fatalf("downloadTo: %v", err)
 	}
@@ -630,7 +630,7 @@ func TestScanOnceSweepsStagingAndRecordsCadence(t *testing.T) {
 	if err := os.WriteFile(staged, []byte("abandoned"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	orphan := filepath.Join(filepath.Dir(staged), "amd64.stable.old.iso.999999")
+	orphan := filepath.Join(filepath.Dir(staged), "amd64.stable.old.iso."+a.store.stagingOwner+".999999")
 	if err := os.WriteFile(orphan, []byte("abandoned"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -711,7 +711,7 @@ func ubuntuFixture(t *testing.T, body []byte, daily bool, headSize int) http.Rou
 
 func TestRefreshRecordsTheProbedSizeAndTheResolvedVariant(t *testing.T) {
 	body := []byte("a stand-in for the ISO the daily tree does not carry today")
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.09.24"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.09.27"})
 	// daily was asked for; only stable resolves, so the fallback fires.
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantDaily}
 
@@ -801,12 +801,15 @@ func TestAMidBodyProxyFailureFallsBackToADirectFetch(t *testing.T) {
 
 	dst := filepath.Join(t.TempDir(), "artifact")
 	p := &Progress{}
-	sha, n, err := a.downloadTo(context.Background(), origin.URL+"/img.iso", dst, p)
+	sha, n, viaProxy, err := a.downloadTo(context.Background(), origin.URL+"/img.iso", dst, p)
 	if err != nil {
 		t.Fatalf("a mid-body proxy failure must fall back to direct rather than fail the refresh: %v", err)
 	}
 	if proxyHits.Load() == 0 {
 		t.Fatal("the proxy was never tried, so this proves nothing about the fallback")
+	}
+	if viaProxy {
+		t.Fatal("a direct fallback must not be classified as proxy bytes")
 	}
 	if n != int64(len(body)) || sha != sha256Hex(body) {
 		t.Fatalf("direct retry produced %d bytes / sha %s", n, sha)
@@ -889,5 +892,33 @@ func TestForceRefreshRefusesWhatItCannotDo(t *testing.T) {
 	}
 	if _, err := a.ForceRefresh(id); err == nil {
 		t.Error("force refresh in read-only mode must refuse rather than duplicate the holder's work")
+	}
+}
+
+func TestReadOnlyAgentDoesNotSweepSharedStaging(t *testing.T) {
+	root := t.TempDir()
+	holder := newTestAgent(t, Options{PoolDir: root, HostID: "holder"})
+	follower := newTestAgent(t, Options{PoolDir: root, HostID: "follower"})
+	if ro, _, err := holder.lease.Renew(fixedNow); err != nil || ro {
+		t.Fatalf("holder lease: %t %v", ro, err)
+	}
+	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+	path, err := holder.store.NewStagingPath(id, "live.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte("active"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := fixedNow.Add(-config.StagingMaxAge - time.Hour)
+	if err = os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	follower.ScanOnce(context.Background())
+	if !follower.lease.ReadOnly() {
+		t.Fatal("follower is not read-only")
+	}
+	if _, err = os.Stat(path); err != nil {
+		t.Fatalf("follower removed holder staging: %v", err)
 	}
 }

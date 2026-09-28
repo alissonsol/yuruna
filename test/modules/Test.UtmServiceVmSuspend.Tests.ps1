@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,13 +78,17 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # utmctl can only answer while UTM is up. A capture moved below the
         # quit reads an empty set, the resume loop then has nothing to do,
         # and the services stay suspended with no warning at all -- the
-        # failure looks exactly like the bug being fixed.
+        # failure looks exactly like the bug being fixed. The capture is the
+        # inventory record, so a listing that failed is told apart from an
+        # empty one before anything is quit.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
-        $captureAt = $body.IndexOf('Get-RunningVmName')
-        $quitAt    = $body.IndexOf('to quit')
+        $captureAt = $body.IndexOf('Get-UtmRunningVmInventory')
+        $quitAt    = $body.IndexOf('Stop-UtmApplication')
         Assert-True ($captureAt -ge 0) 'the running set is captured'
         Assert-True ($quitAt -ge 0) 'UTM is quit'
         Assert-True ($captureAt -lt $quitAt) 'and the capture happens while UTM can still answer'
+        $refuseAt = $body.IndexOf('host.rename_vm_inventory_unavailable')
+        Assert-True ($refuseAt -gt $captureAt -and $refuseAt -lt $quitAt) 'a listing that could not be read refuses before the quit'
     }
 
     It 'narrows the capture to the service VMs' {
@@ -94,15 +98,51 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         Assert-True ($body -match 'Get-YurunaServiceVmName') 'the canonical service-VM list is the filter'
     }
 
-    It 'resumes on every path that relaunches UTM' {
+    It 'resumes on every path that relaunches UTM, exactly once, after a confirmed relaunch' {
         # The early returns are the ones that matter: a rename that fails
         # half way still quit UTM, so bailing out without a resume leaves
-        # the host worse off than not having tried.
-        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
-        $relaunches = ([regex]::Matches($body, 'open -a UTM')).Count
-        $resumes    = ([regex]::Matches($body, 'Resume-YurunaServiceVM')).Count
-        Assert-True ($relaunches -gt 0) 'the function relaunches UTM'
-        Assert-True ($resumes -ge $relaunches) "every relaunch is followed by a resume (relaunches=$relaunches resumes=$resumes)"
+        # the host worse off than not having tried. One relaunch and one
+        # resume, both in the finally of the one try that begins after the
+        # quit, cover every exit after the quit and none before it; the
+        # resume sits behind a confirmed relaunch.
+        $text = Get-Content -Raw -LiteralPath $script:SuspendHostModule
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $fn = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Rename-VM' }, $true))[0]
+        $calls = {
+            param($name)
+            $wanted = $name
+            @($fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted }.GetNewClosure(), $true))
+        }
+        $stop = @(& $calls 'Stop-UtmApplication')
+        $start = @(& $calls 'Start-UtmApplication')
+        $resume = @(& $calls 'Resume-YurunaServiceVM')
+        Assert-True ($stop.Count -eq 1) 'one quit'
+        Assert-True ($start.Count -eq 1) "one relaunch (found $($start.Count))"
+        Assert-True ($resume.Count -eq 1) "one resume (found $($resume.Count))"
+        $tries = @($fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally }, $true))
+        Assert-True ($tries.Count -eq 1) 'one try/finally'
+        $finally = $tries[0].Finally
+        Assert-True ($tries[0].Extent.StartOffset -gt $stop[0].Extent.EndOffset) 'the try begins after the quit, so pre-quit refusals relaunch nothing'
+        foreach ($site in @($start[0], $resume[0])) {
+            Assert-True ($site.Extent.StartOffset -ge $finally.Extent.StartOffset -and $site.Extent.EndOffset -le $finally.Extent.EndOffset) "$($site.GetCommandName()) runs in the finally"
+        }
+        $guard = $resume[0].Parent
+        while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+        Assert-True ($guard -and $guard.Clauses[0].Item1.Extent.Text -match '\$relaunch\.Started') 'the resume follows only a confirmed relaunch'
+        Assert-True (@($finally.FindAll({ param($n) $n -is [System.Management.Automation.Language.ReturnStatementAst] }, $true)).Count -eq 0) 'no return inside the finally'
+    }
+
+    It 'quits and relaunches through the UTM primitives' {
+        # The quit literal and the launch vector live in one place each, so
+        # the rename and the refresh restart share one reviewed sequence.
+        $stopBody  = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Stop-UtmApplication'
+        $startBody = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Start-UtmApplication'
+        Assert-True ($stopBody.Contains('''tell application "UTM" to quit''')) 'the stop primitive sends the quit request'
+        Assert-True ($startBody.Contains("'-a', 'UTM'")) 'the start primitive launches UTM by name'
+        $rename = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
+        Assert-True ($rename -notmatch 'to quit') 'Rename-VM carries no quit of its own'
+        Assert-True ($rename -notmatch 'open -a UTM') 'nor a launch of its own'
+        Assert-True ($rename -notmatch 'pkill') 'nor an unscoped kill'
     }
 
     It 'resumes even when the rename itself did not surface' {
@@ -112,7 +152,9 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $lastResumeAt = $body.LastIndexOf('Resume-YurunaServiceVM')
         $ast = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$null)
-        $warnings = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Warning' }, $true))
+        # Only the warnings built from the long-standing catalog keys are read
+        # back as English; the timeout warning is one of them.
+        $warnings = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Warning' -and $node.Extent.Text -match "-Key 'host\.operator_" }, $true))
         $warning = @($warnings | Where-Object { ((Get-CatalogSourceMessage -Source $_.Extent.Text) -join "`n") -match 'UTM relaunch did not surface' })
         $warnAt = if ($warning.Count -eq 1) { $warning[0].Extent.StartOffset } else { -1 }
         Assert-True ($lastResumeAt -ge 0 -and $warnAt -ge 0) 'both the resume and the timeout warning exist'
@@ -136,11 +178,23 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         Assert-True ($body -notmatch '\(Get-Date\)\.AddSeconds') 'the obsolete wall-clock literal is actually gone, not just supplemented'
     }
 
+    It 'Resume-YurunaServiceVM gates both watchdog calls on -NoDialogWatchdog' {
+        # A caller that must not auto-click dialogs passes the switch; a
+        # watchdog started or stopped anyway would break that promise.
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
+        Assert-True ($body -match '\[switch\]\$NoDialogWatchdog') 'the switch exists'
+        Assert-True ($body -match 'if \(-not \$NoDialogWatchdog\) \{ Start-UtmDialogWatchdog \}') 'the start is gated'
+        Assert-True ($body -match 'if \(-not \$NoDialogWatchdog\) \{ Stop-UtmDialogWatchdog \}') 'the stop is gated'
+    }
+
     It 'Resume-YurunaServiceVM reports a service that did not come back' {
         # A silent failure here is the whole outage again, one layer down.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
         Assert-True ($body -match 'Write-Warning') 'a service that will not resume is surfaced'
-        Assert-True (((Get-CatalogSourceMessage -Source $body) -join "`n") -match 'utmctl start') 'the warning carries the manual recovery command'
+        $ast = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$null)
+        $warnings = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Warning' -and $node.Extent.Text -match "-Key 'host\.operator_" }, $true))
+        $messages = @($warnings | ForEach-Object { Get-CatalogSourceMessage -Source $_.Extent.Text })
+        Assert-True (($messages -join "`n") -match 'utmctl start') 'the warning carries the manual recovery command'
     }
 }
 
@@ -265,6 +319,35 @@ Describe 'The installer will not quit UTM out from under a service VM' {
         $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
         $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
         Assert-True ($gate -match 'preserving out of caution') 'an uncertain answer preserves'
+    }
+
+    It 'falls back to the bundle''s utmctl, and preserves when neither copy exists' {
+        # The PATH link is made later in the installer, so a first run has no
+        # utmctl by name even though the bundle carries one; an unread state
+        # preserves rather than reading as "nothing runs".
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
+        $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
+        Assert-True ($gate -match '-f "\$UTMCTL_BUNDLE" && -x "\$UTMCTL_BUNDLE"') 'the bundle copy is used only when it is an executable file'
+        $missing = [regex]::Match($gate, '(?ms)if \[\[ -z "\$utmctl_bin" \]\]; then(.*?)\n\s*fi').Groups[1].Value
+        Assert-True ($missing -match 'no utmctl was found' -and $missing -match 'preserving out of caution' -and $missing -match 'return 0') 'no utmctl at all preserves'
+    }
+
+    It 'bounds every status call and preserves on a stalled or unlaunchable one' {
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
+        $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
+        Assert-True ($gate -match 'yuruna_utmctl_status "\$utmctl_bin" "\$vm"') 'status goes through the bounded helper'
+        Assert-False ($gate -match '"\$utmctl_bin" status') 'no bare status call remains in the gate'
+        Assert-True ($gate -match 'did not answer within[^\n]*preserving out of caution') 'a call stopped at its cap preserves'
+        Assert-True ($gate -match 'could not be started[^\n]*preserving out of caution') 'a call that could not be launched preserves'
+    }
+
+    It 'preserves on an empty answer and keeps checking only on stopped or not found' {
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
+        $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
+        $empty = [regex]::Match($gate, '(?ms)^\s*""\)(.*?);;').Groups[1].Value
+        Assert-True ($empty -match 'returned no output' -and $empty -match 'return 0') 'an empty status names no state, so it preserves'
+        $keepChecking = [regex]::Match($gate, '(?ms)^\s*stopped\|\*"not found"\*\)(.*?);;').Groups[1].Value
+        Assert-False ($keepChecking -match 'return') 'stopped and not found move on to the next service VM'
     }
 
     It 'gates both the quit and the cask upgrade on the same flag' {

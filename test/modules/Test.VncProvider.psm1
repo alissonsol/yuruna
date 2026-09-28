@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c24ab4-c6de-46b2-84f3-6852dccf9a66
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,7 +115,7 @@ function Repair-VncConnection {
             # `event=vnc_reconnect_failed` (instead of regex-parsing a
             # Verbose line that gets stripped at log level Information).
             Send-CycleEventSafely -EventRecord @{
-                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 event        = 'vnc_reconnect_failed'
                 vmName       = [string]$VMName
                 hostType     = [string]$HostType

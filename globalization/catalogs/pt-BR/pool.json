@@ -1325,13 +1325,104 @@
       "sourceHash": "8a781af5262631df6ac12a65ef5734210dc795fe80589041164a311fedb65ee6",
       "message": "Que rede? (Notação do CIDR)"
     },
-    "pool.x": {
-      "sourceHash": "7ce1b61731165776d178c32da67f290aa8bee1fbdb227c876162284f5e02af5d",
-      "message": "x"
-    },
     "pool.yuruna_pool_control": {
       "sourceHash": "3ce444e94389458f031101ae0bde100d3b959b679d87f20e1496fa7251b25820",
       "message": "Controle de Piscinas Yuruna"
+    },
+    "pool.host_refresh_body_invalid": {
+      "sourceHash": "3f3aa2484e799376937ee893eabba2cd6fc993362516285276a8e7a362c29c7f",
+      "origin": "machine",
+      "message": "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung ({detail})."
+    },
+    "pool.host_refresh_busy": {
+      "sourceHash": "8a62eae70fb5a652bfc90cde303c74091170d299a16a04293389072c56c87f0b",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} já está processando a solicitação de atualização {activeRequestId}; acompanhe essa solicitação em vez de iniciar outra."
+    },
+    "pool.host_refresh_control_proof_unavailable": {
+      "sourceHash": "de3debed8c4e4bebc4c708837d84658235f832a1d0b59293fada43a0dae07cea",
+      "origin": "machine",
+      "message": "Não foi possível obter uma prova de controle para o hospedeiro {hostId} ({detail})."
+    },
+    "pool.host_refresh_field_unsupported": {
+      "sourceHash": "e387bf39ee96284bd2f162a825da948934fbb9a61380ab7bd22b87c161b8dfaa",
+      "origin": "machine",
+      "message": "A solicitação de atualização contém o campo não suportado {field}; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
+    },
+    "pool.host_refresh_host_address_unknown": {
+      "sourceHash": "d9d8e6df524734e56ca9db66b49b4edb79a68580e2eaac1995767eb510f39239",
+      "origin": "machine",
+      "message": "O agregador do grupo conhece o hospedeiro {hostId}, mas não tem um endereço para ele."
+    },
+    "pool.host_refresh_host_id_invalid": {
+      "sourceHash": "5dc9a87b2c59c2441c514bb916bba7b038d8f8a9eaedd244ca31b333d9ff2372",
+      "origin": "machine",
+      "message": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais."
+    },
+    "pool.host_refresh_host_refused": {
+      "sourceHash": "56d33e4c98bb9f50f0973fe020a8ccbbc22243478b347e92df930e6cff593228",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} recusou a atualização (HTTP {status}, {hostReason})."
+    },
+    "pool.host_refresh_host_unavailable": {
+      "sourceHash": "b3715157064bdbbc3984f7b3a9cecd76f96a998750a9636495343efedb01104a",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não conseguiu iniciar a atualização (HTTP {status}, {hostReason}); tente novamente com o mesmo id da solicitação {requestId}."
+    },
+    "pool.host_refresh_host_unknown": {
+      "sourceHash": "d55e36c504cb8632d76ebce0e6d367903d46b272ad93a702473d2b8e60d61c12",
+      "origin": "machine",
+      "message": "O agregador do grupo não conhece o hospedeiro {hostId}."
+    },
+    "pool.host_refresh_host_unreachable": {
+      "sourceHash": "4128a6712f97438127c79ab75f402db993056a6e848fbd76264ba9a9dd5c1af1",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não respondeu; tente novamente com o mesmo id da solicitação {requestId}."
+    },
+    "pool.host_refresh_mint_failed": {
+      "sourceHash": "70ecd763090de98e8db26e23fae65769e700301ca9afc8f94083c752dc47460e",
+      "origin": "machine",
+      "message": "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro {hostId}."
+    },
+    "pool.host_refresh_reply_invalid": {
+      "sourceHash": "c492f29caacd46d1f360fc019be01cd247aa895111294cacd79412ad3b83cfb2",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} enviou uma resposta que este serviço não consegue usar ({detail})."
+    },
+    "pool.host_refresh_request_closed": {
+      "sourceHash": "e4cd326b077434b338df403e422adc3c2f5524f511cfdcb155ccb72ef8fced7d",
+      "origin": "machine",
+      "message": "A solicitação {requestId} no hospedeiro {hostId} já terminou ({state}, {verdict}); gere um novo id de solicitação para atualizar novamente."
+    },
+    "pool.host_refresh_request_conflict": {
+      "sourceHash": "822c7a70a98b257c68dbdde9ded1ce8cb49ed1fad5c51521eecfaaf2c668bd2d",
+      "origin": "machine",
+      "message": "A solicitação {requestId} já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
+    },
+    "pool.host_refresh_request_id_invalid": {
+      "sourceHash": "64a72781f67a966f531d1d4c7fd5ab5db604be990e12c02672dde4efdc2660fb",
+      "origin": "machine",
+      "message": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa."
+    },
+    "pool.host_refresh_rung_unsupported": {
+      "sourceHash": "4881b6a2f19d5d28ec8b798d39e30244e3b6363b4bc738a2df48be5f55b9007b",
+      "origin": "machine",
+      "message": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker."
+    },
+    "pool.host_refresh_signing_unconfigured": {
+      "sourceHash": "087baff37bb2cc3298ad1878c2eb03797a5a2056b41bd3d91848d4ddab966132",
+      "origin": "machine",
+      "message": "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização ({path})."
+    },
+    "pool.host_refresh_tier_unsupported": {
+      "sourceHash": "31b81634d2509d6b21e5b2404788fe9097db8d27637fca9b04056354cd32cba0",
+      "origin": "machine",
+      "message": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local."
+    },
+    "pool.host_refresh_unavailable": {
+      "sourceHash": "5679edd961ccaff90c4861db201288cd8a090985457b4c7611921c887aa3ff86",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não anuncia suporte à atualização remota ({reason})."
     }
   }
 }

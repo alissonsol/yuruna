@@ -589,6 +589,164 @@ const DataenUSexceptions = `{
       "trust": "external"
     }
   ],
+  "exceptions.host_refresh_auth_authority_incomplete": [
+    "Wrote ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " but not ",
+    {
+      "arg": "pendingPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); run -NewAuthority -Rotate to write both again."
+  ],
+  "exceptions.host_refresh_auth_authority_missing": [
+    "No refresh authority found under ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; create one with -NewAuthority first."
+  ],
+  "exceptions.host_refresh_auth_host_id_mismatch": [
+    "The refresh key was issued for host ",
+    {
+      "arg": "keyHostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", but this host is ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; export a key for this host instead."
+  ],
+  "exceptions.host_refresh_auth_host_id_unavailable": [
+    "This host has no host id yet (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " is missing); start the runner once so host.uuid exists, then retry."
+  ],
+  "exceptions.host_refresh_auth_invalid_claim": [
+    "Refresh proof field ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " is not valid."
+  ],
+  "exceptions.host_refresh_auth_key_malformed": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " is not a refresh key file (expected one line starting with ",
+    {
+      "arg": "prefix",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "exceptions.host_refresh_auth_key_permissions_open": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " is readable by other users; restrict it to its owner (chmod 600) and retry."
+  ],
+  "exceptions.host_refresh_auth_key_unusable": [
+    "The refresh key file ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " cannot be used (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "exceptions.host_refresh_auth_key_write_failed": [
+    "Could not write ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " with owner-only permissions (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "exceptions.host_refresh_auth_private_root_unavailable": [
+    "The private state root could not be secured (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); no refresh key was written."
+  ],
+  "exceptions.host_refresh_relaunch_parameter_unsupported": [
+    "Parameter ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " has type ",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", which cannot cross the libvirt group relaunch."
+  ],
+  "exceptions.host_refresh_worker_argument_invalid": [
+    "The host-refresh worker argument ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " does not match the entry script's parameters; refusing to launch a worker the entry point would not accept."
+  ],
+  "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool: sudo must be called with -n as its first argument so it can never wait on a password prompt.",
+  "exceptions.host_utmctl_kill_requires_stop": [
+    "Invoke-UtmctlLifecycle: -Kill applies only to the stop verb, not '",
+    {
+      "arg": "verb",
+      "type": "token",
+      "trust": "internal"
+    },
+    "'."
+  ],
   "exceptions.runner_037f5a478339db90": [
     "Runner config has no 'sequences' entries: ",
     {
@@ -1509,6 +1667,58 @@ const DataenUSexceptions = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "exceptions.runner_libvirt_relaunch_parameter_name_invalid": [
+    "Invoke-LibvirtGroupReExecIfNeeded: '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "' is not a valid parameter name, so it cannot be forwarded through the sg relaunch."
+  ],
+  "exceptions.runner_libvirt_relaunch_parameter_unsupported": [
+    "Invoke-LibvirtGroupReExecIfNeeded: parameter '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' holds a value of type '",
+    {
+      "arg": "valueType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' that cannot be forwarded through the sg relaunch; pass only strings, numbers, switches, booleans and string arrays."
+  ],
+  "exceptions.setup_service_vm_preserved": [
+    {
+      "arg": "service",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": left intact because ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; nothing was stopped, removed or rebuilt. Resolve the hypervisor problem and re-run, or pass -Rebuild to replace it."
+  ],
+  "exceptions.setup_service_vm_preserved_retry": [
+    {
+      "arg": "service",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": left intact because ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; nothing was stopped, removed or rebuilt. Re-run once that has cleared, or pass -Rebuild to replace it."
   ]
 }
 `

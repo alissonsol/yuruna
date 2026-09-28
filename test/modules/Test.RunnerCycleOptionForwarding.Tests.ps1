@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,10 +20,10 @@
 .SYNOPSIS
     All six operator options (-ConfigPath, -NoGitPull, -NoStatusService,
     -NoConfigGate, -CycleDelaySeconds, -logLevel) actually reach the
-    per-cycle child process, not just -Cycle. Before this fix
-    Invoke-OuterCycleDispatch passed only -Cycle to Invoke-
-    TestCycleRunner.ps1, so every other option silently reverted to that
-    script's own defaults on the second and every later cycle.
+    per-cycle child process, not just -Cycle: an option the dispatch does
+    not pass reverts to Invoke-TestCycleRunner.ps1's own default on every
+    cycle, silently. The runner-issued cycle generation travels the same
+    way, and only when the loop issued one.
 #>
 
 BeforeAll {
@@ -101,6 +101,37 @@ Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the chi
         $capturedArgList | Should -Not -Contain '-ConfigPath'
         $capturedArgList | Should -Not -Contain '-logLevel'
         $capturedArgList | Should -Be @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', ('"' + $state.CycleScript + '"'), '-Cycle', '1')
+    }
+}
+
+Describe 'Invoke-OuterCycleDispatch -- forwards the cycle generation' {
+    BeforeEach {
+        $script:CapturedArgs = $null
+        $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:TmpDir
+        Mock -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -MockWith {
+            $script:CapturedArgs = $ArgumentList
+            [pscustomobject]@{ Id = $PID; HasExited = $true; ExitCode = 0 }
+        }
+    }
+    AfterEach {
+        $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir
+    }
+
+    It 'appends -CycleGeneration after the operator options when the loop issued one' {
+        $state = @{
+            CycleScript     = Join-Path $script:TmpDir 'fake-cycle3.ps1'
+            PwshExe         = 'pwsh'
+            ShutdownState   = @{ Requested = $false }
+            NoGitPull       = $true
+            CycleGeneration = ('9' * 32) + ':12'
+        }
+        Set-Content -LiteralPath $state.CycleScript -Value '# fixture' -Encoding utf8
+        $null = Invoke-OuterCycleDispatch -State $state -Cycle 12
+        $capturedArgList = [string[]]$script:CapturedArgs
+        $capturedArgList[-2] | Should -Be '-CycleGeneration'
+        $capturedArgList[-1] | Should -Be (('9' * 32) + ':12')
+        $capturedArgList | Should -Contain '-NoGitPull'
     }
 }
 

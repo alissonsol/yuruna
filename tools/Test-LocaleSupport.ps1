@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42dda1b3-cdbb-4dbc-89d4-7c6e5d485304
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
     active locale must have complete compiled browser, PowerShell and Go data
     bound to current inputs. Release mode also pins both staged trees and
     refuses unstaged changes before and after the check. This proves artifact
-    consistency; translator and reviewer approval remains a separate gate.
+    consistency; text provenance is recorded per entry as accepted or machine draft.
 .PARAMETER Root
     Framework checkout or private-stripped staging tree.
 .PARAMETER ProjectRoot

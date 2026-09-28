@@ -37,21 +37,10 @@
       padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
     }
 
-    /* Narrow viewport: drop the 1100 px cap to full-width and trim
-       side padding. Shared common.css handles the SVG aspect-ratio
-       scaling (width:100%; height:auto via the viewBox) and the banner
-       narrow-viewport padding. */
+    /* Narrow viewport: keep the controls and chart usable. */
     @media (max-width: 600px) {
       main { padding: 1rem .75rem; }
       .seq-card { padding: .75rem .85rem; }
-
-      /* The chart is 760 viewBox units wide. Scaled to a ~324px card on a
-         375px phone that is a 0.43 factor, so the 9px baked-in labels paint at
-         under 4px -- unreadable on exactly the touch devices they exist for
-         (there is no hover <title> fallback there). Pin a min-width and let the
-         row pan horizontally instead of shrinking the text into illegibility. */
-      .cycle-rows, .axis-row { overflow-x: auto; }
-      .cycle-flame { min-width: 560px; }
     }
 
     .perf-message {
@@ -60,6 +49,15 @@
     }
     .perf-message.error { color: var(--fail-fg); }
 
+    .perf-controls {
+      display: flex; align-items: center; flex-wrap: wrap; gap: .5rem;
+      margin: 0 0 1rem; font-size: .75rem;
+    }
+    .perf-controls label { font-weight: 600; }
+    .perf-controls input[type="range"] { width: 15rem; max-width: 45vw; cursor: pointer; }
+    .perf-controls output { min-width: 2.5rem; font-family: var(--font-mono); }
+    .perf-controls button { font: inherit; cursor: pointer; }
+
     .seq-card {
       background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .875rem 1.125rem; margin-bottom: 1rem;
@@ -67,26 +65,32 @@
     .seq-name {
       font-weight: 600; font-size: .875rem;
       font-family: var(--font-mono);
+      overflow-wrap: break-word;
       color: var(--fg-primary); margin-bottom: .15rem;
     }
     .seq-meta {
       font-size: .6875rem; color: var(--fg-muted); margin-bottom: .65rem;
     }
-    /* Each cycle is one row: a clickable timestamp + wall-clock duration,
-       then the cycle's horizontal icicle below it. All rows in a card share
-       one x-scale (CHART_W viewBox units) so a slower cycle's bar reads as
-       wider; each SVG scales to the card width via its viewBox. */
+    /* Rows and their axis share one horizontal scroll area. SVGs are drawn
+       in CSS pixels so labels stay readable on narrow screens. */
+    .cycle-scroll { overflow-x: auto; max-width: 100%; direction: ltr; }
+    .cycle-scroll:focus { outline: 2px solid var(--link-strong); outline-offset: 2px; }
+    .cycle-scroll:focus-visible { outline: 2px solid var(--link-strong); outline-offset: 2px; }
     .cycle-rows { margin-top: .15rem; }
     .cycle-row  { margin-bottom: .45rem; }
     .cycle-row-head {
       display: flex; align-items: baseline; justify-content: space-between;
+      position: sticky; left: 0; z-index: 1; background: var(--bg-elevated);
       font-family: var(--font-mono); font-size: .6875rem; margin-bottom: .1rem;
     }
-    .cycle-link { color: var(--link-strong); text-decoration: underline dotted; }
+    .cycle-link {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--link-strong); text-decoration: underline dotted;
+    }
     .cycle-link.nolink { color: var(--fg-muted); text-decoration: none; cursor: default; }
-    .cycle-dur { color: var(--fg-muted); }
+    .cycle-dur { flex: 0 0 auto; margin-left: .5rem; color: var(--fg-muted); }
     .cycle-dur.fail { color: var(--fail-fg); font-weight: 600; }
-    .cycle-flame { width: 100%; height: auto; display: block; }
+    svg.cycle-flame { width: 100%; height: auto; max-width: none; display: block; }
     .cycle-flame .flame-cell          { stroke: rgba(0,0,0,.22); stroke-width: .5; }
     .cycle-flame .flame-cell.ckpt     { stroke: rgba(255,255,255,.55); stroke-width: .5; }
     .cycle-flame .flame-cell.fail     { stroke: var(--fail-fg); stroke-width: 1.5; }
@@ -151,6 +155,12 @@
   <h1 class="sr-only" data-i18n="status.cycle_performance">Cycle performance</h1>
   <p class="seq-meta" data-i18n="status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_">Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.</p>
   <div id="perf-message" role="status" class="perf-message" data-i18n="status.loading_perf_aggregates">Loading perf aggregates…</div>
+  <div class="perf-controls">
+    <label for="perf-zoom" data-i18n="status.performance_zoom">Time zoom</label>
+    <input id="perf-zoom" type="range" min="0" max="5" step="1" value="0" aria-describedby="perf-zoom-value">
+    <output id="perf-zoom-value" for="perf-zoom">1×</output>
+    <button id="perf-fit" type="button" data-i18n="status.performance_fit">Fit all</button>
+  </div>
   <div id="perf-body"></div>
 </main>
 

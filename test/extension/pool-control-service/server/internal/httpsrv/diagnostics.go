@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"yuruna.com/test/extension/extension-sdk/i18n"
 )
@@ -32,6 +33,7 @@ var poolAdminCLIs = []string{
 	"pool/Set-PoolDesiredState.ps1",
 	"pool/Add-HostToPool.ps1",
 	"pool/Remove-HostFromPool.ps1",
+	"pool/Move-PoolHostIdentity.ps1",
 	"pool/Set-PoolTestSet.ps1",
 	"pool/Set-PoolTestSetDefinition.ps1",
 }
@@ -513,11 +515,18 @@ func hintIf(cond bool, hint string) string {
 	return ""
 }
 
+// truncate cuts at a rune boundary at or below n bytes: a cut inside a
+// multi-byte character leaves invalid UTF-8 that a page or a log shows as a
+// replacement glyph, and Chinese text is three bytes a character.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 func diagnosticLocale(locales []i18n.Context) i18n.Context {

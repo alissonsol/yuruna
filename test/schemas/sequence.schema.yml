@@ -216,6 +216,7 @@ $defs:
           - sshExec
           - sshFetchAndExecute
           - sshWaitReady
+          - startVm
           - takeScreenshot
           - tapOn
           - typeAndEnter           # deprecated alias for inputTextAndEnter
@@ -256,6 +257,7 @@ $defs:
             timeoutSeconds:         { type: integer, minimum: 0 }
             pollSeconds:            { type: number,  minimum: 0 }
             freshMatchTailLines:    { type: integer, minimum: 0 }
+            noSegmentMatch:         { type: boolean, default: false }
             failurePatterns:
               $ref: "#/$defs/patternOrArray"
               description: >
@@ -276,8 +278,17 @@ $defs:
       - if: { properties: { action: { const: retry } } }
         then:
           required: [steps]
+          dependentRequired:
+            stepsAfterVmRestart: [restartVmBeforeRetry]
           properties:
             maxAttempts: { type: integer, minimum: 1 }
+            restartVmBeforeRetry:
+              type: string
+              enum: [arm64HyperVColdPowerCycle, arm64HyperVInstallerBoot]
+            stepsAfterVmRestart:
+              type: array
+              minItems: 1
+              items: { $ref: "#/$defs/step" }
             steps:
               type: array
               minItems: 1
@@ -312,6 +323,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: true }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             tabCount:            { type: integer, minimum: 0 }
@@ -424,6 +436,12 @@ $defs:
             pollSeconds:              { type: number,  minimum: 0 }
             installerFailurePatterns: { $ref: "#/$defs/patternOrArray" }
 
+      - if: { properties: { action: { const: startVm } } }
+        then:
+          properties:
+            timeoutSeconds: { type: integer, minimum: 1 }
+            arm64HyperVProcessorCount: { type: [integer, string] }
+
       - if: { properties: { action: { const: tapOn } } }
         then:
           required: [label]
@@ -444,6 +462,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             sensitive:           { type: boolean }
@@ -452,6 +471,7 @@ $defs:
             delaySeconds:        { type: number,  minimum: 0 }
             blindAfterSeconds:   { type: integer, minimum: 0 }
             blindSkipPattern:    { $ref: "#/$defs/patternOrArray" }
+            skipInputPattern:    { $ref: "#/$defs/patternOrArray" }
             confirmPattern:      { $ref: "#/$defs/patternOrArray" }
             confirmSeconds:      { type: integer, minimum: 0 }
 
@@ -470,6 +490,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
 
@@ -482,6 +503,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             nudgeKey:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -376,7 +376,7 @@ function Get-GoLocaleData {
     [void]$sb.AppendLine('}')
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('// generatedSupported is the set a request may actually resolve to. A locale')
-    [void]$sb.AppendLine('// whose catalog is not reviewed is not in it, however complete its data looks.')
+    [void]$sb.AppendLine('// must be enabled in the manifest; machine drafts and accepted text both ship.')
     [void]$sb.AppendLine('var generatedSupported = []string{')
     foreach ($name in $supported) { [void]$sb.AppendLine(("`t{0}," -f (ConvertTo-GoQuoted $name))) }
     [void]$sb.AppendLine('}')
@@ -507,7 +507,13 @@ foreach ($target in $Targets) {
     }
     $block = Get-EmbeddedBlock -Domains $target.Domains -DomainsOnly:([bool]$target.DomainsOnly)
     $before = [IO.File]::ReadAllText($path)
-    $after = Get-UpdatedRuntime -Text $before -Block $block
+    # A runtime the embed cannot splice is a finding like any other, reported
+    # by path, so the run names which of the several runtimes needs repair.
+    try { $after = Get-UpdatedRuntime -Text $before -Block $block }
+    catch {
+        $findings += "$($target.Path): $($_.Exception.Message)"
+        continue
+    }
 
     if (($before -replace "`r`n", "`n") -ceq $after) {
         if (-not $Quiet) { Write-Output "$($target.Path): current" }

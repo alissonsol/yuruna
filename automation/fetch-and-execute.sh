@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -37,6 +37,25 @@ GH_REF=''         # exact commit sha
 HOST_PROBE_ROUNDS=4
 HOST_PROBE_GAP_SECONDS=3
 
+fae_has_ipv4() {
+    if command -v yuruna_has_ipv4 >/dev/null 2>&1; then
+        yuruna_has_ipv4
+    elif command -v ip >/dev/null 2>&1; then
+        local _index ifc family _rest
+        while read -r _index ifc family _rest; do
+            ifc="${ifc%%@*}"
+            case "$ifc" in
+                lo|veth*|docker*|br-*|virbr*|cni*|flannel*|kube*|tap*|tun*) continue ;;
+            esac
+            [ "$family" = inet ] && return 0
+        done < <(ip -4 -o address show up scope global 2>/dev/null)
+        return 1
+    else
+        # An unavailable diagnostic is not evidence that the guest has no address.
+        return 0
+    fi
+}
+
 resolve_fetch_source() {
     if [ -r /etc/yuruna/host.env ]; then
         # shellcheck disable=SC1091
@@ -69,7 +88,7 @@ resolve_fetch_source() {
     # The predicate is the address, not the default route: a status service on
     # the same L2 segment is reachable with no default route at all. Skipped
     # when `ip` is absent so a guest without iproute2 keeps the probe path.
-    if command -v ip >/dev/null 2>&1 && [ -z "$(ip -4 -o address show scope global 2>/dev/null)" ]; then
+    if ! fae_has_ipv4; then
         >&2 echo ""
         >&2 echo "!! GUEST HAS NO IPv4"
         >&2 echo "!!   state:   no global IPv4 address on any interface"
@@ -273,7 +292,7 @@ classify_wget_rc() {
         echo "network failure (DNS, no route, or refused -- wget does not separate them)"
         return
     fi
-    if [ -z "$(ip -4 -o address show scope global 2>/dev/null)" ]; then
+    if ! fae_has_ipv4; then
         echo "network failure -- this guest holds no IPv4 address (no carrier, or no DHCP lease)"
         return
     fi

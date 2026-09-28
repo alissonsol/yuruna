@@ -18,6 +18,7 @@ import (
 	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
+	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/pool"
@@ -36,7 +37,8 @@ type IntentAPI interface {
 	RemovePool(ctx context.Context, poolID string, force bool) intent.Result
 	SetDesiredState(ctx context.Context, poolID, state string) intent.Result
 	AddHost(ctx context.Context, poolID, hostID string) intent.Result
-	RemoveHost(ctx context.Context, poolID, hostID string) intent.Result
+	RemoveHost(ctx context.Context, poolID, hostID string, exclude ...bool) intent.Result
+	MoveHostIdentity(ctx context.Context, oldID, newID string) intent.Result
 	AssignTestSet(ctx context.Context, poolID, name, frameworkURL, projectURL string) intent.Result
 	SetTestSetDef(ctx context.Context, name, frameworkURL, projectURL string) intent.Result
 	DeleteTestSetDef(ctx context.Context, name string) intent.Result
@@ -67,6 +69,17 @@ type Options struct {
 	// an operator can act on -- "this service can prove control to no host" --
 	// names the file THIS daemon was launched with rather than the default.
 	AuthTokenFile string
+	// RefreshAuthority is the host refresh signing authority. With
+	// RefreshCredential it enables the per-host refresh route and its MCP
+	// tool; without either, both stay disabled. Neither is ever reported by a
+	// read route.
+	RefreshAuthority []byte
+	// RefreshCredential is the operator refresh credential line the per-host
+	// refresh route requires in its own header.
+	RefreshCredential string
+	// RefreshAuthorityFile names where the authority is expected, for the
+	// refusal an operator reads when it is absent.
+	RefreshAuthorityFile string
 	// Language is the operator's lab-wide lock on the reader's language, from
 	// test.config.yml. Empty or "auto" means no lock, and a browser's own
 	// Accept-Language decides. A tag this binary did not compile in is refused
@@ -110,6 +123,12 @@ type Server struct {
 	// hostctl drives the pause switches on the hosts themselves, for the
 	// pool-wide selector on the Pools page.
 	hostctl *hostctl.Client
+	// refreshGate requires the operator refresh credential on the per-host
+	// refresh route and tool, in addition to the ordinary write gate.
+	// refreshSigner mints refresh proofs; nil when no authority is
+	// provisioned, which leaves remote refresh disabled.
+	refreshGate   *hostrefresh.Gate
+	refreshSigner *hostrefresh.Signer
 	// discovered is this daemon's own list of Yuruna hosts found by scanning,
 	// and scan is what fills it. Local by design: the list has to survive an
 	// aggregator outage, since a host nobody registered is exactly the case it
@@ -136,6 +155,19 @@ func New(api IntentAPI, opts Options) *Server {
 	// snapshot would hold a just-enrolled host off the page for the window.
 	s.pool = pool.New(pool.Options{BaseURL: opts.AggregatorURL, Timeout: aggregatorTimeout, CacheTTL: pool.NoCache})
 	s.hostctl = hostctl.New(hostctl.Options{})
+	s.refreshGate = hostrefresh.NewGate(hostrefresh.GateOptions{
+		Credential: opts.RefreshCredential,
+		Language:   opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
+		Audit: s.auditRefreshGate,
+	})
+	if len(opts.RefreshAuthority) > 0 {
+		if signer, err := hostrefresh.NewSigner(opts.RefreshAuthority); err == nil {
+			s.refreshSigner = signer
+		}
+	}
+	// The daemon keeps no reference to the raw secrets beyond the gate and the
+	// signer that copied them.
+	s.opts.RefreshAuthority, s.opts.RefreshCredential = nil, ""
 	// The discovered list lives beside the audit log, under the same state dir,
 	// and falls back to memory when there is none: a host-side launcher with no
 	// NAS still scans, it just re-discovers after a restart instead of reading

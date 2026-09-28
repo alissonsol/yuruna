@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -687,7 +687,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
             $originalCulture = [Globalization.CultureInfo]::CurrentCulture
             $originalUiCulture = [Globalization.CultureInfo]::CurrentUICulture
             try {
-                foreach ($cultureName in @('en-US', 'pt-BR', 'de-DE', 'tr-TR', 'th-TH', 'ar-SA')) {
+                foreach ($cultureName in @('en-US', 'pt-BR', 'de-DE', 'tr-TR', 'th-TH', 'ar-SA', 'zh-CN', 'he-IL')) {
                     $culture = [Globalization.CultureInfo]::GetCultureInfo($cultureName)
                     [Globalization.CultureInfo]::CurrentCulture = $culture
                     [Globalization.CultureInfo]::CurrentUICulture = $culture

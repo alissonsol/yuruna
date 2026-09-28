@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 428a3b66-dbc3-5faf-a80e-e2c881bca489
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -607,7 +607,6 @@
     'download.unavailable' = 'não disponível'
     'download.unlock_actions' = 'Desbloquear ações'
     'download.unlock_actions_first_enter_the_lab_token_above' = 'Desbloquear ações primeiro -- insira o token do laboratório acima.'
-    'download.v' = 'v'
     'download.value1_failed_for_value2_value3' = @(
         @{
             'arg' = 'value1'

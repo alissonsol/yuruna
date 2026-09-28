@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -241,7 +241,8 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
 # exactly as it is, so an operator pointing a host at a different intent store is
 # never overwritten. Best-effort throughout -- the token is already stored, and
 # failing to seed an optional binding must not fail the enrollment.
-if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
+$poolHost = if ($proxyAddress) { $proxyAddress } elseif ($baseUrl) { ([uri]$baseUrl).Host } else { '' }
+if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
     $configPath = Join-Path $PSScriptRoot '../test.config.yml'
     try {
         Import-Module powershell-yaml -ErrorAction Stop
@@ -257,7 +258,7 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
             # The READ-ONLY http url. The writable path (a file:// or local
             # path to the bare repo) is for admin commands run ON the proxy;
             # a runner must never hold a writable remote.
-            $intentUrl = "http://$proxyAddress/pool-intent.git"
+            $intentUrl = "http://$poolHost/pool-intent.git"
             # An existing value is normally the operator's and is never touched.
             # The exception is a value THIS block wrote on an earlier run: the
             # proxy is addressed by a DHCP lease, so its address moves, and a

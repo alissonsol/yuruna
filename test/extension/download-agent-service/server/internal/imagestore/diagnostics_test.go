@@ -7,10 +7,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- REGION: Attempt capture
@@ -138,5 +140,35 @@ func TestDiagnosticsReportsInterpreterScriptAndEnvironment(t *testing.T) {
 	}
 	if len(rep.BestEffort) == 0 {
 		t.Fatal("the report must carry the best-effort family answers")
+	}
+}
+
+func TestCanceledFidoDiagnosticsPreservesFamilyHealth(t *testing.T) {
+	for _, prior := range []string{"", "prior resolver refusal"} {
+		for _, midflight := range []bool{false, true} {
+			t.Run(fmt.Sprintf("prior=%q/running=%t", prior, midflight), func(t *testing.T) {
+				stub := newFidoStub(t, stubHang)
+				a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: stub.cfg})
+				if prior != "" {
+					a.noteFidoOutcome(fmt.Errorf("%s", prior))
+				}
+				id := ImageID{ImageKey: KeyWindows11}
+				before := a.familyUnavailable(id)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if midflight {
+					time.AfterFunc(50*time.Millisecond, cancel)
+				} else {
+					cancel()
+				}
+				at, err := a.FidoTest(ctx, ArchAMD64)
+				if err != nil || at.Error == "" {
+					t.Fatalf("canceled attempt=%+v err=%v", at, err)
+				}
+				if got := a.familyUnavailable(id); got != before {
+					t.Fatalf("family health changed: %q -> %q", before, got)
+				}
+			})
+		}
 	}
 }

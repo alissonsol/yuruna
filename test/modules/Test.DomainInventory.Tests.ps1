@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,6 +232,52 @@ Describe 'the inventory measures the tree it ships with' {
         Assert-Equal -Expected 1 -Actual $config.englishScalars `
             'the untracked project display field was not parsed'
     }
+
+    It 'reads the project with its own git state when a framework hook exports another' {
+        # A commit hook in the framework runs with that repository's index
+        # (git commit -a) and, from a linked worktree, its git directory.
+        $framework = Join-Path $TestDrive 'framework-hooked'
+        $project = Join-Path $TestDrive 'project-hooked'
+        New-Item -ItemType Directory -Path (Join-Path $framework 'test/status') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $project 'test') -Force | Out-Null
+        & git -C $framework init --quiet
+        & git -C $project init --quiet
+        [IO.File]::WriteAllText((Join-Path $project 'test/test.runner.yml'),
+            "testSets:`n  - name: candidate`n    displayName: Hooked candidate display name`n")
+        # A path only the framework's index holds; read through that index,
+        # the project would list a file it does not have.
+        New-Item -ItemType Directory -Path (Join-Path $framework 'template/test') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $framework 'template/test/framework-only.yml'), "testSets: []`n")
+        & git -C $framework add -- template/test/framework-only.yml
+        foreach ($relative in @(
+                'README.md', 'template/README.md', 'example/README.md',
+                'example/website/README.md', 'example/text-to-sql/README.md',
+                'docs/pt-BR/README.md', 'docs/pt-BR/template/README.md',
+                'docs/pt-BR/example/README.md', 'docs/pt-BR/example/website/README.md',
+                'docs/pt-BR/example/text-to-sql/README.md', 'docs/pt-BR/index.md')) {
+            $path = Join-Path $project $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+            [IO.File]::WriteAllText($path, "# Fixture`n")
+        }
+        $output = Join-Path $TestDrive 'hooked-domain-inventory.json'
+        $saved = @{}
+        foreach ($name in 'GIT_INDEX_FILE', 'GIT_DIR') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        try {
+            $env:GIT_DIR = Join-Path $framework '.git'
+            $env:GIT_INDEX_FILE = Join-Path $framework '.git/index'
+            $run = & pwsh -NoProfile -File $script:Tool -Root $framework -ProjectRoot $project `
+                -OutputPath $output -Update -Quiet 2>&1 | Out-String
+            $code = $LASTEXITCODE
+        } finally {
+            foreach ($name in $saved.Keys) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
+        }
+        Assert-Equal -Expected 0 -Actual $code -Because $run
+        $config = (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($output))).domains | Where-Object domain -CEQ 'project-config'
+        Assert-True (@($config.inventoryFiles) -ccontains 'test/test.runner.yml') `
+            'the project was read through the framework''s git state'
+        Assert-False (@($config.inventoryFiles) -ccontains 'template/test/framework-only.yml') `
+            'the project listed a path from the framework''s index'
+    }
 }
 
 Describe 'the extraction is sound enough to schedule against' {
@@ -259,6 +305,28 @@ var b = Y.el('div', { text: 'the second real sentence here' });
             'the first real literal was not extracted'
         Assert-True (@($literals | Where-Object { $_ -eq 'the second real sentence here' }).Count -eq 1) `
             'an apostrophe in a comment shifted everything after it'
+    }
+
+    It 'decodes an escape that names a character instead of keeping its digits' {
+        # The generated locale bundles spell every accented letter as an escape.
+        # Turning the escape into a space kept its hex digits, so a recorded
+        # candidate read "N 00e3o" and one word counted as three.
+        $scan = [scriptblock]::Create((Get-ToolFunction -Name 'Get-ScannedStringLiteral') +
+            "`nGet-ScannedStringLiteral -Text `$args[0]")
+        $bs = [string][char]92
+        $source = "var a = 'N${bs}u00e3o ${bs}u00e9 um nome';`nvar b = 'reset${bs}x1b[0m and ${bs}u2014 a dash';" +
+            "`nvar c = 'mirror ${bs}u202eflip${bs}u202c done';"
+        $literals = @(& $scan $source)
+        $accented = "N$([char]0xE3)o $([char]0xE9) um nome"
+        Assert-True ([string]::Equals($accented, $literals[0], [StringComparison]::Ordinal)) `
+            "a character escape was not decoded: got '$($literals[0])'"
+        $mixed = "reset [0m and $([char]0x2014) a dash"
+        Assert-True ([string]::Equals($mixed, $literals[1], [StringComparison]::Ordinal)) `
+            "a control escape must become one space and a visible one its character: got '$($literals[1])'"
+        # A bidi override is invisible, and one left unclosed in a manifest
+        # turns the direction of everything rendered after it.
+        Assert-True ([string]::Equals('mirror  flip  done', $literals[2], [StringComparison]::Ordinal)) `
+            "an invisible format escape must become one space: got '$($literals[2])'"
     }
 
     It 'takes PowerShell literals from the parser' {

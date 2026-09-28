@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,5 +362,110 @@ Get-BestHostIp
         # a renumber is happening, which is exactly when the beacon must not
         # answer with something else.
         Invoke-BestHostIpProbe -HasDefaultRoute $false | Should -Be '192.168.7.105'
+    }
+}
+
+Describe 'Windows first-logon bootstrap transport on every host family' {
+    BeforeAll {
+        $script:SeedRepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        Import-Module (Join-Path $script:SeedRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+        $script:SeedBundle = New-WindowsGuestBootstrap -RepoRoot $script:SeedRepoRoot -StatusServiceIp '192.0.2.10' `
+            -StatusServicePort '8080' -HostId '00000000-0000-0000-0000-000000000001' -CachingProxyIp '192.0.2.20' -GhToken 'fixture-token'
+        $script:SeedLauncher = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($script:SeedBundle.EncodedCommand))
+    }
+
+    It 'carries full scripts on media and keeps every answer-file command under 1024 characters' {
+        $script:SeedBundle.Files.Count | Should -Be 2
+        $script:SeedBundle.Files['yuruna-host-locate.ps1'] | Should -Be ([IO.File]::ReadAllText((Join-Path $script:SeedRepoRoot 'automation/yuruna-host-locate.ps1')))
+        $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match 'YURUNA_HOST_ID=00000000-0000-0000-0000-000000000001'
+        $script:SeedBundle.Files['yuruna-bootstrap.ps1'] | Should -Match "token = 'fixture-token'"
+        foreach ($body in $script:SeedBundle.Files.Values) {
+            $errors = $null
+            $null = [Management.Automation.Language.Parser]::ParseInput($body, [ref]$null, [ref]$errors)
+            @($errors).Count | Should -Be 0
+        }
+        foreach ($family in @('windows.hyper-v', 'macos.utm', 'ubuntu.kvm')) {
+            $template = Join-Path $script:SeedRepoRoot "host/$family/guest.windows.11/vmconfig/autounattend.xml"
+            [xml]$answer = ([IO.File]::ReadAllText($template)).Replace('GUEST_BOOTSTRAP_B64_PLACEHOLDER', $script:SeedBundle.EncodedCommand)
+            $commands = @($answer.SelectNodes('//*[local-name()="FirstLogonCommands"]//*[local-name()="CommandLine"]'))
+            $bootstrapCommands = @($commands | Where-Object { $_.InnerText -match '-EncodedCommand ' })
+            $bootstrapCommands.Count | Should -Be 1
+            $bootstrapCommands[0].InnerText.Length | Should -BeLessOrEqual 1024 -Because "$family must fit the Windows Setup command-line field"
+        }
+    }
+
+    It 'locates and executes the seed file without requiring a fixed drive letter' {
+        $seedDrive = Join-Path $TestDrive 'seed CD with spaces'
+        $null = New-Item -ItemType Directory -Path $seedDrive -Force
+        Set-Content -LiteralPath (Join-Path $seedDrive 'yuruna-bootstrap.ps1') -Value "'seed-launched'"
+        function Get-CimInstance {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '', Justification = 'Local CD inventory stand-in keeps launcher execution isolated from the host.')]
+            param([string]$ClassName, [string]$Filter)
+            if ($ClassName -ne 'Win32_LogicalDisk' -or $Filter -ne 'DriveType=5') { throw 'The launcher must inspect only CD media.' }
+            [pscustomobject]@{ DeviceID = $seedDrive }
+        }
+        $result = & ([scriptblock]::Create($script:SeedLauncher))
+        $result | Should -Be 'seed-launched'
+    }
+
+    It 'refuses absent or ambiguous seed media before running any script' {
+        $first = Join-Path $TestDrive 'first seed CD'
+        $second = Join-Path $TestDrive 'second seed CD'
+        foreach ($path in @($first, $second)) {
+            $null = New-Item -ItemType Directory -Path $path -Force
+            Set-Content -LiteralPath (Join-Path $path 'yuruna-bootstrap.ps1') -Value "throw 'unexpected execution'"
+        }
+        function Get-CimInstance {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '', Justification = 'Local CD inventory stand-in keeps launcher execution isolated from the host.')]
+            param([string]$ClassName, [string]$Filter)
+            $null = $ClassName, $Filter
+            foreach ($path in $seedDrives) { [pscustomobject]@{ DeviceID = $path } }
+        }
+        foreach ($seedDrives in @(@(), @($first, $second))) {
+            { & ([scriptblock]::Create($script:SeedLauncher)) } | Should -Throw '*Expected one Yuruna seed CD*'
+        }
+    }
+
+    It 'writes both scripts beside the answer file from each production builder' {
+        foreach ($family in @('windows.hyper-v', 'macos.utm', 'ubuntu.kvm')) {
+            $builder = Join-Path $script:SeedRepoRoot "host/$family/guest.windows.11/New-VM.ps1"
+            $source = [IO.File]::ReadAllText($builder)
+            $ast = Get-YurunaTestFileAst -Path $builder
+            $call = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'New-WindowsGuestBootstrap' }, $true)
+            $start = $call
+            while ($start -and $start -isnot [Management.Automation.Language.AssignmentStatementAst]) { $start = $start.Parent }
+            Assert-NotNull $start 'the builder must render its seed bundle before writing the ISO'
+            $write = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-Content' }, $true) |
+                Where-Object { $_.Extent.StartOffset -gt $start.Extent.StartOffset } | Sort-Object { $_.Extent.StartOffset })[0]
+            $seedCode = [scriptblock]::Create($source.Substring($start.Extent.StartOffset, $write.Extent.EndOffset - $start.Extent.StartOffset))
+            $seedDirectory = & {
+                param($Code, $FixtureRoot, $BuilderRoot, $Family)
+                $repoRoot = $BuilderRoot
+                $_utmRepoRoot = $BuilderRoot
+                $_kvmRepoRoot = $BuilderRoot
+                $vmDir = Join-Path $FixtureRoot $Family
+                $SeedDir = Join-Path $vmDir 'seed'
+                $null = New-Item -ItemType Directory -Path $SeedDir -Force
+                $AnswerFileTemplate = Join-Path $BuilderRoot "host/$Family/guest.windows.11/vmconfig/autounattend.xml"
+                $autoTemplate = $AnswerFileTemplate
+                $VMName = 'fixture-windows'
+                $YurunaHostIp = '192.0.2.10'; $YurunaHostPort = '8080'
+                $YurunaHostId = '00000000-0000-0000-0000-000000000001'; $YurunaCacheIp = '192.0.2.20'
+                $ghSource = @{ Token = 'fixture-token' }
+                function Get-YurunaGitHubSource { param($RepoRoot) $null = $RepoRoot; @{ Token = 'fixture-token' } }
+                $null = $_utmRepoRoot, $_kvmRepoRoot, $autoTemplate, $VMName, $YurunaHostIp, $YurunaHostPort, $YurunaHostId, $YurunaCacheIp, $ghSource
+                . $Code
+                if ($Family -eq 'ubuntu.kvm') { $autoSrc } else { $SeedDir }
+            } $seedCode $TestDrive $script:SeedRepoRoot $family
+            foreach ($filename in @('autounattend.xml', 'yuruna-bootstrap.ps1', 'yuruna-host-locate.ps1')) {
+                Test-Path -LiteralPath (Join-Path $seedDirectory $filename) -PathType Leaf | Should -BeTrue -Because "$family must include $filename on its seed CD"
+            }
+            [xml]$answer = [IO.File]::ReadAllText((Join-Path $seedDirectory 'autounattend.xml'))
+            $answer.OuterXml | Should -Not -Match 'GUEST_BOOTSTRAP_B64_PLACEHOLDER'
+            if ($family -eq 'ubuntu.kvm') {
+                $iso = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'genisoimage' }, $true)
+                @($iso.CommandElements | Where-Object { $_.Extent.Text -eq '$autoSrc' }).Count | Should -Be 1 -Because 'the ISO must carry the complete seed directory'
+            }
+        }
     }
 }

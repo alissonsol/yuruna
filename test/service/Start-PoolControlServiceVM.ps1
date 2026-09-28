@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,6 +128,25 @@ if (-not $HostSideProof) {
     Write-Verbose "Host type: $HostType"
     [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
+    # --- REGION: Record the start intent
+    # The start is on record, and this service's operation lock held, before
+    # anything is built: a Stop issued meanwhile waits for the lock instead of
+    # tearing down a half-built guest, and the reboot sweep and a host refresh see
+    # the request. Taken after the group relaunch, because a lock taken in the
+    # parent would block the relaunched child. A request that cannot be recorded
+    # changes nothing.
+    Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+    Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+    $serviceOp = Enter-YurunaServiceOperation -Key 'pool-control' -VMName $VMName -Operation Start -Script 'Start-PoolControlServiceVM.ps1' -Confirm:$false
+    if (-not $serviceOp.Proceed) {
+        Write-Error $serviceOp.Message
+        exit $ExitFailure
+    }
+    # Every exit below runs the finally that closes this operation: it records the
+    # result and releases the operation lock even inside a long-lived shell.
+    $serviceOpResult = 'failed'
+    try {
+
     # --- REGION: Storage preflight
     # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $ModulesDir 'Test.Config.psm1')      -Global -Force
@@ -231,6 +250,9 @@ $remedy
     Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
     $newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
     if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+    # A stop published while this start was preparing wins: nothing is built
+    # for a request that no longer stands (the finally reports the newer one).
+    if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
     & pwsh @newVmArgs
     $rc = $LASTEXITCODE
     if ($rc -ne 0) {
@@ -261,7 +283,20 @@ $remedy
         Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the pool-control service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool NAS mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
         exit $ExitFailure
     }
+    # The start request is confirmed once the rebuilt VM is positively running;
+    # the daemon's readiness is reported on its own below and is census evidence.
+    $serviceOpResult = 'confirmed'
 
+    # --- REGION: Resolve the VM address
+    # See https://yuruna.link/42e220c4-0008
+    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+    Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+    # --- REGION: https://yuruna.link/42e220c4-0008
+    $ipWaitStart = (Get-Date)
+    $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
+    $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
+
+    $script:poolControlForwarded = $false
     # --- REGION: Configure Shared NAT forwarding
     # See https://yuruna.link/42e220c4-0008
     if ($HostType -eq 'host.macos.utm') {
@@ -275,10 +310,10 @@ $remedy
         # same port would attach to that forwarder -- publishing the CACHE at
         # the URL this script then prints for the pool-control UI.
         if ($bundleMode -eq 'Shared') {
-            $pcVmIp = try { Get-VMIp -VMName $VMName } catch { Write-Verbose "Get-VMIp: $($_.Exception.Message)"; $null }
+            $pcVmIp = $vmIp
             if ($pcVmIp) {
-                $mapped = Add-PortMap -VMIp $pcVmIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
-                if ($mapped) { Write-Information "  Shared NAT: peers reach the pool-control service UI at http://$(Get-BestHostIp):8081/ (forwarded to ${pcVmIp}:80), not at the VM's address." -InformationAction Continue }
+                $script:poolControlForwarded = Add-PortMap -VMIp $pcVmIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                if ($script:poolControlForwarded) { Write-Information "  Shared NAT: peers reach the pool-control service UI at http://$(Get-BestHostIp):8081/ (forwarded to ${pcVmIp}:80), not at the VM's address." -InformationAction Continue }
                 else { Write-Warning "Shared NAT: could not forward host port 8081 to ${pcVmIp}:80; the pool-control service UI is reachable from this host only." }
             } else {
                 Write-Warning "Shared NAT: '$VMName' has no address yet, so no host port was forwarded; re-run once it has booted to publish the UI to the LAN."
@@ -286,16 +321,9 @@ $remedy
         }
     }
 
+
     # --- REGION: Probe service readiness
     # See https://yuruna.link/42e220c4-0008
-    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-    Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
-    # --- REGION: https://yuruna.link/42e220c4-0008
-    $ipWaitStart = (Get-Date)
-    $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
-    $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
-
-    # --- REGION: https://yuruna.link/42e220c4-0008
     $readyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'pool-control-service'
     $readyTimeoutMinutes = [int]($readyTimeoutSeconds / 60)
     # How long a guest located by the last-resort route below gets to answer on
@@ -324,7 +352,8 @@ $remedy
             param($newAddress)
             $script:vmIp = $newAddress
             if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false) {
+                $script:poolControlForwarded = Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                if ($script:poolControlForwarded) {
                     Write-Verbose "  Re-pointed host :8081 -> ${newAddress}:80."
                 }
             }
@@ -414,7 +443,8 @@ $remedy
                 # hangs every caller for a full timeout instead of failing fast,
                 # strictly worse than no forwarder at all.
                 if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                    if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false) {
+                    $script:poolControlForwarded = Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                    if ($script:poolControlForwarded) {
                         Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
                     }
                 }
@@ -484,10 +514,17 @@ To hold this script longer next time:
     # form, which is why nothing failed and the difference showed up only as a
     # duplicate. The sibling services advertise the bare form as well.
     $poolControlServiceBaseUrl = if (-not $daemonReady -or $listeningButUnreachable -or -not $vmIp) { '' }
+                                 elseif ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+                                     if ($script:poolControlForwarded) {
+                                         $peerHostIp = Get-BestHostIp
+                                         if ($peerHostIp -match ':') { "http://[${peerHostIp}]:8081" }
+                                         elseif ($peerHostIp) { "http://${peerHostIp}:8081" } else { '' }
+                                     } else { '' }
+                                 }
                                  elseif ($vmIp -match ':') { "http://[$vmIp]" } else { "http://$vmIp" }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
     [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
-        -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl)
+        -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl -HostingMode 'vm')
     try {
         Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
         Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
@@ -647,15 +684,32 @@ To hold this script longer next time:
     Write-Verbose "  Host: $HostType"
     Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
     exit $ExitFailure
+    } finally {
+        [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -Confirm:$false)
+    }
 }
+
+# --- REGION: Record the host-side start intent
+# The host-side proof records its start and holds the service lock too: a Stop
+# must not remove the marker of a daemon that is still being launched, and a
+# host refresh must see that this service is a host process, not a guest.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'pool-control' -VMName $VMName -Operation Start -HostingMode 'host-process' -Script 'Start-PoolControlServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit $ExitFailure
+}
+$serviceOpResult = 'failed'
+try {
 
 # --- REGION: Build and start the host-side service
 # A quick proof / fallback that needs a local Go toolchain; the VM path above is
 # the default.
 $serverDir = Join-Path $repoRoot 'test/extension/pool-control-service/server'
-$go = (Get-Command go -ErrorAction SilentlyContinue)?.Source
+$go = (Get-Command go -ErrorAction SilentlyContinue | Select-Object -First 1)?.Source
 if (-not $go) { Write-Error 'go toolchain not found on PATH; cannot build the pool-control service. Omit -HostSideProof to bring the service up on its own VM, which builds the daemon inside the guest (no host Go toolchain needed).'; exit $ExitFailure }
-$pwshExe = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+$pwshExe = (Get-Command pwsh -ErrorAction SilentlyContinue | Select-Object -First 1)?.Source
 if (-not $pwshExe) { $pwshExe = 'pwsh' }
 
 $binName = if ($IsWindows) { 'pool-control-service.exe' } else { 'pool-control-service' }
@@ -676,9 +730,10 @@ try {
         if ($cfg -and $cfg['pool'] -and $cfg['pool']['intentGitUrl']) { $intentGitUrl = [string]$cfg['pool']['intentGitUrl'] }
     }
 } catch { Write-Verbose "intentGitUrl lookup: $($_.Exception.Message)" }
-# Get-Variable -Scope Global reads the cross-host identity channel without a
-# $global: reference (keeps PSAvoidGlobalVars quiet); absent -> $null.
-$hostId = [string](Get-Variable -Name '__YurunaHostId' -Scope Global -ValueOnly -ErrorAction SilentlyContinue)
+$hostId = Get-YurunaHostId
+Set-Variable -Name '__YurunaHostId' -Scope Global -Value $hostId
+Import-Module (Join-Path $ModulesDir 'Test.HostDetection.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
 
 # Read the same validated lab-wide language used to build a service-VM seed.
 # Canonicalizing at this launcher boundary also keeps the native argument free
@@ -703,18 +758,32 @@ if ($AggregatorUrl) { $goArgs += @('--aggregator-url', $AggregatorUrl) }
 if ($hostId)        { $goArgs += @('--host-id', $hostId) }
 if ($AllowPseudoLocale) { $goArgs += '--allow-pseudo-locale' }
 
+# A stop published while the daemon was building wins: nothing is launched for
+# a request that no longer stands (the finally reports the newer one).
+if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
 if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) {
-    $proc = Start-Process -FilePath $binPath -ArgumentList $goArgs -PassThru -WindowStyle Hidden
+    $launch = [Diagnostics.ProcessStartInfo]::new($binPath)
+    $launch.UseShellExecute = $false
+    $launch.CreateNoWindow = $true
+    foreach ($argument in $goArgs) { $launch.ArgumentList.Add([string]$argument) }
+    $proc = [Diagnostics.Process]::Start($launch)
     Start-Sleep -Seconds 1
     $localIp = try { (Test-Connection -TargetName ([System.Net.Dns]::GetHostName()) -Count 1 -ErrorAction SilentlyContinue).Address.IPAddressToString } catch { $null }
     if ([string]::IsNullOrWhiteSpace($localIp)) { $localIp = '127.0.0.1' }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+    # The start time lets a later Stop tell this daemon from an unrelated
+    # process that inherited its pid.
+    $procStartUnixMs = try { [DateTimeOffset]::new($proc.StartTime).ToUnixTimeMilliseconds() } catch { [long]0 }
     [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
-        -Active $true -BaseUrl "http://${localIp}:$Port/" `
-        -Extra ([ordered]@{ pid = $proc.Id; port = $Port }))
+        -Active $true -BaseUrl "http://${localIp}:$Port/" -HostingMode 'host-process' `
+        -Extra ([ordered]@{ pid = $proc.Id; port = $Port; processStartUnixMs = $procStartUnixMs }))
+    $serviceOpResult = 'confirmed'
     if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
-        try { Write-HostRegistrationRecord -HostType (Get-HostType) | Out-Null } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+        try { Write-HostRegistrationRecord -HostType (Get-HostType) -RepoRoot $repoRoot | Out-Null } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
     }
     Write-Verbose "Pool-control service running (pid $($proc.Id)) at http://${localIp}:$Port/  (UI: /, /pools, /test-sets)."
 }
 exit $ExitOk
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -Confirm:$false)
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,6 +166,8 @@ function Get-HeadingSlug {
 
 $anchorCache = @{}
 function Get-DocAnchorSet {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The unary comma preserves one HashSet object on the PowerShell pipeline.')]
     [CmdletBinding()]
     [OutputType([System.Collections.Generic.HashSet[string]])]
     param(
@@ -174,7 +176,7 @@ function Get-DocAnchorSet {
     )
 
     $cacheKey = "$Repo`:$DocRelativePath"
-    if ($anchorCache.ContainsKey($cacheKey)) { return $anchorCache[$cacheKey] }
+    if ($anchorCache.ContainsKey($cacheKey)) { return ,$anchorCache[$cacheKey] }
     $set = New-Object 'System.Collections.Generic.HashSet[string]'
     $documentRoot = if ($Repo -eq 'yuruna') { $RepoRoot } else { $ProjectRoot }
     $full = Join-Path $documentRoot $DocRelativePath
@@ -187,7 +189,7 @@ function Get-DocAnchorSet {
         }
     }
     $anchorCache[$cacheKey] = $set
-    return $set
+    return ,$set
 }
 
 # Tracked and untracked candidate text files from both repositories. Git still

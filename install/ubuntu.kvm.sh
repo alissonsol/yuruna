@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -223,9 +223,16 @@ SUDO_KEEPALIVE_PID=$!
 
 YURUNA_STATUS_BACKUP=""
 yuruna_install_cleanup() {
+  local rc=$? command="${BASH_COMMAND:-?}"
   kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
   if [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]]; then
     rm -rf "$YURUNA_STATUS_BACKUP" 2>/dev/null || true
+  fi
+  if [[ $rc -ne 0 ]]; then
+    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
+    printf '   step    : %s\n' "${_yuruna_step:-?}" >&2
+    printf '   command : %s\n' "$command" >&2
+    printf '   log     : %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
   fi
   _yuruna_flush_log
 }
@@ -565,29 +572,40 @@ ensure_osinfo_db_has_ubuntu24
 
 # --- REGION: PowerShell (apt for x86_64, tarball fallback for aarch64)
 install_pwsh_apt() {
-  local codename
+  local codename repo_url created_list=0
   codename="$(lsb_release -cs 2>/dev/null || echo noble)"
+  repo_url="https://packages.microsoft.com/ubuntu/$(. /etc/os-release; echo "$VERSION_ID")/prod"
+  # Refuse unsupported releases before changing apt's persistent sources.
+  curl -fsI --connect-timeout 10 --max-time 30 "$repo_url/dists/$codename/Release" >/dev/null || return 1
   log "Adding Microsoft apt repo (codename=$codename)"
   if [[ ! -f /etc/apt/keyrings/microsoft.gpg ]]; then
-    sudo install -d -m 0755 /etc/apt/keyrings
-    # Fetch to a temp file and pin the fingerprint BEFORE dearmoring into the
-    # keyring -- never pipe an unverified key straight into apt's trust store.
-    # The 2025 key signs the prod repo for Ubuntu >= 25.10; the preflight
-    # requires 26.04+, so the legacy key (whose mismatch against the
-    # 2025-signed prod repo causes NO_PUBKEY at apt-get update) never applies.
-    local ms_tmp; ms_tmp="$(mktemp -d)"
-    curl -fsSL "https://packages.microsoft.com/keys/microsoft-2025.asc" -o "$ms_tmp/microsoft.asc"
+    sudo install -d -m 0755 /etc/apt/keyrings || return 1
+    local ms_tmp; ms_tmp="$(mktemp -d)" || return 1
+    if ! curl -fsSL "https://packages.microsoft.com/keys/microsoft-2025.asc" -o "$ms_tmp/microsoft.asc"; then
+      rm -rf "$ms_tmp"
+      return 1
+    fi
     verify_key_fingerprints "$ms_tmp/microsoft.asc" "$MS_APT_KEY_FPR"
-    sudo gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg "$ms_tmp/microsoft.asc"
-    sudo chmod 0644 /etc/apt/keyrings/microsoft.gpg
+    if ! sudo gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg "$ms_tmp/microsoft.asc"; then
+      rm -rf "$ms_tmp"
+      return 1
+    fi
     rm -rf "$ms_tmp"
+    sudo chmod 0644 /etc/apt/keyrings/microsoft.gpg || return 1
   fi
   if [[ ! -f /etc/apt/sources.list.d/microsoft-prod.list ]]; then
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(. /etc/os-release; echo "$VERSION_ID")/prod $codename main" \
-      | sudo tee /etc/apt/sources.list.d/microsoft-prod.list >/dev/null
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] $repo_url $codename main" \
+      | sudo tee /etc/apt/sources.list.d/microsoft-prod.list >/dev/null || return 1
+    created_list=1
   fi
-  sudo apt-get update -qq
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y powershell
+  if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y powershell; then
+    return 0
+  fi
+  # Remove only the list created by this attempt; leave prior configuration alone.
+  if [[ $created_list -eq 1 ]]; then
+    sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list || return 1
+  fi
+  return 1
 }
 
 install_pwsh_tarball() {
@@ -678,7 +696,7 @@ pwsh -NoProfile -Command '
             exit 1
         }
     }
-' || warn "powershell-yaml install reported an error -- see above. Continuing install."
+' || note_issue "powershell-yaml install reported an error -- see above. Continuing install."
 
 # --- REGION: libvirt services + groups + ACL + default network
 log "Enabling libvirtd + virtlogd"

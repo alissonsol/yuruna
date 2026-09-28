@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42032533-f42d-2a28-6797-9020555cc3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,6 @@
     'stash.audio' = 'Audio'
     'stash.author_optional' = 'Author (optional)'
     'stash.choose_at_least_one_file' = 'Choose at least one file.'
-    'stash.class' = 'class'
     'stash.content' = 'Content'
     'stash.could_not_be_checked' = 'could not be checked'
     'stash.could_not_list_archive_value1' = @(
@@ -194,7 +193,6 @@
         '? This cannot be undone.'
     )
     'stash.deleting' = 'Deleting...'
-    'stash.dir' = 'dir'
     'stash.download' = 'Download'
     'stash.error_value1' = @(
         'Error: '
@@ -209,13 +207,11 @@
     'stash.filter_by_host' = 'Filter by host'
     'stash.guide' = 'Guide'
     'stash.host' = 'Host'
-    'stash.host_4740ae63' = 'host'
     'stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_' = 'If unlocking answers that the code could not be checked, the code is not the problem -- the pool aggregator that checks it is unreachable, and you cannot unlock until it is back.'
     'stash.image' = 'Image'
     'stash.incomplete_upload_partial_bytes_available_via_download' = 'Incomplete upload -- partial bytes available via Download.'
     'stash.ips' = 'IPs:'
     'stash.lab_token' = 'Lab token'
-    'stash.limit' = 'limit'
     'stash.listed_count' = @{
         'kind' = 'plural'
         'selector' = 'count'
@@ -278,7 +274,6 @@
     )
     'stash.notes_txt' = 'notes.txt'
     'stash.nothing_to_store_paste_some_content_first' = 'Nothing to store -- paste some content first.'
-    'stash.offset' = 'offset'
     'stash.open_on_that_host' = 'open on that host'
     'stash.open_pdf' = 'Open PDF'
     'stash.other' = 'Other'
@@ -290,7 +285,6 @@
     'stash.permalink' = 'Permalink'
     'stash.preview_truncated_download_for_the_full_content' = 'Preview truncated -- Download for the full content.'
     'stash.preview_unavailable_use_download_to_open_the_file' = 'Preview unavailable. Use Download to open the file.'
-    'stash.q' = 'q'
     'stash.received' = 'Received'
     'stash.received_by_host' = ' Received by host '
     'stash.received_host' = @(
@@ -338,7 +332,6 @@
     'stash.short_link' = 'Short link'
     'stash.six_character_lab_token_from_the_dashboard' = 'Six-character lab token from the dashboard'
     'stash.size' = 'Size'
-    'stash.sort' = 'sort'
     'stash.source' = 'Source'
     'stash.stash' = 'Stash'
     'stash.stash_not_found' = 'Stash not found.'

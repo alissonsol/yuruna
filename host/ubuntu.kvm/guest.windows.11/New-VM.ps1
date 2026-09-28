@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,19 +132,22 @@ $YurunaHostIp = Get-GuestReachableHostIp
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_kvmRepoRoot
 $YurunaHostPort = $_statusSeed.Port
-$_kvmBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $_kvmRepoRoot `
+$_kvmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_kvmRepoRoot `
     -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
     -GhToken (Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot).Token
 
 $autoXml = (Get-Content -Raw -LiteralPath $autoTemplate).
     Replace('COMPUTERNAME_PLACEHOLDER', $VMName).
-    Replace('GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_kvmBootstrapB64)
+    Replace('GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_kvmBootstrap.EncodedCommand)
 $autoSrc = Join-Path $vmDir 'autounattend.src'
 New-Item -ItemType Directory -Force -Path $autoSrc | Out-Null
+foreach ($seedFile in $_kvmBootstrap.Files.Keys) {
+    [IO.File]::WriteAllText((Join-Path $autoSrc $seedFile), $_kvmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
+}
 Set-Content -LiteralPath (Join-Path $autoSrc 'autounattend.xml') -Value $autoXml -Encoding utf8BOM -NoNewline
 
 & genisoimage -output $autoIso -volid AUTOUNATTEND -joliet -rock `
-    (Join-Path $autoSrc 'autounattend.xml') 2>&1 | Out-Null
+    $autoSrc 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_9aec44ead873e6bc' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
     exit 1

@@ -1,0 +1,212 @@
+{
+  "schema": "yuruna.terminology/v1",
+  "locale": "he-IL",
+  "terms": [
+    {
+      "sourceTerm": "host",
+      "meaning": "The physical machine that runs Yuruna host automation, provisions guests, and exposes host-side services.",
+      "sourceHeadings": [
+        "Defining fetch-and-execute host environment variables",
+        "Defining the VM core-count policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מארח",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "guest",
+      "meaning": "A virtual machine provisioned and driven by a host to run a test or service workload.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "אורח",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "pool",
+      "meaning": "The multi-host coordination scope in which consumers join cycles and shared services serve participating hosts.",
+      "sourceHeadings": [
+        "Defining the cycle.events.ndjson record shape",
+        "Defining the runner-state enum"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מאגר",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "cycle",
+      "meaning": "One test-run lifecycle, identified by its start time and on-disk cycle folder, with ordered events and captured artifacts.",
+      "sourceHeadings": [
+        "Defining the cycle folder identity",
+        "Defining the cycle.events.ndjson event-name catalog"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מחזור",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "workload",
+      "meaning": "A Helm-driven deployment of one or more components.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "עומס עבודה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "component",
+      "meaning": "A container image that Yuruna builds and pushes to a registry.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "רכיב",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "resource",
+      "meaning": "Infrastructure deployed with OpenTofu that produces resources.output.yml for components to consume.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "משאב",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "stash",
+      "meaning": "The storage service that receives artifacts as streams and writes them beside its SQLite metadata.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מאגר אחסון",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "pause",
+      "meaning": "An operator request that stops test progress at either the next step boundary or the next cycle boundary.",
+      "sourceHeadings": [
+        "Defining the status-page banner",
+        "Defining the runner-state enum"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "השהיה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "drain",
+      "meaning": "To consume a child process's standard input completely before that process returns its response.",
+      "sourceHeadings": [
+        "Defining the tofu external hook shell choice"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "לצרוך עד תום",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "cache",
+      "meaning": "The local container-registry mirror used as an optimization for image pulls; when configured it is part of the pull path.",
+      "sourceHeadings": [
+        "Defining containerd hosts.toml cache mirror"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מטמון",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "operation",
+      "meaning": "One of the three umbrella CLI stages: resources, components, or workloads.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "פעולה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "forwarder",
+      "meaning": "The host-side Squid TCP forwarder used by the caching-proxy service.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מעביר",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "lab token",
+      "meaning": "The six-character rotating code an operator redeems once for the internal authentication key.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "אסימון מעבדה",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "internal authentication key",
+      "meaning": "The 48-character stable key used for control proofs, ingest authorization, and cross-host credential fetch.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "מפתח אימות פנימי",
+        "origin": "machine"
+      }
+    }
+  ],
+  "retiredNameRulings": [
+    {
+      "retired": "status server",
+      "current": "status service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash appliance",
+      "current": "stash service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "HostConfigService",
+      "current": "ConfigService",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash-server",
+      "current": "stash-service",
+      "translationPolicy": "preserve-exact-english"
+    }
+  ]
+}

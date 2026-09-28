@@ -69,14 +69,18 @@ testCycle:
   autoRemediation:
     enabled: false
     maxAttemptsPerCycle: 2
-  # Automatic host refresh: after this many consecutive cycles report a
-  # verified control-channel timeout in service-vm-restore (not any other
-  # failure shape), the resident runner invokes the local host-refresh
-  # repair itself instead of waiting for an operator. 0 disables it; the
-  # recommended opt-in is 2. Restricted to the macOS restart-tier rungs
-  # until each additional platform passes its own qualification, capped at
-  # one automatic disruptive attempt per UTC day regardless of this value,
-  # and never overrides an active pause/drain.
+  # Automatic host refresh. 0 (the default) keeps it off; the recommended
+  # opt-in is 2, and 1 is treated as 2 because one timeout is not proof.
+  # Counts only completed cycles whose service-vm-restore sweep saw the
+  # hypervisor control channel time out with no service answering. A denial,
+  # a missing utmctl, no GUI session, unrecognized output, any other phase
+  # (git, network, vault, packages) and aborted, paused or drained cycles
+  # never count, and an answering hypervisor resets the count. At most one
+  # automatic attempt per UTC day, never while the pool is paused or
+  # draining, and never a forced stop of UTM or its helpers. It acts only on
+  # platforms that passed native qualification; elsewhere the runner records
+  # the evidence, logs why it does not act, and Test-Config warns. A pool's
+  # testCycle override wins, including 0.
   autoRefreshAfterStalls: 0
   cycleDelaySeconds: 300
   # Circuit breaker: skip a guest that keeps failing the same way, so it stops

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,29 @@ function Get-TransportFunctionText {
     if ($fn.Count -eq 0) { throw "Function '$Name' not found in Test.Transport.psm1" }
     return $fn[0].Extent.Text
 }
+
+function Invoke-BashRoundTrip {
+    param([string]$Source)
+    $start = [Diagnostics.ProcessStartInfo]::new($script:BashPath)
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $start.ArgumentList.Add('-c')
+    $start.ArgumentList.Add($Source)
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(10000)) { $process.Kill($true); throw 'Bash round-trip timed out.' }
+        if ($process.ExitCode -ne 0) { throw $stderr.GetAwaiter().GetResult() }
+        return $stdout.GetAwaiter().GetResult()
+    } finally { $process.Dispose() }
+}
+$script:BashPath = if ($IsWindows) {
+    $gitBash = Join-Path $env:ProgramFiles 'Git/bin/bash.exe'
+    if (Test-Path -LiteralPath $gitBash) { $gitBash }
+} else { (Get-Command bash -ErrorAction SilentlyContinue).Source }
 
 # --- REGION: Held-key release on an interrupted VNC send
 # Shadows the module-internal transport primitives inside Test.Transport's own
@@ -119,6 +142,40 @@ Describe 'Read-VncBuffer wall-clock deadline' {
     It 'throws when the stream closes before Count bytes arrive' {
         $s = [System.IO.MemoryStream]::new([byte[]](1..5))
         Assert-Throw { Read-VncBuffer -Stream $s -Count 12 -Deadline ([DateTime]::UtcNow.AddSeconds(30)) } 'closed' -Because 'a short stream (EOF) must throw the connection-closed error'
+    }
+}
+
+Describe 'UTM shell text round trips' {
+    It 'preserves quoted text and shell syntax without shifted keystrokes' {
+        if (-not $script:BashPath) { Set-ItResult -Skipped -Because 'Bash is unavailable for shell round trips.'; return }
+        $unicode = [string][char]0x4F60 + [char]0x597D + [char]0x05E9
+        foreach ($command in @(
+            'printf ''%s\n'' ''literal\x41'''
+            'printf ''%s\n'' ''path\folder'''
+            'printf ''%s'' ''  A   B  '''
+            'printf ''%s'' ''A_B !@#$%^&(){}|:"<>?~'''
+            'printf ''%s\n'' ''$(never-run) `never-run` * ? [abc]'''
+            "printf '%s' 'first`nsecond`tend'"
+            ("printf '%s' '" + $unicode + "'")
+            'printf ''%s'' ''one''; printf ''%s'' ''two'''
+        )) {
+            $encoded = ConvertTo-ShellEscapedText -Text $command
+            Assert-False (Test-HardCharsInText -Text $encoded) 'the wrapper must use only unshifted keys'
+            $actual = Invoke-BashRoundTrip -Source $encoded
+            $expected = Invoke-BashRoundTrip -Source $command
+            Assert-True ([string]::Equals($actual, $expected, [StringComparison]::Ordinal)) "shell encoding changed: $command"
+        }
+    }
+}
+
+Describe 'transport configuration character delay' {
+    It 'accepts an explicit zero from refreshed configuration' {
+        $before = & $script:TransportModule { $script:DefaultCharDelayMs }
+        Mock Read-TestConfig -ModuleName Test.Transport { @{ vmCommunication = @{ charDelayMs = 0 } } }
+        try {
+            Update-TransportDefault -Force
+            Assert-Equal -Expected 0 -Actual (& $script:TransportModule { $script:DefaultCharDelayMs }) -Because 'zero disables per-character pacing'
+        } finally { & $script:TransportModule { param($value) $script:DefaultCharDelayMs = $value } $before }
     }
 }
 

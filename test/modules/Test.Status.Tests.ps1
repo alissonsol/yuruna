@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,5 +296,33 @@ Describe 'Test.Status with no status document loaded' {
         Assert-True ($raw -match '"lastGetImageAt"\s*:\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"') `
             'the rebuilt document must carry a stampable lastGetImageAt -- the template seeds it null'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'status JSON collection shapes' {
+    It 'keeps zero, one and multiple lab-hold areas as JSON arrays' {
+        $dir = New-TempStatusDir
+        $beforeRuntime = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = $dir
+            $sf = Join-Path $dir 'status.json'
+            Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+            foreach ($text in @('', 'stash-service', 'stash-service,pool-storage')) {
+                if ($text) { [IO.File]::WriteAllText((Join-Path $dir 'control.lab-hold'), $text) }
+                else { Remove-Item (Join-Path $dir 'control.lab-hold') -ErrorAction SilentlyContinue }
+                Write-StatusJson
+                $doc = Get-Content -Raw $sf | ConvertFrom-Json
+                Assert-True ($doc.labHoldAreas -is [array]) 'wire shape must be an array at every count'
+                $expected = if ($text) { $text.Split(',').Count } else { 0 }
+                Assert-Equal $expected $doc.labHoldAreas.Count
+            }
+            Complete-Run -OverallStatus 'pass' -MaxHistoryRuns 1
+            $doc = Get-Content -Raw $sf | ConvertFrom-Json
+            Assert-True ($doc.history -is [array]) 'one history row stays a JSON array'
+            Assert-Equal 1 $doc.history.Count
+        } finally {
+            if ($null -eq $beforeRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $beforeRuntime }
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
     }
 }

@@ -47,7 +47,7 @@ requirements:
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.12.5"
+    version: "1.12.6"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"

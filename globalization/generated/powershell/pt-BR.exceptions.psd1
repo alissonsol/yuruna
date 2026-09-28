@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42f19503-4d18-8300-0c4e-b20b03572b60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -600,6 +600,163 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'exceptions.host_refresh_auth_authority_incomplete' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' foi gravado, mas '
+        @{
+            'arg' = 'pendingPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não ('
+        @{
+            'arg' = 'detail'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); execute -NewAuthority -Rotate para gravar os dois novamente.'
+    )
+    'exceptions.host_refresh_auth_authority_missing' = @(
+        'Nenhuma autoridade de atualização foi encontrada em '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; primeiro, crie uma com -NewAuthority.'
+    )
+    'exceptions.host_refresh_auth_host_id_mismatch' = @(
+        'A chave de atualização foi emitida para o hospedeiro '
+        @{
+            'arg' = 'keyHostId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', mas este hospedeiro é '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; em vez disso, exporte uma chave para este hospedeiro.'
+    )
+    'exceptions.host_refresh_auth_host_id_unavailable' = @(
+        'Este hospedeiro ainda não tem um id de hospedeiro ('
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não existe); inicie o executor de testes uma vez para que o arquivo host.uuid seja criado e tente novamente.'
+    )
+    'exceptions.host_refresh_auth_invalid_claim' = @(
+        'O campo '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' da prova de atualização não é válido.'
+    )
+    'exceptions.host_refresh_auth_key_malformed' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não é um arquivo de chave de atualização (era esperada uma única linha iniciada por '
+        @{
+            'arg' = 'prefix'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'exceptions.host_refresh_auth_key_permissions_open' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' pode ser lido por outros usuários; restrinja o acesso ao proprietário (chmod 600) e tente novamente.'
+    )
+    'exceptions.host_refresh_auth_key_unusable' = @(
+        'O arquivo de chave de atualização '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não pode ser usado ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'exceptions.host_refresh_auth_key_write_failed' = @(
+        'Não foi possível gravar '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' com permissões exclusivas do proprietário ('
+        @{
+            'arg' = 'detail'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'exceptions.host_refresh_auth_private_root_unavailable' = @(
+        'Não foi possível proteger a raiz de estado privada ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); nenhuma chave de atualização foi gravada.'
+    )
+    'exceptions.host_refresh_relaunch_parameter_unsupported' = @(
+        'O parâmetro '
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' tem o tipo '
+        @{
+            'arg' = 'type'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', que não pode atravessar o relançamento do grupo libvirt.'
+    )
+    'exceptions.host_refresh_worker_argument_invalid' = @(
+        'O argumento '
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria.'
+    )
+    'exceptions.host_utm_sudo_requires_noninteractive' = 'Invoke-UtmHostTool: o sudo deve ser chamado com -n como primeiro argumento, para que nunca fique bloqueado em uma solicitação de senha.'
+    'exceptions.host_utmctl_kill_requires_stop' = @(
+        'Invoke-UtmctlLifecycle: -Kill se aplica apenas ao verbo stop, não a '''
+        @{
+            'arg' = 'verb'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '''.'
     )
     'exceptions.runner_037f5a478339db90' = @(
         'A configuração do executor não tem entradas ''sequências'': '
@@ -1522,5 +1679,57 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'exceptions.runner_libvirt_relaunch_parameter_name_invalid' = @(
+        'Invoke-LibvirtGroupReExecIfNeeded: '''
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ''' não é um nome de parâmetro válido, portanto não pode ser repassado pela reexecução via sg.'
+    )
+    'exceptions.runner_libvirt_relaunch_parameter_unsupported' = @(
+        'Invoke-LibvirtGroupReExecIfNeeded: o parâmetro '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' contém um valor do tipo '''
+        @{
+            'arg' = 'valueType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' que não pode ser repassado pela reexecução via sg; passe apenas strings, números, switches, booleanos e arrays de strings.'
+    )
+    'exceptions.setup_service_vm_preserved' = @(
+        @{
+            'arg' = 'service'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        ': mantido intacto porque '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; nada foi parado, removido ou recriado. Resolva o problema do hipervisor e execute novamente, ou passe -Rebuild para substituí-lo.'
+    )
+    'exceptions.setup_service_vm_preserved_retry' = @(
+        @{
+            'arg' = 'service'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        ': mantido intacto porque '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; nada foi parado, removido ou recriado. Execute novamente quando isso for resolvido, ou passe -Rebuild para substituí-lo.'
     )
 }

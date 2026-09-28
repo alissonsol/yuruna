@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,13 +23,10 @@
     fetch, and the guest must refuse bytes that do not match.
 .DESCRIPTION
     Two halves of one control:
-      * Host side -- Get-FetchExecuteEnvPrefix (Test.SequenceHandler.psm1) must
-        prepend EXEC_REQUIRE_SHA256=1 for any fetch-and-execute command, add an
-        E_SHA that equals Get-FileHash of the served file, strip a ?query,
-        and fail CLOSED (require flag, no digest) for a traversal/absolute/
-        missing path so a served-root drift cannot silently run unverified code.
-        The envelope is also typed one key event per character into the guest
-        console, so its length is itself a guarded property.
+      * Host side -- Get-FetchExecutionContext (Test.SequenceHandler.psm1) must
+        bind the exact command and full working-tree digests in a private
+        context, strip a ?query for path hashing, and fail before dispatch for
+        traversal, absolute, or missing paths. The launch prefix is 16 chars.
       * Guest side -- verify_sha256 (automation/fetch-and-execute.sh) must return
         0 on a match, 1 on a mismatch, 0 on an empty digest without the require
         flag (rollout-compat), and 1 on an empty digest WITH the require flag.
@@ -68,100 +65,193 @@ function Get-GitHubSourceFixture {
     return $dir
 }
 
-# Define the REAL Get-FetchExecuteEnvPrefix by lifting its source out of the
-# module (parser find), so a refactor that drops the digest prefix breaks here.
-# Lifting the function out of its module also strips its imports, so the GitHub
-# fallback resolver it calls has to be brought in by hand here.
+# Exercise the production context builder without importing host I/O modules.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 $modAst = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$null)
-$fnAst  = $modAst.Find({ param($n) ($n -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and $n.Name -eq 'Get-FetchExecuteEnvPrefix' }, $true)
-if (-not $fnAst) { throw 'Get-FetchExecuteEnvPrefix not found in Test.SequenceHandler.psm1' }
-. ([scriptblock]::Create($fnAst.Extent.Text))
-
-# File scope, not Describe scope. Pester runs a Describe body during DISCOVERY and
-# discards its variables before the It blocks run, so a $sample defined in there
-# arrives empty at assert time -- and every assertion built on it silently checks
-# the empty-path branch instead of the digest. File-scope variables survive into
-# the run phase, which is why $repoRoot and $script:faePath above already work.
-$sample     = 'guest/ubuntu.server.26/ubuntu.server.26.update.sh'
-$sampleFull = Join-Path $repoRoot $sample
-$script:sampleHash = (Get-FileHash -LiteralPath $sampleFull -Algorithm SHA256).Hash.ToLower()
-
+foreach ($name in @('Get-FetchExecutionCommand', 'Get-FetchExecutionContext')) {
+    $fnAst = $modAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
+    if (-not $fnAst) { throw "Missing function: $name" }
+    . ([scriptblock]::Create($fnAst.Extent.Text))
+}
+$script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
+$sample = 'guest/ubuntu.server.26/ubuntu.server.26.update.sh'
+$script:sampleHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot $sample) -Algorithm SHA256).Hash.ToLowerInvariant()
+$script:retryHash = (Get-FileHash -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh') -Algorithm SHA256).Hash.ToLowerInvariant()
+$script:fetchContext = @{ Step = @{}; RepoRoot = $repoRoot; StepInvocationId = 'step-123'; SequenceInvocationId = 'sequence-456' }
 }
 
-Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
-    It 'prepends the require flag + an E_SHA equal to Get-FileHash, plus the retry digest' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -RepoRoot $repoRoot
-        Assert-True ($p -match 'EXEC_REQUIRE_SHA256=1 ')       'require flag present'
-        Assert-True ($p -match "E_SHA=$script:sampleHash ")           'digest equals Get-FileHash'
-        Assert-True ($p -match 'E_RETRY_SHA=[0-9a-f]{64} ')    'retry-lib digest present'
+Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
+    It 'uses an exact 16-character launch prefix and full SHA-256 digests' {
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
+        $result.Prefix.Length | Should -Be 16
+        $result.Prefix | Should -Match '^yfe [0-9a-f]{11} $'
+        $result.Launch | Should -BeExactly ($result.Prefix + "bash -c '/usr/local/lib/yuruna/fetch-and-execute.sh $sample'")
+        $result.Fields.EXEC_REQUIRE_SHA256 | Should -BeExactly '1'
+        $result.Fields.E_SHA | Should -BeExactly $script:sampleHash
+        $result.Fields.E_RETRY_SHA | Should -BeExactly $script:retryHash
+        $result.Fields.E_FB_REF | Should -Match '^[0-9a-f]{40}$'
+        $result.Fields.E_SI | Should -BeExactly 'step-123'
+        $result.Fields.E_QI | Should -BeExactly 'sequence-456'
+        $result.Bytes.Length | Should -BeLessOrEqual 4096
+        $result.Command | Should -Not -Match 'NONZERO SCRIPT EXIT:'
     }
-    It 'strips a ?query before hashing' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample`?nocache=9" -RepoRoot $repoRoot
-        Assert-True ($p -match "E_SHA=$script:sampleHash ") 'query stripped, digest still correct'
+    It 'strips a query before hashing but binds the complete original command' {
+        $command = "fetch-and-execute.sh $sample" + '?nocache=9'
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine $command -WarningAction SilentlyContinue
+        $result.Fields.rel | Should -BeExactly $sample
+        $result.Fields.E_SHA | Should -BeExactly $script:sampleHash
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try { $digest = [BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($command))).Replace('-', '').ToLowerInvariant() }
+        finally { $sha256.Dispose() }
+        $result.Fields.cmd_sha | Should -BeExactly $digest
     }
-
-    # The value-carrying names were shortened to buy console keystrokes, but
-    # EXEC_REQUIRE_SHA256 was deliberately left long: it is the only token a
-    # guest imaged BEFORE the rename still recognizes. Seeing it with no digest
-    # it understands, such a guest refuses; shorten it and the same guest would
-    # instead run the fetched bytes unverified. This test is the tripwire.
-    It 'keeps EXEC_REQUIRE_SHA256 unshortened so a pre-rename guest fails closed' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-True ($p.StartsWith('EXEC_REQUIRE_SHA256=1 ')) 'the legacy require flag leads the envelope'
+    It 'fails before dispatch on traversal, absolute, missing, or unserved paths' {
+        foreach ($command in @(
+            'fetch-and-execute.sh ../../etc/passwd',
+            'fetch-and-execute.sh /etc/passwd',
+            'fetch-and-execute.sh guest/does-not-exist.sh'
+        )) {
+            { Get-FetchExecutionContext -Context $script:fetchContext -CommandLine $command -WarningAction SilentlyContinue } | Should -Throw
+        }
+        $missingRoot = @{ Step = @{}; RepoRoot = ''; StepInvocationId = 'x'; SequenceInvocationId = 'y' }
+        { Get-FetchExecutionContext -Context $missingRoot -CommandLine "fetch-and-execute.sh $sample" } | Should -Throw
     }
-
-    # The envelope is TYPED into the guest console one key event per character
-    # and shares a ~400-character budget with the step's own command (see
-    # $script:FetchExecuteTypedCharWarn). Growing it silently eats the headroom
-    # every sequence author is spending, so the ceiling is asserted here.
-    It 'stays inside its share of the typed-character budget' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-True ($p.Length -le 240) "envelope is $($p.Length) characters; budget is 240"
+    It 'preserves observations but has no fabricated integrity fields for non-fetch commands' {
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine ('printf caf' + [char]0x00e9)
+        $result.Fields.E_SI | Should -BeExactly 'step-123'
+        $result.Fields.Contains('E_SHA') | Should -BeFalse
+        $result.Fields.Contains('EXEC_REQUIRE_SHA256') | Should -BeFalse
     }
-    It 'fails closed (require, no digest) for a traversal path' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh ../../etc/passwd' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'traversal -> require, no digest'
-    }
-    It 'fails closed (require, no digest) for an absolute path' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh /etc/passwd' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'absolute -> require, no digest'
-    }
-    It 'fails closed (require, no digest) for a missing file' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh guest/does-not-exist.sh' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'missing file -> require, no digest'
-    }
-    It 'returns empty for a non-fetch-and-execute command' {
-        Assert-StringEqual -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'whoami && hostname' -RepoRoot $repoRoot) -Expected '' -Because 'non-fetch -> empty'
-    }
-    It 'returns empty when RepoRoot is unset (code-regression safety valve, not a runtime state)' {
-        Assert-StringEqual -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh guest/x.sh' -RepoRoot '') -Expected '' -Because 'no RepoRoot -> empty'
-    }
-
-    # The GitHub fallback must name THIS repository at an EXACT commit. A moving
-    # branch, or any other repository, serves bytes the digest above was never
-    # taken from, so the guest's integrity gate refuses to run them -- surfacing
-    # as an "integrity mismatch" whose real cause is the wrong source.
-    It 'pins the fallback to this repo at an exact commit (never a branch)' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        $expectedRepo = (Get-YurunaGitHubSource -RepoRoot $repoRoot).Repo
-        # Abbreviated to 12 hex characters to save keystrokes; still a commit,
-        # which is the property that matters -- a branch would move off the
-        # bytes the digest above was taken from.
-        $expectedRef  = (& git -C $repoRoot rev-parse HEAD).Trim().Substring(0, 12)
-        Assert-True ($p -match "E_FB_REPO=$([regex]::Escape($expectedRepo)) ") 'fallback names this repository'
-        Assert-True ($p -match "E_FB_REF=$expectedRef ")                       'fallback pins HEAD, not a branch'
-        Assert-True ($p -notmatch 'refs/heads|/main/|/master/')                'no moving-branch ref'
-    }
-
-    # The typed command line is rendered on the VM console, which the host
-    # screenshots and OCRs into the run log the status service publishes. A token
-    # typed here would be readable in failure_screenshot.png / failure_ocr.txt.
-    It 'never types the GitHub token onto the console' {
-        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-True ($p -notmatch '(?i)GH_TOKEN') 'no GH_TOKEN in the typed prefix'
+    It 'keeps the configured token out of the context and launch' {
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine "fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
         $configured = (Get-YurunaGitHubSource -RepoRoot $repoRoot).Token
-        if ($configured) { Assert-True ($p -notmatch [regex]::Escape($configured)) 'the configured token value never appears' }
+        if ($configured) {
+            $result.Command | Should -Not -Match ([regex]::Escape($configured))
+            [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match ([regex]::Escape($configured))
+        }
+    }
+    It 'preserves the sensitive-step profile opt-out and full invocation IDs' {
+        $context = @{ Step = @{ sensitive = $true }; RepoRoot = $repoRoot; StepInvocationId = 'step-sensitive-123'; SequenceInvocationId = 'sequence-sensitive-456' }
+        $result = Get-FetchExecutionContext -Context $context -CommandLine 'true'
+        $result.Fields.EXEC_PROFILE | Should -BeExactly '0'
+        $result.Fields.EXEC_KEEP_PROFILE | Should -BeExactly '0'
+        $result.Fields.E_SI | Should -BeExactly 'step-sensitive-123'
+        $result.Fields.E_QI | Should -BeExactly 'sequence-sensitive-456'
+    }
+    It 'reserves a distinct context identifier for each explicit retry' {
+        $first = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine 'true'
+        $retry = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine 'true'
+        $first.Id | Should -Not -Be $retry.Id
+        $first.Fields.cmd_sha | Should -BeExactly $retry.Fields.cmd_sha
+        $first.Launch | Should -Not -Be $retry.Launch
+    }
+    It 'requires the served retry library before dispatch' {
+        $path = Join-Path $TestDrive 'guest/payload.sh'
+        $null = New-Item -ItemType Directory -Path (Split-Path $path) -Force
+        [IO.File]::WriteAllText($path, 'true')
+        $context = @{ Step = @{}; RepoRoot = $TestDrive; StepInvocationId = 'step'; SequenceInvocationId = 'sequence' }
+        { Get-FetchExecutionContext -Context $context -CommandLine 'fetch-and-execute.sh guest/payload.sh' } | Should -Throw '*YFE_RETRY_LIB_MISSING*'
+    }
+    It 'binds the transferred base64 bytes, count, and SHA-256 to one preparation' {
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine 'printf ready'
+        $result.Preparation -match "^printf '%s' '([A-Za-z0-9+/=]+)' \| yfe --prepare ([0-9a-f]{11}) ([0-9]+) ([0-9a-f]{64})$" | Should -BeTrue
+        $encoded = $Matches[1]; $id = $Matches[2]; $count = [int]$Matches[3]; $digest = $Matches[4]
+        $decoded = [Convert]::FromBase64String($encoded)
+        $decoded.Length | Should -Be $count
+        $id | Should -BeExactly $result.Id
+        [Convert]::ToBase64String($decoded) | Should -BeExactly ([Convert]::ToBase64String($result.Bytes))
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try { $actual = [BitConverter]::ToString($sha256.ComputeHash($decoded)).Replace('-', '').ToLowerInvariant() }
+        finally { $sha256.Dispose() }
+        $actual | Should -BeExactly $digest
+    }
+    It 'keeps UTF-8 command binding culture independent and the context BOM-free' {
+        $previous = [Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('tr-TR')
+            $command = 'printf ' + [char]0x03bb
+            $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine $command
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try { $expected = [BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($command))).Replace('-', '').ToLowerInvariant() }
+            finally { $sha256.Dispose() }
+            $result.Fields.cmd_sha | Should -BeExactly $expected
+            $result.Bytes[0] | Should -Be ([byte][char]'Y')
+            $result.Prefix.Length | Should -Be 16
+        } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $previous }
+    }
+    It 'gives all three supplied commands the expected compact launch lengths' {
+        $examples = @(
+            @{ path = $sample; length = 118 },
+            @{ path = 'guest/ubuntu.server.26/ubuntu.server.26.k8s.sh'; length = 115 },
+            @{ path = 'project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh'; length = 155 }
+        )
+        $fixtureRoot = Join-Path $TestDrive 'compact-launch'
+        $retry = Join-Path $fixtureRoot 'automation/yuruna-retry.sh'
+        $null = New-Item -ItemType Directory -Path (Split-Path $retry) -Force
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh') -Destination $retry
+        $context = @{ Step = @{}; RepoRoot = $fixtureRoot; StepInvocationId = 'step'; SequenceInvocationId = 'sequence' }
+        foreach ($example in $examples) {
+            # Launch length depends on the served path. An isolated payload
+            # makes the project case independent of a test-cycle checkout.
+            $payload = Join-Path $fixtureRoot $example.path
+            $null = New-Item -ItemType Directory -Path (Split-Path $payload) -Force
+            [IO.File]::WriteAllText($payload, "printf '%s' 'fixture payload'`n", [Text.UTF8Encoding]::new($false))
+            $result = Get-FetchExecutionContext -Context $context -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $($example.path)" -WarningAction SilentlyContinue
+            $result.Launch.Length | Should -Be $example.length
+            $result.Prefix.Length | Should -Be 16
+            $result.Fields.E_SHA | Should -BeExactly (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
+            Remove-Item -LiteralPath $payload
+            { Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $($example.path)" } | Should -Throw '*YFE_PAYLOAD_MISSING*'
+        }
+    }
+    It 'executes the host-built preparation and launch without changing Unicode or shell quoting' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $command = "printf '%s|' `"it's`"; printf '%s' 'caf$([char]0x00e9)'"
+        $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine $command
+        $driver = @'
+set -e
+export HOME=$(mktemp -d)
+trap 'rm -rf -- "$HOME"' EXIT
+yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
+'@ + "`n$($result.Command)"
+        $output = ($driver | & $bash.Source -s | Out-String).Trim()
+        $LASTEXITCODE | Should -Be 0
+        $output | Should -BeExactly ("it's|caf" + [char]0x00e9)
+    }
+    It 'keeps the private context mask out of the launched guest command' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        foreach ($mask in @('0022', '0027')) {
+            $result = Get-FetchExecutionContext -Context $script:fetchContext -CommandLine 'umask'
+            $driver = @'
+set -e
+export HOME=$(mktemp -d)
+trap 'rm -rf -- "$HOME"' EXIT
+yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
+'@ + "`numask $mask`n$($result.Command)"
+            $output = ($driver | & $bash.Source -s | Out-String).Trim()
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -BeExactly $mask
+        }
+    }
+}
+
+Describe 'Fetch context guest seeding' {
+    It 'embeds the exact launcher bytes in the shared seed builder' {
+        $scripts = Get-YurunaGuestScriptBase64 -RepoRoot $repoRoot
+        $actual = [Convert]::FromBase64String($scripts.FetchContext)
+        $expected = [IO.File]::ReadAllBytes((Join-Path $repoRoot 'automation/yuruna-fetch-context.sh'))
+        [Convert]::ToBase64String($actual) | Should -BeExactly ([Convert]::ToBase64String($expected))
+    }
+
+    It 'installs the launcher in both shared Linux guest bases' {
+        foreach ($name in @('ubuntu.server.base.user-data', 'amazon.linux.2023.base.user-data')) {
+            $seed = [IO.File]::ReadAllText((Join-Path $repoRoot "host/vmconfig/$name"))
+            $seed | Should -Match '/usr/local/bin/yfe'
+            $seed | Should -Match 'YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER'
+        }
     }
 }
 

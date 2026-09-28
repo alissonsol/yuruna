@@ -594,7 +594,6 @@ const DataqpsPlocdownload = `{
   "download.unavailable": "[úñáṽáíļáƀļé ~~~~~]",
   "download.unlock_actions": "[Úñļóçķ áçţíóñš ~~~~~~]",
   "download.unlock_actions_first_enter_the_lab_token_above": "[Úñļóçķ áçţíóñš ƒířšţ -- éñţéř ţħé Ļáƀ ţóķéñ áƀóṽé. ~~~~~~~~~~~~~~~~~~~~]",
-  "download.v": "[ṽ ~]",
   "download.value1_failed_for_value2_value3": [
     "[",
     {

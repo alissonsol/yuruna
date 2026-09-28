@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,7 +96,7 @@ function Update-TransportDefault {
     }
     if ($cfg) {
         $comm = $cfg.vmCommunication
-        if ($comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$comm.charDelayMs }
+        if ($null -ne $comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$comm.charDelayMs }
         if ($comm.vncPort)          { $script:DefaultVncPort     = [int]$comm.vncPort }
         if ($null -ne $comm.settleMs) { $script:DefaultSettleMs   = [int]$comm.settleMs }
         if ($null -ne $comm.batchedTextSend) { $script:DefaultBatchedTextSend = [bool]$comm.batchedTextSend }
@@ -1152,28 +1152,24 @@ function ConvertTo-ShellEscapedText {
         Rewrite $Text as a bash one-liner the guest's shell will
         decode back to the original string.
     .DESCRIPTION
-        Emits `eval ``echo -e 'TEXT_HEX'``` where every shifted char
-        becomes its \xNN escape so the host typing path never has to
-        send shifted scancodes. Structural chars (' -> \x27, ` -> \x60,
-        \\ doubled) are hex-escaped so the surrounding apostrophe /
-        backtick quoting survives intact.
+        Only unshifted safe characters reach the keyboard. The first
+        decoding stage creates an ANSI-C quoted argument for eval; all
+        whitespace and shell syntax stay encoded until that argument is
+        parsed. This prevents command-substitution field splitting and
+        pathname expansion from changing the original command.
     #>
     param([string]$Text)
     $sb = [System.Text.StringBuilder]::new()
-    foreach ($ch in $Text.ToCharArray()) {
-        $c = [char]$ch
-        if ($c -eq "'") { [void]$sb.Append('\x27'); continue }
-        if ($c -eq '\') { [void]$sb.Append('\\');   continue }
-        if ($c -eq '`') { [void]$sb.Append('\x60'); continue }
-        $e = $script:MacCharKeyCodes["$c"]
-        if ($e -and $e[1]) {
-            $hex = ([byte][char]$c).ToString('x2')
-            [void]$sb.Append("\x$hex")
+    foreach ($byte in [Text.Encoding]::UTF8.GetBytes($Text)) {
+        if (($byte -ge 97 -and $byte -le 122) -or ($byte -ge 48 -and $byte -le 57) -or $byte -in 45,46,47) {
+            [void]$sb.Append([char]$byte)
         } else {
-            [void]$sb.Append($c)
+            # Backtick parsing and echo each halve the escaping. The remaining
+            # backslash lets ANSI-C quoting decode the original byte.
+            [void]$sb.Append(('\\\\x{0:x2}' -f $byte))
         }
     }
-    return "eval ``echo -e '$($sb.ToString())'``"
+    return "eval ``echo -e 'eval \x24\x27$($sb.ToString())\x27'``"
 }
 
 # --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
@@ -1196,7 +1192,7 @@ function Send-TextUTM {
         # Opt-in shell-side decoding. When set AND Text contains chars
         # that need Shift after the keypad remap (uppercase letters and
         # shifted punctuation other than '*' / '+'), rewrites Text as
-        # `eval \`echo -e 'HEX'\`` so the bash prompt on the guest
+        # a two-stage eval wrapper so the bash prompt on the guest
         # decodes the shifted chars from \xNN escapes. Default off: at
         # login/password prompts there is no shell to decode the wrapper,
         # so callers in those contexts (Send-Text via passwdPrompt) must

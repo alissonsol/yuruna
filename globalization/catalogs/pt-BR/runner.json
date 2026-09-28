@@ -3,6 +3,21 @@
   "domain": "runner",
   "locale": "pt-BR",
   "messages": {
+    "runner.fetch_context_rejected": {
+      "sourceHash": "4d72d0fd8e41a1db46ac72b1b63d68a05b1022aab9c11f7c03567b39bd7cf298",
+      "origin": "machine",
+      "message": "Contexto de busca rejeitado antes da execução no convidado ({reason}); detalhe: {detail}."
+    },
+    "runner.fetch_context_deadline": {
+      "sourceHash": "bb280b7f5f13d4913cdc4241f45818a1fe777e1ea7a2f3de75654960d06add1e",
+      "origin": "machine",
+      "message": "fetchAndExecute: o prazo de {timeoutSeconds}s da etapa expirou durante a preparação ou a espera pela conclusão."
+    },
+    "runner.fetch_context_ssh_command_too_long": {
+      "sourceHash": "98fcc272b7fe0e96120dcbd6e1ab3fbd98bee40bef3b423fa2b6808b7851f7bb",
+      "origin": "machine",
+      "message": "O comando SSH requer {length} caracteres após o empacotamento; o Windows não consegue iniciá-lo. A execução no convidado não foi iniciada."
+    },
     "runner.assigned_project_denied": {
       "sourceHash": "973aad94da3ad2ca808b76cd97b1acc2ba3767b11893cd09c957c296a7844dc1",
       "message": "O pool atribuiu um projeto que esta máquina não consegue ler.\nProjeto: {project}\nAtribuído por: conjunto «{pool}», conjunto de ensaios «{testSet}»\ngit: {detail}\nCorrigir (nem): conceder o acesso GH TOKEN desta máquina àquele repositório,\nou reatribuir o pool para um projeto que cada membro possa ler."
@@ -10744,6 +10759,1076 @@
     "runner.vm_cleanup_terminating_error": {
       "sourceHash": "7dfbf34fbc4a0224794f79bd9c164a3e44be9c4ad791e73985b912a3845359af",
       "message": "Remove-TestVMFiles.ps1 levantou um erro ao terminar; o código de saída do ciclo ainda irá refletir o passo/falha do ciclo. Erro: {detail}"
+    },
+    "runner.critical_record_replace": {
+      "sourceHash": "4ea33fc426f7f9cf195eef456eea8af25562350956d873f45723000737033aa5",
+      "origin": "machine",
+      "message": "Substituir um registro crítico privado"
+    },
+    "runner.host_refresh_auth_action_create_authority": {
+      "sourceHash": "7ef4c0e7d9b4f789a0bf1f861d5be92beb70a97db50c4e982631b5c726c3b3b6",
+      "origin": "machine",
+      "message": "Criar a autoridade de assinatura de atualização e a credencial do operador"
+    },
+    "runner.host_refresh_auth_action_export_host_key": {
+      "sourceHash": "fccf12f55f32f08b138acbc97b210ca8cec15af302d9fb2f05332b350a626499",
+      "origin": "machine",
+      "message": "Gravar a chave de verificação de atualização do hospedeiro {hostId}"
+    },
+    "runner.host_refresh_auth_action_install_host_key": {
+      "sourceHash": "d869538cfa4357a19e7b765291c7d9b51828f593ac1de3f2d956c37a5b0a23c9",
+      "origin": "machine",
+      "message": "Instalar a chave de verificação de atualização do hospedeiro {hostId}"
+    },
+    "runner.host_refresh_auth_action_remove_host_key": {
+      "sourceHash": "1c4cc75d88be8b60cf660e958ca01afa96fbf5182df43b6ee1f45d95f8c4852f",
+      "origin": "machine",
+      "message": "Remover a chave de verificação de atualização"
+    },
+    "runner.host_refresh_credential_authority_created": {
+      "sourceHash": "892ece19abfb3a92872c2709585d81932732baf7fd30cc0316c5a043f1842e91",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: uma autoridade de assinatura de atualização (tag {authorityTag}) e uma credencial do operador (tag {credentialTag}) foram criadas em {path}. Copie authority.key e operator.credential para /etc/yuruna/host-refresh/ no serviço pool-control, com permissões exclusivas do proprietário; nunca os copie para um hospedeiro do grupo."
+    },
+    "runner.host_refresh_credential_authority_exists": {
+      "sourceHash": "87e8861007bb54c6d8bd16d52089247f2f59c226f15a14d2aae2f372edb7bac5",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: já existe uma autoridade de atualização em {path}; passe -Rotate para substituí-la, o que invalida todas as chaves de hospedeiro instaladas."
+    },
+    "runner.host_refresh_credential_host_key_exported": {
+      "sourceHash": "0d49528e3613629379324f5d7b9d19ba1ba11370cd8a31dc640c8fbc7513069c",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: a chave de atualização do hospedeiro {hostId} (tag {keyTag}) foi gravada em {path}. Transfira-a para esse hospedeiro por um canal privado, execute este script lá com -InstallHostKey -KeyPath e, em seguida, exclua o arquivo."
+    },
+    "runner.host_refresh_credential_host_key_installed": {
+      "sourceHash": "110c57414984346abaa5b245db023dfd1c0b411be22e617f4793f745768ed105",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: a chave de atualização deste hospedeiro {hostId} (tag {keyTag}) foi instalada; agora as solicitações de atualização remota assinadas pela autoridade correspondente podem ser verificadas aqui."
+    },
+    "runner.host_refresh_credential_host_key_removed": {
+      "sourceHash": "1dad20c8cfd15aea8f4aae00a0122c48ea7240476874a30ecfcf7ae163be1d22",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: a chave de atualização foi removida; agora este hospedeiro recusa toda solicitação de atualização que não venha do loopback."
+    },
+    "runner.host_refresh_credential_output_exists": {
+      "sourceHash": "9718c218e0dc995400f05a20d41a0fefd84d82c7433aeaa98a7725fe854a99b7",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: {path} já existe; escolha outro -OutputPath ou exclua o arquivo primeiro."
+    },
+    "runner.host_refresh_credential_status": {
+      "sourceHash": "cb8c3328afa66283f93796f8e84b5fdd5d5908f99df564dbf9009def6886c503",
+      "origin": "machine",
+      "message": "Set-HostRefreshCredential: hospedeiro {hostId}: chave de atualização remota {state} ({reason}); autoridade {authorityState}."
+    },
+    "runner.mac_dock_reload_deferred": {
+      "sourceHash": "5a056428da7527acf83e4847b4af0172a7727b0097553885d8c8df944da1e821",
+      "origin": "machine",
+      "message": "O Dock não foi reiniciado porque esta execução não deve interferir na sessão da área de trabalho; as alterações de cantos ativos e Spaces entram em vigor na próxima vez que o Dock for iniciado."
+    },
+    "runner.mac_grant_prompt_suppressed": {
+      "sourceHash": "6ffd3b10a67c92a68541aae8420b81ad73c82e4c1152198d597dad419351d6ae",
+      "origin": "machine",
+      "message": "{title}: nenhum diálogo de consentimento foi exibido porque esta execução não deve fazer solicitações interativas; conceda a permissão manualmente conforme descrito a seguir."
+    },
+    "runner.mac_privileged_setting_failed": {
+      "sourceHash": "93f6ba119a19e3f59a38f323d012a765a27cd6116361ab42f92304bff5cc1b7a",
+      "origin": "machine",
+      "message": "sudo {command} falhou (código de saída {exitCode}): {detail}"
+    },
+    "runner.mac_privileged_setting_timeout": {
+      "sourceHash": "9f40908561764074698d81d1dc8b589ebafd3e6bf6c36e49dd65f01bcd067e52",
+      "origin": "machine",
+      "message": "sudo {command} não terminou em até {timeoutSeconds}s; a configuração é considerada não aplicada."
+    },
+    "runner.mac_utmctl_link_deadline": {
+      "sourceHash": "f6eeb1b7d758d314ffe70b288d37dcbef5b7be83ef3ce32b2f3ef74b5e72c289",
+      "origin": "machine",
+      "message": "Set-MacUtmctlLink: não restou tempo para criar o link do utmctl. Execute: {macUtmctlRemediation}"
+    },
+    "runner.outer_log_runtime_dir_unset": {
+      "sourceHash": "3e24d573376df11726a359a557374c926812a26db10741a05e346326db32972e",
+      "origin": "machine",
+      "message": "Write-OuterLog: YURUNA_RUNTIME_DIR não está definido, portanto o outer.log não pode ser localizado; esta linha e as seguintes não serão gravadas nele: {message}"
+    },
+    "runner.boot_recovery_preserved_controls": {
+      "sourceHash": "a641900f3f6d83251042f9608e88e23a3b0bbc889b80f7f0479d5dd3321359ac",
+      "origin": "machine",
+      "message": "A recuperação na inicialização (preservação do refresh) manteve {count} arquivos de controle do operador e {pidCount} registros do runner que não pôde provar que estavam obsoletos."
+    },
+    "runner.cycle_record_clear_action": {
+      "sourceHash": "c1e8daf542fa1fcc0b7244278cc4ef2f641562706a3e835c15dc4c7f2682037a",
+      "origin": "machine",
+      "message": "Remover o registro de ciclo do runner de um ciclo encerrado"
+    },
+    "runner.cycle_record_write_action": {
+      "sourceHash": "2187b0c5efaee3f96a2f87896957211cfa56eacaf22227a05a608ba49908fb84",
+      "origin": "machine",
+      "message": "Gravar o registro de ciclo do runner"
+    },
+    "runner.detached_handshake_write_action": {
+      "sourceHash": "d7211668aa4af066e99017ef0c538874d5ebf4fd235b81f2396b8f343287fc2c",
+      "origin": "machine",
+      "message": "Gravar o handshake de identidade do worker desanexado"
+    },
+    "runner.detached_launch_action": {
+      "sourceHash": "d717df814d165e3d1b6f98236135af20b056363f042b1e2f8572eb894c5a2c0f",
+      "origin": "machine",
+      "message": "Iniciar um processo worker desanexado"
+    },
+    "runner.host_diagnostic_worker_failed": {
+      "sourceHash": "66c2eb2af99881837ecd9d2984adb3f6486acf982cfbae020b576d4482280354",
+      "origin": "machine",
+      "message": "O diagnóstico do hospedeiro {runId} falhou ({reason})."
+    },
+    "runner.host_diagnostic_worker_refused": {
+      "sourceHash": "bbc722d4f8ccbe6a4a0320612c4c02e24d14c8fabf4fea100ba80b0437290aa5",
+      "origin": "machine",
+      "message": "Diagnóstico do hospedeiro {runId}: nada foi executado ({reason})."
+    },
+    "runner.host_diagnostic_worker_truncated": {
+      "sourceHash": "2ab0a4247e8e2f2dee55719758cde26fbbf942d23055548a38d868d52e3b3b16",
+      "origin": "machine",
+      "message": "[relatório truncado em {chars} caracteres]"
+    },
+    "runner.host_refresh_action_dispose_obligations": {
+      "sourceHash": "a5b940e570ac9db84b56266eaa696cce6117ca6d263e66e2b31ddbe555d057af",
+      "origin": "machine",
+      "message": "Próximo passo: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation {obligations}"
+    },
+    "runner.host_refresh_action_elevate": {
+      "sourceHash": "3b7e872dd64520508b26d798bd7290ca522f3112efb76031d608dd5db5985653",
+      "origin": "machine",
+      "message": "Próximo passo: conceda a esta conta o privilégio exigido pelo nível {rung} (o comando exato aparece acima, quando aplicável) e execute o refresh novamente."
+    },
+    "runner.host_refresh_action_grant_automation": {
+      "sourceHash": "edec65cfda849f5c66fc46df86bfcfab8d9800e0cf374fa0a61a8ddc7023f0b6",
+      "origin": "machine",
+      "message": "Próximo passo: permita o acesso de Automação ao UTM para o aplicativo que executa este shell e execute o refresh novamente."
+    },
+    "runner.host_refresh_action_gui_session": {
+      "sourceHash": "842056b3fb4c522bdfe0dbe12baa747592af4c33e681159377c74200b1dc5d9e",
+      "origin": "machine",
+      "message": "Próximo passo: execute o refresh na sessão de desktop conectada; esta sessão só pode observar."
+    },
+    "runner.host_refresh_action_install_client": {
+      "sourceHash": "4500b0c18da686a50aa636cdabede1098b4da3114e3a5c19e7deee5655195d1f",
+      "origin": "machine",
+      "message": "Próximo passo: restaure o cliente de linha de comando do hipervisor ({client}); o refresh não o reinstala."
+    },
+    "runner.host_refresh_action_resume_request": {
+      "sourceHash": "ee5b0926f188b0840f9ff7407bc41d86bbb42234b5b5029309470f0ffaa1465f",
+      "origin": "machine",
+      "message": "Próximo passo: retome a solicitação pendente com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume"
+    },
+    "runner.host_refresh_action_start_runner": {
+      "sourceHash": "9eac04ab6f0519353874c4945bd6d2c50e9a128b85536376b9774df6c32cb01b",
+      "origin": "machine",
+      "message": "Próximo passo: inicie o runner manualmente: pwsh test/Start-TestRunner.ps1"
+    },
+    "runner.host_refresh_auto_action_admit": {
+      "sourceHash": "7cf16b6bb72ec9f76a64b4c9c3e194efe22ff4242bf294c7805bd9cccab5eb85",
+      "origin": "machine",
+      "message": "Admitir uma solicitação automática de refresh do hospedeiro para a geração de ciclo {generation}"
+    },
+    "runner.host_refresh_auto_action_consume_evidence": {
+      "sourceHash": "eb5db5739f69892db87c8c3b52ad4137fabac665e1bde4095737e0cebd5e3f94",
+      "origin": "machine",
+      "message": "Consumir o arquivo de evidências do refresh do hospedeiro"
+    },
+    "runner.host_refresh_auto_action_decide": {
+      "sourceHash": "4e590ee1c3fc6417f586742733c19a48b03df95c40a65ca3cd6f7ab2682897ce",
+      "origin": "machine",
+      "message": "Decidir se deve executar um refresh automático do hospedeiro após o ciclo externo {cycle}"
+    },
+    "runner.host_refresh_auto_action_record_outcome": {
+      "sourceHash": "69a68b841a765ad114796428c88e7d04b27fc764a50b73f9dbcc02b63468825f",
+      "origin": "machine",
+      "message": "Registrar o resultado {verdict} do refresh automático do hospedeiro"
+    },
+    "runner.host_refresh_auto_action_reserve": {
+      "sourceHash": "5c261ec29d2e693b791f29a37005436b00600a364cc501a7fa29ae77245c78ce",
+      "origin": "machine",
+      "message": "Reservar a tentativa de refresh automático do hospedeiro para o dia UTC {utcDay}"
+    },
+    "runner.host_refresh_auto_action_run_worker": {
+      "sourceHash": "743a298b5f20d1dac2a598db92a279e7f852060f2eac3ac4d75f0723f89d1614",
+      "origin": "machine",
+      "message": "Executar o worker de refresh do hospedeiro para a solicitação {requestId}"
+    },
+    "runner.host_refresh_auto_action_update_streak": {
+      "sourceHash": "2ce4a1354cff61bf7b5a751b7fa19c2cdaa3b582f3aad30c83db1eee695b873d",
+      "origin": "machine",
+      "message": "Definir a contagem de evidências do refresh do hospedeiro como {streak}"
+    },
+    "runner.host_refresh_auto_action_withdraw": {
+      "sourceHash": "6b5a654288b362e1016bb6325d1ea31431139385fbc217f28420452c9eaff37f",
+      "origin": "machine",
+      "message": "Retirar a solicitação automática de refresh do hospedeiro na fila {requestId}"
+    },
+    "runner.host_refresh_auto_action_write_evidence": {
+      "sourceHash": "0fb2c416dbc5d8ff2bcbaa4b6649ceba07903ea9da601c1bedf910f3bce430b2",
+      "origin": "machine",
+      "message": "Registrar evidências de refresh do hospedeiro para a geração de ciclo {generation}"
+    },
+    "runner.host_refresh_auto_dependency_missing": {
+      "sourceHash": "a51e80467c1da38df99624b66004f21829abe4640579487fcd71eef08f40b230",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro está indisponível: não foi possível carregar {command} de {module}."
+    },
+    "runner.host_refresh_auto_error": {
+      "sourceHash": "381ab3e7807ceed5c8d0912358f4a08f243a4b0166d404e723a4b801f840774e",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a decisão de refresh automático do hospedeiro falhou ({message}); o runner continua sem ela."
+    },
+    "runner.host_refresh_auto_evidence_counted": {
+      "sourceHash": "cff85a8735705746fac2de1d24dc8f083e0a59501f08d606678d1f1495131488",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] evidência de refresh do hospedeiro: {phase} detectou um timeout de controle do hipervisor ({streak} de {threshold} ciclos)."
+    },
+    "runner.host_refresh_auto_evidence_reset": {
+      "sourceHash": "b16935c7e23362a27122faf17dc7b2692d28f2dbd703293d570476b563b6b36b",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] evidências de refresh do hospedeiro limpas: o hipervisor respondeu durante {phase}."
+    },
+    "runner.host_refresh_auto_finished": {
+      "sourceHash": "1de5d8ed8447db383e7fe5bd45c6af3b261c4b330379cda8d98333b4917c5940",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro {requestId} concluído: {verdict}."
+    },
+    "runner.host_refresh_auto_knob_invalid": {
+      "sourceHash": "a468a1d1ee82f021f8e1eb08f3fcbb7726d7296c91a9466ccb4a4db0d1439e4a",
+      "origin": "machine",
+      "message": "testCycle.autoRefreshAfterStalls é '{value}', que não é um número inteiro não negativo; o refresh automático do hospedeiro permanece desativado."
+    },
+    "runner.host_refresh_auto_operator_action": {
+      "sourceHash": "52d9a72cb7cea23a9aead5031b2ef6f62da6bec51e201074a194c8df9377d125",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} terminou {verdict}; nenhuma nova tentativa automática começa antes do dia UTC {nextUtcDay}. Verifique o hospedeiro; enquanto esta solicitação estiver aberta, conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume; caso contrário, execute test/lab/Invoke-HostRefresh.ps1."
+    },
+    "runner.host_refresh_auto_pause_skipped": {
+      "sourceHash": "a2163bc2dbc6d5b566739ca4786b1ee401a56a26385dbc443eedaf51f3e50cef",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o refresh automático reparou o hospedeiro; o próximo ciclo começa sem a pausa de falha."
+    },
+    "runner.host_refresh_auto_queued_revoked": {
+      "sourceHash": "b95c4e6fe4cf16707186b14b306b224f528ccf2ade5fe5cb1c00119156816c44",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a solicitação automática de refresh do hospedeiro na fila {requestId} foi retirada porque o grupo está sendo drenado."
+    },
+    "runner.host_refresh_auto_refused": {
+      "sourceHash": "edbe2f5475343be7d8c3e150af4aeb87cebbb7b54eab81f1e11411f0536cd375",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro não iniciado: {reason}."
+    },
+    "runner.host_refresh_auto_resume_caller_changed": {
+      "sourceHash": "3b26d82c2e1f97e7cec71a9f63781d02c05f7bbb55e4fdf28f900a61a35837b3",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} foi iniciado para um processo anterior do runner, então este runner não o retoma. Conclua-o com test/lab/Invoke-HostRefresh.ps1 -Resume ou libere o que ele mantém com test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+    },
+    "runner.host_refresh_auto_resume_disabled": {
+      "sourceHash": "5de02be85431055832c1d22abb107ece57de148f5138d4751b3423d477fc94e8",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} não é retomado enquanto autoRefreshAfterStalls for 0. Uma solicitação não reivindicada expira sozinha; conclua uma já iniciada com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.host_refresh_auto_resuming": {
+      "sourceHash": "ef58c9cd4068f93d04ebf34bf9e96c4e53922a0d8d5da7ef8270210a14cc427b",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] retomando o refresh automático do hospedeiro {requestId}, tentativa {attempt} de {maxAttempts}: apenas restaurando serviços, sem nova desmontagem."
+    },
+    "runner.host_refresh_auto_starting": {
+      "sourceHash": "c723764666456303fa03071e132d8ead2f827cb7e9fc0423bdd3b80dddbde1f6",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro {requestId} iniciando após {streak} ciclos de timeouts de controle do hipervisor (limite {maxRung}); o hipervisor pode ser reiniciado, e os serviços afetados são restaurados depois."
+    },
+    "runner.host_refresh_auto_threshold_raised": {
+      "sourceHash": "ce7c3750fa1a67ed0e7c0626d75176d9d422f7fad258df2ca7dafa74a8f335a7",
+      "origin": "machine",
+      "message": "'testCycle.autoRefreshAfterStalls' é 1; o runner precisa do timeout em pelo menos dois ciclos e o trata como 2."
+    },
+    "runner.host_refresh_auto_unavailable": {
+      "sourceHash": "447638b9ad0a3153ccf3c7fa6b6bf3ba58aa18ccbd6136dba1cf5e870616fb3a",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a atualização automática do hospedeiro está configurada, mas não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela. Execute test/lab/Invoke-HostRefresh.ps1 localmente se o hipervisor precisar de reparo."
+    },
+    "runner.host_refresh_auto_unavailable_on_host": {
+      "sourceHash": "14148fe1fa91dde3dcedc1ce40bf565e53c04443fb879ec0c3bf907c564e06a8",
+      "origin": "machine",
+      "message": "'testCycle.autoRefreshAfterStalls' é {value}, mas a atualização automática do hospedeiro não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela."
+    },
+    "runner.host_refresh_auto_value_not_integer": {
+      "sourceHash": "237db8e7e0175aadc36d26e935b8c5d5a9d671af7c25d7a035e49cc9abefb6bf",
+      "origin": "machine",
+      "message": "'testCycle.autoRefreshAfterStalls' é '{value}' -- não é um número inteiro; o executor o trata como 0 (atualização automática do hospedeiro desativada)."
+    },
+    "runner.host_refresh_auto_verdict_mismatch": {
+      "sourceHash": "3e15b385058ee79d8b0b61d3de67628b5d0ab8d9af76768dfa2e6b4db49362cd",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a atualização automática do hospedeiro {requestId} não deixou resultado correspondente ({reason}); tratando-a como falha."
+    },
+    "runner.host_refresh_auto_waiting_on_worker": {
+      "sourceHash": "bfa479002741a81e8ddbd9957e1c5317e1c6bf9e6434b227847b3a0da104b6e8",
+      "origin": "machine",
+      "message": "Encerramento solicitado; aguardando o worker de atualização do hospedeiro da solicitação automática {requestId} terminar (no máximo mais {seconds} segundos)."
+    },
+    "runner.host_refresh_auto_worker_launch_failed": {
+      "sourceHash": "9481936a90805dfdb0c5d14f63aec9dab6e6f0e2ea9d949e327c401a89e9d704",
+      "origin": "machine",
+      "message": "Não foi possível iniciar o worker de atualização do hospedeiro da solicitação automática {requestId}: {message}."
+    },
+    "runner.host_refresh_auto_worker_timeout": {
+      "sourceHash": "bbb715c5cdad9a7451c457939a402cfe9b63de47dff6cf7711478498e708ea66",
+      "origin": "machine",
+      "message": "O worker de atualização do hospedeiro da solicitação automática {requestId} excedeu {seconds} segundos e foi interrompido; a solicitação continua aberta. O executor pode retomá-la, ou conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.host_refresh_command_missing": {
+      "sourceHash": "263c70f5f771924e7a13b85d164600677581c3e7058aec9c7f6c03b9fd0ee4f6",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: o comando obrigatório {command} ({module}) não está disponível após carregar o conjunto de módulos de atualização; recusando."
+    },
+    "runner.host_refresh_config_ambiguous": {
+      "sourceHash": "ff67b16186d1d1fdd23539c7ba7a298527621f0aabb920731f5aadc4cd597155",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: {count} snapshots de configuração em {runtimeDir} indicam arquivos de origem diferentes; use -ConfigPath para escolher um."
+    },
+    "runner.host_refresh_config_conflict": {
+      "sourceHash": "0ddcecc1ebbf08360bbdf58324572e39c019bc2a2a450cc963bc109e7b0acfc4",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: -ConfigPath {configPath} difere da configuração registrada do executor {recordedPath}; recusando em vez de reiniciar o executor com outro arquivo."
+    },
+    "runner.host_refresh_config_missing": {
+      "sourceHash": "6915cc18942541259a29371ca8e2e2b9f5287db3234146cec55c2426ad8bde4b",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: a configuração registrada para este runtime ({configPath}) não existe; use -ConfigPath."
+    },
+    "runner.host_refresh_convergence_skipped": {
+      "sourceHash": "ff8bb42968671b6841647377a4f419869784226d85298f7c1ffe6b50c1384c7b",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: a sondagem final indica {state} ({reason}); os serviços e o executor não foram retomados."
+    },
+    "runner.host_refresh_deadline_exhausted": {
+      "sourceHash": "076d20106747f138cc0dc87195fb91d9c3e6ba738440cd930621a3a22c152689",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: o tempo disponível se esgotou durante {phase}; o trabalho não concluído foi registrado como pendente."
+    },
+    "runner.host_refresh_disruption_warning": {
+      "sourceHash": "5772cd8e8ed6295f5c67e399d5349e6fc62c6101718eca7a2cea27b93af2b1f3",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: reiniciar o aplicativo do hipervisor pode suspender convidados em execução; uma parada forçada, permitida apenas com -AllowHardStop, pode desligá-los de forma não limpa."
+    },
+    "runner.host_refresh_evidence_write_failed": {
+      "sourceHash": "bc36feced9b8767e30f1ce1dc9501536787c5aabdd7e3a278a23356a939cfb48",
+      "origin": "machine",
+      "message": "Não foi possível registrar a evidência de atualização do hospedeiro deste ciclo ({reason}); a atualização automática do hospedeiro não a contabilizará."
+    },
+    "runner.host_refresh_identity_refused": {
+      "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: recusando executar como {identity} ({reason}); execute com a conta proprietária de {runtimeDir}."
+    },
+    "runner.host_refresh_launcher_wait_timeout": {
+      "sourceHash": "dc16b873290149a51e530c8a4a6d07c5aab286eb7a3d2c33357b7a5c9c36412a",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: o processo iniciador {launcherPid} ainda está em execução após {waitedSeconds} s; a solicitação {requestId} continua na fila para nova tentativa."
+    },
+    "runner.host_refresh_lock_busy": {
+      "sourceHash": "cf2d590b61147d8ff7da29c3475ade27959e6b9921bb76ad5699c3b351529850",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: outro reparo detém o bloqueio vitalício ({reason}); recusando executar em paralelo."
+    },
+    "runner.host_refresh_manual_command": {
+      "sourceHash": "233e97455e11721f440ef83c6927af059d5c206f8200df66acad46256c138209",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: execute manualmente ou permita-o sem solicitação de senha: sudo {command}"
+    },
+    "runner.host_refresh_obligation_disposed": {
+      "sourceHash": "bf8b4737f29cdbcd15248935f7b0f07a4d9efb3edfa14016c4032060dae4a6b9",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: {obligation} da solicitação {requestId} registrada como tratada por {actor}."
+    },
+    "runner.host_refresh_obligation_unknown": {
+      "sourceHash": "9e3f51514cbae6943a8ab13f38d5ee33f3cb5a5be24d0822695cf1f073293cad",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: {obligation} não é um item pendente da solicitação {requestId}."
+    },
+    "runner.host_refresh_operator_instruction": {
+      "sourceHash": "d100fae791851766cd671f838d6fc7a1b18554e434c19e91d7da75d5d29d8d8f",
+      "origin": "machine",
+      "message": "  Solução: {instruction}"
+    },
+    "runner.host_refresh_preview_group_relaunch": {
+      "sourceHash": "a453fd8a9b85d01b4acb79f218ebd1d5994768b0219054f99abdfacbfdc60090",
+      "origin": "machine",
+      "message": "  Uma execução real primeiro reiniciaria sob o grupo libvirt ({reason})."
+    },
+    "runner.host_refresh_preview_notice": {
+      "sourceHash": "d73f8a45364b13fbdb97151d7c03b9d18ff1c18691b800813820f04db0c7f456",
+      "origin": "machine",
+      "message": "  Apenas prévia: nada foi bloqueado, gravado, sinalizado ou iniciado."
+    },
+    "runner.host_refresh_preview_would_consider": {
+      "sourceHash": "85406c481d2f840d2391adce1e447839d35f62c94052f8d59abbc6eb5c5ae800",
+      "origin": "machine",
+      "message": "  Degraus que uma execução real consideraria, em ordem: {rungs}"
+    },
+    "runner.host_refresh_private_root_unavailable": {
+      "sourceHash": "63393a8aec54c55b797dc083e654a3f1285a1eea3313f9dc3a73607c2ba2f2fe",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: não foi possível proteger a raiz de estado privada em $HOME/.yuruna/host-refresh ({reason}); recusando sem uma raiz privada restrita ao proprietário."
+    },
+    "runner.host_refresh_progress_degraded": {
+      "sourceHash": "a730963668cf8894dd4da8aa919103d5331e6de0641db7ca4fda5db0b9ac9f36",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: não foi possível publicar o progresso; o reparo continuou e o diário privado continua sendo a referência."
+    },
+    "runner.host_refresh_protocol_mismatch": {
+      "sourceHash": "0f4d14277cf94756e7031de4ee3634d429f997f485bcc36447437f354c03317b",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: {path} declara o protocolo '{found}'; este ponto de entrada implementa '{expected}'."
+    },
+    "runner.host_refresh_refused": {
+      "sourceHash": "ad2867a8ad49eb4bb039eda3f0ed7240619a9ad59119985dd12263450890bdef",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: recusado antes de qualquer alteração ({reason})."
+    },
+    "runner.host_refresh_request_refused": {
+      "sourceHash": "e34fa4f6b3fcd3f2fa73338e880a98276cdaea8af83792dae7ef522de773b7a6",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: solicitação {requestId} recusada ({reason}); a solicitação não resolvida {activeRequestId} está em {state}."
+    },
+    "runner.host_refresh_resume_none": {
+      "sourceHash": "4164759aebb9c513a66aed66c374a26f8bf12b6c2b853fc2bb7230a630ea2c30",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: não há solicitação não resolvida para retomar."
+    },
+    "runner.host_refresh_resume_started": {
+      "sourceHash": "4656e01273917c681f227b18145bd890b0ee9d0ab770d44bcb1f43dd64a5371a",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: retomando a solicitação {requestId}, tentativa {attempt} ({mode})."
+    },
+    "runner.host_refresh_rung_finished": {
+      "sourceHash": "e68f7fa790882e9e13f14f0ea7c97a4406f4b50e6899d13c33c9c80759e27559",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: degrau {name} {outcome}; a sondagem do hipervisor agora indica {state} ({reason})."
+    },
+    "runner.host_refresh_rung_reason_broker_recipe_missing": {
+      "sourceHash": "6a953257c41c710643c080676ca54c7a6d1b7787608324410728edbb8569001a",
+      "origin": "machine",
+      "message": "requer uma receita verificada de rótulo, domínio e proprietário específica da versão do SO, com testes colaterais"
+    },
+    "runner.host_refresh_rung_reason_daemon_layout_unqualified": {
+      "sourceHash": "1e3eb74cfd6586e09f9f12673f42861a312e2fdd2fc97885a28e8895e2a440df",
+      "origin": "machine",
+      "message": "requer testes de layout de daemons e de preservação de convidados aprovados em um hospedeiro suportado"
+    },
+    "runner.host_refresh_rung_reason_gui_launch_unqualified": {
+      "sourceHash": "55ef781e1c1c122b87b9dd3b20f954ab7d72fa1bdc7153ddd8a0c9f7c29fedf9",
+      "origin": "machine",
+      "message": "iniciar o UTM requer uma verificação de ausência do mesmo usuário e um caminho de inicialização da GUI que não foram qualificados em um hospedeiro macOS real"
+    },
+    "runner.host_refresh_rung_reason_lock_unqualified": {
+      "sourceHash": "6f07948b3987573f9921c1d9efce10f8a299827f3b49861a2f8c455600f4aff3",
+      "origin": "machine",
+      "message": "a exclusão do bloqueio de reparo não foi demonstrada nesta plataforma"
+    },
+    "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": {
+      "sourceHash": "09b9bcdd37762cc95944a4e84f6e26f83a602284adb8362fb5528288629de726",
+      "origin": "machine",
+      "message": "requer uma receita validada para os daemons modulares do libvirt"
+    },
+    "runner.host_refresh_rung_reason_no_reboot_supervision": {
+      "sourceHash": "7de6e692d8aa7beadb0c987d6385e50259b227a1112aa9066391ef6d30cd1f75",
+      "origin": "machine",
+      "message": "não existe supervisão verificada do executor e do status-service durante uma reinicialização do hospedeiro"
+    },
+    "runner.host_refresh_rung_reason_not_implemented": {
+      "sourceHash": "19f8277a2b99a079785a4a46d9ee8af5cf5cc2c04f2490b2bcc1fd039dfb6d8c",
+      "origin": "machine",
+      "message": "não há executor para este degrau neste checkout"
+    },
+    "runner.host_refresh_rung_reason_package_recovery_unqualified": {
+      "sourceHash": "61c83a080b1b3c5a853578b43135f015152a104702acbf8d1d1d1914d3dc40e9",
+      "origin": "machine",
+      "message": "requer um bootstrap assinado autossuficiente e um procedimento testado de recuperação de pacotes"
+    },
+    "runner.host_refresh_rung_reason_provider_recipe_missing": {
+      "sourceHash": "aecd4e46604e223f3988f37bb7a1f753f49b6534cdb07694a3708dc41bf998f2",
+      "origin": "machine",
+      "message": "requer uma receita separada de recuperação do provedor testada em um hospedeiro suportado"
+    },
+    "runner.host_refresh_rung_reason_runner_restart_unqualified": {
+      "sourceHash": "244c7704db8d4620af6dc85941bce21b05ef774f61d556bf9358a97dfed173a6",
+      "origin": "machine",
+      "message": "a recuperação do executor e a reinicialização verificada não foram qualificadas em um hospedeiro real desta plataforma"
+    },
+    "runner.host_refresh_rung_reason_settings_recipe_unsafe": {
+      "sourceHash": "00d34d48b5014f3c81973345d586d869569e1955f10e309b21c26cdb316de7cd",
+      "origin": "machine",
+      "message": "a receita de configurações ainda chega a diálogos de consentimento, instalações de pacotes ou chamadas nativas sem limite que um reparo não assistido não deve executar"
+    },
+    "runner.host_refresh_rung_reason_unsupported_on_platform": {
+      "sourceHash": "f87b61a78b252a9184555fc78deb456f342928f0d92e9437ab46e0af6db487d2",
+      "origin": "machine",
+      "message": "não oferecido nesta plataforma"
+    },
+    "runner.host_refresh_rung_reason_utm_restart_unqualified": {
+      "sourceHash": "134179700aa76de7783bfc336b23b1077d7fb15d3ae49f14fcc371cab2606f60",
+      "origin": "machine",
+      "message": "reiniciar o UTM requer um caminho de inicialização e de sessão testado, evidência capturada de recuperação de convidados, exclusão do executor e a política de encerramento gracioso, validados em um hospedeiro macOS real"
+    },
+    "runner.host_refresh_rung_reason_vmms_start_unqualified": {
+      "sourceHash": "ec4611e6e050fd9bdb467cb222f8a7db546699522f07f3ccfc44f2b61fc5bf4f",
+      "origin": "machine",
+      "message": "iniciar um serviço vmms parado está implementado, mas não foi qualificado em um hospedeiro Windows Hyper-V real"
+    },
+    "runner.host_refresh_rung_started": {
+      "sourceHash": "b8d4489d3ec2e35dbad8f929bf2ea65c7b9706b34be00e5c90a925baf04e118e",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: degrau {name} iniciado; restam {remainingSeconds} s do orçamento de reparo."
+    },
+    "runner.host_refresh_runner_not_ready": {
+      "sourceHash": "94f6972822af15a2e2079e6ba9dc355cfc3d312276ff0790f3f40ed748ae58da",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: o executor reiniciado não confirmou que está pronto ({reason})."
+    },
+    "runner.host_refresh_runtime_missing": {
+      "sourceHash": "b84686efd9657649b6f694ca8d8408e1d69413e482805bb9814f0770667ddd97",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: o diretório de runtime {runtimeDir} não existe; defina YURUNA_RUNTIME_DIR como o diretório de runtime do executor."
+    },
+    "runner.host_refresh_runtime_owner_mismatch": {
+      "sourceHash": "10035fdb44e2290d71a3e192cdc38ac51de66731d0af743912361c3b4bdfd25f",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: this account's refresh state is registered to runtime {registeredRuntimeDir}, not {runtimeDir}; one owning runtime per account is supported."
+    },
+    "runner.host_refresh_service_unverified": {
+      "sourceHash": "c11e7e8c9595f31ae7ad3b37ad22d37c8b36a6b031350f66ea8a3292bf857e91",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: service {key} is not verified after the repair ({outcome})."
+    },
+    "runner.host_refresh_session_passive": {
+      "sourceHash": "542e8ec69295bcf9851762f401eb11940441a9230e5b2aded78835d6ac04a076",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: session kind is {sessionKind}; steps that need the desktop session are skipped."
+    },
+    "runner.host_refresh_should_process_admission": {
+      "sourceHash": "39433e21c3b05ae11c18a9bdaac69038c2be6af04f17752237772cdc5c617bca",
+      "origin": "machine",
+      "message": "Record host-refresh admission"
+    },
+    "runner.host_refresh_should_process_listener": {
+      "sourceHash": "665d26856d674398823f79435233292760cf4998d591ea5ad8d6b1d0e1f35fc6",
+      "origin": "machine",
+      "message": "Start the status listener in refresh-safe mode"
+    },
+    "runner.host_refresh_should_process_publish": {
+      "sourceHash": "9d930961c50efac3db567fcabdc698f47c7f998537bc59dc6a6a19c46bf490a2",
+      "origin": "machine",
+      "message": "Publish host-refresh progress"
+    },
+    "runner.host_refresh_should_process_run": {
+      "sourceHash": "43f6f88e8d6debcf28178c60b80defea7b878d3a29b00e4eb517d5da818d85b7",
+      "origin": "machine",
+      "message": "Run host-refresh request {requestId}"
+    },
+    "runner.host_refresh_summary_active_request": {
+      "sourceHash": "60594e8d22cfa24d2f9db2cb7c831d94742868f9752f382f6c85a8836f8ccbba",
+      "origin": "machine",
+      "message": "  Unresolved request: {requestId} ({state}, attempt {attempt})"
+    },
+    "runner.host_refresh_summary_context": {
+      "sourceHash": "9a19b6fab2b354cee9a175e9c7a1c8d7469821446438e1ed7b1cb56d2c0bd04c",
+      "origin": "machine",
+      "message": "  Runtime:          {runtimeDir} (configuration {configPath}, from {configSource})"
+    },
+    "runner.host_refresh_summary_header": {
+      "sourceHash": "e2d88c5bd00700d82a3566b522dc784f7fb0a7bdec291afb068cfbfe8cd3ab9d",
+      "origin": "machine",
+      "message": "Host refresh ({mode}) on {hostType}"
+    },
+    "runner.host_refresh_summary_ladder": {
+      "sourceHash": "4fb4da2c20d5c995248652bcf3ab1681343fee468469ecfcd1ffe62c33eeffc2",
+      "origin": "machine",
+      "message": "  Repair ladder, ceiling {ceiling}:"
+    },
+    "runner.host_refresh_summary_obligation": {
+      "sourceHash": "2d004b86650e57768e4504946faef9577091c4e3c4dfd4ad06ec31fc3e4361ef",
+      "origin": "machine",
+      "message": "  Outstanding:      {obligation}"
+    },
+    "runner.host_refresh_summary_probe": {
+      "sourceHash": "32cf8aa617231e39369cf56c284ee35d67d6a4d0a4db08f4a6522cae5a09eb82",
+      "origin": "machine",
+      "message": "  Hypervisor probe: {state} ({reason}, {elapsedMs} ms)"
+    },
+    "runner.host_refresh_summary_rung_above_ceiling": {
+      "sourceHash": "406a5ed53db6d71bd91c88000af2c5171230c5af86b9788691b30afc39662e2f",
+      "origin": "machine",
+      "message": "    [{order}] {name}: above the requested ceiling"
+    },
+    "runner.host_refresh_summary_rung_available": {
+      "sourceHash": "6edb8bc9a5c30544eeddbe2a93d7d9a681779ec1747a12671c30fcf316667d77",
+      "origin": "machine",
+      "message": "    [{order}] {name}: available"
+    },
+    "runner.host_refresh_summary_rung_result": {
+      "sourceHash": "96c79885ad845f54a0240500e68a366f4942e2805fecaea2bd8f65424a99145d",
+      "origin": "machine",
+      "message": "    [{order}] {name}: {outcome} ({reason})"
+    },
+    "runner.host_refresh_summary_rung_unavailable": {
+      "sourceHash": "d35754abeed9bed2b4cf0ad964662671a72dfb9049153b12f95ef9c92da286bc",
+      "origin": "machine",
+      "message": "    [{order}] {name}: unavailable, {reason}"
+    },
+    "runner.host_refresh_summary_runner": {
+      "sourceHash": "4c557dad180443b317d14e3623ebe0e887d9007c895a30a86cbc2dbd5a1b1fed",
+      "origin": "machine",
+      "message": "  Runner:           {status}"
+    },
+    "runner.host_refresh_summary_verdict": {
+      "sourceHash": "dcd9f38156a4262cafaf61622098317a722ac5d059bac2cc22044b078048d3d9",
+      "origin": "machine",
+      "message": "  Verdict:          {verdict} (request {requestId}, attempt {attempt}, state {state})"
+    },
+    "runner.host_refresh_unexpected_error": {
+      "sourceHash": "94d09456b0b3864e5210a4b78f9ac122d67cb19a0cb2f0e7ca89d6537ce075ee",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: unexpected error during {phase}: {message}"
+    },
+    "runner.host_refresh_verified_noop": {
+      "sourceHash": "cf7e8b1631341749e2da4e31194d9a4c777b6868b3f69a7fe37ce1c8130d8622",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed."
+    },
+    "runner.launch_record_complete_action": {
+      "sourceHash": "fbe3c2e4b05d5477d5bb61142a9cfa4e2f0412798b9f22a50d956378f39a5a84",
+      "origin": "machine",
+      "message": "Mark the runner launch record ended"
+    },
+    "runner.launch_record_write_action": {
+      "sourceHash": "70dd6eeead64e41bad10cb9d12710cac4318f3f34e86dfd806ae33fb2018f133",
+      "origin": "machine",
+      "message": "Write the runner launch record"
+    },
+    "runner.no_other_runner_refresh_active": {
+      "sourceHash": "749f1bf7a93cd65a95e87fbfbe42ae4256ae736e94bc0ca143e3a33051cc5b90",
+      "origin": "machine",
+      "message": "{callerName}: host refresh {requestId} holds this host's runner (gate {state}); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.process_start_record_write_action": {
+      "sourceHash": "38ad99f0faeb022b56cb9afbc42686d22c672b0a0fedf301fcc01ac0a12dee1f",
+      "origin": "machine",
+      "message": "Write a process start-time record"
+    },
+    "runner.readiness_ack_remove_action": {
+      "sourceHash": "1718255d2e26c9c03dd081a4b6281e7412d4c6540257ac1d2ec78f44737902c8",
+      "origin": "machine",
+      "message": "Remove a stale refresh readiness acknowledgment"
+    },
+    "runner.readiness_ack_write_action": {
+      "sourceHash": "6250660c115ef92bdb310f2ff3bbce17fdb5ed0a2b56cd296e55a1f1fb1b8238",
+      "origin": "machine",
+      "message": "Write the refresh readiness acknowledgment"
+    },
+    "runner.refresh_barrier_held": {
+      "sourceHash": "046dd2bf8c1e9fa320c5660bb5a1968c46717cd0e391b1925078a5f95fa1d51b",
+      "origin": "machine",
+      "message": "Resumed after host refresh {requestId}: held by {controls}. Release them from the status page; no VM is created or changed until then."
+    },
+    "runner.refresh_barrier_released": {
+      "sourceHash": "6a6cf1e6ebc4ce0a1a100fee8f685c2efed5418fdb1060c80dafc8cb68527b21",
+      "origin": "machine",
+      "message": "Held controls released after {seconds} s; the resumed cycle continues."
+    },
+    "runner.refresh_capability_unverified_macos": {
+      "sourceHash": "749e459065bea57e158d1dceed9a08e91e1033a2ba4e7dcc4d53f921ade39054",
+      "origin": "machine",
+      "message": "Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only."
+    },
+    "runner.refresh_capability_unverified_windows": {
+      "sourceHash": "fcc312e61513fad512e294d7e5f2084533c54794b8b5e2408c395110a56f8967",
+      "origin": "machine",
+      "message": "Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only."
+    },
+    "runner.refresh_cycle_held": {
+      "sourceHash": "73a41ff49ea8edc22ba479d6c6fa25c53750b4bdae25eeca2f2bff25e17ac674",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] the inner stopped at {site} because a host refresh holds this host; nothing was changed."
+    },
+    "runner.refresh_gate_blocks_start": {
+      "sourceHash": "116f88b87f4a26bffc55a5a72f839e8bdf2f7210c5567036c98bd52d81792a7f",
+      "origin": "machine",
+      "message": "Start-TestRunner: host refresh {requestId} holds this host's runner (gate {state}); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.refresh_gate_hold": {
+      "sourceHash": "6c6c52840dcf9f4a39ab0b689e6b49801048178dc17e4bf10762ba4466afa5ac",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] host refresh {requestId} holds the runner (gate {state}); no cycle starts until it releases."
+    },
+    "runner.refresh_gate_orphaned": {
+      "sourceHash": "8df9d965a5964ffa7251e1ef894f5dbd6ebbab2b7d569864c7e8fda1d4665396",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] host refresh {requestId} left the runner held (gate {state}) and its worker is no longer running. Run test/lab/Invoke-HostRefresh.ps1 -Resume to finish its recovery."
+    },
+    "runner.refresh_gate_released": {
+      "sourceHash": "8948f8995104e120ffc6b47b9daf1d5e1268e3baebee8836ae409bade828a675",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] the host-refresh gate released the runner; cycles resume."
+    },
+    "runner.refresh_gate_unreadable": {
+      "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] the host-refresh gate record could not be read ({reason}); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it."
+    },
+    "runner.refresh_gate_write_action": {
+      "sourceHash": "18db445e514e4865306dcc504d42185bd0ef11ea812c86f1cd4effe09d522ce9",
+      "origin": "machine",
+      "message": "Write the host-refresh runner gate ({state})"
+    },
+    "runner.refresh_handoff_complete": {
+      "sourceHash": "b14ede397ccdd5ef195a65a659ec669414ff05878aa139f01f2cadb1eb79a7df",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] readiness verified for host refresh {requestId}; leaving the refresh gate."
+    },
+    "runner.refresh_handoff_complete_action": {
+      "sourceHash": "6df2056f8df7e49463f6b8c59d0780c222b035508fff53d9a6ac22eef044e464",
+      "origin": "machine",
+      "message": "Complete a host-refresh runner handoff ({verdict})"
+    },
+    "runner.refresh_handoff_issue_action": {
+      "sourceHash": "337464c92507132b82d007019ca339c36b6f09500d1bf9c4e43b6e5ab42508d6",
+      "origin": "machine",
+      "message": "Issue a host-refresh runner handoff token ({purpose})"
+    },
+    "runner.refresh_handoff_unverified": {
+      "sourceHash": "a919c245b7dfc05807e1ca6dce6436f6e88ae86ebb698b317a9575ee38878805",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] readiness for host refresh {requestId} could not be verified ({reason}); the runner stays held."
+    },
+    "runner.refresh_launch_record_skipped": {
+      "sourceHash": "97291210f9ccda4d9268996632e7ca6b1752468a9f2f547ed1f5c0f577e72f1d",
+      "origin": "machine",
+      "message": "Start-TestRunner: the runner launch record was not written ({reason}); a host refresh cannot restart this runner, and asks the operator to start it instead."
+    },
+    "runner.refresh_preflight_cycle": {
+      "sourceHash": "f4022ad51eafc665e53c6c47b1c569f122d98bb1b5a99f460012fe8b6d97cc76",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] refresh preflight only: no git pull, VM change or control sweep in this cycle."
+    },
+    "runner.refresh_preflight_failed": {
+      "sourceHash": "d532f91aad6a31ae7bed6a792575f3979f6000bab69e52d1b3999d7ec5052ce9",
+      "origin": "machine",
+      "message": "Refresh preflight failed ({reason}); nothing was changed and the runner stays held."
+    },
+    "runner.refresh_preflight_ready": {
+      "sourceHash": "3aaa6cd01b67d3324c2fca53100687e06be0edc44164ed2b1f48b14f21dc52e7",
+      "origin": "machine",
+      "message": "Refresh preflight ready for request {requestId}; waiting for the refresh worker to release the runner."
+    },
+    "runner.refresh_preflight_released": {
+      "sourceHash": "22acac4dd4e5b608b8f3e8bf1b1514d3949e6c7f24055ee530c37c437f040f54",
+      "origin": "machine",
+      "message": "Refresh preflight ended ({outcome}); exiting so the runner can continue."
+    },
+    "runner.refresh_preflight_result": {
+      "sourceHash": "21e1e2c543c270e28f38cfeae1d2d93e9889322d24238808da9251ec952b5bb2",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] refresh preflight cycle finished with exit code {exitCode}."
+    },
+    "runner.refresh_resume_action": {
+      "sourceHash": "205ae5fa14a58a78570cf771d1d0c90527e77beb326e62c8f655734503ffd700",
+      "origin": "machine",
+      "message": "Restart the runner after a host refresh"
+    },
+    "runner.refresh_resume_record_refused": {
+      "sourceHash": "c46163fd37c09c6390b05fa9571018d21b3e65a44fb6dd879bdad0358ae9b9b0",
+      "origin": "machine",
+      "message": "Start-TestRunner: {pidFile} is {state}; a refresh resume never takes over or deletes a live or unknown runner record."
+    },
+    "runner.refresh_resume_started": {
+      "sourceHash": "ce65d52e81a5f6c5913aabea94d00382f9992f8bdfd7ab9862a660471c6c15b2",
+      "origin": "machine",
+      "message": "Start-TestRunner: resuming after host refresh {requestId}; operator pauses, holds and restart requests are preserved."
+    },
+    "runner.refresh_resume_switch_pair": {
+      "sourceHash": "cec1bbf4cbc0769555d17fa8294bc006109ee5e7f0b166d8452f8b3186497904",
+      "origin": "machine",
+      "message": "Start-TestRunner: -RefreshResume and -RefreshHandoffToken must be given together; not starting."
+    },
+    "runner.refresh_resume_token_refused": {
+      "sourceHash": "516bf4d6ef26d2b21f62bf9a4b7a7dc884f4864765e48c135cd013ca5aaf0431",
+      "origin": "machine",
+      "message": "Start-TestRunner: the refresh handoff was refused ({reason}); not starting."
+    },
+    "runner.refresh_site_gated": {
+      "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
+      "origin": "machine",
+      "message": "Cycle ended before {site}: host refresh {requestId} holds this host (gate {state}). Nothing was changed; the runner waits for the refresh."
+    },
+    "runner.refresh_status_ensure_skipped": {
+      "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
+      "origin": "machine",
+      "message": "[outer cycle {cycle}] status-service re-ensure skipped: a host refresh holds this host."
+    },
+    "runner.refresh_trigger_call_failed": {
+      "sourceHash": "6df094d41354942764fa9588986c11802a01f582925e5b9c9e9b64d6ad87509a",
+      "origin": "machine",
+      "message": "Automatic host-refresh call at {site} failed and was skipped: {message}"
+    },
+    "runner.runner_process_signal_action": {
+      "sourceHash": "606fc3df1e0763b74a5717cdcc831a7a45796ddea877e3de5c49ad05d3a21856",
+      "origin": "machine",
+      "message": "Signal a verified runner process ({signal})"
+    },
+    "runner.runner_record_remove_action": {
+      "sourceHash": "a01e88ae06e7eb128c0b99755336bac48bf4d8efc0f6aee8b53b51c35521c4f9",
+      "origin": "machine",
+      "message": "Remove a runner record proven dead or recycled"
+    },
+    "runner.runner_stream_remove_action": {
+      "sourceHash": "cab54c9f7c459586889a3499368c42735575a2d7dedc3a8e2b31ca1a0105d0f3",
+      "origin": "machine",
+      "message": "Remove an old restarted-runner stream file"
+    },
+    "runner.service_cachingproxy_utmctl_start_failed": {
+      "sourceHash": "ed121f0b8225a3350932e5f22c8f6e2db4a1c8f6c256257aa23d8fd35ef6d438",
+      "origin": "machine",
+      "message": "'utmctl start {vmName}' failed (exit {exitCode})."
+    },
+    "runner.service_census_tick_should_process": {
+      "sourceHash": "97fc892b2d15a111be121d5d171609941e1b003926f2ef27fbcc7ad13a73f291",
+      "origin": "machine",
+      "message": "Probe the service endpoints and merge the results into the service census"
+    },
+    "runner.service_census_unreadable": {
+      "sourceHash": "97d79eb105019457f5789846a82652481b382b1f265b308c804d1abe39b0f328",
+      "origin": "machine",
+      "message": "{script}: the service census at {path} could not be read just now ({reason}); nothing was changed. Retry; if it keeps failing, check the file's permissions and the disk."
+    },
+    "runner.service_census_unusable": {
+      "sourceHash": "13964587d8680828a1db8b99ac35ef4aaaf48a1740742ce560a895d6bf03a902",
+      "origin": "machine",
+      "message": "{script}: the service census at {path} could not be used ({reason}); service start and stop scripts refuse until it is repaired or moved aside. Nothing was changed."
+    },
+    "runner.service_census_update_should_process": {
+      "sourceHash": "4ed0de18a9b2d013db2936d4a3efc1e3e671f29510565d1f71f2706c9bade0ec",
+      "origin": "machine",
+      "message": "Merge service observations into the service census"
+    },
+    "runner.service_lockset_should_process": {
+      "sourceHash": "d334afefda119dae98cbe8e9c9166afe36754117bfab9924f5d9ca398ff24206",
+      "origin": "machine",
+      "message": "Take the operation locks of services {keys}"
+    },
+    "runner.service_operation_busy": {
+      "sourceHash": "2750c64acc0b7f97ceda503a207c45bb8d14e3773adad284e30bdba3ac63d3c2",
+      "origin": "machine",
+      "message": "{script}: another start or stop of service '{key}' still holds its operation lock (newest recorded request: {detail}). Retry after it finishes; nothing was changed."
+    },
+    "runner.service_operation_complete_should_process": {
+      "sourceHash": "877baf6455a2759140a36dbc1dd91e5e46645d6af73b0dbd3a5e4ef1925765ad",
+      "origin": "machine",
+      "message": "Record the result of the {operation} of service '{key}'"
+    },
+    "runner.service_operation_lock_unavailable": {
+      "sourceHash": "decdb06a871917b10d902d7d924d2ec9612b8d994d6d6024eeaa6e19b0da59ab",
+      "origin": "machine",
+      "message": "{script}: the operation lock of service '{key}' could not be taken ({reason}); nothing was changed. Check that {path} is writable, has free space and belongs to this user, then retry."
+    },
+    "runner.service_operation_refused": {
+      "sourceHash": "fd4710fbecf2f5188cca14ea4d60ef09a47d1f9daaf1334eea13fe6204e25ce2",
+      "origin": "machine",
+      "message": "{script}: the {operation} of service '{key}' was not started ({reason}); nothing was changed."
+    },
+    "runner.service_operation_result_unrecorded": {
+      "sourceHash": "37d4ff445524e42f1ec05b140ed24af85f170293c95648eb065a0d4e84bfb625",
+      "origin": "machine",
+      "message": "{script}: the result of the {operation} of service '{key}' could not be recorded ({reason}); the census keeps the pending request."
+    },
+    "runner.service_operation_should_process": {
+      "sourceHash": "7d430ad822cbdf729f9df45c30537c61ef24651ff0f85d036418b4451865a523",
+      "origin": "machine",
+      "message": "Record the {operation} request for service '{key}' and take its operation lock"
+    },
+    "runner.service_operation_superseded": {
+      "sourceHash": "9eee1ac013b4db17fcef8b2906c703aa980c342d96d7c7cdd211464e3087bc73",
+      "origin": "machine",
+      "message": "{script}: a newer {newerOperation} request for service '{key}' was recorded while this {operation} was in progress; the newer request stands."
+    },
+    "runner.service_poolcontrol_pid_unverified": {
+      "sourceHash": "96185c670fc71ee3dd392e8445850a79a973386fd79c4a94348dfacde5227ef3",
+      "origin": "machine",
+      "message": "The pool-control marker names pid {pid}, but that process could not be verified as the host-side pool-control service ({reason}); it was left running."
+    },
+    "runner.service_poolcontrol_stop_incomplete": {
+      "sourceHash": "8b933266e3cdf76abb0090050502743e1ae045e702c16cc358995173ca26bd3a",
+      "origin": "machine",
+      "message": "Stop-PoolControlServiceVM.ps1: the stop is incomplete; pid {pid} was left running, so the pool-control marker was kept and the stop request stays open. Stop that process by hand, then re-run."
+    },
+    "runner.service_restore_deadline_exhausted": {
+      "sourceHash": "38ec3e0857ccefb260a5b08b66d21ff6fcaf18161871348073a7c0801ffac749",
+      "origin": "machine",
+      "message": "the shared deadline ran out before this service was checked"
+    },
+    "runner.service_restore_endpoint_stale": {
+      "sourceHash": "a89f8513261698e6669e5dcf7dcfc348310760e6e3b0085e5e23e02f4cc47393",
+      "origin": "machine",
+      "message": "the guest answers at {address}, but its advertised endpoint still names {advertised}; the advertisement was not changed"
+    },
+    "runner.service_restore_endpoint_unanswered": {
+      "sourceHash": "6c19edfc3a8dad8c5b20f5f7e42a69a4a9342af99c2c0c2d38de02b71c7c7287",
+      "origin": "machine",
+      "message": "the guest answers at {address}; its advertised endpoint {advertised} did not answer"
+    },
+    "runner.service_restore_health_unverified": {
+      "sourceHash": "069f3b1f188e09a236f2de937561d7f4a3ae580a9f1a3df8a2b69ebabebadb7f",
+      "origin": "machine",
+      "message": "running; :{healthPort} did not answer at {address} within {seconds}s"
+    },
+    "runner.service_restore_identity_ambiguous": {
+      "sourceHash": "9c2f5fb5ce591895a75170aec05323c9a151b599e89cadaa5aec658e2719486c",
+      "origin": "machine",
+      "message": "its deployed identity is ambiguous ({ambiguity}); not started"
+    },
+    "runner.service_restore_intended_stopped": {
+      "sourceHash": "590821a4086384cf1727c0227b08a24f6b916d89566dc7fcb2c512ee8aba436d",
+      "origin": "machine",
+      "message": "stopped on purpose by an explicit {operation} request; not started"
+    },
+    "runner.service_restore_intent_unreadable": {
+      "sourceHash": "d6a8a37027cec64a61c48174b0fed1ba1dea666c413efc0cc140bfd6d0c4976c",
+      "origin": "machine",
+      "message": "its start and stop requests could not be read ({reason}); not started"
+    },
+    "runner.service_restore_lock_unavailable": {
+      "sourceHash": "c35be61dcaa5d48ba6f0fdab7944d911c07f77cbf29b3e93637fcc5ce9f00dda",
+      "origin": "machine",
+      "message": "its operation lock under {path} could not be taken ({reason}); not started"
+    },
+    "runner.service_restore_lock_unavailable_report": {
+      "sourceHash": "c0f5092cbb3d33554ab47b0ec1a9fd7e85de7904d21944383126352e4a9c8dbc",
+      "origin": "machine",
+      "message": "{displayName}: VM '{vmName}' was not started: {message}."
+    },
+    "runner.service_restore_no_address": {
+      "sourceHash": "a40103e9449b173a02eaba42c801f40d405bd4b52746c314aed286e81bbe6b6a",
+      "origin": "machine",
+      "message": "running, but no address could be resolved; health was not verified"
+    },
+    "runner.service_restore_not_a_guest": {
+      "sourceHash": "14bb4adb5a8277ad3f97bae75f07e28629ea13131a1ff04f56b5a720e528f207",
+      "origin": "machine",
+      "message": "runs as a host process (pid {pid}); there is no VM to restore"
+    },
+    "runner.service_restore_operation_busy": {
+      "sourceHash": "3cc6e013360aa56ce4f76ac6f4feea83ffba967ffbfbc78cfb3e5db0c9ce0f1f",
+      "origin": "machine",
+      "message": "a start or stop of this service is in progress; not started"
+    },
+    "runner.service_restore_operation_unowned": {
+      "sourceHash": "1243513073ab10758559da4d18689a94922b89535aa06ea17e22a21c30df3214",
+      "origin": "machine",
+      "message": "the caller's operation ownership does not cover this service; not started"
+    },
+    "runner.service_restore_state_unknown": {
+      "sourceHash": "4f57a529440af243a97466a5d703c9498be06fe87615ee11c584b8154ceabf48",
+      "origin": "machine",
+      "message": "{displayName}: VM '{vmName}' state could not be confirmed ({reason}); it was neither started nor rebuilt."
+    },
+    "runner.service_stop_final_state_unexpected": {
+      "sourceHash": "5778aa14d4c91552946c483438f7abdcd9dcf1bdb8df87299b6293ace8072e9a",
+      "origin": "machine",
+      "message": "VM '{vmName}' final state: {finalState} (expected absent after removal). Inspect it with the host's tooling, then re-run Stop-CachingProxyServiceVM.ps1."
+    },
+    "runner.start_cycle_worker_cleanup_failed": {
+      "sourceHash": "952f069e64c5f63fd33e8ab6f37a78b1f9b9f34afb233a8b0b90cf511ca145a0",
+      "origin": "machine",
+      "message": "Start-cycle {operationId}: Remove-TestVMFiles.ps1 ended with exit code {exitCode} (timed out: {timedOut})."
+    },
+    "runner.start_cycle_worker_clear_action": {
+      "sourceHash": "6f2b412c91abeae36f58b5d86b5ad87fedc5a6c2529c988f8839129390481ea3",
+      "origin": "machine",
+      "message": "Clear the pause and lab-hold controls and request a cycle restart"
+    },
+    "runner.start_cycle_worker_completed": {
+      "sourceHash": "188a20c7b2b344f9f3024ab63b1307cdf450a2dedc0e40f2041937dd20887969",
+      "origin": "machine",
+      "message": "Start-cycle {operationId}: {result} (runner: {action})."
+    },
+    "runner.start_cycle_worker_refused": {
+      "sourceHash": "664c69baa595252cd8a63860d3d3b3f7d3e75463027a0ca87560101773e2034a",
+      "origin": "machine",
+      "message": "Start-cycle {operationId}: nothing was changed ({reason})."
+    },
+    "runner.start_cycle_worker_runner_unknown": {
+      "sourceHash": "61a19b4f97769e8d81b3add57552a3be2ec8034a59419beb0b6156d8f3953e5b",
+      "origin": "machine",
+      "message": "Start-cycle {operationId}: the runner's state is unknown after cleanup, so no runner was started; the cycle restart request was written, so a running runner still restarts its cycle."
+    },
+    "runner.start_cycle_worker_spawn_failed": {
+      "sourceHash": "dd33b72d17f7fbea9fd1f2b9a231c0645f8cec3607a120ce2a49b3cd139a7f63",
+      "origin": "machine",
+      "message": "Start-cycle {operationId}: the runner could not be started ({reason})."
+    },
+    "runner.status_lan_clients_time_out": {
+      "sourceHash": "f08743bb0dba9c8b1b4bc72b1b1b6fd1d2fd75f85bca4f59b483434bb8a0e4e7",
+      "origin": "machine",
+      "message": "http://localhost:{port}/status/ works, but LAN clients hitting http://{address}:{port}/status/ will time out."
+    },
+    "runner.status_refresh_safe_existing_ready": {
+      "sourceHash": "0500a2998344eddf69482c836c14eee7f143de32568976547378517e590d9f0f",
+      "origin": "machine",
+      "message": "Status service PID {processId} already answers on port {port}; the refresh-safe start left it running."
+    },
+    "runner.status_refresh_safe_not_ready": {
+      "sourceHash": "ed3ca34af79ae689b3dfb90ea2f3195cac7ffc62ef68d8e33c39133c3db43a6b",
+      "origin": "machine",
+      "message": "The status service started as PID {processId} but did not answer within {seconds} seconds; it was left running."
+    },
+    "runner.status_refresh_safe_partial": {
+      "sourceHash": "f62f65334212ce561a07105575e169499569ff285b3c5d3643c422a851781140",
+      "origin": "machine",
+      "message": "Refresh-safe start of the status service on port {port} changed nothing: {outcome} ({reason})."
+    },
+    "runner.status_refresh_safe_refused": {
+      "sourceHash": "ed5b11fcea97c77ef89948ec25bd83f2e774c57626d92567a0b7a449118dc51e",
+      "origin": "machine",
+      "message": "Start-StatusService.ps1 -RefreshSafe refused: {reason}."
+    },
+    "runner.status_refresh_safe_result_unwritable": {
+      "sourceHash": "1d8d08e698d02e8ef08e5df391d5621654e9ffde75595d55bb407639bc1f5902",
+      "origin": "machine",
+      "message": "The refresh-safe start could not write its result record to {path}."
+    },
+    "runner.status_refresh_safe_started": {
+      "sourceHash": "28c0f46e560fe3e5c150b7541c1a06b77ed7f560718240e2f165d6cbc09dcc08",
+      "origin": "machine",
+      "message": "Status service started as PID {processId} on port {port} (refresh-safe start)."
+    },
+    "runner.status_worker_directory_prepare_action": {
+      "sourceHash": "5fbb67f2da7ab44be5de0950d5fbff65c42f5e8afbf64b02105926ad9b9280ac",
+      "origin": "machine",
+      "message": "Prepare the private worker directory"
+    },
+    "runner.status_worker_state_write_action": {
+      "sourceHash": "501fa37106966349d60dfc1257dd5d4dd67e0c0bb0e21aa71a6aeddf5215f28e",
+      "origin": "machine",
+      "message": "Publish the worker state record"
+    },
+    "runner.diagnostic_budget_exhausted": {
+      "sourceHash": "45c686a5a857a351d4040eec8b376b27e5f01ce18b7f666fab3a25ca632f6b5a",
+      "origin": "machine",
+      "message": "O limite de diagnóstico de {timeoutSeconds}s se esgotou antes de {stage}."
+    },
+    "runner.diagnostic_deadline_exceeded": {
+      "sourceHash": "7f5dbe02c1d60e83681387ddf7acde690b15f848785d7d4bd55f56a37d9d6c4d",
+      "origin": "machine",
+      "message": "A captura de diagnóstico excedeu o limite de {timeoutSeconds}s para a VM {vmName}; as evidências parciais foram mantidas."
+    },
+    "runner.diagnostic_worker_failed": {
+      "sourceHash": "2ee136168b8830bcad1913a87c35c8944acdc2f0734c418f98b0b02ccc0e06a9",
+      "origin": "machine",
+      "message": "Não foi possível concluir a captura de diagnóstico da VM {vmName} (código de saída {exitCode})."
     }
   }
 }

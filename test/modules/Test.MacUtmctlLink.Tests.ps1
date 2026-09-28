@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b7c9e1-5a4d-4f83-9c26-7d1e08a35b44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,28 @@ Describe 'the utmctl repair command' {
     }
 }
 
+Describe 'the in-bundle utmctl path' {
+    It 'is one path for the getter, the repair command, the driver resolver and the installer' {
+        # The driver falls back to this copy when no link is on PATH, the
+        # repair links to it, and the installer links it on a fresh Mac; a
+        # second spelling anywhere would have them disagree about which
+        # binary "utmctl" is.
+        $bundle = Get-MacUtmctlBundlePath
+        Assert-StringEqual '/Applications/UTM.app/Contents/MacOS/utmctl' $bundle
+        Assert-True ((Get-MacUtmctlRemediation).Contains($bundle)) 'the repair command links that path'
+        $app = ([regex]::Match($script:InstallerSource, '(?m)^\s*UTM_APP="([^"]+)"')).Groups[1].Value
+        $installerBundle = ([regex]::Match($script:InstallerSource, '(?m)^\s*UTMCTL_BUNDLE="([^"]+)"')).Groups[1].Value.Replace('$UTM_APP', $app)
+        Assert-StringEqual $bundle $installerBundle 'the installer links the same binary'
+        Get-Module -Name 'Yuruna.Host', 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        Import-Module (Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        try {
+            Assert-StringEqual $bundle (Resolve-UtmctlExecutable).BundlePath 'the driver resolves the same copy'
+        } finally {
+            Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Set-MacUtmctlLink' {
     It 'is a no-op that reports success when the host is not macOS' {
         if ($IsMacOS) { Set-ItResult -Skipped -Because 'the non-macOS early return cannot be observed on a Mac'; return }
@@ -108,6 +130,61 @@ Describe 'Set-MacUtmctlLink' {
             'the link needs root; going through the shared helper is what keeps it a warn-with-the-command instead of a password prompt nobody can answer'
         Assert-Match 'Test-MacSudoAvailable' $body `
             'a host that cannot elevate has to be told the command, not left waiting on a prompt'
+    }
+
+    It 'bounds every privileged call by the caller''s deadline' {
+        # A repair run inside a bounded operation must not outlive it: each
+        # call gets at most what the deadline has left, and a deadline with
+        # under a second left ends the repair with the manual command.
+        $fn = Get-YurunaTestFunctionAst -Path $script:MacModulePath -Name 'Set-MacUtmctlLink'
+        Assert-True ($fn.Body.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'Deadline') 'the repair takes a deadline'
+        Assert-Match 'Get-YurunaDeadlineBoundedSeconds' $fn.Extent.Text 'and derives each cap from it'
+        $calls = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Test-MacSudoAvailable', 'Invoke-MacPrivilegedSetting') }, $true))
+        Assert-True ($calls.Count -ge 3) 'the probe and both writes are found'
+        foreach ($call in $calls) { Assert-Match '-TimeoutSeconds\s+\$\w+' $call.Extent.Text "capped: $($call.Extent.Text)" }
+        Assert-Match 'runner\.mac_utmctl_link_deadline' $fn.Extent.Text 'an exhausted deadline names the manual command'
+    }
+
+    It 'ends a repair its deadline cannot fit, and bounds one that hangs (<Case>)' -TestCases @(
+        @{ Case = 'no time left'; Sudo = 'ok';   Milliseconds = 300;  SudoCalls = 0 }
+        @{ Case = 'sudo hangs';   Sudo = 'hang'; Milliseconds = 2500; SudoCalls = 1 }
+    ) {
+        param($Case, $Sudo, $Milliseconds, $SudoCalls)
+        if ($IsWindows) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        # The macOS path runs against stand-in tools: only the platform gate
+        # and the bundle location are replaced, in the module's own scope.
+        Import-Module (Join-Path $PSScriptRoot 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
+        $fake = New-MacUtmFakeHost -Root (Join-Path ([IO.Path]::GetTempPath()) ("yrn-maclink-" + [guid]::NewGuid().ToString('N')))
+        $condition = (Get-Command -Name 'Set-MacUtmctlLink').Module
+        $saved = & $condition { @{ Gate = ${function:Test-MacHostPlatform}; Bundle = $script:MacUtmctlBundlePath } }
+        Enter-MacUtmFakeHost -FakeHost $fake -Utmctl 'bundle'
+        try {
+            & $condition { param($Bundle) Set-Item -Path 'function:script:Test-MacHostPlatform' -Value { $true }; $script:MacUtmctlBundlePath = $Bundle } (Join-Path $fake.UtmBin 'utmctl')
+            Set-MacUtmFakeState -FakeHost $fake -Key 'sudo.mode' -Value $Sudo
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $linked = Set-MacUtmctlLink -Deadline (New-YurunaDeadline -TotalMilliseconds $Milliseconds) -Confirm:$false -WarningVariable seen -WarningAction SilentlyContinue
+            Assert-True ($sw.Elapsed.TotalSeconds -lt 5) "bounded ($($sw.Elapsed.TotalSeconds) s)"
+            Assert-False $linked $Case
+            Assert-Equal 1 @($seen).Count -Because "$Case ends with one warning naming the manual command"
+            $sudo = @(Get-MacUtmFakeCall -FakeHost $fake -Tool 'sudo')
+            Assert-Equal $SudoCalls $sudo.Count -Because $Case
+            foreach ($call in $sudo) { Assert-StringEqual 'sudo -n true' $call 'only the non-interactive probe ran; nothing was written' }
+        } finally {
+            & $condition { param($Prior) Set-Item -Path 'function:script:Test-MacHostPlatform' -Value $Prior.Gate; $script:MacUtmctlBundlePath = $Prior.Bundle } $saved
+            Exit-MacUtmFakeHost -FakeHost $fake
+            Remove-MacUtmFakeHost -FakeHost $fake
+        }
+    }
+
+    It 'bounds its sudo probe and its privileged writes, always with -n' {
+        foreach ($name in 'Test-MacSudoAvailable', 'Invoke-MacPrivilegedSetting') {
+            $fn = Get-YurunaTestFunctionAst -Path $script:MacModulePath -Name $name
+            Assert-True ($fn.Body.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'TimeoutSeconds') "$name takes a cap"
+            $bare = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'sudo' }, $true))
+            Assert-Equal 0 $bare.Count "$name runs no bare sudo"
+            $bounded = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-BoundedNativeCommand' }, $true))
+            Assert-True ($bounded.Count -eq 1 -and $bounded[0].Extent.Text -match "'-n'") "$name runs sudo -n through the bounded runner"
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1211,6 +1211,24 @@ Describe 'the generated catalogs are lintable, with one bounded exception' {
             }
         }
         Assert-NoFinding $findings 'a mark here would change the bytes the staleness check compares'
+    }
+}
+
+Describe 'the operator consoles can show every language' {
+
+    It 'every operator entry point sets a UTF-8 console' {
+        # A Windows console code page prints Chinese and Hebrew as question
+        # marks; the entry points switch the process, never the shared module.
+        foreach ($relative in 'test/Debug-TestSequence.ps1', 'test/Invoke-TestProject.ps1', 'test/New-LocalTestUser.ps1',
+            'test/Remove-TestVMFiles.ps1', 'test/Start-TestRunner.ps1', 'test/Test-CachingProxyService.ps1', 'test/Test-Config.ps1') {
+            $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $relative), [ref]$null, [ref]$null)
+            $assignments = @($ast.FindAll({
+                        param($node)
+                        $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                        $node.Left.Extent.Text -eq '[Console]::OutputEncoding' -and $node.Right.Extent.Text -match 'UTF8Encoding'
+                    }, $true))
+            Assert-Equal -Expected 1 -Actual $assignments.Count "$relative does not switch the console to UTF-8"
+        }
     }
 }
 

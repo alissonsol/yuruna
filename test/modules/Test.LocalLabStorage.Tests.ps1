@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42dda961-f475-4e81-85a3-3bc00118dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,20 +212,21 @@ Describe 'Remove-LocalLabStorageSambaInclude' {
 Describe 'Remove-LocalLabStorageBackConnectionName' {
     It 'drops the named aliases' {
         $k = Remove-LocalLabStorageBackConnectionName -Existing @('ypool-nas', 'ystash-nas') -Unwanted @('ypool-nas', 'ystash-nas')
+        Assert-True ($k -is [array]) 'empty changed result must remain distinct from null'
         Assert-Equal 0 $k.Count
     }
     It 'returns null when none of them is registered, so no Server-service restart is spent' {
         Assert-Null (Remove-LocalLabStorageBackConnectionName -Existing @('sharepoint.local') -Unwanted @('ypool-nas'))
     }
     It "preserves entries another product registered" {
-        # @() because the pipeline unrolls a one-element result, and indexing the
-        # bare string with [0] would read its first character instead.
-        $k = @(Remove-LocalLabStorageBackConnectionName -Existing @('sharepoint.local', 'ypool-nas') -Unwanted @('ypool-nas'))
+        $k = Remove-LocalLabStorageBackConnectionName -Existing @('sharepoint.local', 'ypool-nas') -Unwanted @('ypool-nas')
+        Assert-True ($k -is [array]) 'one retained alias remains an array'
         Assert-Equal 1 $k.Count
         Assert-Equal 'sharepoint.local' $k[0]
     }
     It 'matches case-insensitively' {
         $k = Remove-LocalLabStorageBackConnectionName -Existing @('YPOOL-NAS') -Unwanted @('ypool-nas')
+        Assert-True ($k -is [array]) 'empty changed result must remain distinct from null'
         Assert-Equal 0 $k.Count
     }
     It 'returns null for an unset value' {

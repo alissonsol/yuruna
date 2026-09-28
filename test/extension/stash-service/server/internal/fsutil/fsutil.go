@@ -6,6 +6,7 @@
 package fsutil
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,4 +58,15 @@ func AtomicCommit(dst, tmpPrefix string, perm os.FileMode, fill func(w io.Writer
 	}
 	SyncDir(filepath.Dir(dst))
 	return nil
+}
+
+// SyncClose flushes file data before closing and reports either writeback error.
+// Close always runs, even when Sync fails, so failed uploads do not leak handles.
+func SyncClose(file interface {
+	Sync() error
+	Close() error
+}) error {
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	return errors.Join(syncErr, closeErr)
 }

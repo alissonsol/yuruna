@@ -14,17 +14,24 @@
 # contributor without pwsh is skipped with a warning, and
 # `git commit --no-verify` bypasses it. The release script's hard gate is the
 # authoritative backstop for the published artifact.
+#
+# Three passes write rather than check: the fourth drafts translations for new
+# English and stages them; the fifth regenerates the compiled message catalogs
+# and the runtime copies embedding them, and stages the result into the commit
+# being made; the sixth regenerates the translation-surface census when this
+# checkout is clean apart from the index and the project checkout is clean,
+# and stages it.
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 gate="$repo_root/tools/Test-AsciiNoBom.ps1"
 [ -f "$gate" ] || exit 0
 
 if ! command -v pwsh >/dev/null 2>&1; then
-    echo "pre-commit: pwsh not found; skipping the ASCII/BOM gate (install PowerShell 7 to enable it)." >&2
+    echo "pre-commit: pwsh not found; skipping the ASCII/BOM gate, the translation pass and the catalog regeneration (install PowerShell 7 to enable them)." >&2
     exit 0
 fi
 
-if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
+if ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
     echo "" >&2
     echo "pre-commit: ASCII/BOM gate failed (see tools/Test-AsciiNoBom.ps1 output above)." >&2
     echo "  A BOM or non-ASCII byte in a bootstrap / first-run script breaks first-install." >&2
@@ -38,7 +45,7 @@ fi
 # status service serves verbatim. Non-ASCII bytes are fine outside the bootstrap
 # set, so this pass checks only for the BOM. -Staged keeps it to what is about
 # to be committed; the whole tree is ~1000 files and this runs on every commit.
-if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet; then
+if ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet; then
     echo "" >&2
     echo "pre-commit: a staged file carries a byte-order mark (see above)." >&2
     echo "  Rewrite it as BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
@@ -132,79 +139,537 @@ staged=$(git diff --cached --name-only --diff-filter=ACM |
             -e '^test/modules/Test\.ConfigNaming\.psm1$' \
             -e '^dev-only/')
 if [ -n "$staged" ]; then
-    printf '%s\n' "$retired_names" | while IFS='|' read -r old new; do
-        [ -n "$old" ] || continue
-        # A retired spelling inside a ${...} shell expansion is not a use of the
-        # retired thing. `${GH_TOKEN:-}` reads the environment variable of that
-        # name -- current and correct -- but contains the literal `GH_TOKEN:`
-        # that names the retired CONFIG KEY, so a substring match reports it on
-        # every commit touching the fetch path and the pass turns into noise
-        # nobody reads. Requiring the character before the match to be anything
-        # but `{` drops that form and keeps every other one: a yaml key at line
-        # start still matches through `^`, and a bare `$YURUNA_HOST_IP` still
-        # matches because `$` is not `{`.
-        #
-        # The spelling is escaped into the regex rather than passed to -F, so a
-        # path entry like test/pool/New-Pool.ps1 keeps matching only itself and not
-        # any character in place of the dots.
-        esc=$(printf '%s' "$old" | sed 's/[][\.*+?(){}|^$\\]/\\&/g')
-        hits=$(printf '%s\n' "$staged" | tr '\n' '\0' |
-            xargs -0 grep -l -E -- "(^|[^{])$esc" 2>/dev/null)
-        if [ -n "$hits" ]; then
-            echo "pre-commit: retired name '$old' (use '$new') in:" >&2
-            printf '  %s\n' $hits >&2
+    # Scan each staged file once. The former loop started sed, tr, xargs and
+    # grep for every one of the 65 rules, which took about nine seconds on
+    # Windows even for a small commit. The separator divides rules from paths;
+    # neither side can contain this reserved line in a normal Git path/rule.
+    {
+        printf '%s\n' "$retired_names"
+        printf '%s\n' '__YURUNA_STAGED_PATHS__'
+        printf '%s\n' "$staged"
+    } | awk '
+        $0 == "__YURUNA_STAGED_PATHS__" { paths = 1; next }
+        !paths {
+            separator = index($0, "|")
+            if (separator > 1) {
+                old[++rules] = substr($0, 1, separator - 1)
+                new[rules] = substr($0, separator + 1)
+            }
+            next
+        }
+        $0 != "" { file[++files] = $0 }
+        END {
+            for (f = 1; f <= files; f++) {
+                path = file[f]
+                while ((getline line < path) > 0) {
+                    for (r = 1; r <= rules; r++) {
+                        # A spelling immediately after "{" is usually a shell
+                        # expansion such as ${GH_TOKEN:-}, not the retired YAML
+                        # key. Keep searching: a later literal may still count.
+                        offset = 1
+                        while ((found = index(substr(line, offset), old[r])) > 0) {
+                            position = offset + found - 1
+                            if (position == 1 || substr(line, position - 1, 1) != "{") {
+                                hit[r, f] = 1
+                                break
+                            }
+                            offset = position + 1
+                        }
+                    }
+                }
+                close(path)
+            }
+            quote = sprintf("%c", 39)
+            for (r = 1; r <= rules; r++) {
+                shown = 0
+                for (f = 1; f <= files; f++) {
+                    if (!hit[r, f]) { continue }
+                    if (!shown) {
+                        printf "pre-commit: retired name %s%s%s (use %s%s%s) in:\n", quote, old[r], quote, quote, new[r], quote
+                        shown = 1
+                    }
+                    printf "  %s\n", file[f]
+                }
+            }
+        }
+    ' >&2
+fi
+
+# Fourth pass (WARN only): machine-draft translations for English that is
+# new or changed in this commit. The drafter is private; a public clone
+# has no dev-only/ and skips the pass without ending the hook. It stages
+# only globalization/catalogs/<tag>/ files, which the catalog pass below
+# then compiles and BOM-checks; it refuses partial commits on its own by
+# reading GIT_INDEX_FILE, because catalog_partial is computed later.
+# It drafts into every locale the manifest marks supported -- the ones the
+# catalog pass requires to be complete -- through the API with a key, or
+# without one through the translation command YURUNA_TRANSLATE_COMMAND names
+# (any agent) or else a Claude Code login -- bounded by its own time budget
+# rather than a row cap. A row nothing could draft gets the English as a
+# recorded machine draft, so a missing translation does not block the commit
+# (a partial commit, another drafter run holding the lock, or a locale file
+# with unstaged edits still does); a later pass drafts it again.
+# `git diff --cached --quiet` on the English catalogs exits 1 for any staged
+# addition, modification, deletion or rename there, in a partial commit too
+# (it reads GIT_INDEX_FILE), so most commits never start pwsh for this pass.
+translate="$repo_root/dev-only/New-Translation.ps1"
+if [ -f "$translate" ] && [ "${YURUNA_TRANSLATE:-1}" != 0 ] &&
+    ! git diff --cached --quiet -- globalization/catalogs/en-US; then
+    NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$translate" \
+        -Staged -SupportedOnly -CopyEnglish -MaxRows 0 2>&1 | tr -d '\r' >&2
+fi
+
+# Fifth pass: regenerate the derived catalog artifacts and stage them. The
+# compiled catalog set and the runtime copies that carry it are generated from
+# the catalog sources, the kernel, the locale manifest -- and from the two tools
+# themselves, whose .VERSION is stamped into what they write, so a version
+# sweep stales every artifact without touching a catalog. A commit that leaves
+# them stale leaves no local trace: nothing reads the stale copy until the
+# release gate rejects the candidate pair minutes into a publish run.
+#
+# Runs only when a staged source, generator or generated destination may affect
+# the catalogs. A documentation or unrelated code commit reuses HEAD's current
+# artifacts; the release gate still checks the full tree before publication. A
+# commit with the same tree -- nothing staged, --allow-empty, an --amend that
+# only rewords -- carries the artifacts HEAD already has, so it is skipped. A
+# merge, cherry-pick or rebase step that commits on its own never runs
+# pre-commit; one concluded with `git commit` after a conflict does. Order
+# matters: the embed reads what the compiler produced. Needs git 2.25 or later
+# (`git add --pathspec-from-file`).
+#
+# The generators read the working tree, not the index, so the step refuses to
+# run while a source has changes this commit does not carry -- the artifacts
+# would describe sources that are not being committed.
+#
+# What is staged is exactly what the two tools report as theirs, never "what
+# changed while they ran" and never a guess from a file's name or banner, so an
+# editor's autosave, a scratch copy of a generated file or another process's
+# work cannot ride along. A file a tool writes whole is staged whenever it
+# differs from the index: after a run it holds exactly what this commit's
+# sources generate, even when an earlier run wrote it and it was never staged.
+# The runtimes the embed splices a block into are mostly hand-written, so for
+# those the index copy is kept and only its generated block is replaced -- a
+# hand edit elsewhere in the file stays unstaged.
+#
+# A partial commit (`git commit <paths>`) is built from a temporary index, and a
+# file staged there is committed while the real index keeps its old copy, which
+# the next commit would silently revert. That case blocks instead of staging.
+catalog_compile="$repo_root/tools/Invoke-CatalogCompile.ps1"
+catalog_embed="$repo_root/tools/Invoke-CatalogEmbed.ps1"
+catalog_inputs='globalization/catalogs globalization/kernel globalization/schema/catalog.schema.json globalization/locale-manifest.json tools/Invoke-CatalogCompile.ps1 tools/Invoke-CatalogEmbed.ps1'
+catalog_generated_dirs='globalization/generated/powershell globalization/generated/browser globalization/generated/go/catalog'
+catalog_begin='// >>> yuruna-i18n embedded block -- generated by tools/Invoke-CatalogEmbed.ps1'
+catalog_end='// <<< yuruna-i18n embedded block'
+
+# The generated block of a runtime read on stdin, marker lines included.
+# Exits 3 when a block opens and never closes.
+catalog_block() {
+    awk -v b="$catalog_begin" -v e="$catalog_end" '
+        !on && index($0, b) == 1 { on = 1 }
+        on { print }
+        on && index($0, e) == 1 { closed = 1; exit }
+        END { if (on && !closed) exit 3 }'
+}
+
+# The runtime on stdin without its block and without the one empty line the
+# embed puts in front of a block it inserts, so a copy that only gained its
+# first block compares equal to the copy that had none.
+catalog_unblocked() {
+    awk -v b="$catalog_begin" -v e="$catalog_end" '
+        index($0, b) == 1 { held = 0; skip = 1; next }
+        skip { if (index($0, e) == 1) skip = 0; next }
+        held { print ""; held = 0 }
+        $0 == "" { held = 1; next }
+        { print }
+        END { if (held) print "" }'
+}
+
+# The runtime on stdin with its block replaced by the block in the file named by
+# $CATALOG_BLOCK_FILE (passed through the environment: awk -v would turn a
+# backslash in the path into an escape). Exits 3 when the block never closes and
+# 4 when the replacement cannot be read, so neither can truncate the runtime.
+catalog_splice() {
+    awk -v b="$catalog_begin" -v e="$catalog_end" '
+        !done && index($0, b) == 1 {
+            f = ENVIRON["CATALOG_BLOCK_FILE"]
+            n = 0
+            while ((r = (getline line < f)) > 0) { print line; n++ }
+            if (r < 0 || n == 0) exit 4
+            skip = 1
+            next
+        }
+        skip { if (index($0, e) == 1) { skip = 0; done = 1 }; next }
+        { print }
+        END { if (skip) exit 3 }'
+}
+
+# The text on stdin with the carriage return before each line feed removed,
+# the only CR the embed normalizes away. Like any awk print, it also ends the
+# last line with a newline; catalog_eof puts back a missing one.
+catalog_lf() {
+    awk '{ sub(/\r$/, ""); print }'
+}
+
+# Copies file $2 to $3, dropping its final newline when file $1 has none, so a
+# rebuilt runtime keeps the end-of-file state the embed would have kept.
+catalog_eof() {
+    if [ -s "$1" ] && [ -n "$(tail -c 1 "$1")" ]; then
+        awk 'NR > 1 { printf "\n" } { printf "%s", $0 }' "$2" > "$3"
+    else
+        cp "$2" "$3"
+    fi
+}
+
+catalog_index=${GIT_INDEX_FILE:-index}
+catalog_index=${catalog_index##*/}
+catalog_index=${catalog_index##*\\}
+case $catalog_index in
+    next-index-*) catalog_partial=true ;;
+    *) catalog_partial=false ;;
+esac
+
+# The drafter above may have staged locale sources, so test the index AFTER it
+# runs. Include generated destinations as well as inputs: a manual edit or
+# deletion of one must still be repaired (or refused) by the generators. Git
+# pathspecs are quoted so the shell cannot expand away a deleted destination.
+# shellcheck disable=SC2086 # the fixed input list is split into pathspecs on purpose
+if [ -f "$catalog_compile" ] && [ -f "$catalog_embed" ] &&
+    ! git diff --cached --quiet -- $catalog_inputs \
+        globalization/generated \
+        globalization/manifests/catalog-set.json \
+        globalization/manifests/inventory.json \
+        test/status/yuruna.common.js \
+        ':(glob)test/status/*.*.js' \
+        test/extension/extension-sdk/webui/assets/yuruna.core.js \
+        test/extension/extension-sdk/i18n/localedata.go \
+        ':(glob)test/extension/**/internal/catalog/**' \
+        ':(glob)test/extension/*/server/internal/httpsrv/web/assets/*.*.js' \
+        test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js \
+        test/extension/stash-service/server/internal/httpsrv/web/assets/common.js \
+        test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js \
+        test/extension/caching-proxy-service/requestadapter.go \
+        test/extension/caching-proxy-parser-service/requestadapter.go; then
+    # Untracked files count only where the compiler reads them: every *.json
+    # directly under a locale directory -- git-ignored ones included, since
+    # the compiler does not consult .gitignore -- matched without regard to
+    # case the way it lists them, and without the dotfiles it skips, so an
+    # editor's lock, swap or backup file beside a catalog stays out.
+    # shellcheck disable=SC2086 # the fixed input list is split into pathspecs on purpose
+    unstaged_inputs=$({
+        git -c core.quotepath=false diff --name-only -- $catalog_inputs
+        git -c core.quotepath=false ls-files --others -- \
+            ':(glob,icase)globalization/catalogs/*/*.json' |
+            grep -v -e '/\.[^/]*$' -e '^globalization/catalogs/\.'
+    } | LC_ALL=C sort -u)
+    if [ -n "$unstaged_inputs" ]; then
+        echo "pre-commit: catalog sources have changes this commit does not carry:" >&2
+        printf '%s\n' "$unstaged_inputs" | sed 's/^/  /' >&2
+        if [ "$catalog_partial" = true ]; then
+            echo "  This is a partial commit (git commit <paths>). To include them: git add them (git add" >&2
+            echo "  -f for an ignored file) and the paths you named, then run git commit without paths;" >&2
+            echo "  this hook then stages the regenerated files. To leave them out: from the repository" >&2
+            echo "  root, 'git stash push --all -- <those paths>', commit, then 'git stash pop'." >&2
+        else
+            echo "  The catalogs are compiled from the working tree, so the result would not match" >&2
+            echo "  this commit. Stage them (git add -f for an ignored file), or leave them out: from the" >&2
+            echo "  repository root, 'git stash push --all -- <those paths>', commit, then 'git stash pop'." >&2
+            # A pathspec stash also resets the index entry, so for a file with
+            # staged changes too it would silently drop them from the commit.
+            # shellcheck disable=SC2086 # the fixed input list is split into pathspecs on purpose
+            staged_inputs=$(git -c core.quotepath=false diff --cached --name-only -- $catalog_inputs)
+            both_inputs=$(printf '%s\n' "$unstaged_inputs" | while IFS= read -r path; do
+                if printf '%s\n' "$staged_inputs" | grep -qxF -e "$path"; then printf '%s\n' "$path"; fi
+            done)
+            if [ -n "$both_inputs" ]; then
+                echo "  These also have staged changes, which a stash would drop from the commit:" >&2
+                printf '%s\n' "$both_inputs" | sed 's/^/    /' >&2
+                echo "  For them, save only the unstaged part from the repository root:" >&2
+                echo "  git diff -- <path> > wip.patch && git restore -- <path>, commit, then" >&2
+                echo "  git apply wip.patch && rm wip.patch." >&2
+            fi
         fi
-    done
-fi
-
-# Fourth pass: derived catalog artifacts. The compiled catalog set and the
-# runtime copies that carry it are generated from the sources under
-# globalization/, and a commit that edits a source without regenerating them
-# leaves no local trace -- nothing reads the stale copy until the release gate
-# rejects the candidate pair minutes into a publish run, by which time the
-# author has moved on and the drift has to be reconstructed from a gate report.
-# Both checks together cost about a second, so pay it here.
-#
-# This pass blocks where the retired-name pass only warns: an artifact either
-# matches the sources it was generated from or it does not, so there is no
-# author judgment to defer to. It reads the working tree rather than the index,
-# because the generators have no staged mode -- the same tradeoff the whole-tree
-# ASCII pass above makes.
-#
-# Order matters: the embed reads what the compiler produced, so a stale compile
-# would make the embed report a difference that regenerating the embed alone
-# cannot settle.
-if git diff --cached --name-only --diff-filter=ACM | grep -q '^globalization/'; then
-    compile_gate="$repo_root/tools/Invoke-CatalogCompile.ps1"
-    embed_gate="$repo_root/tools/Invoke-CatalogEmbed.ps1"
-    if [ -f "$compile_gate" ] &&
-        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$compile_gate" -Check -Quiet; then
-        echo "" >&2
-        echo "pre-commit: the compiled catalog set is stale (see above)." >&2
-        echo "  Run 'pwsh tools/Invoke-CatalogCompile.ps1 -Update', stage what it writes," >&2
-        echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+        echo "  To bypass: 'git commit --no-verify' (discouraged)." >&2
         exit 1
     fi
-    if [ -f "$embed_gate" ] &&
-        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$embed_gate" -Check -Quiet; then
-        echo "" >&2
-        echo "pre-commit: a runtime copy no longer matches the catalog sources (see above)." >&2
-        echo "  Run 'pwsh tools/Invoke-CatalogEmbed.ps1', stage what it writes," >&2
-        echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+
+    catalog_tmp=$(mktemp -d 2>/dev/null || mktemp -d -t yuruna-catalog) || {
+        echo "pre-commit: could not create a temporary directory for the catalog pass." >&2
+        exit 1
+    }
+    catalog_keep=''
+    # Runs on every exit -- success, refusal, failure or interrupt -- so a kept
+    # copy is always announced, and a copy kept for nothing (the original is
+    # still there, unchanged) is always dropped.
+    # shellcheck disable=SC2329 # invoked from the EXIT trap below
+    catalog_cleanup() {
+        if [ -n "$catalog_keep" ] && [ -d "$catalog_keep" ]; then
+            catalog_kept=false
+            while IFS= read -r path; do
+                if [ ! -e "$path" ] && [ -f "$catalog_keep/$path" ]; then
+                    echo "pre-commit: the catalog compiler removed $path, which it does not generate; copy: $catalog_keep/$path" >&2
+                    catalog_kept=true
+                elif [ -f "$path" ] && cmp -s "$path" "$catalog_keep/$path"; then
+                    rm -f "$catalog_keep/$path"
+                elif [ -f "$catalog_keep/$path" ]; then
+                    echo "pre-commit: the catalog compiler rewrote $path, which was untracked; previous content: $catalog_keep/$path" >&2
+                    catalog_kept=true
+                fi
+            done < "$catalog_tmp/strays"
+            if [ "$catalog_kept" = true ]; then
+                echo "  Keep your own files outside globalization/generated/{powershell,browser,go/catalog}," >&2
+                echo "  where the compiler deletes whatever it does not generate. Delete the copy when done." >&2
+            fi
+            find "$catalog_keep" -depth -type d -empty -exec rmdir {} \; 2>/dev/null
+            rmdir "${catalog_keep%/*}" 2>/dev/null
+        fi
+        # A file that appeared after the copies were taken was removed with none.
+        if [ -f "$catalog_tmp/compile.out" ]; then
+            sed -n 's/^REMOVED  *//p' "$catalog_tmp/compile.out" | while IFS= read -r path; do
+                if ! grep -qxF -e "$path" "$catalog_tmp/strays" &&
+                    ! git --literal-pathspecs ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+                    echo "pre-commit: the catalog compiler removed $path, which appeared while it ran; no copy was kept." >&2
+                fi
+            done
+        fi
+        rm -rf "$catalog_tmp"
+    }
+    # dash runs an EXIT trap on exit but not when a signal kills it, so each
+    # signal is turned into an exit that does.
+    trap 'catalog_cleanup' EXIT
+    catalog_interrupted='pre-commit: interrupted; the catalog tools may have rewritten files that are not staged.'
+    trap 'echo "$catalog_interrupted" >&2; exit 130' INT
+    trap 'echo "$catalog_interrupted" >&2; exit 143' TERM
+    trap 'echo "$catalog_interrupted" >&2; exit 129' HUP
+
+    # -Update deletes whatever it did not generate at the top of its own
+    # directories, ignored files included. An untracked file there may be an
+    # artifact an earlier run wrote -- which must not block the commit -- or
+    # someone's own file, which no commit may destroy; the two cannot be told
+    # apart before the compiler runs. So each one is copied aside first, and a
+    # copy is kept only for a file the compiler then removes or rewrites. A name
+    # git has to quote cannot be copied reliably from here, and a copy that
+    # fails means the file could be lost, so either one stops the commit before
+    # anything runs.
+    # shellcheck disable=SC2086 # the fixed directory list is split into pathspecs on purpose
+    git -c core.quotepath=false ls-files --others -- $catalog_generated_dirs |
+        grep -v -e '/\.[^/]*$' -e '^globalization/generated/powershell/.*/' \
+            -e '^globalization/generated/browser/.*/' -e '^globalization/generated/go/catalog/.*/' \
+            > "$catalog_tmp/strays"
+    if [ -s "$catalog_tmp/strays" ]; then
+        catalog_keep="$(git rev-parse --absolute-git-dir)/catalog-strays/$(date +%Y%m%d-%H%M%S)"
+        while IFS= read -r path; do
+            case $path in
+                \"*)
+                    echo "pre-commit: $path has a name git quotes (a quote, backslash or control" >&2
+                    echo "  character), so this hook cannot copy it before the catalog compiler deletes it." >&2
+                    echo "  Rename it or move it out of that directory, or bypass with 'git commit --no-verify'." >&2
+                    exit 1 ;;
+            esac
+            if ! { mkdir -p "$catalog_keep/$(dirname "$path")" && cp -p "$path" "$catalog_keep/$path"; }; then
+                echo "pre-commit: could not keep a copy of $path, which the catalog compiler would delete." >&2
+                echo "  Move it out of the compiler's directory, or bypass with 'git commit --no-verify'." >&2
+                exit 1
+            fi
+        done < "$catalog_tmp/strays"
+    fi
+
+    echo "pre-commit: WARNING: automation is compiling the message catalogs and embedding the results (Invoke-CatalogCompile.ps1 -Update, Invoke-CatalogEmbed.ps1)." >&2
+
+    # Both tools run without -Quiet, because what they print is the list of
+    # files they own. The compiler exits 1 both when it wrote an artifact and
+    # when a source is invalid, so success is read from its summary line.
+    # Carriage returns are dropped first (pwsh on Windows ends lines with
+    # them), and NO_COLOR keeps a captured error free of escape sequences.
+    catalog_out=$(NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$catalog_compile" -Update 2>&1)
+    catalog_rc=$?
+    printf '%s\n' "$catalog_out" | tr -d '\r' > "$catalog_tmp/compile.out"
+    catalog_ok=false
+    case $catalog_rc in
+        0) catalog_ok=true ;;
+        1) if grep -Eq '; wrote [0-9]+ artifact\(s\)\.' "$catalog_tmp/compile.out" &&
+            ! grep -q '^Catalog validation failed' "$catalog_tmp/compile.out"; then
+            catalog_ok=true
+        fi ;;
+    esac
+    if [ "$catalog_ok" != true ]; then
+        grep -v '^PASS ' "$catalog_tmp/compile.out" >&2
+        echo "pre-commit: the catalog compiler failed (exit $catalog_rc); nothing was staged." >&2
+        # Only the hard error carries "; expected"; a planned locale's WARN line
+        # names a stale hash too, but never causes the refusal.
+        if grep -q 'sourceHash is stale; expected' "$catalog_tmp/compile.out"; then
+            echo "  A stale sourceHash means the English moved under an existing translation. Retranslate" >&2
+            echo "  that entry: the maintainers' drafter does this when an API key is set, and a" >&2
+            echo "  professional batch replaces it later. Do not paste the new hash." >&2
+        fi
+        echo "  Fix the reported source, or bypass with 'git commit --no-verify' (discouraged)." >&2
         exit 1
     fi
+    if ! catalog_out=$(NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$catalog_embed" 2>&1); then
+        printf '%s\n' "$catalog_out" | tr -d '\r' | grep -v ': current$' >&2
+        echo "pre-commit: embedding the compiled catalogs failed; nothing was staged, but the tools" >&2
+        echo "  may already have rewritten generated files in the working tree. Fix the reported" >&2
+        echo "  runtime and commit again -- that run stages them -- or bypass with" >&2
+        echo "  'git commit --no-verify' (discouraged)." >&2
+        exit 1
+    fi
+    printf '%s\n' "$catalog_out" | tr -d '\r' > "$catalog_tmp/embed.out"
+
+    # What the tools own, from their own reports. The embed's spliced runtimes
+    # are the reported *.js files carrying a block; everything else it reports
+    # it writes whole.
+    sed -n -e 's/^PASS  *//p' -e 's/^WROTE  *//p' -e 's/^REMOVED  *//p' "$catalog_tmp/compile.out" \
+        > "$catalog_tmp/owned"
+    : > "$catalog_tmp/runtimes"
+    sed -n -e 's/^\(.*\): current$/\1/p' -e 's/^\(.*\): updated$/\1/p' "$catalog_tmp/embed.out" |
+        while IFS= read -r path; do
+            case $path in
+                *.js)
+                    if grep -q -F -e "$catalog_begin" "$path" 2>/dev/null; then
+                        printf '%s\n' "$path" >> "$catalog_tmp/runtimes"
+                        continue
+                    fi ;;
+            esac
+            printf '%s\n' "$path" >> "$catalog_tmp/owned"
+        done
+    LC_ALL=C sort -u "$catalog_tmp/owned" > "$catalog_tmp/owned.sorted"
+    {
+        git -c core.quotepath=false diff --name-only
+        git -c core.quotepath=false ls-files --others --exclude-standard
+    } | LC_ALL=C sort -u > "$catalog_tmp/dirty"
+    LC_ALL=C comm -12 "$catalog_tmp/owned.sorted" "$catalog_tmp/dirty" > "$catalog_tmp/stage"
+
+    # Spliced runtimes, decided by the block rather than by the file: when the
+    # working copy's block differs from the index copy's, the index copy gets
+    # the new block and nothing else.
+    : > "$catalog_tmp/splice"
+    : > "$catalog_tmp/refused"
+    CATALOG_BLOCK_FILE="$catalog_tmp/work-block"
+    export CATALOG_BLOCK_FILE
+    while IFS= read -r path; do
+        if ! git cat-file blob ":$path" > "$catalog_tmp/index-raw" 2>/dev/null; then
+            echo "pre-commit: could not read the staged copy of $path; a runtime newly added as an" >&2
+            echo "  embed target has to be git add-ed first." >&2
+            exit 1
+        fi
+        catalog_lf < "$catalog_tmp/index-raw" > "$catalog_tmp/index-copy"
+        catalog_lf < "$path" > "$catalog_tmp/work-copy"
+        # Already staged exactly as it stands: nothing for this pass to do.
+        if cmp -s "$catalog_tmp/index-copy" "$catalog_tmp/work-copy"; then continue; fi
+        catalog_block < "$catalog_tmp/work-copy" > "$catalog_tmp/work-block" || {
+            printf '%s: its generated block never closes -- restore the closing marker line, then git add it\n' \
+                "$path" >> "$catalog_tmp/refused"
+            continue
+        }
+        # The embed finds its marker anywhere; this pass only at the start of a
+        # line. A block it cannot see here would otherwise stay stale unnoticed.
+        if [ ! -s "$catalog_tmp/work-block" ]; then
+            printf '%s: its generated block does not start at the beginning of a line -- move the marker line to column 1, then git add it\n' \
+                "$path" >> "$catalog_tmp/refused"
+            continue
+        fi
+        if ! catalog_block < "$catalog_tmp/index-copy" > "$catalog_tmp/index-block"; then
+            printf '%s: its staged copy opens a generated block that never closes -- git add the repaired file\n' \
+                "$path" >> "$catalog_tmp/refused"
+            continue
+        fi
+        if [ ! -s "$catalog_tmp/index-block" ] && grep -q -F -e "$catalog_begin" "$catalog_tmp/index-copy"; then
+            printf '%s: its staged copy has a generated block that does not start at the beginning of a line -- git add the repaired file\n' \
+                "$path" >> "$catalog_tmp/refused"
+            continue
+        fi
+        if cmp -s "$catalog_tmp/work-block" "$catalog_tmp/index-block"; then continue; fi
+        if [ -s "$catalog_tmp/index-block" ]; then
+            if ! catalog_splice < "$catalog_tmp/index-copy" > "$catalog_tmp/spliced"; then
+                printf '%s: its generated block could not be replaced\n' "$path" >> "$catalog_tmp/refused"
+                continue
+            fi
+            catalog_eof "$catalog_tmp/index-raw" "$catalog_tmp/spliced" "$catalog_tmp/blob"
+        elif catalog_unblocked < "$catalog_tmp/work-copy" | cmp -s - "$catalog_tmp/index-copy"; then
+            # The staged copy had no block yet, and inserting one is the only
+            # difference, so the working copy is exactly the result.
+            catalog_eof "$path" "$catalog_tmp/work-copy" "$catalog_tmp/blob"
+        else
+            printf '%s: it gains its first generated block and also differs elsewhere -- git add it whole, or set the other edits aside\n' \
+                "$path" >> "$catalog_tmp/refused"
+            continue
+        fi
+        mode=$(git --literal-pathspecs ls-files -s -- "$path" | cut -d ' ' -f 1)
+        if ! oid=$(git hash-object -w --stdin --path="$path" < "$catalog_tmp/blob"); then
+            echo "pre-commit: could not store the regenerated block of $path." >&2
+            exit 1
+        fi
+        printf '%s,%s,%s\n' "$mode" "$oid" "$path" >> "$catalog_tmp/splice"
+    done < "$catalog_tmp/runtimes"
+
+    if [ -s "$catalog_tmp/refused" ]; then
+        echo "pre-commit: the generated block of these runtimes cannot be staged on its own:" >&2
+        sed 's/^/  /' "$catalog_tmp/refused" >&2
+        if [ "$catalog_partial" = true ]; then
+            echo "  In a partial commit (git commit <paths>), also name the file in the paths." >&2
+        fi
+        exit 1
+    fi
+
+    if [ -s "$catalog_tmp/stage" ] || [ -s "$catalog_tmp/splice" ]; then
+        if [ "$catalog_partial" = true ]; then
+            { cat "$catalog_tmp/stage"; cut -d ',' -f 3- "$catalog_tmp/splice"; } > "$catalog_tmp/needed"
+            catalog_count=$(wc -l < "$catalog_tmp/needed" | tr -d ' ')
+            echo "pre-commit: this partial commit (git commit <paths>) needs $catalog_count regenerated catalog file(s) it does not carry:" >&2
+            head -n 10 "$catalog_tmp/needed" | sed 's/^/  /' >&2
+            if [ "$catalog_count" -gt 10 ]; then echo "  ... and $((catalog_count - 10)) more" >&2; fi
+            echo "  The working tree already holds them, unstaged." >&2
+            echo "  Simplest: git add the paths you named and run git commit without paths; this" >&2
+            echo "  hook then stages the files above itself, and only the generated block of each" >&2
+            echo "  runtime. Committing without paths also commits everything else already staged." >&2
+            echo "  To bypass: 'git commit --no-verify' (discouraged)." >&2
+            exit 1
+        fi
+        # From a file rather than the command line: a full regeneration names
+        # hundreds of paths. Literal pathspecs, so a name is never a glob.
+        if [ -s "$catalog_tmp/stage" ] &&
+            ! git --literal-pathspecs add -A --pathspec-from-file="$catalog_tmp/stage"; then
+            echo "pre-commit: staging the regenerated catalog files failed." >&2
+            exit 1
+        fi
+        while IFS= read -r entry; do
+            if ! git update-index --cacheinfo "$entry"; then
+                echo "pre-commit: staging the regenerated block of ${entry#*,*,} failed." >&2
+                exit 1
+            fi
+        done < "$catalog_tmp/splice"
+        # The BOM pass above ran before these files were staged. Quiet on
+        # success, so this pass still adds nothing beyond its WARNING line.
+        if ! catalog_out=$(NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet 2>&1); then
+            printf '%s\n' "$catalog_out" | tr -d '\r' >&2
+            echo "pre-commit: a file the catalog automation staged carries a byte-order mark (see above)." >&2
+            echo "  It is staged now ('git restore --staged <path>' undoes that). Rewrite it as" >&2
+            echo "  BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
+            exit 1
+        fi
+    fi
+    # Past the catalog work, an interrupt only needs the cleanup the EXIT
+    # trap already does.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
 fi
 
-# Fifth pass: the two whole-tree records. The translation-surface census counts
+# Sixth pass: the two whole-tree records. The translation-surface census counts
 # the prose in the tree, and the suite baseline names every suite the runner
 # discovers. Both are regenerated rather than written, and a change that moves
 # one of them without re-recording it leaves no local trace: the author's
 # commit succeeds, and the drift surfaces minutes into someone's release run as
 # a gate row nobody can attribute to a change made days earlier.
 #
-# Blocks, for the same reason the catalog pass does -- a record either
-# reproduces from the tree or it does not, and no author judgment sits in
-# between.
+# A record either reproduces from the tree or it does not, and no author
+# judgment sits in between. So the census is regenerated and staged when the
+# tree it reads is exactly the commit: nothing unstaged or untracked here, no
+# change at all in the project checkout (the census counts the project's
+# working tree, which this commit does not carry), and not a partial commit,
+# whose temporary index the real one would later revert. Otherwise it blocks,
+# as the catalog pass does. The project is read without this commit's git
+# environment: `git commit -a` exports the absolute path of this repository's
+# index, and a linked worktree exports its git directory too.
 staged_any=$(git diff --cached --name-only --diff-filter=ACMRD |
     grep -v -e '^globalization/manifests/domain-inventory\.json$' \
         -e '^test/modules/suite-baseline\.json$')
@@ -219,14 +684,30 @@ if [ -n "$staged_any" ]; then
     if [ -f "$inventory_gate" ] && [ -d "$project_root" ]; then
         if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Check \
             -ProjectRoot "$project_root" >/dev/null 2>&1; then
-            echo "" >&2
-            pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Check \
-                -ProjectRoot "$project_root" >&2 2>&1
-            echo "pre-commit: the translation-surface census no longer reproduces from this tree." >&2
-            echo "  Run 'pwsh tools/Invoke-DomainInventory.ps1 -Update -ProjectRoot ../yuruna-project'," >&2
-            echo "  stage globalization/manifests/domain-inventory.json," >&2
-            echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
-            exit 1
+            inventory_clean=false
+            if [ "$catalog_partial" != true ] &&
+                ! git status --porcelain --untracked-files=all | grep -qv '^[MADRC] ' &&
+                project_status=$(unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+                    git -C "$project_root" status --porcelain --untracked-files=all) &&
+                [ -z "$project_status" ]; then
+                inventory_clean=true
+            fi
+            if [ "$inventory_clean" = true ] &&
+                NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Update \
+                    -ProjectRoot "$project_root" >/dev/null 2>&1 &&
+                git --literal-pathspecs add -- globalization/manifests/domain-inventory.json; then
+                echo "pre-commit: WARNING: automation regenerated globalization/manifests/domain-inventory.json and staged it." >&2
+            else
+                echo "" >&2
+                pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Check \
+                    -ProjectRoot "$project_root" >&2 2>&1
+                echo "pre-commit: the translation-surface census no longer reproduces from this tree." >&2
+                echo "  Run 'pwsh tools/Invoke-DomainInventory.ps1 -Update -ProjectRoot ../yuruna-project'," >&2
+                echo "  stage globalization/manifests/domain-inventory.json," >&2
+                echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+                echo "  (automatic regeneration needs this checkout clean apart from the index and the project checkout clean; stage or stash the rest.)" >&2
+                exit 1
+            fi
         fi
     fi
 fi
@@ -248,8 +729,9 @@ if [ -n "$staged_tests" ]; then
         ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Quiet; then
         echo "" >&2
         echo "pre-commit: the suite baseline no longer names what the runner discovers." >&2
-        echo "  Run 'pwsh tools/Invoke-TestSuite.ps1 -UpdateBaseline' from a PASSING run," >&2
-        echo "  stage test/modules/suite-baseline.json," >&2
+        echo "  Register new suites with 'pwsh tools/Invoke-TestSuite.ps1 -RegisterNewSuites'," >&2
+        echo "  or refresh all rows with 'pwsh tools/Invoke-TestSuite.ps1 -UpdateBaseline' from a PASSING full run." >&2
+        echo "  Review and stage test/modules/suite-baseline.json," >&2
         echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
         exit 1
     fi
@@ -260,5 +742,19 @@ if [ -n "$staged_tests" ]; then
         echo "  a full run will notice. Re-record with" >&2
         echo "  'pwsh tools/Invoke-TestSuite.ps1 -UpdateBaseline' and stage the result." >&2
     fi
+fi
+
+# Private suites keep their own record; the public gate never sees them.
+# --no-renames lists a suite moved out of dev-only/test under its old path,
+# whose recorded row the move leaves behind.
+staged_private_tests=$(git diff --cached --name-only --no-renames --diff-filter=ACMRD |
+    grep -E '^dev-only/test/.*\.Tests\.ps1$')
+private_runner="$repo_root/dev-only/tools/Invoke-DevOnlyTests.ps1"
+if [ -n "$staged_private_tests" ] && [ -f "$private_runner" ] &&
+    ! git diff --cached --name-only --diff-filter=ACM |
+        grep -q '^dev-only/test/suite-baseline\.json$'; then
+    echo "pre-commit: WARNING: a private test file changed without re-recording dev-only/test/suite-baseline.json." >&2
+    echo "  Remove the row of a deleted or moved suite by hand, then run" >&2
+    echo "  'pwsh dev-only/tools/Invoke-DevOnlyTests.ps1 -UpdateBaseline' and stage the result." >&2
 fi
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -537,7 +537,7 @@ function Test-LabHealth {
 
         if ($ok) {
             $record[$area] = @{
-                lastOkUtc   = $NowUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                lastOkUtc   = $NowUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                 lastAddress = $winner
                 verdict     = 'ok'
             }
@@ -628,7 +628,7 @@ function Set-LabHold {
         # raised hold with no explanation beside it.
         $doc = [ordered]@{
             schemaVersion = 1
-            since         = $SinceUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            since         = $SinceUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             attempt       = [int]$Attempt
             areas         = @($Down)
         }
@@ -726,7 +726,7 @@ function New-LabHealthEvent {
         [string]$ReleasedBy = ''
     )
     $record = @{
-        timestamp   = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        timestamp   = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         event       = $EventName
         areas       = [string[]]@($Down | ForEach-Object { [string]$_.area })
         attempts    = [int]$Attempts

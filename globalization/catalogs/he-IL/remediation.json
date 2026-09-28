@@ -1,0 +1,812 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "remediation",
+  "locale": "he-IL",
+  "messages": {
+    "remediation.operator_00fd2209b1a993b2": {
+      "sourceHash": "6e04423cbd684cc7a3aa658f13d8eaf85893fd08e3dba50c3963ef3dc4909de7",
+      "origin": "machine",
+      "message": "בדקו את ⁦last_failure.json⁩ ידנית"
+    },
+    "remediation.operator_01b3c9512f168859": {
+      "sourceHash": "a629c0623846ddcc17661bc3f4e2bb3fccac5085282f7406767c0822845d6c64",
+      "origin": "machine",
+      "message": "console_flooded ב-{vmName}: ההמתנה ניצלה את מלוא הזמן שהוקצב לה מול מסך שתוכנו לא השתנה במשך {staticSecs}s — טקסט רב שנגלל קודם לכן, ולא מסוף שעדיין מתמלא. אורח שאינו מדפיס דבר הוא אורח שממתין למשהו, והנחיה לקלט שהדפיס פעם אחת לפני תחילת ההמתנה הזאת הייתה נראית בדיוק כך."
+    },
+    "remediation.operator_03c7dac9d2e3c13f": {
+      "sourceHash": "a6d847fa3f513448b5d99b86bf966b632051bfb15a20752cf5c9a2666f5cd872",
+      "origin": "machine",
+      "message": "אם הבעיה נמשכת, בדקו שמארח זה מפרסם את כתובתו בספריית המאגר ושהאורח יכול לגשת לספרייה זו"
+    },
+    "remediation.operator_092d2a9134cdc6f6": {
+      "sourceHash": "2227ed7ecb82cd40a8003438c861c074c2b2b112bc6844a218bbf69cbec10d56",
+      "origin": "machine",
+      "message": "lsof -sTCP:LISTEN לא החזיר מזהי תהליכים, אך lsof (בכל מצב) מצא את מזהי התהליכים {join}; הם נחשבים למחזיקי היציאה"
+    },
+    "remediation.operator_bb25c210fa3519d6": {
+      "sourceHash": "7f09de1dcca473f557b8123d9c88d3967739525d548280b4afc9e82693891ead",
+      "origin": "machine",
+      "message": "נסו שוב את בדיקת הרשת שנכשלה / ⁦Wait-SshReady⁩"
+    },
+    "remediation.operator_bb372789b3ee6502": {
+      "sourceHash": "bd9b7cee39232c9d23d637ded3b13c7d3950e097a210ae68734224912f4dbc4a",
+      "origin": "machine",
+      "message": "בדקו את שירות מנהל המכונות הווירטואליות במארח + שטח דיסק פנוי לאחסון המכונות הווירטואליות"
+    },
+    "remediation.operator_bcb561ae0b2d1afd": {
+      "sourceHash": "b9e43f4d8f25db130bc8d6f036a2919a9672fa93b0641441b134a887f3c69231",
+      "origin": "machine",
+      "message": "רק אז הריצו מחדש את הרצף מהשלב שנכשל"
+    },
+    "remediation.operator_be21fdfe4bad5cf0": {
+      "sourceHash": "bb04ec934cfdda77e0580d24a93b6af067c5eb84a02f70a76fc0a23b25217db7",
+      "origin": "machine",
+      "message": "ודאו כי {lastFailurePath} מכיל JSON תקין"
+    },
+    "remediation.operator_bf89860e09f2c5b1": {
+      "sourceHash": "16ff2031217914f2dc364765f8ee9974d03a400fa4b98d07d8ab3c3a7eab4fae",
+      "origin": "machine",
+      "message": "אם תמונת המצב חסרה, צרו תמונת מצב בסיסית חדשה והריצו מחדש את הרצף"
+    },
+    "remediation.operator_c00ffc306428603b": {
+      "sourceHash": "4cc99833d0441044b5fdb1a52719798bfc560644bb87c24ed9ce666a44b72f91",
+      "origin": "machine",
+      "message": "נסו שוב לאחר המתנה קצרה -- בדרך כלל המארח נגיש שוב עד הניסיון הבא"
+    },
+    "remediation.operator_c0a439f9f4207624": {
+      "sourceHash": "2fb109d942ed3eb06291701679f49c60947120400ef0b8dc54789a6435d2d9f2",
+      "origin": "machine",
+      "message": "ודאו שהמארח מספק כל מנגנון עורפי שהתוכנית דורשת, ואז הריצו מחדש"
+    },
+    "remediation.operator_c706cfbe26bfe98c": {
+      "sourceHash": "693cff029ecd05e90a90d3c8f944742be927393c4fb351f47ee616b851a3d9cf",
+      "origin": "machine",
+      "message": "המטפל עבור '{failureClass}' החזיר תוצאה שאינה טבלת גיבוב."
+    },
+    "remediation.operator_cbaa17fc6a5150b0": {
+      "sourceHash": "ce4de8223efba7171b765a2e3e39d94d35fea3830bdf1ae3480348cc6fb26599",
+      "origin": "machine",
+      "message": "אם ההצפה נובעת משינויי רשת תכופים בשלב ההתקנה, ודאו שהאורח מקבל בכלל הקצאת DHCP"
+    },
+    "remediation.operator_cc703ba747623c88": {
+      "sourceHash": "d3663dc8eeb8e48096be195a1f53d0b6eaa821a47d1aa71f8b7ed7e74b729d7e",
+      "origin": "machine",
+      "message": "instrumentation_failure במכונה {vmName}: אירע כשל זמני ב־takeScreenshot / saveSystemDiagnostic. המצב הנצפה של המחזור לא הושפע; ניסיון חוזר מיידי אחד בדרך כלל פותר זאת."
+    },
+    "remediation.operator_ce4ee5bda91552ae": {
+      "sourceHash": "efea2df66c318e41c4f6323d1d8e3a0e12e7a1275ffa61c6a2b721729a4396f9",
+      "origin": "machine",
+      "message": "בדקו את השדה innerFailureClass בקובץ ⁦last_failure.json⁩ לאיתור הגורם העמוק ביותר"
+    },
+    "remediation.operator_ce6ff8d514d5658f": {
+      "sourceHash": "d03cc47dad23bf0189d01138acf995a19068d9d9ce4077b0abf9d78af332b360",
+      "origin": "machine",
+      "message": "המתג החיצוני של המארח"
+    },
+    "remediation.operator_cf05b7bb4e5371b4": {
+      "sourceHash": "753d5304b2930b07c2e8432f62687c0d1c3f3173b9ec2ccd4614a21a52281b6d",
+      "origin": "machine",
+      "message": "lsof לא נמצא ב־PATH"
+    },
+    "remediation.operator_d009181b9af99707": {
+      "sourceHash": "5920568c6576bb11781060050d7e7c3662d783f5522aaae36d30ba0760a91366",
+      "origin": "machine",
+      "message": "הסירו את כל המטפלים"
+    },
+    "remediation.operator_d16851977ec6a779": {
+      "sourceHash": "653e9c60ece3711d96e4bedc97b131cd5abddda63f7ba31f1208504183d63cfa",
+      "origin": "machine",
+      "message": "provisioning_failure במכונה {vmName}: מנהל המכונות הווירטואליות במארח לא הצליח להגדיר / לאתחל / להביא את המכונה הווירטואלית למצב פועל. לעיתים קרובות זהו כשל זמני (מחסור במשאבים מיד לאחר פירוק קודם, נתוני KVP⁦/IP⁩ שמתמלאים באיחור), והוא נפתר במחזור הבא לאחר המתנה."
+    },
+    "remediation.operator_d1f78e9ab1185fe5": {
+      "sourceHash": "aa643c2819afd2fd13770da64e9a955685f9a7ee32f0bbb9fea7930ee3f3ebc1",
+      "origin": "machine",
+      "message": "נסו שוב לאחר המתנה קצרה -- הכתובת מופיעה בדרך כלל ללא פעולה מצד המפעילים"
+    },
+    "remediation.operator_d2a8de7e95317e4a": {
+      "sourceHash": "022db7c79360a67bf56cc8b00cd1ccd88871d1a3585344acc6a5b140fa918995",
+      "origin": "machine",
+      "message": "  תחילה נוסתה השתלטות בהרשאות מוגברות, אך היא לא שחררה את היציאה: {detail}"
+    },
+    "remediation.operator_d58ebc3333e86c7f": {
+      "sourceHash": "ffe3190f8a72b5876c20113c81bc6f05c3499c057fd86299414084854f11414a",
+      "origin": "machine",
+      "message": "retry_exhausted במכונה {vmName}: פקודת הניסיון החוזר כבר מיצתה את המכסה שלה. ניסיונות אוטומטיים נוספים רק ימשיכו להיכשל."
+    },
+    "remediation.operator_d7f954ed2c939cf9": {
+      "sourceHash": "13a08e98084197995ec030965db5fc00fc91f81c7dbbf81995e079ebc953d6e5",
+      "origin": "machine",
+      "message": "בדקו אם קיימים פיצול היסטוריה או שינויים מקומיים בעצי העבודה של מאגרי הקוד של התשתית + הפרויקט"
+    },
+    "remediation.operator_d9a4a3e89d4a670b": {
+      "sourceHash": "ea781c5089dc903138db5e6fa5d3d0e3298fdc0a3a49050a0da348dfe314a8f3",
+      "origin": "machine",
+      "message": "אם החיבור מחדש נכשל פעמיים, עברו אל operator_intervention_required"
+    },
+    "remediation.operator_daf1c9bf1f1bad50": {
+      "sourceHash": "2cc0bb8e6c2371118a7be28503557d9cabcf685bb52b553e4049289683b812e1",
+      "origin": "machine",
+      "message": "מחקו ארכיוני מחזורים ישנים בשיתוף תחת hosts/⁦<hostId>⁩⁦/test-cycles/⁩ -- אלו תיקיות שאינן ניתנות לשינוי, ולכן בטוח להסיר תיקיות שלמות"
+    },
+    "remediation.operator_db0130b0bf3d4958": {
+      "sourceHash": "2a13e6beb91cac118e4fd8ef7f181ee12776811189c61e933278771a9ce8842d",
+      "origin": "machine",
+      "message": "המתינו, ואז הריצו מחדש את השלב שנכשל (סקריפטי ההתקנה של האורח אידמפוטנטיים)"
+    },
+    "remediation.operator_dcc4abf58182f0f3": {
+      "sourceHash": "71616b5e9bb319ebf76b5cb35480b769f4675e4084d41d7602f2cf628b89149f",
+      "origin": "machine",
+      "message": "המטפל זרק חריגה: {message}"
+    },
+    "remediation.operator_dd019d34b72feafc": {
+      "sourceHash": "adfaabe1690784f125010ec64a6e14d163384e89ffaf86f1bc531a5ed4bc61f0",
+      "origin": "machine",
+      "message": "נסו שוב את המחזור; אם הכשל משתחזר באופן דטרמיניסטי, התייחסו אליו כ־operator_intervention_required"
+    },
+    "remediation.operator_e038808ca34827c4": {
+      "sourceHash": "11c8e00a28c217e80641748202be2ac308305d89eaa71566f1660a398d682aa1",
+      "origin": "machine",
+      "message": "הריצו מחדש את הרצף לאחר שהכספת במצב עקבי"
+    },
+    "remediation.operator_e058d7d3febce5c7": {
+      "sourceHash": "6dda5c16f8eb091c90e47caaaa52b714c40ed416e9fb82f7af2ba8d72e292679",
+      "origin": "machine",
+      "message": "הריצו מחדש את הרצף מהשלב שנכשל רק לאחר שהאורח חוזר להתקדם"
+    },
+    "remediation.operator_e0d3c0a00e449780": {
+      "sourceHash": "e6e687662eb087574f1073925cc27f13f37644a0d376dd65725b7e6422de3cab",
+      "origin": "machine",
+      "message": "⁦last_failure.json⁩ פוענח לערך שאינו אובייקט ({gotType}); נדרש אובייקט JSON."
+    },
+    "remediation.operator_e12111b50564c2b8": {
+      "sourceHash": "b510982f653511f9dd8de3ac209df18e234952ea845b981a58999e03280aae4b",
+      "origin": "machine",
+      "message": "יציאת שירות המצב {port} נמצאת בשימוש, אך מזהה התהליך שמחזיק בה אינו גלוי למשתמש זה."
+    },
+    "remediation.operator_e15a652575a58f85": {
+      "sourceHash": "248091829b1ec3e3bcbdc874c88613f4729ccbd74d2d3b12b13efd8ea4c38fdb",
+      "origin": "machine",
+      "message": "הציגו את תמונות המצב של המכונה הווירטואלית (⁦Get-VMCheckpoint⁩ / virsh snapshot-list / utmctl)"
+    },
+    "remediation.operator_e24252c37930e352": {
+      "sourceHash": "829f99aed46e94faed196604ee5d79ad6aeb06560ea4ceb4ed8b6c4ba40e6a80",
+      "origin": "machine",
+      "message": "הריצו מחדש את המחזור לאחר פתרון גורם השורש"
+    },
+    "remediation.operator_e344b12d616e0f0a": {
+      "sourceHash": "f901c821a6b7879c5afc934cb13ec97ff34a5fb94d4a429a30765429805b3ce2",
+      "origin": "machine",
+      "message": "elevation_required במכונה {vmName}: פקודה דרשה sudo ולא נכחו מפעילים כדי לספק סיסמה. sudo קורא את הסיסמה מתוך ⁦/dev/tty⁩, ולכן מנגנון ההרצה, ניסיון חוזר או הפעלה מרוחקת אינם יכולים לספק אותה -- אחרת, מארח במצב זה ייתקע באמצע המחזור בעוד לוח הבקרה ממשיך להציג את המחזור האחרון כמוצלח. התיקון דורש גישה למסוף, בדיוק כמו תקלת רשת."
+    },
+    "remediation.operator_e54de45d1485fbb7": {
+      "sourceHash": "9c1a36c4d6dd8b6e9570481fecc578ac2294b17e872e80b80487ef553047642d",
+      "origin": "machine",
+      "message": "ip_not_discovered במכונה {vmName}: אף בדיקה בצד המארח לא הצליחה לזהות כתובת לאורח, ולכן השלב כלל לא הגיע אליו. גילוי כתובות מסתמך על מטמונים שתוקפם פג ועל תהליכי רקע שמפרסמים באיחור, ולכן אותה קריאה בדרך כלל מחזירה תשובה כעבור שניות. מצב זה שונה מ־network_timeout, שבו נמצאה כתובת אך הנתיב אליה נכשל, ומ־host_network_degraded, שאינו נפתר מעצמו."
+    },
+    "remediation.operator_e54e017fda4a02ac": {
+      "sourceHash": "06839cd6be2af588db596da6ffb9b1a326ccdf5edfa3b42ce513a4c7f3883052",
+      "origin": "machine",
+      "message": "המתג החיצוני '{switchName}'"
+    },
+    "remediation.operator_e59c2d7e4aa9e176": {
+      "sourceHash": "902e31da1164987cdfdc589b66a46bc9c022120b27533a84e3e09004304ca9a3",
+      "origin": "machine",
+      "message": "פתחו את תיקיית המחזור של ההרצה שנכשלה"
+    },
+    "remediation.operator_e893941980e9b648": {
+      "sourceHash": "513cc5a69767f637490da2416eb07cfa48c4a75f3640f39840cd771f889b95c5",
+      "origin": "machine",
+      "message": "עד לשחזורו, האורחים ממשיכים להיווצר במתג ה־NAT החלופי ומגיעים למארח רק דרך מעבירי היציאות שלו"
+    },
+    "remediation.operator_ec70b244ad9d80d1": {
+      "sourceHash": "95e8689a4ac79d3c99831930838a0997e6f1755c18249147a28c67643355d1e1",
+      "origin": "machine",
+      "message": "snapshot_restore_failed במכונה {vmName}: תת־מערכת תמונות המצב עצמה אינה תקינה. השחזור האוטומטי אינו יכול להמשיך ללא פעולת שחזור בסיסית תקינה."
+    },
+    "remediation.operator_efc4491d25c27bc3": {
+      "sourceHash": "a45d5d145f05652caf76b37c19fe42f64fbe2af257b8d3f9a8a70df83259181c",
+      "origin": "machine",
+      "message": "  ההפעלה נחסמה כדי שהמחזור לא ירוץ ללא לוח בקרת המצב / פקדי נקודות העצירה שלו.\n  לפתרון, עצרו את התהליך הזה (ייתכן שהוא שייך למשתמש אחר), או הגדירו ערך אחר\n  עבור ⁦statusService.port⁩ בקובץ test⁦/test.config.yml⁩ והריצו מחדש."
+    },
+    "remediation.operator_f0a29d5f6e38b4ec": {
+      "sourceHash": "4607a0042dd4ba4f40c2e63a785d7d0fb1c79d5099689d7d38280fe788573f50",
+      "origin": "machine",
+      "message": "כדי להריץ בלעדיו, קבעו כתובת באמצעות ⁦$env:YURUNA_EXTENSION_HOST_⁩⁦<AREA>⁩, או הגדירו את ⁦testCycle.labHealth.enabled⁩ לערך false כדי להפסיק להמתין לכל שירות"
+    },
+    "remediation.operator_f0fd4b357ed63f38": {
+      "sourceHash": "b5e7f5d1d600a886f63d3833d0c62cef6580fdb9b65f2b22f1ba2ac001192be6",
+      "origin": "machine",
+      "message": "ודאו שהמחזור הקודם שחרר משאבי מעבד / זיכרון במארח (אין מכונה וירטואלית יתומה שמחזיקה משאבים)"
+    },
+    "remediation.operator_f170c655d3aa9ec7": {
+      "sourceHash": "bd08f3cb7b63682953fb534e7f5010e29754001c8903903f2d241a484cb56bf4",
+      "origin": "machine",
+      "message": "אם הכשל חוזר, שמרו תוצרי צילום מסך וזיהוי תווים אופטי (OCR) בתיקיית המחזור והשהו לצורך בדיקה"
+    },
+    "remediation.operator_f279084b2eb96f2c": {
+      "sourceHash": "542bb61b17215e86ff94ded1a0c369e3e7477e85e5d521fe0016bcbe3fd4b0db",
+      "origin": "machine",
+      "message": "או הקצו מחדש את המאגר לערכת בדיקות שכל חבריו יכולים לקרוא את הפרויקט שלה"
+    },
+    "remediation.operator_f4ded9a21116febc": {
+      "sourceHash": "adc0e309250690d734697751bf902e079a783f80899ddc0300ad63377f58aca0",
+      "origin": "machine",
+      "message": "ודאו שהתיקייה host/⁦<host>⁩/⁦<guest>⁩ קיימת עבור כל אורח מתוכנן"
+    },
+    "remediation.operator_f65f2f5b0c183dc5": {
+      "sourceHash": "98b704e7897e528f00ea7d348a96bfeeb1b8ad53a8cc41c82d5f61df8ed495df",
+      "origin": "machine",
+      "message": "שחזרו את תמונת המצב האחרונה שידוע כי היא תקינה עבור המכונה הווירטואלית"
+    },
+    "remediation.operator_f9f5cd6dabda9dc0": {
+      "sourceHash": "8793612cf8c6dcc3c1c772a2ee84aa0d11b141233d500e8d247e0db85f1b28dd",
+      "origin": "machine",
+      "message": "בדקו אם קיימת רשומה מיושנת או חסרה במקור ההקצאות / השכנים בצד המארח שמנהל ההתקן קורא"
+    },
+    "remediation.operator_fa9d85ead9be0ad7": {
+      "sourceHash": "b4af4b754678ca813a70f0421e113d962471d3244bc9a3e0000d0ef670ae3d0a",
+      "origin": "machine",
+      "message": "אין השתלטות בהרשאות מוגברות ב־Windows -- הפעילו את המעטפת כמנהל מערכת, או הוסיפו urlacl ליציאה זו"
+    },
+    "remediation.operator_fbf8a282c16fce06": {
+      "sourceHash": "ca89469d717fc3ea127c412cd4a976bf24fb50dbe866fe9fc6bea13651ba663b",
+      "origin": "machine",
+      "message": "network_timeout במכונה {vmName}: חיבור SSH / הבדיקה לא הגיעו למצב מוכן. בדרך כלל זהו כשל זמני -- המתנה קצרה (5-30 s) פותרת אותו ללא פעולה מצד המפעילים."
+    },
+    "remediation.operator_fc7632bc7d328be6": {
+      "sourceHash": "5490fa8bd4d840c7b8e88213061a576b507ab5ae4f88106504ac11a4756a1a58",
+      "origin": "machine",
+      "message": "יציאת שירות המצב {port} פנויה, אך תהליך זה אינו מורשה לשריין את ⁦http://*:{port}/⁩.\n  זהו שריון כתובת URL של ⁦HTTP.sys⁩: יצירתו דורשת הרשאות מוגברות. שום תהליך אינו מחזיק\n  ביציאה -- זו בעיית הרשאות, ולא התנגשות ביציאה.\n  ההפעלה נחסמה: status service נקשר לאותה קידומת עם תו כללי (כדי שאורחים\n  יוכלו לגשת אליו בכתובת ה־IP של המארח ברשת המקומית, ולא רק דרך localhost) וייכשל באותו אופן.\n  לפתרון, בחרו אחת מהאפשרויות:\n    - הפעילו מעטפת זו כמנהל מערכת; או\n    - שריינו את כתובת ה־URL פעם אחת, ואז הריצו מחדש ללא הרשאות מוגברות:"
+    },
+    "remediation.operator_fe73e80924c46670": {
+      "sourceHash": "35e34a063dbee71f696956fba8cfec347cc898c413d9ab86b9eb51e6896d81fd",
+      "origin": "machine",
+      "message": "במסוף, התקינו את קובץ התצורה המשלים של מנגנון ההרצה: הודעת הכשל כוללת את הכלל המדויק עבור ⁦/etc/sudoers.d/yuruna-runner⁩"
+    },
+    "remediation.operator_fe77fdc3a8c79bc8": {
+      "sourceHash": "08b7e8180c172b960a6755fe1098210c60d785fa65f63537f657674fc7be8239",
+      "origin": "machine",
+      "message": "המשיכו את המחזור לאחר תיקון הסקריפט"
+    },
+    "remediation.port_diagnostic": {
+      "sourceHash": "d20d16f1ce0b11f458454011088a82c4945de21cc2043059dbac68ddc2d16472",
+      "origin": "machine",
+      "message": "  אבחון: {detail}"
+    },
+    "remediation.port_holder": {
+      "sourceHash": "c1a656010f9d58726b65f2e358ba42d3620428097757115ce58d0aed7b5df66b",
+      "origin": "machine",
+      "message": "יציאת שירות המצב {port} מוחזקת בידי התהליך שמזההו {pid} ({process})."
+    },
+    "remediation.port_holder_owned": {
+      "sourceHash": "ac81a203176142ae024772dc6b3ded76aac747947006a967b474da1b43ac620d",
+      "origin": "machine",
+      "message": "יציאת שירות המצב {port} מוחזקת בידי התהליך שמזההו {pid} ({process}) בבעלות '{owner}'."
+    },
+    "remediation.port_inspect_command": {
+      "sourceHash": "675f710fd10d2675b1ae7844e64c2092a1f338f582409bc1dea8a4491084944a",
+      "origin": "machine",
+      "message": "        {command}      # מזהה את התהליך המחזיק ביציאה בבעלות root"
+    },
+    "remediation.port_netsh_empty": {
+      "sourceHash": "70e58d35f201ecc5314698961bf8592aedd0cfe83af5e36bd3d917dc710c30b3",
+      "origin": "machine",
+      "message": "{command} לא החזירה פלט"
+    },
+    "remediation.port_root_listener": {
+      "sourceHash": "62daf76eb6f7b10205a1544b754083ac78ec1ec3b1a12fd933d8d347e62493ad",
+      "origin": "machine",
+      "message": "  לרוב מדובר ב־status service שנותר פועל בתור ROOT מהרצת sudo קודמת של\n  סקריפט התקנה או הרצה. בדקו זאת ושחררו את היציאה באמצעות:"
+    },
+    "remediation.port_still_held_help": {
+      "sourceHash": "5280b2f3c1f40692e9c9615b9d9d53d9474ac45dcbc23d45c4bd91f8a2130d1e",
+      "origin": "machine",
+      "message": "  ההפעלה נחסמה. בדקו באמצעות 'lsof -iTCP:{port} -sTCP:LISTEN' (או 'netsh http show servicestate'),\n  שחררו את היציאה, או הגדירו ערך אחר עבור ⁦statusService.port⁩ בקובץ test⁦/test.config.yml⁩ והריצו מחדש."
+    },
+    "remediation.port_stop_command": {
+      "sourceHash": "c090c76e3af1f133e640e3045dd40d2873575320079ece6a660bd60acc7be1f5",
+      "origin": "machine",
+      "message": "        {command}       # עוצר אותו באותו אופן שבו הופעל"
+    },
+    "remediation.operator_0ddb7073d12e8400": {
+      "sourceHash": "b4e25299f70c8d1fa28f5106d28cfd6da997f0b0f313ea81da5bd2eeb4803daf",
+      "origin": "machine",
+      "message": "ocr_timeout אצל {vmName}: המסך לא הגיע למצב הצפוי. לרוב עומס העבודה סטה מהמסלול שהוקלט; הריצו שוב מתמונת מצב נקייה במקום לנחש כיצד להתאושש במצב הנוכחי."
+    },
+    "remediation.operator_0e19ba1c8c8b7f7b": {
+      "sourceHash": "ab6140322643e75da2094e616f0be0d8a6bb8253b3d34368377d9490fcced8d5",
+      "origin": "machine",
+      "message": "ודאו שמדיית האתחול כללה את הקיבוע: network-config במדיית האתחול cidata חייב להגיע לאורח, כי קיבוע שמוחל לאחר האתחול מאחר בהקצאת חכירה אחת"
+    },
+    "remediation.operator_0f0d8db138f68e01": {
+      "sourceHash": "dcb9849679eaf07c8becbd117ac8277d8510511d930ffcfb2b0b7db5e19832ee",
+      "origin": "machine",
+      "message": "שחזרו את השיוך שמצוין באבחנה -- ⁦Set-VMSwitch⁩ ⁦-Name⁩ ⁦<switch>⁩ ⁦-NetAdapterName⁩ ⁦<nic>⁩ לחיבור רשת יוצא שאבד, או ⁦-AllowManagementOS⁩ $true למתאם רשת וירטואלי לניהול שחסר -- בידיעה שהפעולה מנתקת לזמן קצר את הרשת של המארח עצמו"
+    },
+    "remediation.operator_126f4cf4415d01de": {
+      "sourceHash": "431db03931c5bc529b641b130491b78c920d6d95549fbcf75755aec9e2835469",
+      "origin": "machine",
+      "message": "בדקו מה עוד חולק את אמצעי האחסון: מאגר הורדות תמונות האורח תחת images/ תופס בדרך כלל את הנפח הגדול ביותר"
+    },
+    "remediation.operator_12710b3d54a09d23": {
+      "sourceHash": "b19c24b46fd1c7d9d1994b0b127e2c9d0a5fdd3d30e9c9b5b8b22f321af24125",
+      "origin": "machine",
+      "message": "אם הקיבוע קיים והכתובת עדיין משתנה, השרת אינו משתמש ב-client-id כמפתח: הגדירו לאורח זה הקצאה שמורה, או קצרו את החכירה כדי שהכתובות המבוזבזות יחזרו לשימוש"
+    },
+    "remediation.operator_12936401977348b5": {
+      "sourceHash": "45dcd7652a737ec620fc0e33ddc30e79b3270feca67fe3c6058a406f0d701a01",
+      "origin": "machine",
+      "message": "אם התהליך נתקע באותה כתובת URL בכל מחזור, התייחסו לכך כהשבתה של שרת מראה במעלה הזרם ולא כתקלה באורח"
+    },
+    "remediation.operator_14bd8c7afa68b453": {
+      "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
+      "origin": "machine",
+      "message": "הריצו שוב את הרצף מהשלב שנכשל"
+    },
+    "remediation.operator_14e6c2ed2ffe7e89": {
+      "sourceHash": "caf1b20af9b3193e211f65a2296b8bd812e990da65a19eb1229a2967f5400354",
+      "origin": "machine",
+      "message": "שירות שעבר לכתובת אחרת ולא הפסיק לפעול אינו דורש כאן פעולה -- מנגנון הגילוי מבצע שאילתה מחדש בכל ניסיון, ולכן המחזור הבא מוצא את הכתובת החדשה בעצמו"
+    },
+    "remediation.operator_17b1fce158581db3": {
+      "sourceHash": "30d2f66304d5750e47b3ca6d750d3ebc02be010ca71d63d10a193ade570f2a98",
+      "origin": "machine",
+      "message": "  התהליך המחזיק שייך למשתמש אחר (השקע שלו מוסתר מ-lsof⁦/netsh⁩ ללא הרשאות מוגברות)."
+    },
+    "remediation.operator_19c29f3d7af84089": {
+      "sourceHash": "fbfa37e09d21797817accc0155113f8facdd38a7f915f4a4d1d05087db8f567d",
+      "origin": "machine",
+      "message": "אפסו את סיסמת האורח (או החליפו את הרשומה בכספת) לפני ניסיון חוזר"
+    },
+    "remediation.operator_1fcd1c46f3e49adb": {
+      "sourceHash": "8131e8982b9a019bd31ee4ee3369631e65b4e3e670cea9ab8c7bd83c89cb5f31",
+      "origin": "machine",
+      "message": "wait_timeout אצל {vmName}: משך הזמן של waitForSeconds חלף ללא שינוי שניתן לצפות בו. ההמתנה אינה תלויה במצב האורח; בטוח לנסות שוב מיד."
+    },
+    "remediation.operator_20e82ed313adaba2": {
+      "sourceHash": "70dad3a8bc1a5e1836fd1e319037b51e263aa2fa5d749695100526fa5d89f743",
+      "origin": "machine",
+      "message": "אפילו lsof בהרשאות root לא מצא תהליך שמחזיק ביציאה זו ושניתן לעצור"
+    },
+    "remediation.operator_229beccf1c8615fb": {
+      "sourceHash": "04af06c48df86edc8531d80534aaf98ddf980104da4b2449cdf91cefb49d782a",
+      "origin": "machine",
+      "message": "רשמו מטפלי התאוששות מובנים"
+    },
+    "remediation.operator_25ef3aa3a8d0b7fb": {
+      "sourceHash": "905c38cd0ac9a2b5df7e0f871a5d38eab6a96b3195cd3dfcda9f049ffb8e15da",
+      "origin": "machine",
+      "message": "טפלו בכשל שבבסיס הבעיה"
+    },
+    "remediation.operator_26e79b3ecf42c48e": {
+      "sourceHash": "7d365d328289cd82193e91b5d68f9c10ad7255077946d4a6371d038c680cf1fe",
+      "origin": "machine",
+      "message": "הריצו ⁦Disconnect-VNC⁩ עבור המכונה הווירטואלית המושפעת"
+    },
+    "remediation.operator_2ad54514c8ca7909": {
+      "sourceHash": "1148d52540ccb10f80184d31c6bee952b3349f90e1473adf05b274743666ecf9",
+      "origin": "machine",
+      "message": "מרשם ⁦Test.Remediation⁩"
+    },
+    "remediation.operator_2aed02135c2ad75f": {
+      "sourceHash": "8b6baba9eb4463de06cb3962794cd31dea8dcada1e195cd9a1307b6e757a5b34",
+      "origin": "machine",
+      "message": "בדקו בסעיף NETWORK של אבחון האורח אם מקורות של שרתי מראה לחבילות תקועים או איטיים"
+    },
+    "remediation.operator_2b9a82d1d78b3138": {
+      "sourceHash": "c3adaf3f12b85124e2ad7a80986eb3273cd8dc79e98d466da51deb4824151a75",
+      "origin": "machine",
+      "message": "project_access_denied אצל {vmName}: המאגר הקצה למארח זה projectUrl שפרטי ההזדהות שלו ל-git אינם מאפשרים לקרוא (מאגר קוד פרטי, או אסימון ללא גישה). שום ניסיון חוזר לא יצליח -- פרטי ההזדהות מקומיים למארח וההקצאה נעשתה במקום אחר -- ולכן כשל זה לעולם אינו נכנס למנגנון ההשהיה בין ניסיונות. בשונה מ-bootstrap_sync, שבו שכפול הפרויקט של המארח עצמו נכשל: כאן התיקון באחריות מי שהקצה את ערכת הבדיקות של המאגר."
+    },
+    "remediation.operator_2be2a7b55fde9058": {
+      "sourceHash": "80bc475ab2eb232d1abde655975137964946e5b910e0d866fc6c3a6f01d61d31",
+      "origin": "machine",
+      "message": "ישבו את ההבדלים במאגר הקוד, ואז הריצו שוב את המחזור"
+    },
+    "remediation.operator_2d28084c0bea1d81": {
+      "sourceHash": "e7c9209349836382ed74e0e2653470d2f655450982226674e82c741f6f91aa36",
+      "origin": "machine",
+      "message": "תקנו את הסקריפט שבבסיס הבעיה"
+    },
+    "remediation.operator_2e1e64b6924ab3ed": {
+      "sourceHash": "40a708c230fc45b6e49ec48bccf719151a35b680f56487941f567c5f88703649",
+      "origin": "machine",
+      "message": "ודאו שתמונת המצב בשם שצוין קיימת ועקבית"
+    },
+    "remediation.operator_2fa001ad26748ebc": {
+      "sourceHash": "f38d5cdd0dcdaaea22c90846dfe9ad30a432f37014c81b2c3fae5afcef0984d6",
+      "origin": "machine",
+      "message": "המתינו 5-30 s עם שונות אקראית (ראו ⁦Get-PollDelay⁩)"
+    },
+    "remediation.operator_31b3d0d03fc33e59": {
+      "sourceHash": "58742480d4f3b389ad2515ac94cc4748aa56576e6a72905911e86420f3617d78",
+      "origin": "machine",
+      "message": "האבחנה שנרשמה"
+    },
+    "remediation.operator_328d54082fe46c95": {
+      "sourceHash": "4709a0207b2862571782779a4fd1f982319fc316e06bf8f7e256fb7adbc0a608",
+      "origin": "machine",
+      "message": "או עברו לברירת המחדל 'unknown', שגם לה אין כרגע מטפל"
+    },
+    "remediation.operator_331d83be3f8e49ab": {
+      "sourceHash": "c3b75ef4ff4143c44311d117f83f98b0a5d784fc495f88909f01f9c8d4dc7109",
+      "origin": "machine",
+      "message": "עצרו את תהליך pwsh היתום שמחזיק ביציאה"
+    },
+    "remediation.operator_36573af397a13ade": {
+      "sourceHash": "e05476546d89c81315e0bf60ca2fe1f1c32229ce404577b5a16c1b283209b859",
+      "origin": "machine",
+      "message": "⁦Repair-ScreenshotRing⁩ משחזר את הלכידה; חזרה על הפעולה אינה משנה את התוצאה"
+    },
+    "remediation.operator_38a152014944599f": {
+      "sourceHash": "f2ab689086d964546705e366b4a226a5d1eb72592856b8c7e884d2fbb7c33496",
+      "origin": "machine",
+      "message": "בדקו את test⁦/status/extension/authentication/vault.yml⁩ עבור האורח המושפע"
+    },
+    "remediation.operator_3b44f5cc88984d87": {
+      "sourceHash": "c87c0cbf5e852ec9bf66bd3609dc832c694afa5bddfd824d24fdfa6eb965176f",
+      "origin": "machine",
+      "message": "⁦Invoke-Remediation⁩: הקובץ {lastFailurePath} אינו קיים; אין מה לבצע."
+    },
+    "remediation.operator_3d90ab28ad1f16f9": {
+      "sourceHash": "8f33a6e83de874a2bddde82ad73f248abdfe9453cceafb975d76e4ad1a95e0f7",
+      "origin": "machine",
+      "message": "אם הבעיה נמשכת, ודאו שהאורח אותחל ושמתאם הרשת שלו מחובר לרשת הצפויה"
+    },
+    "remediation.operator_3f388f3f584a1034": {
+      "sourceHash": "0ec787cfbf80be1eef567e03f6f67eaa4bf84e24d9020efa0790f3bf41b9164f",
+      "origin": "machine",
+      "message": "⁦Invoke-Remediation⁩: אין YURUNA_LOG_DIR ואין ⁦-LastFailurePath⁩; אין מה לבצע."
+    },
+    "remediation.operator_3f8475af2fbbaf26": {
+      "sourceHash": "0099a73a0f570510c54d9f195caf0f63b8ba299c6dc2b7ee8d6a4ec97d0c1c43",
+      "origin": "machine",
+      "message": "הוציאו משימוש מארחים שאינם פעילים באמצעות test⁦/pool/Remove-PoolHost.ps1⁩, שמסיר גם את תיקיית השורש של הארכיון שלהם (כולל תיקייה מלפני האיחוד)"
+    },
+    "remediation.operator_4046c1f6949f7aad": {
+      "sourceHash": "70630cc8bbfc34df4dd4d2f487d2562c6a9ce5e188fe5d07add4f577d1d2ab10",
+      "origin": "machine",
+      "message": "תקיעה בתעבורה, לא תשובה שגויה"
+    },
+    "remediation.operator_424dd8ef292c44da": {
+      "sourceHash": "1e8355d5a7d4a6f981285d2a666f9c8909dbb0a80de2980664814b15cfc4344d",
+      "origin": "machine",
+      "message": "  פתרו באחת מהדרכים הבאות:\n    - עצרו את status service של הבעלים האחר (ייתכן שהוא שייך לחשבון משתמש אחר); או\n    - הקצו לעותק עבודה זה יציאה משלו ב-test⁦/test.config.yml⁩ (⁦statusService.port⁩) והריצו שוב."
+    },
+    "remediation.operator_4398282a54e50a13": {
+      "sourceHash": "3d7caffa9dd2b1fd97f63685bb92e04470614e5057208b522d0b6340d3e501fc",
+      "origin": "machine",
+      "message": "pool_storage_full: בשיתוף המאגר לא נותר מקום לתוצאות המחזור של מארח זה, ולכן לא ניתן היה להעביר את פלט המחזור לארכיון. שום פעולה של רכיב ההרצה לא תשנה זאת -- אין לו ארכיונים משלו למחיקה, והמחזור הבא רק יפיק עוד נתונים לאחסון. במצב move השיתוף מחזיק בעותק היחיד של תוצאות המחזור, ולכן השמירה בארכיון היא חובה והמחזורים נשארים בהשהיה עד שיתפנה מקום.{detail}"
+    },
+    "remediation.operator_442f164764fa5ba8": {
+      "sourceHash": "b8cb8d4da38a75911a0500450b6ed73bddd1a7f52b5d149a4c1d89f85dfbea10",
+      "origin": "machine",
+      "message": "לא ניתן היה לפענח את ⁦last_failure.json⁩: {message}"
+    },
+    "remediation.operator_443019dfa8dbce7c": {
+      "sourceHash": "a1c4e0e978982daa469b685f4754ccfffdb0cb685977f21082d6cea0e9c989f8",
+      "origin": "machine",
+      "message": "פתחו את ⁦last-fetch-and-execute.log⁩ שבתיקיית המחזור"
+    },
+    "remediation.operator_4fccd2ceaaf44c3a": {
+      "sourceHash": "35c35df5c8a5602cd8b3a037411057db7bb82b38701acc94f2f7705d6a9e1334",
+      "origin": "machine",
+      "message": "בדקו אם יש ב-project⁦/test/test.runner.yml⁩ רשומות כפולות או פגומות"
+    },
+    "remediation.operator_54b0e080b8e528c6": {
+      "sourceHash": "52b49bb375e6ca358c95d20cbb9afbd3adcb21949f2dcdc5bc53e19a366559ae",
+      "origin": "machine",
+      "message": "plan_invalid אצל {vmName}: תוכנית המחזור אינה חד-משמעית או שלא ניתן לממש אותה (רצף כפול, מנגנון ביצוע שחסר במארח, או תיקיית host/⁦<host>⁩/⁦<guest>⁩ חסרה). זו שגיאת תצורה שאינה ניתנת לתיקון אוטומטי."
+    },
+    "remediation.operator_5a4aff635afbeff4": {
+      "sourceHash": "9ab7de6ae4120922665b605f8d6d7f502bc11fdcb6d30016bfa88c921b71f41d",
+      "origin": "machine",
+      "message": "הפעילו מחדש את test⁦/Start-TestRunner.ps1⁩; בדיקת ההרשאות המוגברות בהפעלה מאמתת את המארח לפני המחזור הראשון"
+    },
+    "remediation.operator_5c64242438df86ec": {
+      "sourceHash": "fe9b586f10d21f34834da87907cc0584438d8335072f5e9729a9fad0e89c5fdd",
+      "origin": "machine",
+      "message": "status service של Yuruna כבר מגיב ביציאה {port}{suffix} -- הוא הופעל מעותק עבודה אחר או בידי משתמש אחר."
+    },
+    "remediation.operator_5d3d876075d1100d": {
+      "sourceHash": "029d6d8cc4d7c51718b0cca66593fc536ff9d7d217ca8303bf01850040cadb35",
+      "origin": "machine",
+      "message": " השהיה ביוזמת מפעיל שנמשכה {heldSecs}s הסתיימה ממש לפני שלב זה: האורח המשיך לפעול במהלכה, ולכן כל מה שהדפיס ואינו מדפיס שוב כבר אינו מוצג במסך שהשלב נדרש לקרוא לאחר מכן."
+    },
+    "remediation.operator_5db26636a6ed4019": {
+      "sourceHash": "0d4ad90e596516a4c965faaf81558362726348d51f52d6a885e98339de40dff6",
+      "origin": "machine",
+      "message": "פלט stderr של lsof: {trimErr}"
+    },
+    "remediation.operator_6097b95aeee20519": {
+      "sourceHash": "3d863de681c9de4c3cb430a233ea7fec6ae581f0e527cf5896469027cae2ba44",
+      "origin": "machine",
+      "message": "במסוף המארח, בדקו את {switchText} ({verdictText}): הריצו ⁦Get-VMSwitch⁩, ואז ⁦Get-NetAdapter⁩ עבור התיאור שמצוין בו"
+    },
+    "remediation.operator_644fe260c47d5bf9": {
+      "sourceHash": "4591997ddb049b7a2131b8945701fb576d2a3043566900de3b974818f1a388c8",
+      "origin": "machine",
+      "message": "wait_timeout אצל {vmName}: סמן ההשלמה של fetchAndExecute לא הופיע, ולכן סקריפט האורח עדיין פעל (או היה תקוע) במועד הסיום -- לרוב עקב המתנה לשרת מראה לחבילות שהיה איטי או תקוע. לא הודפס תג כשל, ולכן זו אינה שגיאה שדווחה בידי הסקריפט; השהיה לפני ניסיון חוזר בדרך כלל פותרת אותה."
+    },
+    "remediation.operator_663bef65292f201c": {
+      "sourceHash": "d1908b199d6d24b2fa2f7fd26b086d24ba62e9c3bb561bcb2baa8fb2cb4649dc",
+      "origin": "machine",
+      "message": "הפעילו את השירות שצוין במקומו המתאים: test⁦/service/Start-⁩⁦<Service>⁩⁦VM.ps1⁩ במארח שלו, וודאו ש-⁦/healthz⁩ מגיב משם"
+    },
+    "remediation.operator_676a299116f4813d": {
+      "sourceHash": "bdb21dbfaeb33a58cc6ff8c971dd621440b4ad16e7a8ff1b53b2f206e2bb1e26",
+      "origin": "machine",
+      "message": "לא רשום מטפל עבור failureClass '{failureClass}' ולא קיימת חלופת 'unknown'."
+    },
+    "remediation.operator_6856d456910a252e": {
+      "sourceHash": "afec8965e806ac421125813282488764ffc25d2a257a2b8bb01f03ce24c56151",
+      "origin": "machine",
+      "message": "עצרו את התהליך שמחזיק ביציאה {port}"
+    },
+    "remediation.operator_688a7e15ea7edf9c": {
+      "sourceHash": "98ab65617597e1908237eff3fd07ed572b09ad72c8f86a478ee5983e5f50037f",
+      "origin": "machine",
+      "message": "אלצו את פקודת Send-* הבאה לבצע שוב לחיצת יד"
+    },
+    "remediation.operator_6957eec58bdf4cad": {
+      "sourceHash": "3c45374b1efb16c6086074cfc2d09b967f8187745c85c2a2be85e705e7bb1873",
+      "origin": "machine",
+      "message": " הכתובת השתנתה: {prev} -> {cur}."
+    },
+    "remediation.operator_6a7069cdf541164d": {
+      "sourceHash": "039cd7365e42f68e6f8bc3f5d91475fcd2caac25fcdc5358d0f314cd49f3fbd3",
+      "origin": "machine",
+      "message": "הריצו שוב את שלב ההמתנה שנכשל."
+    },
+    "remediation.operator_6a9db7b61b4925ae": {
+      "sourceHash": "6c7a45c81f4191a664d5c8a13e680f932b137ccb88c353291e2737408ebe3f9b",
+      "origin": "machine",
+      "message": "אם השלב הוא waitForAndEnter, ההגדרה blindAfterSeconds מאפשרת לו לענות בעצמו לבקשת הקלט בהרצה הבאה"
+    },
+    "remediation.operator_6c024e2aae3f4e0b": {
+      "sourceHash": "1eac69d8192c205351e72b02de56d3d6281ba673c0dc33f234d22ee1e5f32b88",
+      "origin": "machine",
+      "message": "זהו את תחום ההרחבה שנכשל (אימות, התראות וכדומה)"
+    },
+    "remediation.operator_6cc507ac627ec13c": {
+      "sourceHash": "b2d725565cd4ca53b612a6ff533d0b2d747fb77ffa9fa5418f3181843cd5e9f5",
+      "origin": "machine",
+      "message": "  גם ניסיון השתלטות בהרשאות מוגברות לא שחרר את היציאה: {detail}"
+    },
+    "remediation.operator_6cf224bfd1008ecc": {
+      "sourceHash": "5be0e81d5f92ef86662cc55ba64bd79a2c687ab65c5a35da1fe227784ca27598",
+      "origin": "machine",
+      "message": "ודאו שפרטי ההזדהות / האסימון למאגר המרוחק של git עדיין תקפים"
+    },
+    "remediation.operator_6ece8bcef4b26107": {
+      "sourceHash": "16aeba57735c1445fb92ce085330bc0c43c433334b0300f9f1178eec37483589",
+      "origin": "machine",
+      "message": "אם הניסיונות החוזרים מוצו, עברו ל-operator_intervention_required"
+    },
+    "remediation.operator_6fd79eb4d8f46b60": {
+      "sourceHash": "ab9d6f187bbe1ef010e3e943763c60fb491e9216bd1f4fb0d6946609b58c8dbb",
+      "origin": "machine",
+      "message": "פתחו את ⁦last-fetch-and-execute.log⁩ שבתיקיית המחזור ובדקו היכן הוא נעצר -- יומן ללא סיומת '# exit code:' משמעו שהסקריפט מעולם לא החזיר שליטה"
+    },
+    "remediation.operator_70fab6da39ee36e1": {
+      "sourceHash": "ab3ced070f1d7289ef9271471a974beb5b9d328278a5053bb8cd283b169578fd",
+      "origin": "machine",
+      "message": "⁦Repair-VncConnection⁩ מחבר מחדש את המסוף; חיבור מחדש פעמיים אינו מזיק"
+    },
+    "remediation.operator_713fbd665e5da4bf": {
+      "sourceHash": "bf36dbf980f3c5b57e833abde325c3585dfd7fe6fedcdd9471eedc7ed4c45abe",
+      "origin": "machine",
+      "message": "לוח בקרת המאגר מסמן את המאגר ומציג את המארחים החסומים"
+    },
+    "remediation.operator_730dca21ad9eda73": {
+      "sourceHash": "fd0770fac26d9f21f648cef97a6687d80e3ac085a0e3669209ea08b5c0528f31",
+      "origin": "machine",
+      "message": "⁦Invoke-Remediation⁩: לא ניתן היה לכתוב את ⁦last_remediation.json⁩: {message}"
+    },
+    "remediation.operator_787985aef3c53e0a": {
+      "sourceHash": "aedee9a95c5a1a5f1f74a0f3f139e3f78a4eaa5a376a8448650e9c6fb8898349",
+      "origin": "machine",
+      "message": "לאורח עדיין לא הייתה חכירה; מחזור מאוחר יותר מוצא בדרך כלל חכירה"
+    },
+    "remediation.operator_7933966c333f63c7": {
+      "sourceHash": "a246b04031cb5b435aed2815c0e575c2b2179e7222da0237030a22c0c2a9ecb8",
+      "origin": "machine",
+      "message": "אמתו את תקינות הקובץ באמצעות visudo -cf לפני שתסתמכו עליו -- קובץ תצורה משלים לא תקין משבש את sudo בכל פקודה"
+    },
+    "remediation.operator_7a0e1aa474da9a62": {
+      "sourceHash": "211bdf5e83380a385e2a7116f37aa80a306632d64074241bab215228fa916bca",
+      "origin": "machine",
+      "message": "payload_unavailable אצל {vmName}: האורח הריץ את מעטפת האחזור ואף מקור לא סיפק את הסקריפט, ולכן דבר לא בוצע -- אין כאן סקריפט לניפוי שגיאות ואין סיבה לחשוד במצב האורח. הסיבה הרגילה היא מארח שכתובתו השתנתה באמצעות DHCP בזמן שהאורח עדיין החזיק בכתובת הישנה; האורח מבצע שאילתה חוזרת לשירות הספרייה של המאגר ובדרך כלל מתאושש בתוך שניות."
+    },
+    "remediation.operator_7c1a5d17f86d77d0": {
+      "sourceHash": "ed83907392d149d62b870541bee91e22a3693c40bfa94f9274bd656b055fb2f2",
+      "origin": "machine",
+      "message": "pattern_matched_failure אצל {vmName}: הפקודה fetchAndExecute זיהתה את failure-end-tag. סקריפט המעטפת עצמו דיווח על כשל; ניסיון חוזר אוטומטי רק יגרום לו שוב."
+    },
+    "remediation.operator_7d87024301324c31": {
+      "sourceHash": "dd4f118e9018695cbd22333e48181ec16aa11a29f691b19d9939dbfc6f1268f8",
+      "origin": "machine",
+      "message": "התהליך המחזיק אינו נגיש לחשבון זה והרשאות מוגברות לא היו זמינות -- ל-sudo אין הרשאה פעילה והרצה זו אינה יכולה לבקש אותה (הריצו 'sudo -v', ואז הריצו שוב)"
+    },
+    "remediation.operator_7db5a2977e4790b2": {
+      "sourceHash": "37ac907a2e4ae70d62cb0bbaabe50e4f55fc6b42f8cc9ab27f67e418c974361f",
+      "origin": "machine",
+      "message": "תקנו את ההרחבה והריצו שוב את המחזור"
+    },
+    "remediation.operator_7fb881306771c597": {
+      "sourceHash": "c47c2dea15f8ddca5fbf329692b8efb23bada210a0bfcccc9e49c70f456f764f",
+      "origin": "machine",
+      "message": "  ההפעלה נדחית: status service נוסף אינו יכול להיקשר לאותה יציאה, והרצת\n  המחזור בלעדיו מסתירה את לוח הבקרה החי / פקדי נקודות העצירה (מצב שקשה לנפות בו שגיאות)."
+    },
+    "remediation.operator_807e58f44f8a5743": {
+      "sourceHash": "dca2ab68cd322252cc85d1935b5ec018d812885b1e0bc7ec7456f61c43eee720",
+      "origin": "machine",
+      "message": "נסו שוב את שלב האינסטרומנטציה שנכשל."
+    },
+    "remediation.operator_82a3c5762fc4648e": {
+      "sourceHash": "cd3dcb024124ad17a9bf13dc157f378960d5c6164dc4c6fe04dcedccaec2ee2c",
+      "origin": "machine",
+      "message": "אבחנו את שגיאת הסקריפט שבבסיס הבעיה"
+    },
+    "remediation.operator_85eda07f90b4d887": {
+      "sourceHash": "b5df336024fe9ef26aa47ce0aa3e35da785d9399c1670607f041b7d4d434c8eb",
+      "origin": "machine",
+      "message": "תקנו את הגורם לחזרה במקום להריץ שוב את ההמתנה -- הארכת הזמן הקצוב אינה יכולה להפוך תצוגה שדורסת את עצמה לקריאה"
+    },
+    "remediation.operator_88121b1e52c84006": {
+      "sourceHash": "66df2b443dd9fb52cda180c38c4eb714c4dffa979e88771714a7c838bfc0d05b",
+      "origin": "machine",
+      "message": "  ההשתלטות על תהליך מאזין שאינו בבעלות מערכת בדיקות זו נדחית."
+    },
+    "remediation.operator_892877bc74922cba": {
+      "sourceHash": "3dbb40608379ed2b981a5bfcf4e2c36554597b700d9b84b64cecfdb87d8578e6",
+      "origin": "machine",
+      "message": "extension_error אצל {vmName}: הפעלת callExtension זרקה חריגה. ניסיון חוזר אוטומטי עלול לחזור בלולאה על אותו פגם בהרחבה או לגרום לחסימת פרטי ההזדהות."
+    },
+    "remediation.operator_8f308f9f27537f47": {
+      "sourceHash": "1ca97fcf1b945e33b14468531528d4a46e29969ca587be086b9bb53e8c0fa1a6",
+      "origin": "machine",
+      "message": "פתחו את מסוף האורח והשיבו לבקשת הקלט שהוא ממתין לה; בקשת קלט שאינה מוצגת במסך עדיין פעילה ועדיין קוראת קלט"
+    },
+    "remediation.operator_8f9d21c7feb1fbde": {
+      "sourceHash": "7f138b749590b85c15dd5c329386a625bb11fcdcedd1f8c12d5be39cee4c06ec",
+      "origin": "machine",
+      "message": "חדשו את הפעולה ידנית לאחר תיקון סיבת השורש"
+    },
+    "remediation.operator_90d007dd21de718a": {
+      "sourceHash": "12eab03cbf71d3a2bb5a794d5c1a397ac03f02edc10ed23344333b76343609a0",
+      "origin": "machine",
+      "message": "lab_dependency_down: שירות מעבדה שמארח זה הצליח לגשת אליו הפסיק להגיב, והמחזור כבר המתין לו -- ובדק שוב בהשהיות בין ניסיונות במשך עד שש עשרה שעות -- לפני שהכשל נרשם. לכן כבר הוכח שנוסה ניסיון חוזר אוטומטי בטווח הזמן היחיד שהיה עשוי להועיל, והמחזור הבא ישקיע את אותן שעות כדי להגיע לאותה תוצאה. השירות גם אינו חייב לפעול במארח זה: במסגרת מאגר הוא בדרך כלל מכונה וירטואלית בבעלות גורם אחר, ולכן זו אינה תקלה במארח ואינה תקלה באורח.{detail}"
+    },
+    "remediation.operator_9151cc4f3b057b44": {
+      "sourceHash": "3366f71669a5a56025a199b723d838f8ff427ea624d07a25456a508a45cde5b7",
+      "origin": "machine",
+      "message": "console_flooded אצל {vmName}: ההמתנה ניצלה את מלוא הזמן שהוקצה לה מול מסוף שדרס את עצמו בשורה אחת חוזרת, ולכן לא ניתן היה לקרוא ממנו את התבנית, בין שהאורח הדפיס אותה ובין שלא. זה אינו אורח שלא הגיע למצב הצפוי -- זהו מסך שלא ניתן היה לקרוא, והרצה חוזרת מציפה שוב את אותו מסך. התוכן החוזר מצביע על הסיבה: אירוע קישור או DHCP שמשנה שוב ושוב את מודל הרשת של תוכנית ההתקנה, לולאת הפעלה מחדש של שירות, או הצפת הודעות ליבה."
+    },
+    "remediation.operator_97b6f714dbde379c": {
+      "sourceHash": "89508cbf13b6bbd7a480f45272212fd7fc972305edf53b7d4a02f4bbbfaf3211",
+      "origin": "machine",
+      "message": "ההשהיה אינה תקציב הזמן של המחזור: אם ידוע למפעילים שההשבתה קבועה, הם מסיימים אותה מדף המצב במקום להמתין לסיומה"
+    },
+    "remediation.operator_992cf1faa91dc2f9": {
+      "sourceHash": "145a72406bbc76318253227427ed543ca8dd7b8c6ff68e51a6abcb736863d828",
+      "origin": "machine",
+      "message": "התהליכים המחזיקים {join} נעצרו בהרשאות מוגברות, אך עדיין לא ניתן להיקשר ליציאה"
+    },
+    "remediation.operator_9944c15ceb34ec02": {
+      "sourceHash": "1db7780beeb7b490331f7b3093855e57d215726f308ed8e13b4228fe54c4b9fc",
+      "origin": "machine",
+      "message": "ייתכן שהתהליך המחזיק שייך למשתמש אחר; נסו שוב באמצעות: sudo lsof -nP -iTCP:{port}"
+    },
+    "remediation.operator_9aa0dd33f9cd273a": {
+      "sourceHash": "6a3b780fb5c4a0303385a177291ef9d1fd01e53c8506bdc7f45ae796ed830810",
+      "origin": "machine",
+      "message": "bootstrap_sync אצל {vmName}: פעולת git fetch⁦/clone⁩ של מאגר הקוד של התשתית או הפרויקט נכשלה מסיבה שאינה קשורה לרשת (התפצלות, אימות או עץ עבודה עם שינויים שלא נשמרו). תקלה רגעית ברשת בלבד מסווגת בשלב מוקדם יותר כ-network_timeout ומנוסה שוב; סיווג זה מכסה את יתר הכשלים שאינם חולפים."
+    },
+    "remediation.operator_9ea01d9a6217232e": {
+      "sourceHash": "c01bba4f32f7da21612e7a2ac0845d955208f7458ff9469bb86fbbf47b441d9c",
+      "origin": "machine",
+      "message": "רכיב ההרצה בודק שוב לפני כל מחזור ומחדש את הפעולה בעצמו כשמתפנה מקום; עריכת תצורה או שינוי קוד חדש שנשמר מסיימים את ההשהיה מיד"
+    },
+    "remediation.operator_9f53aeb17d36bf0e": {
+      "sourceHash": "bcb6fe9d02181adfe81b333cc8eb7daed2b579508807a6a959ffe51b9ea73c58",
+      "origin": "machine",
+      "message": "script_error אצל {vmName}: פקודה שהופעלה באמצעות SSH החזירה קוד שאינו אפס. ניסיון חוזר אוטומטי יחזור בלולאה על אותו פגם בסקריפט."
+    },
+    "remediation.operator_a3827909e7a01825": {
+      "sourceHash": "1a7e8c63cf984f1767ad580d73e37eef863bfab1b9686caf1bd3301f983cd505",
+      "origin": "machine",
+      "message": "המארח איבד את הנתיב שלו; שום דבר במחזור אינו יכול לתקן זאת, והוא מתאושש"
+    },
+    "remediation.operator_ababc4b189a176eb": {
+      "sourceHash": "62cf25f4a79eba7c2a25492e75a69f0b0cb8b7f535170d23d0d2269ed1fdda6e",
+      "origin": "machine",
+      "message": "lsof -nP -iTCP:{port} (בכל מצב) -> ריק"
+    },
+    "remediation.operator_abd632fb4ee5d5b1": {
+      "sourceHash": "c8b9c5c23123b250b1e9b37921f1e6313c56445c5d0eec2d07003d7817eb03c8",
+      "origin": "machine",
+      "message": "host_io_blocked אצל {vmName}: הפקודות ⁦Send-Key⁩ / ⁦Send-Text⁩ / ⁦Send-Click⁩ לא הצליחו להעביר קלט לאורח. סביר שנקודת האחיזה של התעבורה (שקע VNC, ממשק CIM למקלדת Hyper-V) כבר אינה תקפה."
+    },
+    "remediation.operator_ae1a107543e2b1da": {
+      "sourceHash": "5a5ff57ffec095197497dc8efb28fb5e47dd113851b50fd4fbedef4a715762e1",
+      "origin": "machine",
+      "message": "רשמו מטפל באמצעות ⁦Register-RecoveryHandler⁩"
+    },
+    "remediation.operator_b0efdbb198fceec5": {
+      "sourceHash": "4dadff69636744f5454b601b019c6b7056428b8205054c74035df21a476ca680",
+      "origin": "machine",
+      "message": "בדקו את ⁦default.psm1⁩ + .⁦contract.yml⁩ של תחום זה"
+    },
+    "remediation.operator_b4f9634c3488c4e9": {
+      "sourceHash": "8ccf6ae5147497abbeb01f79c7c52673d1fe8d6520c33f3a6a28031892441b94",
+      "origin": "machine",
+      "message": "סווגו את אופן הכשל ושקלו להוסיף FailureClass לפועל הפקודה"
+    },
+    "remediation.operator_b51fc0ab27411fec": {
+      "sourceHash": "702260a6c1079a1a621f4cc5b7302768be8fe5240630ea6a4a2e05a1c2f36ebe",
+      "origin": "machine",
+      "message": "dhcp_identity_unbounded אצל {vmName}: אורח זה נבנה מחדש עם הזהות שהוא אמור לשמור, ובכל זאת שרת DHCP הקצה לו כתובת שונה.{move} אורח שכתובתו אינה נגזרת מזהותו צורך כתובת אחת בכל בנייה, וכל כתובת שננטשה נשארת מוקצית למשך כל החכירה -- כך המאגר נצרך עד תום בקצב שנקבע לפי משך החכירה ולא לפי מספר המכונות הקיימות, ולבסוף האורחים מאתחלים ללא IPv4 כלל. ניסיון חוזר אינו יכול לעזור: הבנייה הבאה מציגה את אותה בקשה ומקבלת עוד כתובת חדשה, ולכן כשל זה לעולם אינו נכלל ברשימות ההיתר לניסיונות חוזרים של כשלים חולפים."
+    },
+    "remediation.operator_b8bc2c014057ea71": {
+      "sourceHash": "82bf4c66329543700bb01315e4c5f58047bd74c7c20cc9b50b3295bb482b38f0",
+      "origin": "machine",
+      "message": "כשל unknown אצל {vmName}: פועל הפקודה שנכשל לא רשם FailureClass. עד שיוגדר סיווג, על המפעילים לבדוק את תוצרי המחזור כדי להחליט."
+    },
+    "remediation.operator_b9a49bf4b1c35603": {
+      "sourceHash": "01fa02006507d8ea61e96bb04a8c7a34d56a4a301ca611e2c92e071825d7a1a6",
+      "origin": "machine",
+      "message": "credential_expired אצל {vmName}: סיסמה שמנוהלת בכספת כבר אינה תואמת למה שהאורח מצפה לו. כמעט בוודאות יש לעדכן את הכספת לפני שהמחזור הבא יוכל להצליח."
+    },
+    "remediation.operator_b9e5f8c44bec51fc": {
+      "sourceHash": "45c0e585c1172fe016e7f7c076faa7ab1727425942152c5462d0bade240107be",
+      "origin": "machine",
+      "message": "שלב חרג מתקציב הזמן שלו; הניסיון הבא מתחיל ממחזור נקי"
+    },
+    "remediation.operator_ba08eed1519e3ec9": {
+      "sourceHash": "e2f4336cb40a0e2dd29e5b50775071637b9153ec01d8d23dded6abc83800396d",
+      "origin": "machine",
+      "message": "יציאת שירות המצב {port} עדיין תפוסה לאחר עצירת תהליכי pwsh היתומים שהחזיקו בה ({join})."
+    },
+    "remediation.operator_bac6cb55b45e16b5": {
+      "sourceHash": "f9442fbad292e939f5ab4379877c27e7517a5287df682849f6a022201cd16dd2",
+      "origin": "machine",
+      "message": "בדקו בתיקיית המחזור את ⁦last-fetch-and-execute.log⁩ או את פלט stderr של sshExec"
+    },
+    "remediation.operator_bb02ee25257cba0d": {
+      "sourceHash": "a6650293ed23f555ea6b4991cc4ff61b46b06bd83ecf82fa6180de941ce88772",
+      "origin": "machine",
+      "message": "host_network_degraded אצל {vmName}: נתיב הרשת לאורחים שמספק המארח פגום, ולא האורח הזה. אובייקט של מתג וירטואלי נשאר קיים לאחר אתחול מחדש של המארח גם כששיוכו לחיבור הרשת היוצא אובד, ולכן המתג עדיין קיים וכל בדיקות המארח עדיין עוברות אף ששום דבר שמחובר אליו אינו מעביר תעבורה -- כל אורח יכול לדווח רק על התסמין שלו. ניסיון חוזר, במחזור זה או במחזור מאוחר יותר, מחבר את האורח הבא לאותו גשר ללא קישור פעיל, ולכן סיווג זה לעולם אינו נכלל ברשימות ההיתר לניסיונות חוזרים של כשלים חולפים ואינו נספר ברצף הכשלים שמוביל לבידוד אורח."
+    },
+    "remediation.operator_16b7173fb133ad34": {
+      "sourceHash": "f4aeed77557e2332ebe046cc9e856272bfa3253577312d8eef7bf32947dbd78d",
+      "origin": "machine",
+      "message": "אם היומן מציג גם שהחלופה דרך GitHub מחזירה 404: נתיב זה אינו יכול לספק מאגר קוד פרטי ללא אסימון, ולכן המארח הוא המקור היחיד שפועל וכל הבעיה היא הנגישות שלו"
+    },
+    "remediation.operator_26c6f6da9a72b538": {
+      "sourceHash": "afed261e39a541d0d848a0172949e066aa27b302883012cf4e547ca0056f6ac8",
+      "origin": "machine",
+      "message": "עיינו בקבצים ⁦last_failure.json⁩ + ⁦manifest.json⁩ + ⁦cycle.events.ndjson⁩"
+    },
+    "remediation.operator_3264b63693a7f3a4": {
+      "sourceHash": "328c6e4fc744c4c61f60001d327da5ebf3af2f0bb99f3e5451579793e796c66a",
+      "origin": "machine",
+      "message": "קראו את ⁦causeDetail.consoleFlood⁩ בקובץ ⁦last_failure.json⁩ כדי לזהות את השורה הדומיננטית ואת חלקה במסך"
+    },
+    "remediation.operator_377f2e3910815162": {
+      "sourceHash": "54d6607000ce35fe72dcb714c40e31a28e6be4bdceb97b9137d0201be213bc6c",
+      "origin": "machine",
+      "message": "העניקו לאסימון GH_TOKEN של מארח זה הרשאת קריאה אל projectUrl שהוקצה"
+    },
+    "remediation.operator_4155d913c9defc45": {
+      "sourceHash": "0f6b9fb72d5fb5d900eb993dcd56e5780463a090433d06396258855ff5e7e15c",
+      "origin": "machine",
+      "message": "קראו את ⁦causeDetail.consoleStaticSeconds⁩ ואת consoleFlood בקובץ ⁦last_failure.json⁩ -- פרק זמן ארוך ללא שינוי עם שורה דומיננטית שחוזרת על עצמה מצביע על אורח שממתין, ולא על הצפת פלט פעילה"
+    },
+    "remediation.operator_86936d1d16cfffed": {
+      "sourceHash": "54a50a071a048dc31a5a13431ed770e6b51b351116d8496581ca6523658a6011",
+      "origin": "machine",
+      "message": "בדקו בטבלת החכירות של השרת את כתובת MAC של אורח זה -- שתי חכירות פעילות לכתובת MAC אחת מעידות שהשרת משתמש כמפתח בערך client-id שהאורח עדיין משנה"
+    }
+  }
+}

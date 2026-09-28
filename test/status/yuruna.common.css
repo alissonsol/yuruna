@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.24
+  Version: 2026.09.27
   --- REGION: https://yuruna.link/42fa6f45-0018
   --- REGION: https://yuruna.link/42fa6f45-001d
   --- REGION: https://yuruna.link/42fa6f45-0019
@@ -385,11 +385,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   Logical properties would express this in one declaration, but they are
-   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
-   the offset silently disappears. So each physical side is restated here for
-   the direction the page actually has. Only the sides are mirrored: sizes,
-   colors and the tick glyph are the same in both directions.
+   The chrome states each physical side and restates it here for the
+   direction the page actually has. Logical properties would say it once, and
+   the Safari 16 floor has them, but the block is compared byte for byte
+   across the stylesheets that carry it, so switching it means changing every
+   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
+   are the same in both directions.
 
    These rules live inside the chrome block because the chrome is shared. Every
    stylesheet carrying the block carries them byte for byte, which the chrome
@@ -467,7 +468,7 @@ button {
   padding: .75rem max(1rem, env(safe-area-inset-right)) .75rem max(1rem, env(safe-area-inset-left)); font-weight: 600; font-size: .875rem;
   transition: background .3s;
 }
-#banner > * + * { margin-left: .625rem; }
+#banner > * + * { margin-inline-start: .625rem; }
 /* --fg-header is white and stays white here, in both color schemes, which is
    only safe because every fill below is a banner-specific token dark enough to
    carry it. Pointing these at the badge-text tokens instead -- which is what
@@ -521,8 +522,8 @@ button {
 @media (max-width: 600px) {
   main {
     max-width: 100% !important;
-    padding-left: .75rem !important;
-    padding-right: .75rem !important;
+    padding-inline-start: .75rem !important;
+    padding-inline-end: .75rem !important;
   }
   /* The gutter is NOT tightened here: the banner keeps the header bar's 1rem
      so the two strips stay flush at every width. Only the wrap changes, so a
@@ -592,9 +593,9 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
   text-transform: none; letter-spacing: normal; color: inherit;
   padding-bottom: .15rem; margin-bottom: .5rem;
 }
-.section-title.with-controls > * + * { margin-left: .75rem; }
+.section-title.with-controls > * + * { margin-inline-start: .75rem; }
 .section-title.with-controls .section-title-link {
-  margin-left: auto; flex: 0 0 auto;
+  margin-inline-start: auto; flex: 0 0 auto;
   font-size: .8125rem; font-weight: 500;
   text-transform: none; letter-spacing: normal;
   color: var(--section-link); text-decoration: underline dotted;
@@ -637,12 +638,3 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
   padding: .125rem .375rem; border-radius: .25rem;
   font-family: var(--font-mono); font-size: .8125rem;
 }
-
-/* --------------------------------------------------------------------------
-   Right-to-left mirror. Logical properties would say this once, but they are
-   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
-   offset silently disappears -- so each side is restated for the direction the
-   page has. Sides only: sizes and colors are the same either way.
-   -------------------------------------------------------------------------- */
-[dir="rtl"] #banner > * + * { margin-left: 0; margin-right: .625rem; }
-[dir="rtl"] .section-title.with-controls > * + * { margin-left: 0; margin-right: .75rem; }

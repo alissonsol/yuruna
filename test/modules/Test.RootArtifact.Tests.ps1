@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42662cde-638a-419a-a7c9-d2c8c08c9b0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,5 +153,23 @@ Describe 'Write-YurunaRootArtifactReport' {
         Assert-Equal 0 @($out).Count -Because 'silent when there is nothing to say'
         $out = Write-YurunaRootArtifactReport -Artifact $null -InformationAction Continue 6>&1
         Assert-Equal 0 @($out).Count -Because 'null tolerated'
+    }
+}
+
+if (-not $IsWindows) {
+    Describe 'Root artifact collection preserves individual records' {
+        It 'reports two repository directories and one mount separately' {
+            Mock Get-YurunaRootOwnedRepoFile -ModuleName Test.RootArtifact {
+                [pscustomobject]@{Kind='repo-file';Target='/repo/one';Summary='one'}
+                [pscustomobject]@{Kind='repo-file';Target='/repo/two';Summary='two'}
+            }
+            Mock Get-YurunaRootOwnedMount -ModuleName Test.RootArtifact { [pscustomobject]@{Kind='mount';Target='/mount';Summary='mount'} }
+            Mock Get-YurunaRootHomeArtifact -ModuleName Test.RootArtifact { $null }
+            $records = @(Get-YurunaRootArtifact -RepoRoot $TestDrive)
+            Assert-Equal 3 $records.Count
+            Assert-Equal '/repo/one' $records[0].Target
+            Assert-Equal '/repo/two' $records[1].Target
+            Assert-Equal '/mount' $records[2].Target
+        }
     }
 }

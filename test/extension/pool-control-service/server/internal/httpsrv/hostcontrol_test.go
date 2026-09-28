@@ -358,13 +358,12 @@ func TestApplyValidatesItsRequest(t *testing.T) {
 	}
 }
 
-// A per-host refresh action (not yet implemented anywhere in hostctl) belongs
-// to a single explicitly authorized host, never to this pool-wide fan-out.
-// hostctl.KnownAction("refresh") is already false today, so this would 400
-// either way -- the point of asserting the SPECIFIC message is to fail this
-// test if the independent check is ever deleted in favor of relying on that
-// coincidence, which stops holding the day a per-host refresh action is
-// added to hostctl for its own, separately authorized route.
+// A refresh belongs to a single explicitly authorized host, never to this
+// pool-wide fan-out: it is the typed per-host hostctl.Refresh method behind
+// its own credential gate, and never a hostctl.KnownAction. KnownAction
+// ("refresh") is false, so this would 400 either way -- the point of asserting
+// the SPECIFIC message is to fail this test if the independent check is ever
+// deleted in favor of relying on that list, which a later action could change.
 func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")

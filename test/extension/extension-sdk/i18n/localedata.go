@@ -8,16 +8,20 @@ package i18n
 // generatedSupported decides that.
 var generatedLocaleData = map[string]LocaleData{
 	"en-US":     {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "ltr"},
+	"he-IL":     {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "he-cardinal-cldr46", Direction: "rtl"},
 	"pt-BR":     {Group: ".", Decimal: ",", GroupSize: 3, PluralRule: "pt-cardinal-cldr46", Direction: "ltr"},
 	"qps-Ploc":  {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "ltr"},
 	"qps-Plocm": {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "one-if-1", Direction: "rtl"},
+	"zh-CN":     {Group: ",", Decimal: ".", GroupSize: 3, PluralRule: "zh-cardinal-cldr46", Direction: "ltr"},
 }
 
 // generatedSupported is the set a request may actually resolve to. A locale
-// whose catalog is not reviewed is not in it, however complete its data looks.
+// must be enabled in the manifest; machine drafts and accepted text both ship.
 var generatedSupported = []string{
 	"en-US",
+	"he-IL",
 	"pt-BR",
+	"zh-CN",
 }
 
 // generatedPseudo is the locales that exist only to make a translation
@@ -32,14 +36,21 @@ var generatedPseudo = []string{
 // generatedAliases maps a canonical tag the manifest does not ship to the one
 // it says answers for it. Keys are lowercased for lookup.
 var generatedAliases = map[string]string{
-	"en":    "en-US",
-	"pt":    "pt-BR",
-	"pt-pt": "pt-BR",
+	"en":         "en-US",
+	"he":         "he-IL",
+	"iw":         "he-IL",
+	"iw-il":      "he-IL",
+	"pt":         "pt-BR",
+	"pt-pt":      "pt-BR",
+	"zh":         "zh-CN",
+	"zh-hans":    "zh-CN",
+	"zh-hans-cn": "zh-CN",
+	"zh-sg":      "zh-CN",
 }
 
 const generatedDefault = "en-US"
 const generatedMaxTagLength = 35
 const generatedMaxHeaderLength = 512
 
-const generatedCatalogVersion = "2026.09.24"
-const generatedCatalogHash = "b5129266d8f754b79f320dc4e156671167bc01a0819d516857ac69dfea263083"
+const generatedCatalogVersion = "2026.09.27"
+const generatedCatalogHash = "3f8f7b66ad72ce42e393a4c135f22ddfdf593c88b0a447b799279e4b97457f05"

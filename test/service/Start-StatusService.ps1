@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,11 +33,43 @@
 .PARAMETER Restart
     Stop any existing server before starting a new one. Use this after
     a git pull or config change to ensure the server picks up new files.
+
+.PARAMETER RefreshSafe
+    Start the service only if it is positively absent, and never disturb
+    anything else. This is the start a host refresh uses to bring the listener
+    back: it never stops a process, never takes a port from another owner,
+    never restarts a live server whose framework commit changed, and never
+    runs the startup sweeps that clear control files or rewrite status.json.
+    An owned server that answers is left running (existing-ready); an owned
+    server that does not answer, a pidfile whose owner cannot be identified,
+    a port held by anyone else, or a concurrent start is reported and left
+    alone. Must run as its own process (pwsh -File): it ends with an explicit
+    exit code, 0 for existing-ready or started, 2 for a start it could not
+    complete, 1 for an invocation it refused. Requires YURUNA_RUNTIME_DIR to
+    name the owning runtime directory.
+
+.PARAMETER ResultPath
+    RefreshSafe only: where to write the outcome record
+    {schemaVersion, outcome, port, pid, startTimeUnixMs, sha, shaMatches,
+    reason}. Callers read this file rather than parsing output. It must lie
+    outside the status, runtime, log and repository directories, all of which
+    the service serves.
+
+.PARAMETER DeadlineTickMs
+    RefreshSafe only: the boot-relative tick ([Environment]::TickCount64) by
+    which the start must finish. Clamped to at most two minutes from now;
+    defaults to one minute. Every wait derives from it.
 #>
 
+[CmdletBinding(DefaultParameterSetName = 'Normal')]
 param(
+    [Parameter(ParameterSetName = 'Normal')]
+    [Parameter(ParameterSetName = 'RefreshSafe', Mandatory)]
     [int]$Port = 0,
-    [switch]$Restart
+    [Parameter(ParameterSetName = 'Normal')][switch]$Restart,
+    [Parameter(ParameterSetName = 'RefreshSafe', Mandatory)][switch]$RefreshSafe,
+    [Parameter(ParameterSetName = 'RefreshSafe')][string]$ResultPath,
+    [Parameter(ParameterSetName = 'RefreshSafe')][ValidateRange(1, [long]::MaxValue)][long]$DeadlineTickMs
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -65,12 +97,129 @@ $ModulesDir = $paths.ModulesDir
 # Test.PortOwner, and Test.HostContract -- one call replaces five inline imports
 # spread across the bootstrap section of this script.
 Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
+# The startup lock, the refresh-safe outcome record and the ownership check.
+# -Global without -Force: this script is also &-invoked inside the inner
+# runner, where reloading the lock module would discard its record of locks
+# that process already holds.
+Import-Module (Join-Path $ModulesDir 'Test.StateFile.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.SingleFlightLock.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.StatusControlRoute.psm1') -Global -DisableNameChecking
+
+# --- REGION: Startup serialization and the refresh-safe outcome
+# Two starts for one runtime must not interleave: a start that finds a server
+# not yet answering reads it as dead, and the normal path then stops it. The
+# startup lock serializes them. It lives in the private state root, keyed by
+# runtime, because the runtime directory is served and lock metadata there
+# would be public, and so two checkouts' listeners never wait on each other.
+# The normal start waits a bounded time and then proceeds without it (a
+# start that never happens is worse than the race); the refresh-safe start
+# refuses instead, because its whole promise is to disturb nothing.
+#
+# The lock is an open handle held by this process. The normal start is
+# &-invoked inside the long-lived inner runner, so a handle that leaked past
+# this script would block every later start for the life of that process:
+# every exit below releases it first, and the trap releases it on any
+# uncaught error while letting the error propagate unchanged (the tagged
+# port-conflict exception included).
+$script:StatusStartupLock = $null
+$script:RefreshSafeResultPath = $null
+$script:RefreshSafeDeadline = $null
+function Exit-StatusServiceStartupLock {
+    [CmdletBinding()]
+    param()
+    if ($null -ne $script:StatusStartupLock) {
+        try { Exit-YurunaSingleFlightLock -Lock $script:StatusStartupLock } catch { Write-Verbose "startup lock release failed: $($_.Exception.Message)" }
+        $script:StatusStartupLock = $null
+    }
+}
+function Complete-RefreshSafeStart {
+    <#
+    .SYNOPSIS
+        End a refresh-safe start: write the outcome record, report it,
+        release the startup lock and exit with the outcome's code.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('existing-ready', 'started', 'existing-unresponsive', 'unknown-owner', 'port-conflict',
+            'port-privilege-required', 'start-timeout', 'admission-busy', 'launch-failed', 'generation-failed', 'invalid-invocation')]
+        [string]$Outcome,
+        [string]$Reason = '',
+        [int]$ProcessId = 0,
+        [long]$StartTimeUnixMs = 0,
+        [string]$Sha = '',
+        [Nullable[bool]]$ShaMatches
+    )
+    $code = switch ($Outcome) { 'existing-ready' { 0 } 'started' { 0 } 'invalid-invocation' { 1 } default { 2 } }
+    if ($script:RefreshSafeResultPath) {
+        $record = [ordered]@{
+            schemaVersion   = 1
+            outcome         = $Outcome
+            port            = $Port
+            pid             = $ProcessId
+            startTimeUnixMs = $StartTimeUnixMs
+            sha             = $Sha
+            shaMatches      = $ShaMatches
+            reason          = $Reason
+        }
+        if (-not (Write-YurunaStateFileJson -Path $script:RefreshSafeResultPath -InputObject $record -Confirm:$false)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_result_unwritable' -Arguments @{ path = $script:RefreshSafeResultPath })
+        }
+    }
+    switch ($Outcome) {
+        'existing-ready' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_existing_ready' -Arguments @{ processId = $ProcessId; port = $Port }) }
+        'started' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_started' -Arguments @{ processId = $ProcessId; port = $Port }) }
+        'invalid-invocation' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_refused' -Arguments @{ reason = $Reason }) }
+        default { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_partial' -Arguments @{ port = $Port; outcome = $Outcome; reason = $Reason }) }
+    }
+    Exit-StatusServiceStartupLock
+    exit $code
+}
+# A trap covers its whole scope, including the imports above that run before
+# the helper exists; calling it unguarded there would replace the real error
+# with "Exit-StatusServiceStartupLock is not recognized".
+trap {
+    if (Get-Command -Name 'Exit-StatusServiceStartupLock' -CommandType Function -ErrorAction SilentlyContinue) { Exit-StatusServiceStartupLock }
+    break
+}
+
+if ($RefreshSafe) {
+    $script:RefreshSafeDeadline = New-YurunaDeadlineFromExpiry -MaximumMilliseconds 120000 -ExpiryTick $(
+        if ($PSBoundParameters.ContainsKey('DeadlineTickMs')) { $DeadlineTickMs } else { [Environment]::TickCount64 + 60000 })
+    if ($ResultPath) {
+        # Checked here against the roots known before the runtime is, so even
+        # a refusal of the runtime itself leaves a record; checked again below
+        # once the runtime and log directories are resolved.
+        $resultFull = [System.IO.Path]::GetFullPath($ResultPath)
+        if ((Test-StatusPathOutsideServedRoot -Path $resultFull -ServedRoot @($RepoRoot, $StatusDir, $env:YURUNA_RUNTIME_DIR, $env:YURUNA_LOG_DIR)) -and
+            [System.IO.Directory]::Exists([System.IO.Path]::GetDirectoryName($resultFull))) {
+            $script:RefreshSafeResultPath = $resultFull
+        } else {
+            # A result the caller would read is refused rather than written
+            # into a served tree or a directory that does not exist.
+            Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
+        }
+    }
+    # The owning runtime is an input here, never a default: a refresh that
+    # starts a listener for a different runtime restores nothing.
+    if ([string]::IsNullOrWhiteSpace($env:YURUNA_RUNTIME_DIR) -or -not [System.IO.Directory]::Exists($env:YURUNA_RUNTIME_DIR)) {
+        Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'runtime-unresolved'
+    }
+    if ($Port -lt 1 -or $Port -gt 65535) {
+        Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'port-invalid'
+    }
+}
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 $RuntimeDir = $env:YURUNA_RUNTIME_DIR
 $LogDir     = $env:YURUNA_LOG_DIR
 
 $PidFile = Join-Path $RuntimeDir "server.pid"
+$ServedRootSet = @($RepoRoot, $StatusDir, $RuntimeDir, $LogDir)
+
+if ($script:RefreshSafeResultPath -and -not (Test-StatusPathOutsideServedRoot -Path $script:RefreshSafeResultPath -ServedRoot $ServedRootSet)) {
+    $script:RefreshSafeResultPath = $null
+    Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
+}
 
 if ($Port -le 0) {
     $configPath = Join-Path $TestRoot "test.config.yml"
@@ -81,6 +230,28 @@ if ($Port -le 0) {
         } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b679e6af39104f7b' -Arguments @{ value = "$_" }) }
     }
     if ($Port -le 0) { $Port = 8080 }
+}
+
+$startLockInfo = $null
+try {
+    $startLockInfo = Get-YurunaPrivateStatePath -Name ("status-service.{0}.start.lock" -f (Get-StatusRuntimeKey -RuntimeDir $RuntimeDir)) -ServedRoot $ServedRootSet
+} catch { Write-Verbose "startup lock path unresolved: $($_.Exception.Message)" }
+if ($startLockInfo -and $startLockInfo.Resolved) {
+    $startLockWaitMs = if ($RefreshSafe) {
+        [int][Math]::Min(5000, [Math]::Max(0, (Get-YurunaDeadlineRemainingMs -Deadline $script:RefreshSafeDeadline) - 1000))
+    } else { 15000 }
+    $startLock = Enter-YurunaSingleFlightLock -Path $startLockInfo.Path -WaitMilliseconds $startLockWaitMs `
+        -Metadata @{ purpose = 'status-service-start'; port = $Port }
+    if ($startLock.Held) {
+        $script:StatusStartupLock = $startLock
+    } elseif ($RefreshSafe) {
+        Complete-RefreshSafeStart -Outcome 'admission-busy' -Reason ([string]$startLock.Reason)
+    } else {
+        Write-Verbose "Status service start lock not held ($($startLock.Reason)); proceeding without it."
+    }
+} elseif ($RefreshSafe) {
+    $lockReason = if ($startLockInfo) { [string]$startLockInfo.Reason } else { 'resolve-failed' }
+    Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason "private-state-$lockReason"
 }
 
 if ($Restart -and (Test-Path $PidFile)) {
@@ -109,7 +280,60 @@ if ($Restart -and (Test-Path $PidFile)) {
 # drops from "every cycle" to "only when `git pull` actually pulled
 # something that affects the server".
 $ShaFile = Join-Path $RuntimeDir 'server.sha'
-if (Test-Path $PidFile) {
+
+# The refresh-safe start never stops a server. It classifies the pidfile's
+# owner and acts only on positive absence: an owned server that answers is
+# left running whatever commit it was started from, and anything it cannot
+# identify is reported rather than replaced.
+function Get-RefreshSafeFrameworkSha {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline -Ceiling 3 -ReserveMilliseconds 2000
+    if (-not $seconds) { return '' }
+    $git = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList @('-C', $RepoRoot, 'rev-parse', 'HEAD') -TimeoutSeconds $seconds
+    if (-not (Test-BoundedNativeResultComplete -Result $git) -or [int]$git.ExitCode -ne 0) { return '' }
+    $value = ([string]$git.StdOut).Trim()
+    if ($value -cmatch '^[0-9a-f]{40}$') { return $value }
+    return ''
+}
+if ($RefreshSafe) {
+    # The process-identity classifier reads the process table once and can
+    # confirm the owner by the generated script its command line names. Best
+    # effort: without it the pidfile falls back to Test-PidFileIdentity (a
+    # PowerShell process that predates the pidfile). -Global without -Force,
+    # like the imports above.
+    if (-not (Get-Command -Name 'Get-YurunaRunnerRecordState' -ErrorAction SilentlyContinue)) {
+        try {
+            Import-Module (Join-Path $ModulesDir 'Test.SingleInstance.psm1') -Global -DisableNameChecking -ErrorAction Stop
+        } catch { Write-Verbose "process-identity classifier unavailable: $($_.Exception.Message)" }
+    }
+    $ownership = Get-StatusServerOwnership -PidFile $PidFile -ExpectedScriptPath (Join-Path $RuntimeDir '.status-service.ps1')
+    switch -CaseSensitive ($ownership.State) {
+        'AliveOwned' {
+            $answers = $false
+            $probeSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline -Ceiling 3 -ReserveMilliseconds 1000
+            if ($probeSeconds) {
+                try {
+                    $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec $probeSeconds -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
+                    $answers = $true
+                } catch { Write-Verbose "refresh-safe probe of the owned server did not answer: $($_.Exception.Message)" }
+            }
+            if (-not $answers) {
+                Complete-RefreshSafeStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason 'status-unanswered'
+            }
+            $currentSha = Get-RefreshSafeFrameworkSha
+            $persistedSha = ''
+            try { if (Test-Path -LiteralPath $ShaFile) { $persistedSha = ([System.IO.File]::ReadAllText($ShaFile)).Trim() } } catch { $persistedSha = '' }
+            $shaMatches = if ($currentSha -and $persistedSha) { [string]::Equals($currentSha, $persistedSha, [StringComparison]::Ordinal) } else { $null }
+            Complete-RefreshSafeStart -Outcome 'existing-ready' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs `
+                -Sha $persistedSha -ShaMatches $shaMatches -Reason ([string]$ownership.Reason)
+        }
+        'AliveOther' { Complete-RefreshSafeStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
+        'Unknown' { Complete-RefreshSafeStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
+    }
+}
+if (-not $RefreshSafe -and (Test-Path $PidFile)) {
     $oldPid = (Get-Content $PidFile).Trim()
     $serverAlive = $false
     if ($oldPid) {
@@ -147,6 +371,7 @@ if (Test-Path $PidFile) {
         if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha)) {
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0c4975f10de7b90a' -Arguments @{ oldPid = "$oldPid"; port = "$Port"; length = "$($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length)))" })
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ab8b41c49078fda')
+            Exit-StatusServiceStartupLock
             exit 0
         }
         # SHA differs (or either side is unknown). Tear down + fall
@@ -180,7 +405,21 @@ if (Test-Path $PidFile) {
 # the operator finish a cleanup the harness caused and can do itself; it already
 # has (or can ask once for) the authorization. Every target is named as it is
 # stopped, and this process, its ancestors and pid 1 are never candidates.
-$portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Elevate -Confirm:$false
+#
+# The refresh-safe start takes nothing: a port anyone holds is reported, and
+# the privilege case is told apart from a real holder for the same reason the
+# normal path tells them apart.
+if ($RefreshSafe) {
+    if (-not (Test-PortListenerFree -Port $Port -BudgetMs 0)) {
+        if (Test-PortPrivilegeBlocked -Port $Port) {
+            Complete-RefreshSafeStart -Outcome 'port-privilege-required' -Reason 'wildcard-reservation-refused'
+        }
+        Complete-RefreshSafeStart -Outcome 'port-conflict' -Reason 'port-held'
+    }
+    $portResolution = [pscustomobject]@{ Status = 'Free'; Message = '' }
+} else {
+    $portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Elevate -Confirm:$false
+}
 # 'PrivilegeRequired' refuses for the same reason a conflict does -- this process
 # cannot bind the wildcard prefix, and neither can the server -- but the port is
 # EMPTY, so it must not be reported as one that is in use. Handled with Conflict
@@ -205,12 +444,15 @@ if ($portResolution.Status -eq 'Conflict' -or $portResolution.Status -eq 'Privil
     $conflict.Data['YurunaPortConflict'] = $true
     $conflict.Data['YurunaPort'] = $Port
     $conflict.Data['YurunaPortStatus'] = $portResolution.Status
+    Exit-StatusServiceStartupLock
     throw $conflict
 }
 
 # --- REGION: Ensure repoUrl is set in status.json
 $StatusFile = Join-Path $RuntimeDir "status.json"
-if (Test-Path $StatusFile) {
+# Not in the refresh-safe start: status.json belongs to the running cycle,
+# and a refresh never rewrites it.
+if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
     try {
         $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
         $configPath = Join-Path $TestRoot "test.config.yml"
@@ -222,16 +464,20 @@ if (Test-Path $StatusFile) {
         if ($config -and $config.repositories -and $config.repositories.frameworkUrl) { $repoUrl = $config.repositories.frameworkUrl }
         if (-not $repoUrl -and $statusDoc.repoUrl) { $repoUrl = $statusDoc.repoUrl }
         if (-not $repoUrl) {
-            $remote = & git -C $RepoRoot remote get-url origin 2>&1
-            if ($LASTEXITCODE -eq 0 -and $remote -and $remote -match '^(https?://|git@)') {
-                $repoUrl = ($remote -replace '\.git$', '')
-            } elseif ($LASTEXITCODE -eq 0 -and $remote) {
-                Write-Warning "Git remote URL has unexpected format, skipping: $remote"
+            $remote = & git -C $RepoRoot remote get-url origin 2>$null
+            if ($LASTEXITCODE -eq 0 -and $remote) {
+                $repoUrl = [string]$remote
             } else {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c60b9cd85c0b5307' -Arguments @{ remote = "$remote" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c60b9cd85c0b5307' -Arguments @{ remote = 'unavailable' })
             }
         }
-        if ($repoUrl -and (-not $statusDoc.repoUrl -or $statusDoc.repoUrl -ne $repoUrl)) {
+        if ($repoUrl) {
+            if (-not (Get-Command Resolve-GitRemoteLink -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $ModulesDir 'Test.HostGit.psm1') -DisableNameChecking -ErrorAction Stop
+            }
+            $repoUrl = (Resolve-GitRemoteLink -Url ([string]$repoUrl)).Url
+        }
+        if ([string]$statusDoc.repoUrl -cne [string]$repoUrl) {
             if ($statusDoc.PSObject.Properties['repoUrl']) {
                 $statusDoc.repoUrl = $repoUrl
             } else {
@@ -262,27 +508,31 @@ if (Test-Path $StatusFile) {
 # locations. A checkout upgrade can leave those untracked (no longer
 # .gitignored), cluttering `git status`. Drop them on every start so
 # operator runs land on a clean status dir.
-Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
-$LegacyTrackDir = Join-Path $StatusDir 'track'
-foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','current-action.json',
-                          'control.pause','control.step-pause','control.cycle-pause','.status-service.ps1')) {
-    Remove-Item (Join-Path $StatusDir       $legacyName) -Force -ErrorAction SilentlyContinue
-    Remove-Item (Join-Path $LegacyTrackDir  $legacyName) -Force -ErrorAction SilentlyContinue
+# The refresh-safe start skips this sweep: it removes the break sidecar and
+# the continue flag, which a held runner still needs.
+if (-not $RefreshSafe) {
+    Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
+    $LegacyTrackDir = Join-Path $StatusDir 'track'
+    foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','current-action.json',
+                              'control.pause','control.step-pause','control.cycle-pause','.status-service.ps1')) {
+        Remove-Item (Join-Path $StatusDir       $legacyName) -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $LegacyTrackDir  $legacyName) -Force -ErrorAction SilentlyContinue
+    }
+    # Drop the entire legacy test/status/track/ tree if it survives a
+    # checkout upgrade (perf data now lives under status/perf/, runtime
+    # state under status/runtime/, extension event logs under
+    # status/extension/...; the old folder is no longer .gitignored).
+    if (Test-Path -LiteralPath $LegacyTrackDir) {
+        Remove-Item -LiteralPath $LegacyTrackDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    # Stale break-active sidecar / continue flag from a previous run that crashed
+    # mid-break: clear them so the UI doesn't render a Continue button against a
+    # break that no longer exists, and the next break doesn't auto-resume on the
+    # first poll tick.
+    Remove-Item (Join-Path $RuntimeDir 'break-active.json')      -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $RuntimeDir 'control.break-continue') -Force -ErrorAction SilentlyContinue
 }
-# Drop the entire legacy test/status/track/ tree if it survives a
-# checkout upgrade (perf data now lives under status/perf/, runtime
-# state under status/runtime/, extension event logs under
-# status/extension/...; the old folder is no longer .gitignored).
-if (Test-Path -LiteralPath $LegacyTrackDir) {
-    Remove-Item -LiteralPath $LegacyTrackDir -Recurse -Force -ErrorAction SilentlyContinue
-}
-# Stale break-active sidecar / continue flag from a previous run that crashed
-# mid-break: clear them so the UI doesn't render a Continue button against a
-# break that no longer exists, and the next break doesn't auto-resume on the
-# first poll tick.
-Remove-Item (Join-Path $RuntimeDir 'break-active.json')      -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $RuntimeDir 'control.break-continue') -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Enumerate host IPs -> $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
 # UI footer reads this to show reachable addresses. Loopback
@@ -360,7 +610,7 @@ try {
 # condition and announce the reason NOW, so the prompt is never a surprise and
 # a host without such a forwarder is never asked. Mirrors the same detection in
 # Stop-CachingProxyServiceVM.ps1; self-contained (pidfile + /bin/ps), no import.
-if ($IsMacOS) {
+if ($IsMacOS -and -not $RefreshSafe) {
     $forwarderStateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
     $hasRootForwarder  = $false
     $meIsRoot          = $false
@@ -408,7 +658,12 @@ if ($IsMacOS) {
 # Needs $detectedHost, so runs AFTER the SSH block's host detection.
 $CachingProxyServiceFile = Join-Path $RuntimeDir "caching-proxy-service.txt"
 try {
-    if ($detectedHost) {
+    if ($RefreshSafe) {
+        # The probe loads the host driver and rewrites the host-wide port map
+        # under the caching-proxy lock; a refresh-safe start changes neither
+        # and keeps the banner the last full start wrote.
+        Write-Verbose 'Refresh-safe start: caching-proxy probe and port map left as they are.'
+    } elseif ($detectedHost) {
         # -Global: this script is &-invoked from the inner cycle runner (a module
         # context), where a -Force import without -Global pulls the host contract
         # out of the global table for foreign modules (the legacy-eviction
@@ -696,6 +951,14 @@ try {
 # service is long-lived and restarts far more rarely than a cycle runs.
 
 # --- REGION: Launch the server as a detached process
+# Where the detached workers' entry points resolve from. Always the
+# repository in production; a test that expands this template itself can
+# point it at stand-ins without changing what the server serves.
+$StatusWorkerRoot = $RepoRoot
+# Baked unconditionally: the port and repoUrl paths above only resolved the
+# config path on some branches, and a server baked with an empty path reads
+# its watchdog bounds from no file.
+$ServerConfigPath = Join-Path $TestRoot 'test.config.yml'
 $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
@@ -748,6 +1011,19 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # pool, permanent devices only -- is platform-specific enough to be worth
 # testing directly, which a handler body baked into this here-string is not.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# The worker-backed routes (host refresh, start-cycle, host diagnostic) and
+# the modules they call. Best-effort like the imports above: each of those
+# routes names what it needs to Import-RouteModule before using it, so one
+# module that fails to load refuses its own route with a documented reply
+# instead of keeping the server from starting. Test.CriticalRecord is here so
+# its I/O helper can be compiled once at startup, off the request path.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.StateFile.psm1')          -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleFlightLock.psm1')   -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.CriticalRecord.psm1')     -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.InnerSpawn.psm1')         -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostRefreshIntent.psm1')  -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostRefresh.psm1')        -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # A name-keyed deny-list only protects the name it knows. Every secret this
 # server refuses has derivative forms carrying the same bytes under a different
 # name -- a parsed JSON snapshot of the file, or the pre-write backup taken
@@ -757,7 +1033,19 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -
 # Defined once, above every consumer: both file-serving deny-lists read it, and
 # so does the /archive route, which packs a whole folder in one response and
 # would otherwise carry out in bulk exactly what the per-file lists refuse.
-`$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp')
+#
+# The host-refresh shapes are the same defense for private state: that state
+# lives under the private root outside every served tree, and these names --
+# the private root's own directory, the request journal, its locks, critical
+# records, launch handshakes, acknowledgments and key material -- are refused
+# as well, so a root that ever resolved inside a served tree still leaks
+# nothing. The public progress files (host-refresh.state.json,
+# start-cycle.state.json) match none of them.
+`$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp',
+    'host-refresh/*', '*/host-refresh/*', '*host-refresh.journal*', '*host-refresh.request*',
+    '*host-refresh.lock', '*host-refresh.admission.lock', '*.record', '*.record.prev',
+    '*.handshake.json', '*.hop.json', '*.ack.json', '*.key', '*.credential', '*.cred', '*.pfx', '*.p12',
+    'host-config-ca', 'host-config-ca/*', '*/host-config-ca', '*/host-config-ca/*')
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 # The lab hold is machine-initiated, not an operator pause: the cycle's
@@ -777,7 +1065,22 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -
 # and never inherits the parent's locals. /control/runner-status reads the live
 # watchdog bounds (testCycle.stepTimeoutSeconds / preambleTimeoutSeconds) from
 # here so its liveness verdict matches what the watchdog will actually enforce.
-`$serverConfigPath = '$configPath'
+`$serverConfigPath = '$($ServerConfigPath -replace "'","''")'
+# Detached worker entry points and the scripts they run, baked like the paths
+# above. A test that expands this template can point the worker root at
+# stand-ins; the server itself always serves `$repoRoot.
+`$workerRoot = '$($StatusWorkerRoot -replace "'","''")'
+`$hostRefreshEntry        = Join-Path `$workerRoot 'test/lab/Invoke-HostRefresh.ps1'
+`$hostDiagnosticWorker    = Join-Path `$workerRoot 'test/modules/Invoke-HostDiagnosticWorker.ps1'
+`$startCycleWorker        = Join-Path `$workerRoot 'test/modules/Invoke-StartCycleWorker.ps1'
+`$diagScriptPath          = Join-Path `$workerRoot 'automation/Get-SystemDiagnostic.ps1'
+`$startCycleCleanupScript = Join-Path `$workerRoot 'test/Remove-TestVMFiles.ps1'
+`$startCycleRunnerScript  = Join-Path `$workerRoot 'test/Start-TestRunner.ps1'
+`$hostRefreshStateUrl     = '/runtime/host-refresh.state.json'
+`$startCycleStateUrl      = '/runtime/start-cycle.state.json'
+# What the private state root must never be inside of: everything this
+# server hands out.
+`$servedRootSet = @(`$repoRoot, `$statusDir, `$runtimeDir, `$logDir)
 # NOTE: deliberately NO self-exit on a stale server.heartbeat --
 # legitimate runner states outlast ANY threshold: a
 # prompt-for-confirmation pausing the runner for hours, or a single
@@ -1057,6 +1360,34 @@ function Send-JsonError {
     `$Response.OutputStream.Write(`$b, 0, `$b.Length)
     `$Response.OutputStream.Close()
 }
+# Every reply the refresh, start-cycle and diagnostic routes build: the
+# caller's identity fields, plus the catalog key and the sentence localized
+# for this request when there is one. Close turns keep-alive off, which is
+# what ends a connection whose body was never read (or never finished).
+function Send-JsonReply {
+    param(`$Response, `$Request, [int]`$StatusCode, [System.Collections.IDictionary]`$Body,
+        [string]`$MessageKey, [hashtable]`$MessageArguments = @{}, [switch]`$Close, [string]`$RetryAfter)
+    `$payload = [ordered]@{ ok = `$false }
+    if (`$Body -and `$Body.Contains('ok')) { `$payload['ok'] = [bool]`$Body['ok'] }
+    if (`$MessageKey) {
+        `$replyLocale = Resolve-PageLocale -AcceptLanguage `$Request.Headers['Accept-Language']
+        Set-ResponseLocaleHeaders -Response `$Response -Locale `$replyLocale
+        `$payload['code'] = `$MessageKey
+        `$payload['error'] = Format-CatalogMessage -Key `$MessageKey -Arguments `$MessageArguments -Locale `$replyLocale.Tag
+    }
+    if (`$Body) { foreach (`$field in @(`$Body.Keys)) { if (`$field -ne 'ok') { `$payload[`$field] = `$Body[`$field] } } }
+    `$payloadBytes = [System.Text.Encoding]::UTF8.GetBytes((`$payload | ConvertTo-Json -Compress -Depth 5))
+    `$Response.StatusCode = `$StatusCode
+    `$Response.ContentType = 'application/json; charset=utf-8'
+    `$Response.Headers.Set('Cache-Control', 'no-store')
+    if (`$RetryAfter) { `$Response.Headers.Set('Retry-After', `$RetryAfter) }
+    if (`$Close) { `$Response.KeepAlive = `$false }
+    `$Response.ContentLength64 = `$payloadBytes.Length
+    if (`$Request.HttpMethod -ne 'HEAD') {
+        `$Response.OutputStream.Write(`$payloadBytes, 0, `$payloadBytes.Length)
+    }
+    `$Response.OutputStream.Close()
+}
 # Re-import a module a route depends on, on demand, when its commands are not in
 # this runspace. The startup imports above are best-effort by design
 # (-ErrorAction SilentlyContinue keeps one bad module from aborting the whole
@@ -1088,6 +1419,397 @@ function Import-RouteModule {
     }
     return `$true
 }
+# Whether a worker-backed route can run in this runspace: every command it
+# calls resolves (re-imported through Import-RouteModule when a startup
+# import lost it), with every parameter the route passes, and the worker
+# vector it would launch binds against the worker script's own parameters.
+# A route that is not ready refuses with listener_dependency_missing, and the
+# refresh summary stops advertising it. A ready answer is reused for a minute;
+# a refusal is re-checked after ten seconds, so a runspace heals on its own.
+`$script:StatusRouteReady = @{}
+function Test-StatusRouteReady {
+    param([Parameter(Mandatory)][ValidateSet('host-refresh', 'start-cycle', 'host-diagnostic')][string]`$Route)
+    `$checkedAt = [DateTime]::UtcNow
+    `$cachedReady = `$script:StatusRouteReady[`$Route]
+    if (`$cachedReady -and `$checkedAt -lt `$cachedReady.ValidUntil) { return `$cachedReady }
+    `$routeReady = (Import-RouteModule -ModuleRelativePath 'automation/Yuruna.Common.psm1' -RequiredCommand 'New-YurunaDeadline')
+    if (`$routeReady) {
+        `$routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.StatusControlRoute.psm1' -RequiredCommand 'New-StatusBoundedBodyRead', 'Update-StatusBoundedBodyRead', 'Get-StatusBoundedBodyReadWait', 'Close-StatusBoundedBodyRead', 'Test-HostRefreshContentType', 'ConvertFrom-HostRefreshRequestBody', 'Get-HostRefreshControlSummary', 'Get-HostRefreshAdmissionReply', 'Get-StartCycleAdmissionReply', 'Test-StatusWorkerArgument', 'Get-StatusWorkerDirectory', 'Get-HostDiagnosticRouteState', 'New-StatusOperationId', 'Test-StatusRouteCommandSet', 'Save-StatusLaunchOutcome', 'Get-StatusWorkerTranscriptStem'
+    }
+    if (`$routeReady) {
+        `$routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.InnerSpawn.psm1' -RequiredCommand 'Start-YurunaDetachedProcess'
+    }
+    `$routeRequirement = @{
+        'Start-YurunaDetachedProcess' = @('FilePath', 'ArgumentList', 'WorkingDirectory', 'StdOutPath', 'StdErrPath', 'StdInPath', 'PrivateDirectory', 'Environment', 'Deadline')
+    }
+    `$routeWorker = ''
+    `$routeVector = @()
+    switch (`$Route) {
+        'host-refresh' {
+            if (`$routeReady) {
+                `$routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefresh.psm1' -RequiredCommand 'Get-VirtualizationRepairRung', 'Get-HostRefreshCapability', 'New-HostRefreshBudget', 'New-HostRefreshWorkerArgumentList', 'Publish-HostRefreshQueuedState'
+            }
+            if (`$routeReady) {
+                `$routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshIntent.psm1' -RequiredCommand 'Request-HostRefreshAdmission', 'Set-HostRefreshLaunchOutcome', 'Get-HostRefreshPrivateWorkDir'
+            }
+            `$routeRequirement['Request-HostRefreshAdmission'] = @('RequestId', 'Channel', 'Tier', 'MaxRung', 'RuntimeDir', 'HostType', 'AdmissionWaitMilliseconds')
+            `$routeRequirement['Set-HostRefreshLaunchOutcome'] = @('RequestId', 'Outcome', 'Launch')
+            `$routeRequirement['New-HostRefreshWorkerArgumentList'] = @('RepoRoot', 'RequestId', 'Budget')
+            `$routeRequirement['Publish-HostRefreshQueuedState'] = @('RuntimeDir', 'RequestId', 'Channel')
+            `$routeRequirement['Get-HostRefreshCapability'] = @('HostType', 'RepoRoot')
+            `$routeRequirement['Get-VirtualizationRepairRung'] = @('HostType')
+            `$routeWorker = `$hostRefreshEntry
+        }
+        'start-cycle' {
+            if (`$routeReady) {
+                `$routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshIntent.psm1' -RequiredCommand 'Request-HostRefreshStartCycleReservation', 'Set-HostRefreshStartCycleLaunch'
+            }
+            `$routeRequirement['Request-HostRefreshStartCycleReservation'] = @('OperationId', 'RuntimeDir', 'AdmissionWaitMilliseconds')
+            `$routeRequirement['Set-HostRefreshStartCycleLaunch'] = @('OperationId', 'Generation', 'Outcome', 'Launch')
+            `$routeWorker = `$startCycleWorker
+            `$routeVector = @('-OperationId', '00000000-0000-0000-0000-000000000000', '-Generation', 'probe', '-RuntimeDir', `$runtimeDir,
+                '-CleanupScriptPath', `$startCycleCleanupScript, '-RunnerScriptPath', `$startCycleRunnerScript, '-WorkingDirectory', `$repoRoot)
+        }
+        'host-diagnostic' {
+            `$routeWorker = `$hostDiagnosticWorker
+            `$routeVector = @('-RunId', '00000000-0000-0000-0000-000000000000', '-DiagnosticScriptPath', `$diagScriptPath,
+                '-WorkDirectory', `$runtimeDir, '-WorkingDirectory', `$repoRoot)
+        }
+    }
+    if (`$routeReady) {
+        `$commandSet = Test-StatusRouteCommandSet -Requirement `$routeRequirement
+        if (-not `$commandSet.Ready) {
+            `$routeReady = `$false
+            Write-ServerErr "route `$Route cannot run: missing `$(`$commandSet.Missing -join ', ')"
+        }
+    }
+    if (`$routeReady -and `$Route -eq 'host-refresh') {
+        try {
+            `$routeVector = @(New-HostRefreshWorkerArgumentList -RepoRoot `$workerRoot -RequestId '00000000-0000-0000-0000-000000000000' -Budget (New-HostRefreshBudget))
+        } catch {
+            `$routeReady = `$false
+            Write-ServerErr "route host-refresh cannot build its worker vector: `$(`$_.Exception.Message)"
+        }
+    }
+    if (`$routeReady) {
+        `$vectorCheck = Test-StatusWorkerArgument -ScriptPath `$routeWorker -ArgumentList `$routeVector
+        if (-not `$vectorCheck.Valid) {
+            `$routeReady = `$false
+            Write-ServerErr "route `$Route refuses its worker vector: `$(`$vectorCheck.Reason) `$(`$vectorCheck.Parameter)"
+        }
+    }
+    `$readyRecord = [pscustomobject]@{
+        Ready      = [bool]`$routeReady
+        Reason     = `$(if (`$routeReady) { '' } else { 'listener_dependency_missing' })
+        ValidUntil = `$checkedAt.AddSeconds(`$(if (`$routeReady) { 60 } else { 10 }))
+    }
+    `$script:StatusRouteReady[`$Route] = `$readyRecord
+    return `$readyRecord
+}
+
+# The refresh summary /control/control-status carries. The capability is read
+# per request (two small file reads, no native call); the remote-refresh
+# provisioning state is cached for 30 seconds. Never throws into the route:
+# any failure reads as unavailable, because this field decides whether a
+# disruptive button is shown.
+`$script:HostRefreshRemoteCache = `$null
+function Get-HostRefreshSummaryCached {
+    `$summaryFallback = [ordered]@{ protocol = 1; availability = 'unavailable'; ceiling = ''; reason = 'capability_unavailable'; remote = 'unqualified'; state = 'unknown' }
+    try {
+        `$summaryAt = [DateTime]::UtcNow
+        if (-not `$script:HostRefreshRemoteCache -or `$summaryAt -ge `$script:HostRefreshRemoteCache.ValidUntil) {
+            `$remoteState = 'unqualified'
+            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshAuth.psm1' -RequiredCommand 'Get-YurunaHostRefreshRemoteState') {
+                try { `$remoteState = [string](Get-YurunaHostRefreshRemoteState -HostId (Get-ArchiveHostId)).Remote } catch { `$remoteState = 'unqualified' }
+            }
+            `$script:HostRefreshRemoteCache = [pscustomobject]@{ Remote = `$remoteState; ValidUntil = `$summaryAt.AddSeconds(30) }
+        }
+        `$summaryFallback.remote = [string]`$script:HostRefreshRemoteCache.Remote
+        `$refreshReady = Test-StatusRouteReady -Route 'host-refresh'
+        if (-not (Get-Command -Name 'Get-HostRefreshControlSummary' -ErrorAction SilentlyContinue)) {
+            `$summaryFallback.reason = 'listener_dependency_missing'
+            return `$summaryFallback
+        }
+        `$listenerReady = [bool]`$refreshReady.Ready
+        `$listenerReason = [string]`$refreshReady.Reason
+        if ([string]::IsNullOrWhiteSpace(`$serverHostType)) { `$listenerReady = `$false; `$listenerReason = 'unsupported_host' }
+        `$refreshCapability = `$null
+        if (`$serverHostType -and (Get-Command -Name 'Get-HostRefreshCapability' -ErrorAction SilentlyContinue)) {
+            try { `$refreshCapability = Get-HostRefreshCapability -HostType `$serverHostType -RepoRoot `$repoRoot } catch {
+                Write-ServerErr "refresh capability failed: `$(`$_.Exception.Message)"
+                `$refreshCapability = `$null
+            }
+        }
+        return (Get-HostRefreshControlSummary -Capability `$refreshCapability -ListenerReady `$listenerReady -ListenerReason `$listenerReason -Remote ([string]`$script:HostRefreshRemoteCache.Remote))
+    } catch {
+        Write-ServerErr "refresh summary failed: `$(`$_.Exception.Message)"
+        return `$summaryFallback
+    }
+}
+
+# Every detached worker this server launches goes through here. The vector is
+# checked against the worker script's own parameters first; stdin comes from
+# the empty sentinel, both streams go to the worker's private directory, and
+# only the launch is bounded (five seconds). The listener never waits for the
+# worker itself, and a worker's failure after launch is published by the
+# worker, never inferred here.
+function Start-StatusWorker {
+    param(
+        [Parameter(Mandatory)][string]`$Directory,
+        [Parameter(Mandatory)][string]`$StdInPath,
+        [Parameter(Mandatory)][string]`$ScriptPath,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]`$ArgumentList,
+        [Parameter(Mandatory)][string]`$TranscriptStem
+    )
+    `$workerVector = Test-StatusWorkerArgument -ScriptPath `$ScriptPath -ArgumentList `$ArgumentList
+    if (-not `$workerVector.Valid) {
+        Write-ServerErr "worker `$ScriptPath refused its vector: `$(`$workerVector.Reason) `$(`$workerVector.Parameter)"
+        return [pscustomobject]@{ Launched = `$false; Reason = 'worker_unavailable' }
+    }
+    try {
+        `$launchArguments = @{
+            FilePath         = `$ScriptPath
+            ArgumentList     = `$ArgumentList
+            WorkingDirectory = `$repoRoot
+            StdOutPath       = (Join-Path `$Directory (`$TranscriptStem + '.out'))
+            StdErrPath       = (Join-Path `$Directory (`$TranscriptStem + '.err'))
+            StdInPath        = `$StdInPath
+            PrivateDirectory = `$Directory
+            Environment      = @{ YURUNA_RUNTIME_DIR = `$runtimeDir }
+            # The Windows launcher is a short-lived hop. Its acknowledgment
+            # identifies the worker before reservation liveness can be checked.
+            WaitForHandshakeMilliseconds = if (`$IsWindows) { 5000 } else { 0 }
+            Deadline         = (New-YurunaDeadline -TotalMilliseconds 5000)
+        }
+        `$launchRecord = @(Start-YurunaDetachedProcess @launchArguments -Confirm:`$false |
+                Where-Object { `$_ -and `$_.PSObject.Properties['Launched'] }) | Select-Object -Last 1
+        if (-not `$launchRecord) { return [pscustomobject]@{ Launched = `$false; Reason = 'launcher_failed' } }
+        return `$launchRecord
+    } catch {
+        Write-ServerErr "worker `$ScriptPath did not launch: `$(`$_.Exception.Message)"
+        return [pscustomobject]@{ Launched = `$false; Reason = 'launcher_failed' }
+    }
+}
+
+# The refresh route reads its body without parking the request loop: the read
+# is issued asynchronously and the loop keeps accepting and serving while it
+# is pending, waking for whichever comes first -- the next request, a read
+# completing, or the earliest body deadline. At most four bodies are read at
+# once. A finished body is validated and admitted serially, like any other
+# request, and every reply goes to the context the read carries.
+function Add-PendingRequestBody {
+    param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire)
+    `$bodyRead = New-StatusBoundedBodyRead -Stream `$RequestContext.Request.InputStream -MaxBytes 4096 -TimeoutMs 2000 ``
+        -Tag ([pscustomobject]@{ RequestContext = `$RequestContext; Loopback = `$Loopback; ProofWire = `$ProofWire })
+    `$pendingBodies.Add(`$bodyRead)
+    Step-PendingRequestBody
+}
+
+function Step-PendingRequestBody {
+    for (`$bodyIndex = `$pendingBodies.Count - 1; `$bodyIndex -ge 0; `$bodyIndex--) {
+        `$bodyRead = `$pendingBodies[`$bodyIndex]
+        `$bodyStatus = 'error'
+        try { `$bodyStatus = Update-StatusBoundedBodyRead -BodyRead `$bodyRead } catch {
+            Write-ServerErr "control/host-refresh body read failed: `$(`$_.Exception.Message)"
+            `$bodyStatus = 'error'
+        }
+        if (`$bodyStatus -eq 'reading') { continue }
+        `$pendingBodies.RemoveAt(`$bodyIndex)
+        `$pendingContext = `$bodyRead.Tag.RequestContext
+        try {
+            switch (`$bodyStatus) {
+                'complete' {
+                    Invoke-HostRefreshRequest -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes -Loopback ([bool]`$bodyRead.Tag.Loopback) -ProofWire ([string]`$bodyRead.Tag.ProofWire)
+                }
+                'too_large' {
+                    Send-JsonReply -Response `$pendingContext.Response -Request `$pendingContext.Request -StatusCode 413 -Close ``
+                        -Body ([ordered]@{ ok = `$false; reason = 'payload_too_large' }) -MessageKey 'status.api_payload_too_large_4_kb'
+                }
+                'timeout' {
+                    Send-JsonReply -Response `$pendingContext.Response -Request `$pendingContext.Request -StatusCode 408 -Close ``
+                        -Body ([ordered]@{ ok = `$false; reason = 'body_timeout' }) -MessageKey 'status.api_request_body_timeout'
+                }
+                default {
+                    Write-ServerErr 'control/host-refresh request body ended with a read error; the connection is dropped.'
+                    try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
+                }
+            }
+        } catch {
+            Write-ServerErr "control/host-refresh reply failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+            try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
+        } finally {
+            Close-StatusBoundedBodyRead -BodyRead `$bodyRead
+        }
+    }
+}
+
+# The second half of POST /control/host-refresh, once the whole body is in:
+# validate it against the closed schema, apply loopback defaults, authorize a
+# non-loopback caller's refresh proof, take the short admission lock, and on
+# a spawn decision launch the detached worker and publish the queued state.
+# Every outcome is a documented reply; nothing here waits for the repair.
+function Invoke-HostRefreshRequest {
+    param([Parameter(Mandatory)]`$RequestContext, [byte[]]`$BodyBytes, [bool]`$Loopback, [string]`$ProofWire)
+    `$refreshRequest = `$RequestContext.Request
+    `$refreshResponse = `$RequestContext.Response
+    try {
+        `$allowedRung = @(Get-VirtualizationRepairRung -HostType `$serverHostType |
+                Where-Object { [int]`$_.Order -le 4 } | ForEach-Object { [string]`$_.Name })
+        `$refreshBody = ConvertFrom-HostRefreshRequestBody -Bytes `$(if (`$BodyBytes) { `$BodyBytes } else { [byte[]]@() }) -AllowedRungName `$allowedRung -Remote:(-not `$Loopback)
+        if (-not `$refreshBody.Valid) {
+            `$invalidReply = [ordered]@{ ok = `$false; reason = [string]`$refreshBody.Reason }
+            if (`$refreshBody.Field) { `$invalidReply['field'] = [string]`$refreshBody.Field }
+            Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode 400 -Body `$invalidReply ``
+                -MessageKey 'status.api_request_body_invalid' -MessageArguments @{ reason = [string]`$refreshBody.Reason; field = `$(if (`$refreshBody.Field) { [string]`$refreshBody.Field } else { '-' }) }
+            return
+        }
+        `$refreshSummary = Get-HostRefreshSummaryCached
+        `$refreshCeiling = if (`$refreshBody.MaxRung) { [string]`$refreshBody.MaxRung } else { [string]`$refreshSummary.ceiling }
+        if (`$refreshSummary.availability -ne 'available' -or -not `$refreshCeiling) {
+            Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'refresh_unavailable' }) ``
+                -MessageKey 'status.api_host_refresh_unavailable' -MessageArguments @{ reason = `$(if (`$refreshSummary.reason) { [string]`$refreshSummary.reason } else { 'no_qualified_rung' }) }
+            return
+        }
+        `$refreshRequestId = if (`$refreshBody.RequestIdSupplied) { [string]`$refreshBody.RequestId } else { New-StatusOperationId }
+        `$refreshChannel = 'listener'
+        if (-not `$Loopback) {
+            # The refresh proof is its own layer: the generic guard above has
+            # already checked the transport header and the legacy control
+            # proof, and neither authorizes a repair. The proof is read from
+            # its own header, never from X-Yuruna-Control.
+            if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshAuth.psm1' -RequiredCommand 'Test-YurunaHostRefreshAuthorization')) {
+                Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode 403 -Body ([ordered]@{ ok = `$false; reason = 'refresh_verifier_unavailable' }) ``
+                    -MessageKey 'status.api_host_refresh_authorization_refused' -MessageArguments @{ reason = 'refresh_verifier_unavailable' }
+                return
+            }
+            `$refreshAuthorization = Test-YurunaHostRefreshAuthorization -ProofWire `$ProofWire -HostId (Get-ArchiveHostId) -RequestId `$refreshRequestId -Tier 'restart' -MaxRung `$refreshCeiling
+            if (-not `$refreshAuthorization.Authorized) {
+                `$refusalStatus = [int]`$refreshAuthorization.HttpStatus
+                if (`$refusalStatus -lt 400) { `$refusalStatus = 403 }
+                Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode `$refusalStatus -Body ([ordered]@{ ok = `$false; reason = [string]`$refreshAuthorization.Reason }) ``
+                    -MessageKey 'status.api_host_refresh_authorization_refused' -MessageArguments @{ reason = [string]`$refreshAuthorization.Reason }
+                return
+            }
+            `$refreshChannel = 'remote'
+        }
+        `$refreshAdmission = Request-HostRefreshAdmission -RequestId `$refreshRequestId -Channel `$refreshChannel -Tier 'restart' -MaxRung `$refreshCeiling ``
+            -RuntimeDir `$runtimeDir -HostType `$serverHostType -AdmissionWaitMilliseconds 1000 -Confirm:`$false
+        `$refreshLaunch = `$null
+        if ([string]`$refreshAdmission.Decision -ceq 'spawn') {
+            # Admission has recorded a pending launch that names this listener
+            # as its requester, and only this listener can close it: left
+            # pending, a live listener reads as a launch in progress, so the
+            # same id answers already_claimed with no worker behind it and
+            # every other request answers busy until the queued expiry. Every
+            # way out of here -- a work directory that cannot be secured, a
+            # throw, a failed launch -- therefore records the outcome in the
+            # finally, and a record that does not commit is tried once more.
+            `$refreshLaunch = [pscustomobject]@{ Launched = `$false; Reason = 'launcher_failed' }
+            `$refreshPrivateUnavailable = `$false
+            try {
+                `$workDirectory = Get-HostRefreshPrivateWorkDir
+                if (`$workDirectory -and `$workDirectory -isnot [string] -and `$workDirectory.PSObject.Properties['Path']) {
+                    `$workDirectory = if (`$workDirectory.PSObject.Properties['Resolved'] -and -not `$workDirectory.Resolved) { `$null } else { [string]`$workDirectory.Path }
+                }
+                if ([string]::IsNullOrWhiteSpace([string]`$workDirectory)) {
+                    `$refreshPrivateUnavailable = `$true
+                    `$refreshLaunch = [pscustomobject]@{ Launched = `$false; Reason = 'private_state_unavailable' }
+                } else {
+                    `$refreshStdIn = Join-Path ([string]`$workDirectory) 'stdin.empty'
+                    if (-not [System.IO.File]::Exists(`$refreshStdIn)) { [System.IO.File]::WriteAllBytes(`$refreshStdIn, [byte[]]@()) }
+                    `$refreshVector = @(New-HostRefreshWorkerArgumentList -RepoRoot `$workerRoot -RequestId `$refreshRequestId -Budget (New-HostRefreshBudget))
+                    `$refreshAttempt = 0
+                    `$null = [int]::TryParse([string]`$refreshAdmission.Attempt, [ref]`$refreshAttempt)
+                    if (`$refreshAttempt -lt 1) { `$refreshAttempt = 1 }
+                    # A relaunch reuses the attempt number, and the earlier
+                    # launch's transcripts are the evidence of why it failed.
+                    `$refreshStem = Get-StatusWorkerTranscriptStem -Directory ([string]`$workDirectory) -Stem ('{0}.{1}' -f `$refreshRequestId, `$refreshAttempt)
+                    `$refreshLaunch = Start-StatusWorker -Directory ([string]`$workDirectory) -StdInPath `$refreshStdIn -ScriptPath `$hostRefreshEntry ``
+                        -ArgumentList `$refreshVector -TranscriptStem `$refreshStem
+                }
+            } finally {
+                `$launchOutcome = if (`$refreshLaunch -and `$refreshLaunch.Launched) { 'started' } else { 'launch-failed' }
+                `$launchRecord = Save-StatusLaunchOutcome -Argument @{ RequestId = `$refreshRequestId; Outcome = `$launchOutcome; Launch = `$refreshLaunch } -Record {
+                    param([hashtable]`$A, [int]`$Attempt)
+                    `$null = `$Attempt
+                    Set-HostRefreshLaunchOutcome -RequestId `$A.RequestId -Outcome `$A.Outcome -Launch `$A.Launch -Confirm:`$false
+                }
+                if (-not `$launchRecord.Saved) {
+                    Write-ServerErr "control/host-refresh could not record launch outcome '`$launchOutcome' for `$refreshRequestId after `$(`$launchRecord.Attempts) attempt(s); admission reads it as pending until the queued expiry: `$(@(`$launchRecord.Failure) -join '; ')"
+                }
+            }
+            if (`$refreshPrivateUnavailable) {
+                Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'private_state_unavailable' }) ``
+                    -MessageKey 'status.api_private_state_unavailable' -MessageArguments @{ reason = 'work_directory_unavailable' }
+                return
+            }
+            if (`$refreshLaunch -and `$refreshLaunch.Launched) {
+                try { `$null = Publish-HostRefreshQueuedState -RuntimeDir `$runtimeDir -RequestId `$refreshRequestId -Channel `$refreshChannel } catch {
+                    Write-ServerErr "control/host-refresh could not publish the queued state: `$(`$_.Exception.Message)"
+                }
+            }
+        }
+        `$admissionReply = Get-HostRefreshAdmissionReply -Admission `$refreshAdmission -Launch `$refreshLaunch -Ceiling `$refreshCeiling ``
+            -StateUrl `$hostRefreshStateUrl -StartCycleStateUrl `$startCycleStateUrl
+        Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode `$admissionReply.StatusCode -Body `$admissionReply.Body ``
+            -MessageKey `$admissionReply.MessageKey -MessageArguments `$admissionReply.MessageArguments
+    } catch {
+        Write-ServerErr "control/host-refresh failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+        Send-JsonReply -Response `$refreshResponse -Request `$refreshRequest -StatusCode 500 -Body ([ordered]@{ ok = `$false; reason = 'internal_error' }) ``
+            -MessageKey 'status.api_internal_error'
+    }
+}
+
+# POST /control/start-cycle once the method and route checks passed: secure
+# the private worker directory, reserve the host under the short admission
+# lock, launch the detached worker and record the launch. Nothing else is
+# written here. A reservation carries a pending launch that names this
+# listener, and reservations are cleared by identity, never by age: a
+# pending one left behind by a live listener would make every later
+# start-cycle and every refresh busy until the listener restarts. So once the
+# host is reserved, every way out records started or launch-failed (which
+# removes the reservation) in the finally, and a record that does not commit
+# is tried once more. A throw still reaches the dispatcher's 500 reply.
+function Invoke-StartCycleRequest {
+    param([Parameter(Mandatory)]`$Request, [Parameter(Mandatory)]`$Response)
+    `$startCycleDirectory = Get-StatusWorkerDirectory -Name 'start-cycle' -ServedRoot `$servedRootSet -Confirm:`$false
+    if (-not `$startCycleDirectory.Resolved) {
+        `$privateReason = ([string]`$startCycleDirectory.Reason).Replace('-', '_')
+        Send-JsonReply -Response `$Response -Request `$Request -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'private_state_unavailable' }) ``
+            -MessageKey 'status.api_private_state_unavailable' -MessageArguments @{ reason = `$privateReason }
+        return
+    }
+    `$startCycleOperation = New-StatusOperationId
+    `$startCycleReservation = Request-HostRefreshStartCycleReservation -OperationId `$startCycleOperation -RuntimeDir `$runtimeDir ``
+        -AdmissionWaitMilliseconds 1000 -Confirm:`$false
+    `$startCycleLaunch = `$null
+    if ([string]`$startCycleReservation.Decision -ceq 'reserved') {
+        `$startCycleGeneration = [string]`$startCycleReservation.Generation
+        `$startCycleLaunch = [pscustomobject]@{ Launched = `$false; Reason = 'launcher_failed' }
+        try {
+            `$startCycleLaunch = Start-StatusWorker -Directory `$startCycleDirectory.Path -StdInPath `$startCycleDirectory.StdInPath ``
+                -ScriptPath `$startCycleWorker -TranscriptStem `$startCycleOperation ``
+                -ArgumentList @('-OperationId', `$startCycleOperation, '-Generation', `$startCycleGeneration, '-RuntimeDir', `$runtimeDir,
+                    '-CleanupScriptPath', `$startCycleCleanupScript, '-RunnerScriptPath', `$startCycleRunnerScript, '-WorkingDirectory', `$repoRoot)
+        } finally {
+            `$startCycleOutcome = if (`$startCycleLaunch -and `$startCycleLaunch.Launched) { 'started' } else { 'launch-failed' }
+            `$startCycleRecord = Save-StatusLaunchOutcome -Argument @{
+                OperationId = `$startCycleOperation; Generation = `$startCycleGeneration; Outcome = `$startCycleOutcome; Launch = `$startCycleLaunch
+            } -Record {
+                param([hashtable]`$A, [int]`$Attempt)
+                `$null = `$Attempt
+                Set-HostRefreshStartCycleLaunch -OperationId `$A.OperationId -Generation `$A.Generation -Outcome `$A.Outcome -Launch `$A.Launch
+            }
+            if (-not `$startCycleRecord.Saved) {
+                Write-ServerErr "start-cycle could not record launch outcome '`$startCycleOutcome' for `$startCycleOperation after `$(`$startCycleRecord.Attempts) attempt(s); the reservation stays until this listener exits: `$(@(`$startCycleRecord.Failure) -join '; ')"
+            }
+        }
+    }
+    `$startCycleReply = Get-StartCycleAdmissionReply -Reservation `$startCycleReservation -Launch `$startCycleLaunch ``
+        -OperationId `$startCycleOperation -StateUrl `$startCycleStateUrl -RefreshStateUrl `$hostRefreshStateUrl
+    Send-JsonReply -Response `$Response -Request `$Request -StatusCode `$startCycleReply.StatusCode -Body `$startCycleReply.Body ``
+        -MessageKey `$startCycleReply.MessageKey -MessageArguments `$startCycleReply.MessageArguments
+}
 # ``git archive --format=tar.gz`` streamer shared by the two archive
 # endpoints. `$RepoDir is the tree to archive (framework repo or project/),
 # `$ErrorLabel tags the Write-ServerErr line so a failure is attributable to the
@@ -1117,7 +1839,10 @@ function Send-GitArchive {
         `$sidecars    = [ordered]@{}
         `$originUrl = & git -C `$RepoDir config --get remote.origin.url 2>`$null
         if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
-            `$sidecars['.yuruna-origin'] = ([string]`$originUrl).Trim()
+            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostGit.psm1' -RequiredCommand 'Resolve-GitRemoteLink') {
+                `$publicOrigin = (Resolve-GitRemoteLink -Url ([string]`$originUrl)).Url
+                if (`$publicOrigin) { `$sidecars['.yuruna-origin'] = `$publicOrigin }
+            }
         }
         `$commit = & git -C `$RepoDir rev-parse HEAD 2>`$null
         `$commit = if (`$LASTEXITCODE -eq 0) { ([string]`$commit).Trim() } else { '' }
@@ -1156,8 +1881,8 @@ function Send-GitArchive {
         if (`$sidecarDir) { Remove-Item -LiteralPath `$sidecarDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
-# Runner-liveness detection shared by /control/runner-status and the pre-kill
-# probe in /control/start-cycle. Delegates the runner.pid + runner.start
+# Runner-liveness detection for /control/runner-status (the start-cycle worker
+# re-reads runner state itself, after its cleanup). Delegates the runner.pid + runner.start
 # StartTime identity check (with the cmdline regex fallback) to
 # Get-RunnerInstanceState so that logic lives in one tested place; a prior
 # occupant classified as anything other than this-process/absent/stale counts
@@ -1294,6 +2019,18 @@ try {
     `$listener.Start()
     Write-ServerErr "listener started on http://*:$Port/ (pid `$PID)"
     Write-ServerErr "server hostType='`$serverHostType'"
+    # Compile the critical-record I/O helper now, once, so the first refresh
+    # or start-cycle admission does not pay for it inside a request.
+    if (Get-Command -Name 'Initialize-YurunaCriticalRecordIo' -ErrorAction SilentlyContinue) {
+        try { `$null = Initialize-YurunaCriticalRecordIo } catch { Write-ServerErr "critical-record I/O pre-warm failed: `$(`$_.Exception.Message)" }
+    }
+    # Bodies being read for control/host-refresh, the pending accept, and the
+    # last host-diagnostic launch (which throttles a caller that polls faster
+    # than a worker starts).
+    `$pendingBodies = [System.Collections.Generic.List[object]]::new()
+    `$contextTask = `$null
+    `$script:HostDiagSpawnUtc = `$null
+    `$script:HostDiagSpawnRunId = ''
     # Cross-request memoized per-sequence aggregates served at
     # /control/perf-aggregates. Cleared on POST to that endpoint.
     # `$perfAggregatesBytes holds the serialized response so a GET on an
@@ -1317,9 +2054,22 @@ try {
       # http.sys hiccup) would otherwise unwind to the outer try/finally
       # and exit with no log. Wrap the whole iteration; log + continue.
       try {
-        # Block indefinitely for the next request. The server has no
-        # self-exit timer, so no periodic wake-up is needed.
-        `$ctx = `$listener.GetContext()
+        # Wait for the next request without ever parking on a request body.
+        # With no body being read the wait is indefinite (the server has no
+        # self-exit timer, so it needs no periodic wake-up); with one, the
+        # loop also wakes when that read completes or reaches its deadline,
+        # so a withheld or trickled body never stalls the other routes.
+        if (`$pendingBodies.Count -gt 0) { Step-PendingRequestBody }
+        if (`$null -eq `$contextTask) { `$contextTask = `$listener.GetContextAsync() }
+        `$waitTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        `$waitTasks.Add(`$contextTask)
+        foreach (`$pendingBody in `$pendingBodies) { if (`$pendingBody.Task) { `$waitTasks.Add(`$pendingBody.Task) } }
+        `$waitMs = if (`$pendingBodies.Count -gt 0) { Get-StatusBoundedBodyReadWait -BodyRead `$pendingBodies.ToArray() } else { -1 }
+        `$null = [System.Threading.Tasks.Task]::WaitAny(`$waitTasks.ToArray(), [int]`$waitMs)
+        if (-not `$contextTask.IsCompleted) { continue }
+        `$acceptedTask = `$contextTask
+        `$contextTask = `$null
+        `$ctx = `$acceptedTask.GetAwaiter().GetResult()
         try {
             `$req  = `$ctx.Request
             `$res  = `$ctx.Response
@@ -1360,7 +2110,8 @@ try {
             `$csrfAlwaysProtected = @(
                 'control/start-cycle','control/break-continue','control/test-caching-proxy-service',
                 'control/host-diagnostic','control/step-pause','control/step-resume',
-                'control/cycle-pause','control/cycle-resume','control/lab-hold-release'
+                'control/cycle-pause','control/cycle-resume','control/lab-hold-release',
+                'control/host-refresh'
             )
             `$csrfWriteProtected = @('control/test-config','control/perf-aggregates')
             if ((`$csrfAlwaysProtected -contains `$path) -or (`$csrfWriteProtected -contains `$path)) {
@@ -1487,23 +2238,14 @@ try {
                     }
                     try {
                         `$doc  = Read-TestConfig -Path `$testConfigFile -ThrowOnError
-                        # Redact the secrets node before serialization: this
-                        # route is LAN-readable and must never disclose
-                        # operator secrets (mirrors Hide-SecretsInConfig,
-                        # Test.ConfigSync.psm1). The node stays present-but-
-                        # empty so the tree editor keeps the key; the POST
-                        # path below re-merges the on-disk values so a UI
-                        # save round-trip cannot wipe them. Read-TestConfig
-                        # re-parses per request, so in-place removal is safe.
-                        if (`$doc -is [System.Collections.IDictionary] -and `$doc.Contains('secrets')) {
-                            `$secretsNode = `$doc['secrets']
-                            if (`$secretsNode -is [System.Collections.IDictionary]) {
-                                foreach (`$sk in @(`$secretsNode.Keys)) { `$secretsNode.Remove(`$sk) }
-                            } else {
-                                `$doc['secrets'] = [ordered]@{}
-                            }
+                        # Readers share the cached document. Redact a response
+                        # view without removing the secrets the next save must
+                        # merge from the original document.
+                        `$view = [ordered]@{}
+                        foreach (`$key in `$doc.Keys) {
+                            `$view[`$key] = if (`$key -eq 'secrets') { [ordered]@{} } else { `$doc[`$key] }
                         }
-                        `$json = `$doc | ConvertTo-Json -Depth 20
+                        `$json = `$view | ConvertTo-Json -Depth 20
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                     } catch {
                         `$res.StatusCode = 500
@@ -1593,7 +2335,7 @@ try {
                     # trade accepted for making the redacted round-trip safe.
                     try {
                         if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
-                            `$diskDoc = Read-TestConfig -Path `$testConfigFile
+                            `$diskDoc = Read-TestConfig -Path `$testConfigFile -NoCache -ThrowOnError
                             if (`$diskDoc -is [System.Collections.IDictionary] -and `$diskDoc.Contains('secrets') -and (`$diskDoc['secrets'] -is [System.Collections.IDictionary])) {
                                 `$diskSecrets = `$diskDoc['secrets']
                                 if (-not `$parsedDoc.Contains('secrets') -or -not (`$parsedDoc['secrets'] -is [System.Collections.IDictionary])) {
@@ -1609,6 +2351,8 @@ try {
                         }
                     } catch {
                         Write-ServerErr "test-config secrets re-merge failed: `$(`$_.Exception.Message)"
+                        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
+                        continue
                     }
                     `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$writeOk = `$false
@@ -1910,6 +2654,7 @@ try {
                             })
                         }
                     }
+                    `$sidecarArray = `$ckptSidecars.ToArray()
                     `$out = [ordered]@{}
                     foreach (`$seq in (`$sequences.Keys | Sort-Object)) {
                         `$cyclesArr = @(`$sequences[`$seq])
@@ -1929,7 +2674,7 @@ try {
                             `$sortedSteps = @(`$cyc2.steps | Sort-Object -Stable @{Expression={ if (`$null -ne `$_.startedMs) { [long]`$_.startedMs } else { [long]0 } }})
                             foreach (`$st2 in `$sortedSteps) {
                                 if ("`$(`$st2.kind)" -notin @('fetchAndExecute', 'sshFetchAndExecute')) { continue }
-                                `$candidate = Find-PerfCheckpoint -Step `$st2 -Sidecar @(`$ckptSidecars)
+                                `$candidate = Find-PerfCheckpoint -Step `$st2 -Sidecar `$sidecarArray
                                 if (`$candidate) {
                                     `$candidate.Consumed = `$true
                                     `$st2.checkpoints = @(`$candidate.Checkpoints)
@@ -1940,7 +2685,7 @@ try {
                         `$out[`$seq] = `$cyclesArr
                     }
                     `$perfAggregatesCache = [ordered]@{
-                        generatedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        generatedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
                         recentLimit    = `$recentLimit
                         sequences      = `$out
                     }
@@ -2364,11 +3109,16 @@ try {
                 # helper on purpose: a runspace that cannot load the verifier
                 # reports no tag at all, rather than a tag that promises control
                 # this host would then refuse ('verifier-unavailable').
+                # refresh: the compact host-refresh capability (protocol,
+                # availability, ceiling, reason, remote, state). A client that
+                # finds it missing treats refresh as unavailable, which is what
+                # an older server means.
                 `$payload = @{
                     ok              = `$true
                     tokenConfigured = (-not [string]::IsNullOrWhiteSpace(`$csToken))
                     tokenTag        = `$csTag
-                    utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+                    utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+                    refresh         = (Get-HostRefreshSummaryCached)
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
@@ -2377,50 +3127,89 @@ try {
                 continue
             }
 
-            # --- REGION: /control/host-diagnostic: run Get-SystemDiagnostic on the host
+            # --- REGION: /control/host-diagnostic: detached, single-flight host diagnostic
             # See https://yuruna.link/42fa6f45-001e
+            # The diagnostic reaches tools that can take minutes or never
+            # answer, so it runs in a detached single-flight worker and this
+            # route only reads that worker's state. A report finished in the
+            # last 15 seconds is served as text/plain (200); a run in progress,
+            # or one just launched, answers 202 pending with Retry-After: 3; a
+            # run that failed in the last 15 seconds is served as its failure
+            # text. The worker never runs twice at once, and a caller polling
+            # faster than a worker starts is answered pending rather than given
+            # a second worker. The report and its state stay in the private
+            # worker directory, never under a served tree.
             if (`$path -eq 'control/host-diagnostic') {
-                `$res.ContentType = 'text/plain; charset=utf-8'
-                `$res.Headers.Add('Cache-Control', 'no-store')
-                `$diagScript = Join-Path `$repoRoot 'automation/Get-SystemDiagnostic.ps1'
-                `$tmpFile    = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-hostinfo.txt'
-                `$content    = ''
                 `$diagnosticLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
-                # Rate-limit the per-request pwsh spawn. Get-SystemDiagnostic
-                # forks a fresh pwsh, so an unthrottled caller (even a valid-
-                # proof LAN peer -- the route is already loopback-or-proof
-                # gated) can drive a spawn-per-request DoS. The request loop is
-                # single-threaded (one GetContext handled to completion at a
-                # time), so a scalar last-run timestamp is race-free without a
-                # lock. Within the cooldown, serve the previous run's cached
-                # text (persisted to `$tmpFile) instead of spawning again -- the
-                # UI still gets recent host info.
-                `$nowUtc = [DateTime]::UtcNow
-                `$diagCooldownSeconds = 15
-                if (`$script:LastHostDiagUtc -and ((`$nowUtc - `$script:LastHostDiagUtc).TotalSeconds -lt `$diagCooldownSeconds) -and (Test-Path -LiteralPath `$tmpFile)) {
-                    try { `$content = [System.IO.File]::ReadAllText(`$tmpFile) } catch { `$content = '' }
-                }
-                if ([string]::IsNullOrEmpty(`$content)) {
-                    # Stamp the spawn time BEFORE the run so a failing spawn is
-                    # throttled too (not just successful ones).
-                    `$script:LastHostDiagUtc = `$nowUtc
-                    try {
-                        if (-not (Test-Path -LiteralPath `$diagScript)) {
-                            throw (Format-CatalogMessage -Key 'status.api_diagnostic_script_missing' -Locale `$diagnosticLocale.Tag -Arguments @{ path = `$diagScript })
+                try {
+                    if (-not (Test-StatusRouteReady -Route 'host-diagnostic').Ready) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'listener_dependency_missing' }) ``
+                            -MessageKey 'status.api_listener_dependency_missing'
+                        continue
+                    }
+                    `$diagnosticDirectory = Get-StatusWorkerDirectory -Name 'host-diagnostic' -ServedRoot `$servedRootSet -Confirm:`$false
+                    if (-not `$diagnosticDirectory.Resolved) {
+                        `$privateReason = ([string]`$diagnosticDirectory.Reason).Replace('-', '_')
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'private_state_unavailable' }) ``
+                            -MessageKey 'status.api_private_state_unavailable' -MessageArguments @{ reason = `$privateReason }
+                        continue
+                    }
+                    `$diagnosticText = `$null
+                    `$diagnosticCode = ''
+                    if (-not [System.IO.File]::Exists(`$diagScriptPath)) {
+                        `$diagnosticCode = 'status.api_diagnostic_script_missing'
+                        `$diagnosticText = Format-CatalogMessage -Key `$diagnosticCode -Locale `$diagnosticLocale.Tag -Arguments @{ path = `$diagScriptPath }
+                    } else {
+                        `$diagnosticState = Get-HostDiagnosticRouteState -WorkDirectory `$diagnosticDirectory.Path -NowUtc ([DateTime]::UtcNow) ``
+                            -LastSpawnUtc `$script:HostDiagSpawnUtc -LastSpawnRunId ([string]`$script:HostDiagSpawnRunId)
+                        if (`$diagnosticState.Action -eq 'serve') {
+                            `$diagnosticText = [System.IO.File]::ReadAllText(`$diagnosticState.ResultPath)
+                        } elseif (`$diagnosticState.Action -eq 'serve_failure') {
+                            `$diagnosticCode = 'status.api_diagnostic_failed'
+                            `$diagnosticText = Format-CatalogMessage -Key `$diagnosticCode -Locale `$diagnosticLocale.Tag -Arguments @{ detail = [string]`$diagnosticState.FailureReason }
+                        } else {
+                            `$diagnosticRunId = [string]`$diagnosticState.RunId
+                            if (`$diagnosticState.Action -eq 'spawn') {
+                                `$diagnosticRunId = New-StatusOperationId
+                                `$diagnosticLaunch = Start-StatusWorker -Directory `$diagnosticDirectory.Path -StdInPath `$diagnosticDirectory.StdInPath ``
+                                    -ScriptPath `$hostDiagnosticWorker -TranscriptStem `$diagnosticRunId ``
+                                    -ArgumentList @('-RunId', `$diagnosticRunId, '-DiagnosticScriptPath', `$diagScriptPath, '-WorkDirectory', `$diagnosticDirectory.Path, '-WorkingDirectory', `$repoRoot)
+                                if (-not `$diagnosticLaunch.Launched) {
+                                    `$launchReason = ([string]`$diagnosticLaunch.Reason).Replace('-', '_')
+                                    Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'launcher_failed' }) ``
+                                        -MessageKey 'status.api_worker_launcher_failed' -MessageArguments @{ reason = `$launchReason }
+                                    continue
+                                }
+                                `$script:HostDiagSpawnUtc = [DateTime]::UtcNow
+                                `$script:HostDiagSpawnRunId = `$diagnosticRunId
+                            }
+                            Send-JsonReply -Response `$res -Request `$req -StatusCode 202 -RetryAfter '3' ``
+                                -Body ([ordered]@{ ok = `$true; action = 'pending'; runId = `$diagnosticRunId; retryAfterSeconds = 3 })
+                            continue
                         }
-                        `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
-                        Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
-                    } catch {
+                    }
+                    `$res.StatusCode = 200
+                    `$res.ContentType = 'text/plain; charset=utf-8'
+                    `$res.Headers.Set('Cache-Control', 'no-store')
+                    if (`$diagnosticCode) {
                         Set-ResponseLocaleHeaders -Response `$res -Locale `$diagnosticLocale
-                        `$res.Headers.Set('X-Yuruna-Message-Code', 'status.api_diagnostic_failed')
-                        `$content = Format-CatalogMessage -Key 'status.api_diagnostic_failed' -Locale `$diagnosticLocale.Tag -Arguments @{ detail = `$_.Exception.Message }
-                        Write-ServerErr "host-diagnostic failed: `$(`$_.Exception.Message)"
+                        `$res.Headers.Set('X-Yuruna-Message-Code', `$diagnosticCode)
+                    }
+                    `$reportBytes = [System.Text.Encoding]::UTF8.GetBytes([string]`$diagnosticText)
+                    `$res.ContentLength64 = `$reportBytes.Length
+                    if (`$req.HttpMethod -ne 'HEAD') {
+                        `$res.OutputStream.Write(`$reportBytes, 0, `$reportBytes.Length)
+                    }
+                    `$res.OutputStream.Close()
+                } catch {
+                    Write-ServerErr "host-diagnostic failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+                    try {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 500 -Body ([ordered]@{ ok = `$false; reason = 'internal_error' }) -MessageKey 'status.api_internal_error'
+                    } catch {
+                        Write-ServerErr "host-diagnostic reply failed: `$(`$_.Exception.Message)"
+                        try { `$res.Abort() } catch { Write-Debug `$_ }
                     }
                 }
-                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$content)
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
                 continue
             }
 
@@ -2699,183 +3488,108 @@ try {
                 continue
             }
 
-            # --- REGION: /control/start-cycle: save-and-restart trigger from UI
-            # POST-only. Atomically (under a process-wide lock file so
-            # concurrent UI clicks don't double-spawn):
-            #   1. clear control.cycle-pause and control.step-pause so a
-            #      paused runner unblocks immediately
-            #   2. touch control.cycle-restart so an in-delay-loop inner
-            #      wakes early and exits to outer (see Invoke-TestRunnerInnerLoop.ps1)
-            #   3. run Remove-TestVMFiles.ps1 -- this kills any in-progress
-            #      VMs out from under a running cycle; the inner then errors
-            #      out, outer respawns, and the saved test.config.yml mtime
-            #      change is what wakes outer out of its failure-pause
-            #   4. if no runner is currently running, spawn Start-TestRunner.ps1
-            #      detached (same idiom Start-StatusService.ps1 uses to spawn
-            #      this server -- Start-Process Hidden on Windows, bash nohup
-            #      on Linux/macOS)
+            # --- REGION: /control/start-cycle: queue the save-and-restart worker
+            # POST or PUT, no body. The listener changes nothing itself.
+            # Invoke-StartCycleRequest records a start-cycle reservation under
+            # the short admission lock -- answered busy while a host refresh is
+            # active, so a runner a refresh is holding parked is never
+            # un-paused from here -- then launches the detached worker and
+            # answers 202 queued. The worker
+            # takes the host's lifetime repair lock, confirms the reservation,
+            # and only then clears the pause and lab-hold controls, rewrites
+            # status.json, signals the restart, runs the bounded VM cleanup,
+            # re-reads the runner's state and starts or wakes it
+            # (test/modules/Invoke-StartCycleWorker.ps1). Its progress is
+            # runtime/start-cycle.state.json. A launch that fails removes the
+            # reservation, since nothing was changed.
             # Save the test.config.yml separately via /control/test-config
             # before calling this (config.html does both back-to-back).
             if (`$path -eq 'control/start-cycle') {
-                `$res.ContentType = 'application/json; charset=utf-8'
-                `$res.Headers.Add('Cache-Control', 'no-store')
-                if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
-                    continue
-                }
-                # File-existence lock. CreateNew is atomic at the OS layer;
-                # if another endpoint instance is mid-flight the open
-                # throws and we return 409. No mutex object so an
-                # abandoned-handle scenario can't deadlock the next click;
-                # worst case the holder crashes and leaves the lock file,
-                # which is cleaned up on next start-cycle attempt (see the
-                # stale-lock sweep below).
-                `$lockFile = Join-Path `$runtimeDir 'control.start-cycle.lock'
-                `$lockHandle = `$null
-                # Stale-lock sweep: if the lock file is older than 5 minutes
-                # the prior endpoint instance is gone (Remove-TestVMFiles +
-                # spawn shouldn't take anywhere near that). Clean up so the
-                # operator isn't permanently locked out.
-                if (Test-Path -LiteralPath `$lockFile) {
-                    try {
-                        `$lockAge = (Get-Date) - (Get-Item -LiteralPath `$lockFile).LastWriteTime
-                        if (`$lockAge.TotalSeconds -gt 300) {
-                            Remove-Item -LiteralPath `$lockFile -Force -ErrorAction SilentlyContinue
-                            Write-ServerErr "start-cycle: cleared stale lock (`$([int]`$lockAge.TotalSeconds)s old)"
-                        }
-                    } catch { Write-Debug `$_ }
-                }
                 try {
-                    `$lockHandle = [System.IO.File]::Open(`$lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+                    if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
+                        `$res.ContentType = 'application/json; charset=utf-8'
+                        `$res.Headers.Add('Cache-Control', 'no-store')
+                        Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
+                        continue
+                    }
+                    if (-not (Test-StatusRouteReady -Route 'start-cycle').Ready) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Body ([ordered]@{ ok = `$false; reason = 'listener_dependency_missing' }) ``
+                            -MessageKey 'status.api_listener_dependency_missing'
+                        continue
+                    }
+                    Invoke-StartCycleRequest -Request `$req -Response `$res
                 } catch {
-                    Send-JsonError -Response `$res -StatusCode 409 -Request `$req -Key 'status.api_another_start_cycle_request_is_in_progress_3f51d139'
-                    continue
-                }
-                `$action = 'restarted'
-                `$errMsg = `$null
-                try {
-                    # 1. clear pause flags (start implies un-pause)
-                    Remove-Item `$cyclePauseFile -Force -ErrorAction SilentlyContinue
-                    Remove-Item `$stepPauseFile  -Force -ErrorAction SilentlyContinue
-                    # A restart re-probes the lab within a step of starting, so a
-                    # hold left by the cycle being replaced would only be
-                    # re-raised if it is still true -- and would otherwise park
-                    # the new cycle on the old one's verdict.
-                    Remove-Item `$labHoldFile        -Force -ErrorAction SilentlyContinue
-                    Remove-Item `$labHoldSidecarFile -Force -ErrorAction SilentlyContinue
-                    Remove-Item `$labHoldReleaseFile -Force -ErrorAction SilentlyContinue
+                    Write-ServerErr "start-cycle failed: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
                     try {
-                        # Same RMW reasoning as the pause-control handler:
-                        # cannot cache the parse without risking a clobber.
-                        `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
-                        `$doc['cyclePaused'] = `$false
-                        `$doc['stepPaused']  = `$false
-                        `$doc['cyclePausedSinceUtc'] = ''
-                        `$doc['stepPausedSinceUtc']  = ''
-                        `$doc['labHold']      = `$false
-                        `$doc['labHoldAreas'] = @()
-                        `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
-                        `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
-                        [System.IO.File]::Move(`$tmp, `$statusJsonFile, `$true)
-                    } catch { Write-Debug `$_ }
-
-                    # 2. signal "wake from inter-cycle delay" to a running inner
-                    `$restartFlag = Join-Path `$runtimeDir 'control.cycle-restart'
-                    Set-Content -Path `$restartFlag -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
-
-                    # 3. detect whether a runner is currently alive (same
-                    #    logic as /control/runner-status: PID file + start
-                    #    cross-check + cmdline regex fallback). Done BEFORE
-                    #    Remove-TestVMFiles so the spawn decision is based
-                    #    on pre-kill state. -QuietErrors keeps this probe's
-                    #    read failures on the debug stream (no server.err
-                    #    line), unlike the runner-status endpoint.
-                    `$runnerAlive = (Test-RunnerAlive -QuietErrors).Running
-
-                    # 4. Remove-TestVMFiles synchronously. Captures both
-                    #    streams; non-zero exit is surfaced in the response
-                    #    so the operator can investigate, but does NOT
-                    #    abort the spawn (hard-stop noise is accepted).
-                    `$removeScript = Join-Path `$repoRoot 'test/Remove-TestVMFiles.ps1'
-                    if (Test-Path -LiteralPath `$removeScript) {
-                        try {
-                            `$removeOut = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$removeScript 2>&1 | Out-String
-                            Write-ServerErr "start-cycle: Remove-TestVMFiles output:`n`$removeOut"
-                        } catch {
-                            Write-ServerErr "start-cycle: Remove-TestVMFiles threw: `$(`$_.Exception.Message)"
-                        }
-                    } else {
-                        Write-ServerErr "start-cycle: Remove-TestVMFiles.ps1 not found at `$removeScript"
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 500 -Body ([ordered]@{ ok = `$false; reason = 'internal_error' }) -MessageKey 'status.api_internal_error'
+                    } catch {
+                        Write-ServerErr "start-cycle reply failed: `$(`$_.Exception.Message)"
+                        try { `$res.Abort() } catch { Write-Debug `$_ }
                     }
+                }
+                continue
+            }
 
-                    # 5. spawn outer runner if it wasn't already alive.
-                    #    Mirrors the Start-StatusService.ps1 spawn idiom:
-                    #    Start-Process Hidden on Windows, bash nohup on
-                    #    Linux/macOS. Stdout/stderr redirected to runtime-dir
-                    #    log files so the operator can debug a failed spawn.
-                    if (-not `$runnerAlive) {
-                        `$action = 'spawned'
-                        `$runnerScript = Join-Path `$repoRoot 'test/Start-TestRunner.ps1'
-                        if (-not (Test-Path -LiteralPath `$runnerScript)) {
-                            `$runnerLocale = Resolve-PageLocale -AcceptLanguage `$req.Headers['Accept-Language']
-                            throw (Format-CatalogMessage -Key 'status.api_runner_script_missing' -Locale `$runnerLocale.Tag -Arguments @{ path = `$runnerScript })
-                        }
-                        `$spawnOut = Join-Path `$runtimeDir 'runner.spawned-from-web.out'
-                        `$spawnErr = Join-Path `$runtimeDir 'runner.spawned-from-web.err'
-                        if (`$IsWindows) {
-                            # Quote `$runnerScript so Start-Process emits a
-                            # correctly-quoted command line for paths that
-                            # contain spaces (e.g. C:\Users\Yuruna Test\...).
-                            `$runnerScriptQuoted = '"' + `$runnerScript + '"'
-                            # -RedirectStandardInput against an empty file:
-                            # see the spawn site at the bottom of
-                            # Start-StatusService.ps1 for the full rationale.
-                            # Same trap class -- without it the spawned
-                            # runner inherits this status service's stdin
-                            # handle, which on Windows pins conhost on
-                            # parent-shell exit. Passing 'NUL' is rejected
-                            # by Start-Process's path resolver, so we use
-                            # a persistent empty sentinel file in the
-                            # runtime dir instead.
-                            `$stdinSink = Join-Path `$runtimeDir 'stdin.empty'
-                            if (-not (Test-Path -LiteralPath `$stdinSink)) {
-                                [System.IO.File]::WriteAllBytes(`$stdinSink, [byte[]]@())
-                            }
-                            Start-Process -FilePath "pwsh" ``
-                                -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", `$runnerScriptQuoted ``
-                                -WorkingDirectory `$repoRoot ``
-                                -RedirectStandardInput  `$stdinSink ``
-                                -RedirectStandardOutput `$spawnOut ``
-                                -RedirectStandardError  `$spawnErr ``
-                                -PassThru | Out-Null
-                        } else {
-                            # 'set -m' enables job control so the trailing & puts
-                            # the runner in its OWN process group -- without it the
-                            # runner inherits this status service's group and stays
-                            # wired to its terminal job. nohup plus stdio redirected
-                            # off the tty let it outlive the caller cleanly.
-                            & bash -c "set -m; cd '`$repoRoot' && nohup pwsh -NoProfile -File '`$runnerScript' </dev/null > '`$spawnOut' 2> '`$spawnErr' &" | Out-Null
-                        }
-                        Write-ServerErr "start-cycle: spawned new runner from web endpoint"
+            # --- REGION: /control/host-refresh: bounded admission and detached repair worker
+            # POST only, a JSON body of at most 4096 bytes naming requestId,
+            # tier and maxRung (docs/control-routes.md). This half runs inside
+            # the request loop and only decides whether the body is worth
+            # reading. The read itself is asynchronous; Step-PendingRequestBody
+            # finishes it and Invoke-HostRefreshRequest validates, authorizes a
+            # non-loopback caller's refresh proof, takes the short admission
+            # lock and launches the detached worker. The listener never waits
+            # for a repair and never takes the repair lock.
+            if (`$path -eq 'control/host-refresh') {
+                try {
+                    if (`$req.HttpMethod -ne 'POST') {
+                        `$res.ContentType = 'application/json; charset=utf-8'
+                        `$res.Headers.Add('Cache-Control', 'no-store')
+                        `$res.Headers.Add('Allow', 'POST')
+                        Send-JsonError -Response `$res -StatusCode 405 -Request `$req -Key 'status.api_post_required_663cc07c'
+                        continue
                     }
+                    if (-not (Test-StatusRouteReady -Route 'host-refresh').Ready) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Close -Body ([ordered]@{ ok = `$false; reason = 'listener_dependency_missing' }) ``
+                            -MessageKey 'status.api_listener_dependency_missing'
+                        continue
+                    }
+                    if (-not (Test-HostRefreshContentType -ContentType ([string]`$req.ContentType))) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 415 -Close -Body ([ordered]@{ ok = `$false; reason = 'unsupported_media_type' }) ``
+                            -MessageKey 'status.api_unsupported_media_type'
+                        continue
+                    }
+                    # A declared length past the cap is refused before a byte is
+                    # read. It is only a shortcut: the reader counts the bytes it
+                    # receives, so a chunked or understated body is cut off one
+                    # byte past the cap all the same.
+                    if (`$req.ContentLength64 -gt 4096) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 413 -Close -Body ([ordered]@{ ok = `$false; reason = 'payload_too_large' }) ``
+                            -MessageKey 'status.api_payload_too_large_4_kb'
+                        continue
+                    }
+                    `$refreshAvailability = Get-HostRefreshSummaryCached
+                    if (`$refreshAvailability.availability -ne 'available') {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Close -Body ([ordered]@{ ok = `$false; reason = 'refresh_unavailable' }) ``
+                            -MessageKey 'status.api_host_refresh_unavailable' -MessageArguments @{ reason = [string]`$refreshAvailability.reason }
+                        continue
+                    }
+                    if (`$pendingBodies.Count -ge 4) {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 503 -Close -RetryAfter '2' -Body ([ordered]@{ ok = `$false; reason = 'listener_busy' }) ``
+                            -MessageKey 'status.api_listener_busy'
+                        continue
+                    }
+                    `$refreshLoopback = `$false
+                    try { `$refreshLoopback = [System.Net.IPAddress]::IsLoopback(`$req.RemoteEndPoint.Address) } catch { `$refreshLoopback = `$false }
+                    Add-PendingRequestBody -RequestContext `$ctx -Loopback `$refreshLoopback -ProofWire ([string]`$req.Headers['X-Yuruna-Refresh-Proof'])
                 } catch {
-                    `$errMsg = `$_.Exception.Message
-                    Write-ServerErr "start-cycle failed: `$errMsg"
-                } finally {
-                    if (`$lockHandle) {
-                        try { `$lockHandle.Close() } catch { Write-Debug `$_ }
-                        Remove-Item -LiteralPath `$lockFile -Force -ErrorAction SilentlyContinue
+                    Write-ServerErr "control/host-refresh failed before its body was read: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+                    try {
+                        Send-JsonReply -Response `$res -Request `$req -StatusCode 500 -Close -Body ([ordered]@{ ok = `$false; reason = 'internal_error' }) -MessageKey 'status.api_internal_error'
+                    } catch {
+                        Write-ServerErr "control/host-refresh reply failed: `$(`$_.Exception.Message)"
+                        try { `$res.Abort() } catch { Write-Debug `$_ }
                     }
                 }
-                if (`$errMsg) {
-                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_detail_caf3c2c2' -Arguments @{ detail = `$errMsg }
-                    continue
-                }
-                `$payload = '{"ok":true,"action":"' + `$action + '"}'
-                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
                 continue
             }
 
@@ -3425,12 +4139,65 @@ try {
             if (`$path -like 'yuruna-repo/*') {
                 `$rel  = `$path.Substring(12)
                 `$root = `$repoRoot
+            } elseif (`$path -like 'runtime/*') {
+                `$rel  = `$path.Substring(8)
+                `$root = `$runtimeDir
+            } elseif (`$path -like 'log/*') {
+                `$rel  = `$path.Substring(4)
+                `$root = `$logDir
+            } else {
+                `$rel  = `$path
+                `$root = `$statusDir
+            }
+            # Pseudo catalogs are stored under a stable deployment filename but
+            # exposed to pages only through a content-addressed URL. An exact
+            # canonical match is required: a made-up hash remains a normal
+            # nonexistent path and returns 404 instead of serving mismatched
+            # bytes under an immutable cache key.
+            `$immutableLocaleCatalog = `$null
+            if (`$root -ceq `$statusDir -and
+                `$rel -cmatch '^([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)\.([0-9a-f]{64})\.status\.js$') {
+                `$candidateCatalog = Get-StatusLocaleCatalogAsset -Locale `$Matches[1] -Root `$statusDir
+                if (`$candidateCatalog -and `$rel -ceq `$candidateCatalog.RequestName) {
+                    `$immutableLocaleCatalog = `$candidateCatalog
+                    `$rel = `$candidateCatalog.SourceName
+                }
+            }
+            `$file = Join-Path `$root `$rel
+            # Archived-cycle fallback: a move-mode host has deleted the local folder,
+            # so serve the same URL from the mounted share instead. Re-rooting here
+            # (rather than rewriting the recorded URLs) is what keeps status.json
+            # history rows, per-guest tiles and flame-chart links working unchanged.
+            # The containment check below is applied to whichever root won.
+            if ((`$path -like 'log/*') -and -not (Test-Path -LiteralPath `$file)) {
+                `$archived = Resolve-ArchivedLogPath -Rel `$rel
+                if (`$archived) {
+                    `$file = `$archived
+                    `$root = Get-ArchiveCycleRoot
+                }
+            }
+            `$file = [System.IO.Path]::GetFullPath(`$file)
+            `$rootFull = [System.IO.Path]::GetFullPath(`$root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+            # Equality is legitimate here (empty `$rel serves the mount's
+            # directory index); the descendant test is separator-anchored so
+            # a sibling directory sharing the prefix (e.g. the repo root vs
+            # a '<repo>-something' checkout next to it) cannot pass.
+            if (-not ((`$file -ceq `$rootFull) -or `$file.StartsWith(`$rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::Ordinal))) {
+                `$res.StatusCode = 403
+                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09')
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+            # Apply access rules to the same canonical relative path that
+            # file opening uses, so repeated separators cannot bypass them.
+            `$relNorm = [System.IO.Path]::GetRelativePath(`$rootFull, `$file) -replace '\\', '/'
+            if (`$path -like 'yuruna-repo/*') {
                 # Deny-list: secrets, vault state, the .git directory.
                 # Pattern-based so future credential / event-log files
                 # in the same families are auto-protected.
                 # The yuruna-project sequence files live elsewhere; this
                 # only governs what ships out of the framework's repo.
-                `$relNorm = `$rel -replace '\\','/'
                 `$denyExact = @(
                     'test/test.config.yml',
                     '.git'
@@ -3461,29 +4228,6 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-            } elseif (`$path -like 'runtime/*') {
-                `$rel  = `$path.Substring(8)
-                `$root = `$runtimeDir
-            } elseif (`$path -like 'log/*') {
-                `$rel  = `$path.Substring(4)
-                `$root = `$logDir
-            } else {
-                `$rel  = `$path
-                `$root = `$statusDir
-            }
-            # Pseudo catalogs are stored under a stable deployment filename but
-            # exposed to pages only through a content-addressed URL. An exact
-            # canonical match is required: a made-up hash remains a normal
-            # nonexistent path and returns 404 instead of serving mismatched
-            # bytes under an immutable cache key.
-            `$immutableLocaleCatalog = `$null
-            if (`$root -ceq `$statusDir -and
-                `$rel -cmatch '^([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)\.([0-9a-f]{64})\.status\.js$') {
-                `$candidateCatalog = Get-StatusLocaleCatalogAsset -Locale `$Matches[1] -Root `$statusDir
-                if (`$candidateCatalog -and `$rel -ceq `$candidateCatalog.RequestName) {
-                    `$immutableLocaleCatalog = `$candidateCatalog
-                    `$rel = `$candidateCatalog.SourceName
-                }
             }
             # Unified deny-list across non-yuruna-repo dispatches. The
             # /runtime/ route serves runtime/yuruna-caching-proxy-service.yml
@@ -3492,7 +4236,6 @@ try {
             # events.log) and status/ssh/ (private SSH key). Block all
             # of those uniformly so URL probing never returns secrets.
             if (`$path -notlike 'yuruna-repo/*') {
-                `$relNorm = `$rel -replace '\\','/'
                 `$denyLikeStatus = @(
                     '*/vault.yml',     'vault.yml',
                     '*/vault.lock',    'vault.lock',
@@ -3517,32 +4260,6 @@ try {
                     continue
                 }
             }
-            `$file = Join-Path `$root `$rel
-            # Archived-cycle fallback: a move-mode host has deleted the local folder,
-            # so serve the same URL from the mounted share instead. Re-rooting here
-            # (rather than rewriting the recorded URLs) is what keeps status.json
-            # history rows, per-guest tiles and flame-chart links working unchanged.
-            # The containment check below is applied to whichever root won.
-            if ((`$path -like 'log/*') -and -not (Test-Path -LiteralPath `$file)) {
-                `$archived = Resolve-ArchivedLogPath -Rel `$rel
-                if (`$archived) {
-                    `$file = `$archived
-                    `$root = Get-ArchiveCycleRoot
-                }
-            }
-            `$file = [System.IO.Path]::GetFullPath(`$file)
-            `$rootFull = [System.IO.Path]::GetFullPath(`$root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-            # Equality is legitimate here (empty `$rel serves the mount's
-            # directory index); the descendant test is separator-anchored so
-            # a sibling directory sharing the prefix (e.g. the repo root vs
-            # a '<repo>-something' checkout next to it) cannot pass.
-            if (-not ((`$file -ceq `$rootFull) -or `$file.StartsWith(`$rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::Ordinal))) {
-                `$res.StatusCode = 403
-                `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09')
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
-                continue
-            }
             # --- REGION: Directory listing
             # When the resolved path is a directory, serve an HTML index
             # of its contents with relative links. Used by the failure-
@@ -3551,7 +4268,8 @@ try {
             # Skipped for /yuruna-repo/* so a working-tree listing never
             # exposes paths beyond the existing per-file deny-list.
             if (Test-Path `$file -PathType Container) {
-                if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/') {
+                if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/' -or
+                    `$root -ceq `$runtimeDir -or `$relNorm -eq 'runtime' -or `$relNorm -like 'runtime/*') {
                     `$res.StatusCode = 403
                     `$body = (Get-StatusMessageBytes -Request `$req -Response `$res -Key 'status.api_forbidden_directory_listing_disabled_5d107f5b')
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -3836,6 +4554,7 @@ try {
         # listener kicked out by http.sys) and keep serving. Without
         # this the server died silently on the first transient blip.
         Write-ServerErr "iteration error: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+        `$contextTask = `$null
         Start-Sleep -Milliseconds 200
       }
     }
@@ -3880,83 +4599,109 @@ if ($serverScriptParseError -and $serverScriptParseError.Count) {
     foreach ($parseError in ($serverScriptParseError | Select-Object -First 5)) {
         Write-Output ("  line $($parseError.Extent.StartLineNumber), column $($parseError.Extent.StartColumnNumber): $($parseError.Message)")
     }
+    if ($RefreshSafe) { Complete-RefreshSafeStart -Outcome 'generation-failed' -Reason 'parse-error' }
+    Exit-StatusServiceStartupLock
     throw ("The generated status-service script has $($serverScriptParseError.Count) syntax error(s) and would die on startup; refusing to launch it. " +
            "The generated file is $serverScriptFile -- each error above is a line IN THAT FILE, produced by the server here-string in $PSCommandPath.")
 }
 
-if ($IsWindows) {
-    # Explicit stdio redirection on Windows is REQUIRED for outer-runner
-    # liveness. Without -RedirectStandardOutput / -RedirectStandardError,
-    # this grandchild inherits the parent's console handles. The chain
-    # is: Start-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
-    # Start-Process -NoNewWindow (shared console); the inner here spawns
-    # the long-running status service which without explicit redirection
-    # also inherits those shared handles. When the inner cycle ends and
-    # the outer's WaitForExit() returns, the grandchild still holds the
-    # console handles open -- which on Windows can keep the outer's
-    # Start-Process -Wait pinned past the inner's actual exit, producing
-    # the symptom "[outer cycle N] outer runner back in control" never
-    # firing on outer.log even though the inner clearly emitted its
-    # final cycleDelaySeconds-wait-complete line. Redirecting to files
-    # gives the grandchild dedicated handles and breaks the chain.
-    $serverOut = Join-Path $RuntimeDir "server.out"
-    $serverErrFile = Join-Path $RuntimeDir "server.err"
-    # Wrap $serverScriptFile in literal double quotes before handing it to
-    # -ArgumentList. Start-Process joins the array elements with spaces
-    # WITHOUT quoting, so a path like "C:\Users\Yuruna Test\..." gets
-    # re-split by CreateProcess and the child pwsh sees -File C:\Users\Yuruna
-    # and reports: The argument 'C:\Users\Yuruna' is not recognized as the
-    # name of a script file.
-    $serverScriptQuoted = '"' + $serverScriptFile + '"'
-    # -RedirectStandardInput against a real empty file is non-optional on
-    # Windows: without an explicit stdin redirect, the detached child
-    # inherits the parent console's stdin handle and conhost cannot tear
-    # down when the parent pwsh exits, leaving the operator's PowerShell
-    # window in a multi-second to indefinite close-pending state. Passing
-    # 'NUL' / '\\.\NUL' does NOT work because Start-Process runs the value
-    # through Resolve-Path, which prepends the current directory and then
-    # the underlying FileStream open fails on the bogus cwd\NUL path. The
-    # macOS branch below achieves the same effect via '</dev/null' in the
-    # bash invocation -- bash's redirection accepts the device name
-    # directly, so no sentinel file is needed there.
-    $stdinSink = Join-Path $RuntimeDir 'stdin.empty'
-    if (-not (Test-Path -LiteralPath $stdinSink)) {
-        [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
+# -NonInteractive: the server runs with no console, so a command that
+# prompted for a missing mandatory value would park the whole request loop
+# on a read nobody can answer; non-interactive, it fails that one request.
+try {
+    if ($IsWindows) {
+        # Explicit stdio redirection on Windows is REQUIRED for outer-runner
+        # liveness. Without -RedirectStandardOutput / -RedirectStandardError,
+        # this grandchild inherits the parent's console handles. The chain
+        # is: Start-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
+        # Start-Process -NoNewWindow (shared console); the inner here spawns
+        # the long-running status service which without explicit redirection
+        # also inherits those shared handles. When the inner cycle ends and
+        # the outer's WaitForExit() returns, the grandchild still holds the
+        # console handles open -- which on Windows can keep the outer's
+        # Start-Process -Wait pinned past the inner's actual exit, producing
+        # the symptom "[outer cycle N] outer runner back in control" never
+        # firing on outer.log even though the inner clearly emitted its
+        # final cycleDelaySeconds-wait-complete line. Redirecting to files
+        # gives the grandchild dedicated handles and breaks the chain.
+        $serverOut = Join-Path $RuntimeDir "server.out"
+        $serverErrFile = Join-Path $RuntimeDir "server.err"
+        # Wrap $serverScriptFile in literal double quotes before handing it to
+        # -ArgumentList. Start-Process joins the array elements with spaces
+        # WITHOUT quoting, so a path like "C:\Users\Yuruna Test\..." gets
+        # re-split by CreateProcess and the child pwsh sees -File C:\Users\Yuruna
+        # and reports: The argument 'C:\Users\Yuruna' is not recognized as the
+        # name of a script file.
+        $serverScriptQuoted = '"' + $serverScriptFile + '"'
+        # -RedirectStandardInput against a real empty file is non-optional on
+        # Windows: without an explicit stdin redirect, the detached child
+        # inherits the parent console's stdin handle and conhost cannot tear
+        # down when the parent pwsh exits, leaving the operator's PowerShell
+        # window in a multi-second to indefinite close-pending state. Passing
+        # 'NUL' / '\\.\NUL' does NOT work because Start-Process runs the value
+        # through Resolve-Path, which prepends the current directory and then
+        # the underlying FileStream open fails on the bogus cwd\NUL path. The
+        # macOS branch below achieves the same effect via '</dev/null' in the
+        # bash invocation -- bash's redirection accepts the device name
+        # directly, so no sentinel file is needed there.
+        $stdinSink = Join-Path $RuntimeDir 'stdin.empty'
+        if (-not (Test-Path -LiteralPath $stdinSink)) {
+            [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
+        }
+        $proc = Start-Process -FilePath "pwsh" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File", $serverScriptQuoted `
+            -RedirectStandardInput  $stdinSink `
+            -RedirectStandardOutput $serverOut `
+            -RedirectStandardError  $serverErrFile `
+            -PassThru
+        Set-Content -Path $PidFile -Value $proc.Id
+    } else {
+        # On macOS/Linux, detach the status service from the test-runner shell's
+        # terminal job. `bash -c` runs a NON-interactive shell, so job control is
+        # off and a bare `&` leaves the backgrounded process in the caller's
+        # process group: exiting that shell then lingers because its terminal job
+        # still has a live member. `set -m` turns job control on for this shell,
+        # so `&` places the server in its OWN process group (bash setpgid's it).
+        # `nohup` ignores SIGHUP and stdin/stdout/stderr are redirected off the
+        # tty, so the server cleanly outlives the caller. (macOS has no `setsid`,
+        # so a new session is not available here -- a new process group plus
+        # nohup is what decouples it from the caller's exit.)
+        $stdErr = Join-Path $RuntimeDir "server.err"
+        & bash -c "set -m; nohup pwsh -NoProfile -NonInteractive -File '$serverScriptFile' </dev/null >/dev/null 2>'$stdErr' & echo `$!" | Set-Variable -Name bgPid
+        Set-Content -Path $PidFile -Value $bgPid
     }
-    $proc = Start-Process -FilePath "pwsh" `
-        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $serverScriptQuoted `
-        -RedirectStandardInput  $stdinSink `
-        -RedirectStandardOutput $serverOut `
-        -RedirectStandardError  $serverErrFile `
-        -PassThru
-    Set-Content -Path $PidFile -Value $proc.Id
-} else {
-    # On macOS/Linux, detach the status service from the test-runner shell's
-    # terminal job. `bash -c` runs a NON-interactive shell, so job control is
-    # off and a bare `&` leaves the backgrounded process in the caller's
-    # process group: exiting that shell then lingers because its terminal job
-    # still has a live member. `set -m` turns job control on for this shell,
-    # so `&` places the server in its OWN process group (bash setpgid's it).
-    # `nohup` ignores SIGHUP and stdin/stdout/stderr are redirected off the
-    # tty, so the server cleanly outlives the caller. (macOS has no `setsid`,
-    # so a new session is not available here -- a new process group plus
-    # nohup is what decouples it from the caller's exit.)
-    $stdErr = Join-Path $RuntimeDir "server.err"
-    & bash -c "set -m; nohup pwsh -NoProfile -File '$serverScriptFile' </dev/null >/dev/null 2>'$stdErr' & echo `$!" | Set-Variable -Name bgPid
-    Set-Content -Path $PidFile -Value $bgPid
+} catch {
+    if ($RefreshSafe) { Complete-RefreshSafeStart -Outcome 'launch-failed' -Reason ([string]$_.Exception.GetType().Name) }
+    throw
 }
 
 # --- REGION: Verify server started
+# The refresh-safe start waits only as long as its deadline allows, keeping
+# time for the commit lookup and the outcome record (the caller bounds this
+# process by the same deadline and reads only that record), and never kills a
+# server that is slow to come up.
+$readyWaitSeconds = $script:StatusServiceReadyTimeoutSeconds
+if ($RefreshSafe) {
+    $readyWaitSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline `
+        -Ceiling $script:StatusServiceReadyTimeoutSeconds -ReserveMilliseconds 8000
+    if (-not $readyWaitSeconds) { $readyWaitSeconds = 1 }
+}
 $serverReady = Wait-WithProgress -Activity "Status service: waiting for http://localhost:$Port/" `
-    -TotalSeconds $script:StatusServiceReadyTimeoutSeconds -PollSeconds 1 -Test {
+    -TotalSeconds $readyWaitSeconds -PollSeconds 1 -Test {
         try {
             $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
             return $true
         } catch { return $false }
     }
 if (-not $serverReady) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d938ab5118c5d2c1' -Arguments @{ port = "$Port"; statusServiceReadyTimeoutSeconds = "$script:StatusServiceReadyTimeoutSeconds" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d938ab5118c5d2c1' -Arguments @{ port = "$Port"; statusServiceReadyTimeoutSeconds = "$readyWaitSeconds" })
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8a43d6f86299328' -Arguments @{ err = "$(Join-Path $RuntimeDir 'server.err')" })
+    if ($RefreshSafe) {
+        $launchedPid = 0
+        try { $null = [int]::TryParse(([System.IO.File]::ReadAllText($PidFile)).Trim(), [ref]$launchedPid) } catch { $launchedPid = 0 }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_not_ready' -Arguments @{ processId = $launchedPid; seconds = $readyWaitSeconds })
+        Complete-RefreshSafeStart -Outcome 'start-timeout' -ProcessId $launchedPid -Reason 'status-unanswered'
+    }
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
@@ -3971,8 +4716,9 @@ if (-not $serverReady) {
 # announcement for an address nothing serves would be worse than none, and the
 # probe above is what distinguishes the two.
 #
-# Detached rather than a timer inside the server: that process blocks
-# indefinitely in HttpListener.GetContext() by design, so it has no tick site.
+# Detached rather than a timer inside the server: that process waits
+# indefinitely for its next request (it wakes early only to finish a request
+# body it is reading), so it has no periodic tick site.
 # Same idiom as the pool push forwarder. Single-instance via its own lock, so
 # the per-cycle Start-StatusService call cannot stack beacons; spawn failure is
 # non-fatal, exactly like every other best-effort pool hook.
@@ -4051,7 +4797,7 @@ if ($serverReady) {
 # itself as "already running on SHA X" -- the missing SHA file forces the
 # next call to restart.
 try {
-    $launchSha = (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim()
+    $launchSha = if ($RefreshSafe) { Get-RefreshSafeFrameworkSha } else { (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim() }
     if ($launchSha) {
         [System.IO.File]::WriteAllText($ShaFile, $launchSha, [System.Text.UTF8Encoding]::new($false))
     } elseif (Test-Path -LiteralPath $ShaFile) {
@@ -4060,12 +4806,16 @@ try {
 } catch { Write-Verbose "Could not persist server.sha: $($_.Exception.Message)" }
 
 # --- REGION: Display connection info
-$machineName = (hostname).Trim()
-$ip = try {
-    ([System.Net.Dns]::GetHostAddresses($machineName) |
-        Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
-        Select-Object -First 1).IPAddressToString
-} catch { $null }
+# The refresh-safe start runs no bare native command and waits on no name
+# lookup: both are unbounded, and its caller holds a deadline.
+$machineName = if ($RefreshSafe) { [Environment]::MachineName } else { (hostname).Trim() }
+$ip = if ($RefreshSafe) { $null } else {
+    try {
+        ([System.Net.Dns]::GetHostAddresses($machineName) |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+            Select-Object -First 1).IPAddressToString
+    } catch { $null }
+}
 
 Write-Output ""
 $serverPid = (Get-Content $PidFile).Trim()
@@ -4093,7 +4843,7 @@ try {
     $markerBody = [ordered]@{
         active       = $true
         area         = 'status-service'
-        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         port         = $Port
         baseUrl      = "http://${markerHost}:$Port/"
         localUrl     = "http://localhost:$Port/"
@@ -4116,15 +4866,29 @@ try {
 # indeterminate state (e.g. can't read ufw unprivileged) stays quiet -- host
 # setup (Enable-TestAutomation) is the durable owner, which matters for a host
 # whose runner is stopped and so never re-runs this per-cycle start.
-Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
-$fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
-if ($fw.Changed) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be11a610adef5489' -Arguments @{ message = "$($fw.Message)" })
-} elseif ($fw.Blocked) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_298b29b58a48d4d4' -Arguments @{ message = "$($fw.Message)" })
-    if ($ip) {
-        Write-Warning "  http://localhost:$Port/status/ works, but LAN clients hitting http://${ip}:$Port/status/ will time out."
+# The refresh-safe start edits no firewall: a rule change is host
+# configuration, and the listener it restores was reachable before.
+if (-not $RefreshSafe) {
+    Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
+    $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
+    if ($fw.Changed) {
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_be11a610adef5489' -Arguments @{ message = "$($fw.Message)" })
+    } elseif ($fw.Blocked) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_298b29b58a48d4d4' -Arguments @{ message = "$($fw.Message)" })
+        if ($ip) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_lan_clients_time_out' -Arguments @{ port = "$Port"; address = "$ip" })
+        }
     }
 }
 
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ab8b41c49078fda')
+if ($RefreshSafe) {
+    $startedPid = 0
+    $startedAt = [long]0
+    try { $null = [int]::TryParse(([System.IO.File]::ReadAllText($PidFile)).Trim(), [ref]$startedPid) } catch { $startedPid = 0 }
+    if ($startedPid -gt 0) {
+        try { $startedAt = [DateTimeOffset]::new((Get-Process -Id $startedPid -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds() } catch { $startedAt = [long]0 }
+    }
+    Complete-RefreshSafeStart -Outcome 'started' -ProcessId $startedPid -StartTimeUnixMs $startedAt -Sha ([string]$launchSha) -ShaMatches $true
+}
+Exit-StatusServiceStartupLock

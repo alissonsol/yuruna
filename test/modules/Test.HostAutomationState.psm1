@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -464,6 +464,25 @@ function Get-MacPreAutomationState {
     return $knobs
 }
 
+function ConvertFrom-YurunaPowerSettingIndex {
+<#
+.SYNOPSIS
+    Read the AC or DC index from a single-setting powercfg query in any locale.
+.DESCRIPTION
+    The final two hexadecimal fields are the AC and DC values. Labels are
+    translated by Windows; numeric field order is fixed. Missing fields remain
+    unknown rather than claiming the setting is disabled.
+#>
+    [CmdletBinding()]
+    [OutputType([Nullable[long]])]
+    param([AllowEmptyCollection()][string[]]$Output, [ValidateSet('AC','DC')][string]$Scheme = 'AC')
+    $values = @(foreach ($line in $Output) {
+        if ($line -match ':\s*0x([0-9a-fA-F]+)\s*$') { [Convert]::ToInt64($Matches[1], 16) }
+    })
+    if ($values.Count -lt 2) { return $null }
+    return $values[$values.Count - $(if ($Scheme -eq 'AC') { 2 } else { 1 })]
+}
+
 function Get-WindowsPreAutomationState {
 <#
 .SYNOPSIS
@@ -485,12 +504,8 @@ function Get-WindowsPreAutomationState {
         $knobs["powercfg/monitor-timeout-$scheme"] = Invoke-CaptureRead -Name "powercfg monitor timeout ($scheme)" -Reader {
             $out = & powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null
             if ($LASTEXITCODE -ne 0) { return $null }
-            $needle = if ($scheme -eq 'AC') { 'Current AC Power Setting Index' } else { 'Current DC Power Setting Index' }
-            foreach ($line in $out) {
-                if ("$line" -match [regex]::Escape($needle) + '\s*:\s*(0x[0-9a-fA-F]+)') {
-                    return [string][Convert]::ToInt32($Matches[1], 16)
-                }
-            }
+            $value = ConvertFrom-YurunaPowerSettingIndex -Output $out -Scheme $scheme
+            if ($null -ne $value) { return [string]$value }
             return $null
         }.GetNewClosure()
     }
@@ -502,11 +517,8 @@ function Get-WindowsPreAutomationState {
         $knobs["powercfg/CONSOLELOCK-$scheme"] = Invoke-CaptureRead -Name "powercfg CONSOLELOCK ($scheme)" -Reader {
             $out = & powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null
             if ($LASTEXITCODE -ne 0) { return $null }
-            foreach ($line in $out) {
-                if ("$line" -match "Current $scheme Power Setting Index\s*:\s*(0x[0-9a-fA-F]+)") {
-                    return [string][Convert]::ToInt32($Matches[1], 16)
-                }
-            }
+            $value = ConvertFrom-YurunaPowerSettingIndex -Output $out -Scheme $scheme
+            if ($null -ne $value) { return [string]$value }
             return $null
         }.GetNewClosure()
     }
@@ -1049,8 +1061,9 @@ function Stop-YurunaServiceVMSet {
         $script   = Join-Path $RepoRoot $relative
         if (-not (Test-Path -LiteralPath $script)) { $Skipped.Add("$relative not found"); continue }
         if ($Cmdlet.ShouldProcess("$svc VM", 'Stop')) {
-            & pwsh -NoProfile -File $script
-            $Restored.Add("$svc VM stopped")
+            & pwsh -NoProfile -File $script | Out-Host
+            if ($LASTEXITCODE -eq 0) { $Restored.Add("$svc VM stopped") }
+            else { $Skipped.Add("$svc VM stop failed (exit $LASTEXITCODE)") }
         }
     }
 }
@@ -1095,7 +1108,7 @@ function Write-DisableCommonEpilogue {
     }
 }
 
-Export-ModuleMember -Function Get-HostAutomationStatePath, Get-HostAutomationStateSchemaVersion,
+Export-ModuleMember -Function ConvertFrom-YurunaPowerSettingIndex, Get-HostAutomationStatePath, Get-HostAutomationStateSchemaVersion,
     Test-HostRestorePreviewOnly, Read-HostAutomationState, Save-HostAutomationState,
     Get-HostOsVersionStamp, Get-HostAutomationOsDrift,
     Get-LinuxPreAutomationState, Get-MacPreAutomationState, Get-WindowsPreAutomationState,

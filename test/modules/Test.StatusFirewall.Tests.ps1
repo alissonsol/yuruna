@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4241baeb-2bf8-4508-8226-252c7f0dd6ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,16 @@ if ($IsLinux) {
             $r = Set-YurunaStatusFirewallRule -Port 8080 -NonInteractive 4>$null
             Assert-False $r.Ensured 'cannot confirm reachable'
             Assert-False $r.Blocked 'must not warn a healthy host every cycle'
+        }
+    }
+}
+
+Describe 'Firewall native argument preservation' {
+    It 'passes a single argument as one complete native token' {
+        InModuleScope Test.StatusFirewall {
+            $result = Invoke-YurunaFirewallNative -CommandLine @((Get-Process -Id $PID).Path, '-Version')
+            Assert-Equal 0 $result.ExitCode
+            Assert-Match 'PowerShell 7' $result.Output
         }
     }
 }

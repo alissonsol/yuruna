@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@ param(
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$ErrorActionPreference = 'Stop'
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -179,13 +180,17 @@ $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_utmRepoRoot
 $YurunaHostPort = $_statusSeed.Port
-$_utmBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
+$_utmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
     -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
     -GhToken (Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot).Token
 
+foreach ($seedFile in $_utmBootstrap.Files.Keys) {
+    [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $_utmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
+}
+
 $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
     -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
-    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrapB64
+    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrap.EncodedCommand
 Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"

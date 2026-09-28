@@ -7,6 +7,21 @@ package catalog
 // DataqpsPlocmautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataqpsPlocmautomation = `{
+  "automation.host_setup_module_install_skipped": [
+    "[!‮",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " íš ñóţ íñšţáļļéď, áñď ţħíš řúñ ɱáý ñóţ íñšţáļļ ɱóďúļéš. Íñšţáļļ íţ ŵíţħ: Íñšţáļļ-Ɱóďúļé ",
+    {
+      "arg": "module",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " -Šçóƥé ÇúřřéñţÚšéř‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.memory_plan": {
     "kind": "plural",
     "selector": "count",
@@ -5213,6 +5228,27 @@ const DataqpsPlocmautomation = `{
       "trust": "external"
     },
     "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.setup_service_vm_reason_intended_stopped": "[!‮íţ ŵáš šţóƥƥéď óñ ƥúřƥóšé; řéƀúíļďíñğ ƀéçáúšé šéţúƥ ŵáš ášķéď ţó ƀříñğ íţ úƥ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "automation.setup_service_vm_reason_lock_unavailable": "[!‮íţš óƥéřáţíóñ ļóçķ çóúļď ñóţ ƀé ţáķéñ‬ ~~~~~~~~~~~~~~~]",
+  "automation.setup_service_vm_reason_operation_busy": "[!‮áñóţħéř šţářţ óř šţóƥ óƒ ţħíš šéřṽíçé íš šţíļļ řúññíñğ‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+  "automation.setup_service_vm_reason_state_unknown": [
+    "[!‮íţš ṼⱮ šţáţé çóúļď ñóţ ƀé çóñƒířɱéď (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.system_diagnostic_utmctl_list_incomplete": [
+    "[!‮  úţɱçţļ ļíšţ ďíď ñóţ řéţúřñ á çóɱƥļéţé áñšŵéř ŵíţħíñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; ţħé ļíšţíñğ áƀóṽé ɱáý ƀé íñçóɱƥļéţé (ÚŢⱮ ɱáý ñóţ ƀé áñšŵéříñğ Áƥƥļé Éṽéñţš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ]
 }
 `

@@ -43,4 +43,12 @@ variable "destinationContext" {
 variable "apiServerAuthorizedCidrs" {
   description = "REQUIRED. Comma-separated CIDR allow-list for the Kubernetes API server. MUST include the Yuruna host's public egress IP as a /32 (e.g. \"203.0.113.5/32\") or the workload pipeline's first kubectl/helm call is locked out; add admin/VPN ranges as needed. No default on purpose: a deploy that omits it fails at plan time instead of silently leaving the API server unrestricted. Set it in resources.yml globalVariables."
   type        = string
+
+  validation {
+    condition = (
+      length([for c in split(",", var.apiServerAuthorizedCidrs) : trimspace(c) if trimspace(c) != ""]) > 0 &&
+      alltrue([for c in split(",", var.apiServerAuthorizedCidrs) : can(cidrhost(trimspace(c), 0)) if trimspace(c) != ""])
+    )
+    error_message = "apiServerAuthorizedCidrs must contain at least one valid CIDR; an empty allow-list would expose the public API server."
+  }
 }

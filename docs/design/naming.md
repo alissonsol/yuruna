@@ -1,8 +1,6 @@
 # Naming conventions
 
-> One sentence: the rules every Yuruna name follows -- components, config keys,
-> durations, booleans, acronyms, PowerShell verbs, and pages -- plus the foreign
-> contracts that are deliberately exempt.
+This reference defines naming rules for components, configuration, scripts, and pages, including exemptions for external contracts.
 
 A name is read far more often than it is written, and a name that disagrees
 with a neighboring one costs a reader a lookup every time. These rules exist
@@ -162,4 +160,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
+
+[Architecture](../architecture.md) | [Design overview](README.md)

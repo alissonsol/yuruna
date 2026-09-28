@@ -663,6 +663,223 @@ const DataenUSpool = `{
       "trust": "external"
     }
   ],
+  "pool.host_refresh_body_invalid": [
+    "The refresh request must be a JSON object of strings with only hostId, requestId, tier and maxRung (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_busy": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " is already handling refresh request ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; follow that request instead of starting another."
+  ],
+  "pool.host_refresh_control_proof_unavailable": [
+    "No control proof could be obtained for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_field_unsupported": [
+    "The refresh request carried the unsupported field ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; force and hard-stop options are never accepted remotely."
+  ],
+  "pool.host_refresh_host_address_unknown": [
+    "The pool aggregator knows host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " but has no address for it."
+  ],
+  "pool.host_refresh_host_id_invalid": "hostId must be a 32-character hexadecimal host id.",
+  "pool.host_refresh_host_refused": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " refused the refresh (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_refresh_host_unavailable": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " could not start the refresh (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); retry with the same request id ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_host_unknown": [
+    "The pool aggregator does not know host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_host_unreachable": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " did not answer; retry with the same request id ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_mint_failed": [
+    "This service could not sign the refresh request for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_refresh_reply_invalid": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " answered with a reply this service cannot use (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_request_closed": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " on host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " already ended (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); generate a new request id to refresh again."
+  ],
+  "pool.host_refresh_request_conflict": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " was already used with a different tier or ceiling; resend the original policy or generate a new request id."
+  ],
+  "pool.host_refresh_request_id_invalid": "requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.",
+  "pool.host_refresh_rung_unsupported": "maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.",
+  "pool.host_refresh_signing_unconfigured": [
+    "Remote host refresh is disabled: this service holds no refresh signing authority (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_refresh_tier_unsupported": "Only the restart tier can be requested remotely; the full tier is local-only.",
+  "pool.host_refresh_unavailable": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " does not advertise remote refresh (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
   "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": [
     "Host ",
     {
@@ -1547,7 +1764,6 @@ const DataenUSpool = `{
   "pool.what_to_do": "What to do",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Which build is actually running, and for how long — establishes whether a fix was deployed at all.",
   "pool.which_network_cidr_notation": "Which network? (CIDR notation)",
-  "pool.x": "x",
   "pool.yuruna_pool_control": "Yuruna Pool Control"
 }
 `

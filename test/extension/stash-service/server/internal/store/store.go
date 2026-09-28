@@ -125,8 +125,15 @@ func ExtractExtension(filename string) string {
 			return ""
 		}
 	}
-	// Rule 6: lowercase.
-	return strings.ToLower(ext)
+	// Rule 6: lowercase. Internal suffixes must never name a user artifact:
+	// sidecar publication would replace it, or staging cleanup would remove it.
+	ext = strings.ToLower(ext)
+	for _, reserved := range []string{config.SidecarExtension, config.ArchiveExtension, ".staging"} {
+		if strings.HasSuffix(ext, reserved) {
+			return ""
+		}
+	}
+	return ext
 }
 
 func isAllowedExtensionRune(r rune) bool {

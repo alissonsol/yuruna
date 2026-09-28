@@ -187,6 +187,34 @@ pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -In
 
 In-flight cycles always finish, so pause/drain never corrupt an accumulating run.
 
+<a id="4207d71a-0023"></a>
+
+## Handing over a re-keyed host
+
+When a machine is reimaged or re-cloned, it can answer with a new host ID while
+the aggregator still remembers its previous ID. On the pool-control `/hosts`
+page, **Hand over** appears on the old row only when the new ID answers at the
+same address. The action moves membership in one intent-store commit, records
+a durable old-to-new identity alias on the aggregator, and removes the old live
+row immediately. It reports failure if the aggregator cannot persist the alias;
+retry the same pair after fixing the error. Repeating a completed handover is
+safe.
+
+The current host's row links its previous IDs to a combined history view.
+That view includes cycle, event, and incident lines from both IDs and requires
+an unlocked pool-control session. Loki records keep their original host ID,
+and archived cycle paths are left in place, so older deep links still work.
+Grafana's raw Loki log panels still show each record's original ID. The **Pool
+hosts** table groups historical Pass and Fail counts under the current ID for
+the selected time range, and `/api/v1/pool-stats` does the same. Use the combined
+history link on `/hosts` to inspect individual cycles across both IDs.
+
+The collector needs `-handover-state-file` on durable storage. The provisioned
+systemd unit supplies `/var/lib/pool-aggregator-service/handovers.json` through
+`StateDirectory=pool-aggregator-service`. An absent or corrupt ledger prevents a
+handover from being reported as successful or a retired ID from reappearing
+after a restart.
+
 <a id="4207d71a-000a"></a>
 
 ## Purging a stale host
@@ -227,6 +255,7 @@ Every command below lives in `test/pool/`.
 | `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-DesiredState` |
 | `Add-HostToPool.ps1` | add a host | `-PoolId` (req), `-HostId` (req) |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
+| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one intent-store commit | `-OldHostId` (req), `-NewHostId` (req) |
 | `Remove-PoolHost.ps1` | **purge** a stale host: delete its NAS records + strip ALL memberships | `-HostId` (req), `-Force`, `-ConfigPath` |
 | `Set-PoolTestSet.ps1` | assign the pool's one test-set (replaces) | `-PoolId` (req), `-Name` (req), `-FrameworkUrl` (req), `-ProjectUrl` (req) |
 | `Set-PoolTestSetDefinition.ps1` | upsert/delete a library test-set | `-Name` (req), `-FrameworkUrl`, `-ProjectUrl`, `-Delete` |
@@ -444,6 +473,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
   | open (POST) | `/api/login`, `/api/unlock-proof` -- the two ways INTO the gate |
   | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/testset`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/testset` (POST, DELETE) |
+  | lab-token **and** refresh credential | `/api/host/refresh` (POST) -- see [Remote host refresh](#remote-host-refresh) |
 
   Reads are open on the trusted LAN so a wall display needs no credential;
   everything that rewrites pool configuration goes through `gate.Require`.
@@ -476,13 +506,13 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
 
 The area's own `default.psm1` is its host-side presence: it makes the area
 visible to `Get-ExtensionAreaName`, gives it a capability-matrix entry, and
-supplies the reachability pre-flight a caller needs before it commits to a
+supplies the reachability preflight a caller needs before it commits to a
 resolved board address. `Get-PoolControlServiceInfo` returns the same uniform
 status hashtable every extension area's host-side cmdlet vocabulary uses,
 currently a stub whose flags stay `$false` until host-side status probing
 against a running board VM is wired up. `Test-PoolControlServiceHost` is the
-reachability pre-flight, the same contract `Test-DownloadAgentServiceHost` and
-the stash pre-flight carry.
+reachability preflight, the same contract `Test-DownloadAgentServiceHost` and
+the stash preflight carry.
 
 The **pool-aggregator service** it reads `/api/v1/pool-stats` from and
 self-announces to is a separate, read-only daemon on the caching-proxy-service
@@ -542,6 +572,139 @@ An aggregator that is down means the board cannot be unlocked &mdash; a
 deliberate fail-closed, reported as `503` with reason `lab-token-unavailable`
 rather than as a wrong code, so an operator does not retype a correct one until
 they give up.
+
+<a id="4207d71a-001f"></a>
+
+### Remote host refresh
+
+A host whose hypervisor or test runner has wedged can be asked to repair
+itself from here, one host at a time: reclaim a stalled runner, start a stopped
+hypervisor service, or restart a hung one where that host supports it -- the
+**restart** tier of the host's own refresh ladder, never package or settings
+changes. It is the same repair `test/lab/Invoke-HostRefresh.ps1` runs on the
+host; this service only authorizes and delivers the request. Pool-wide control
+(`/api/pool/host-control` and its MCP tool) never refreshes: it refuses the
+action before any call leaves this service.
+
+Remote refresh is **off until provisioned**, and stays off for a host unless
+all of these hold:
+
+- this service holds both refresh secrets (below);
+- the host has installed its own verifier key;
+- the host runs on a platform that qualifies for remote refresh -- today
+  Ubuntu KVM only; macOS and Windows hosts report `unqualified`;
+- the host's status service advertises refresh as available, and the pool
+  aggregator read that advertisement recently (the host's `refresh` object on
+  the Hosts page and in `/api/hosts`).
+
+<a id="4207d71a-0020"></a>
+
+#### The three secrets
+
+Remote refresh uses secrets of its own. The lab token, a lab session cookie and
+the internal authentication key never authorize it: the lab key is reachable
+from the dashboard's enrollment code, and a lab session from a public control
+proof.
+
+| Secret | Form | Where it lives |
+|---|---|---|
+| Signing authority | one line `yhra1.<key>` | the operator's machine, and this service's `/etc/yuruna/host-refresh/authority.key` (`-refresh-authority-file`) |
+| Operator credential | one line `yhrc1.<key>` | the operator or automation, and this service's `/etc/yuruna/host-refresh/operator.credential` (`-refresh-credential-file`) |
+| Host verifier key | one line `yhrk1.<hostId>.<key>` | each host's `$HOME/.yuruna/host-refresh/remote-verifier.key` |
+
+Every file must be readable by its owner only (`chmod 600`); a file that is
+missing, malformed or readable by others disables remote refresh with one log
+line that names the file and never its content. The service also refuses an
+authority or credential equal to the internal authentication key, and a
+credential equal to the authority. Each host key is derived from the authority
+for that host alone, so a compromised host can verify requests for itself but
+can sign nothing for another host.
+
+<a id="4207d71a-0021"></a>
+
+#### Provisioning
+
+`test/lab/Set-HostRefreshCredential.ps1` creates and moves the secrets and
+prompts for nothing. Tags in its output are non-secret names you can compare;
+the secrets themselves never reach the output.
+
+```powershell
+# 1. On the operator's machine: create the authority and the credential.
+pwsh test/lab/Set-HostRefreshCredential.ps1 -NewAuthority
+# Copy authority.key and operator.credential from the printed directory to the
+# pool-control VM's /etc/yuruna/host-refresh/, owner-only, then restart the service.
+
+# 2. Still on the operator's machine: write one host's key.
+pwsh test/lab/Set-HostRefreshCredential.ps1 -ExportHostKey -HostId <hostId> -OutputPath ./<hostId>.key
+
+# 3. On that host, after moving the file there privately: install it, then delete the file.
+pwsh test/lab/Set-HostRefreshCredential.ps1 -InstallHostKey -KeyPath ./<hostId>.key
+
+# Status of this host's key and of the local authority; withdraw a host.
+pwsh test/lab/Set-HostRefreshCredential.ps1
+pwsh test/lab/Set-HostRefreshCredential.ps1 -RemoveHostKey
+```
+
+A host that is also the authority machine can skip the transport:
+`-InstallHostKey -AuthorityDirectory <dir>`. `-NewAuthority -Rotate` replaces
+the authority and credential; every host key derived from the old authority
+stops verifying, so export and install each host's key again. If a rotation
+reports that it wrote `authority.key` but not `operator.credential`, run
+`-NewAuthority -Rotate` again. Every action accepts `-WhatIf`, which previews
+it without creating anything, even on a host that has no private state
+directory yet.
+
+<a id="4207d71a-0022"></a>
+
+#### Asking a host to refresh
+
+```bash
+curl -s -X POST http://<pool-control>/api/host/refresh \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $(cat internal-auth.key)" \
+  -H "X-Yuruna-Refresh-Credential: $(cat operator.credential)" \
+  -d '{"hostId":"<hostId>","requestId":"<uuid>","tier":"restart","maxRung":"start-if-stopped"}'
+```
+
+The request needs the ordinary write credential **and** the refresh credential
+in its own header. The body is exactly `hostId`, `requestId` (a lowercase UUID
+the caller generates once and reuses on every retry), `tier` (`restart`) and
+optionally `maxRung` (`probe`, `reclaim`, `start-if-stopped`,
+`restart-if-hung` or `restart-broker`, default `restart-broker`; the host
+lowers it to what it can execute). Any other key -- every spelling of force or
+hard-stop included -- is refused.
+
+This service checks the host's advertised capability, obtains the host's
+ordinary control proof, signs a refresh proof bound to that host, request id,
+tier and ceiling that expires in two minutes, and sends both to the host's
+`/control/host-refresh`. A transport failure is resent once with the identical
+request. Replies:
+
+| Status | Meaning |
+|---|---|
+| 202 | accepted: `action` is `spawned` or `already_claimed`; poll `stateUrl` |
+| 200 | this request id already completed: `replay`, `verdict`, `state` |
+| 400 / 413 | the body was refused (`code` names why) |
+| 401 / 429 / 503 | a credential is missing or wrong, the source is throttled, or remote refresh is not provisioned (`reason` is `refresh_credential_required`, `refresh_auth_throttled` or `refresh_auth_unconfigured`; a missing authority is `pool.host_refresh_signing_unconfigured`) |
+| 404 / 409 | the host is unknown, has no address, does not advertise remote refresh (`hostReason`), is busy with `activeRequestId`, or already used this request id differently or to completion |
+| 502 | the host refused (`hostStatus`, `hostReason`, e.g. `refresh_proof_expired` when the clocks differ by more than a minute) or answered unusably |
+| 503 / 504 | the host could not start or did not answer; `retryable` is true -- retry with the same request id |
+
+The MCP tool `pool_control_refresh_host` takes the same four arguments and is
+listed only while both secrets are provisioned. It is gated exactly like the
+route: the MCP request needs the ordinary write credential and the
+`X-Yuruna-Refresh-Credential` header, so a client that can send only
+`Authorization` cannot use it.
+
+Every request is written to the audit log as action `host-refresh` with the
+host, request id, tier, ceiling, outcome and the host's status and reason --
+never a credential, key or proof -- and every refused credential as
+`refresh-credential` with its source address.
+
+Pool-control serves plain HTTP, so the credential and the proofs cross the LAN
+in the clear, as the lab's other credentials do. A proof is bound to one host
+and one request and expires in two minutes, and resending it only repeats the
+same request; the credential lives until you rotate it.
 
 <a id="4207d71a-0013"></a>
 
@@ -835,6 +998,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.24
+Last review: 2026.09.27
 
 Back to [Yuruna](../README.md)

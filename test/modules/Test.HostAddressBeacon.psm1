@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -561,7 +561,14 @@ function Get-HostBridgeDhcpIdentity {
         $result.backend = 'networkd'
         $text = ''
         try { $text = [string](Get-Content -LiteralPath $netplanPath -Raw -ErrorAction Stop) }
-        catch { $text = [string](& sudo cat $netplanPath 2>$null) }
+        catch {
+            $lines = @(& sudo -n cat $netplanPath 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+                $result.detail = "Cannot read netplan '$netplanPath' without interactive elevation."
+                return $result
+            }
+            $text = $lines -join "`n"
+        }
         $result.pinned = ($text -match '(?m)^\s*dhcp-identifier:\s*mac\s*$')
         $result.detail = "netplan '$netplanPath': dhcp-identifier: mac $(if ($result.pinned) { 'present' } else { 'absent' })."
         $result.remedy = (Format-YurunaOperatorMessage -Key 'runner.operator_a6cbc2c740a476c8' -Arguments @{ netplanPath = "$netplanPath" })
@@ -912,7 +919,7 @@ function Invoke-HostAddressBeaconTick {
         # only record of when the host moved, and $InformationPreference
         # defaults to SilentlyContinue -- so without it the line is written
         # nowhere and a failed cycle cannot be reconstructed afterwards.
-        $changedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $changedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         # No previous address means this beacon has only just started looking,
         # so the host has not been seen to move -- it has been seen for the
         # first time. Recording that as a change books a move the host never

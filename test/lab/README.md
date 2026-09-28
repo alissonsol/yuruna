@@ -43,7 +43,8 @@ stop and unregister the test VMs *and* sweep, use
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
 | `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the internal authentication key |
 | `Lab-Diag.ps1` | show where a Lab token exchange stops, step by step, when `Set-LabToken.ps1` fails |
-| `Invoke-HostRefresh.ps1` | probe hypervisor responsiveness and report a repair the operator would need to run by hand; `-WhatIf` previews with no lock, request or mutation |
+| `Invoke-HostRefresh.ps1` | repair a wedged hypervisor within a bounded budget: probe it, climb only the repair rungs declared available on this platform (today, on Ubuntu KVM, stopping the runner processes it proves it owns -- never the runner that called it -- and cleaning their dead records, then starting a stopped libvirt; elsewhere probe and report), then restore the service VMs and the runner it disrupted. `-WhatIf` previews with no lock, request or mutation; `-Resume` finishes the restoration of an interrupted repair; `-DisposeObligation` records that the operator took over one it could not finish. Exit `0` healthy or repaired, `1` refused or failed before changing anything, `2` needs attention |
+| `Set-HostRefreshCredential.ps1` | provision remote host-refresh secrets: `-NewAuthority` creates the signing authority and operator credential for pool-control's `/etc/yuruna/host-refresh/`, `-ExportHostKey -HostId -OutputPath` writes one host's verifier key, `-InstallHostKey -KeyPath` (or `-AuthorityDirectory`) installs it on that host, `-RemoveHostKey` withdraws it, and no switch reports the state; never prompts and never prints a secret -- see [remote host refresh](../../docs/pool-admin.md#remote-host-refresh) |
 
 ```
 pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard's Lab token tile>

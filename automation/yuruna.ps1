@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42311ffa-42b0-4315-961e-121394721d42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,7 +74,10 @@ Set-YurunaLogLevel -LogLevel $logLevel
 # Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
 # lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
-if (-not $roots) { return $false }
+if (-not $roots) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_36db573bfe1ac885') -WarningAction Continue
+    exit 1
+}
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
 # The transcript path is decided here, beside the root set and before the

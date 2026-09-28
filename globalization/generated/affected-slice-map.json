@@ -179,6 +179,249 @@
       ]
     },
     {
+      "id": "catalog-boundaries-host-refresh",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-01",
+      "verification": "test/modules/Test.HostRefresh.Tests.ps1",
+      "slices": [],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "code:host_refresh.abandoned:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.abandoned:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.abandoned:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.active:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.active:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.admission_unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.already_claimed:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.already_healthy:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.already_healthy:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.available:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.available:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.available:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.available:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.body_timeout:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.busy:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+        "code:host_refresh.busy:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.busy:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.busy:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.busy:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.capability_unavailable:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.capability_unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.capability_unavailable:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.capturing:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.claimed:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.cleanup_failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.cleanup_timeout:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.climbing:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.completed:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.completed:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "code:host_refresh.completed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.completed:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.completed:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.completed:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.converging:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.dispose_obligations:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.dispose_obligations:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.elevate:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.elevate:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.failed:consumer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.failed:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.failed:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "code:host_refresh.failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.failed:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.failed:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.failed:producer:test/modules/Test.HostRefreshTrigger.psm1",
+        "code:host_refresh.forbidden_field:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.grant_automation:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.grant_automation:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.gui_session:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.gui_session:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.host_refresh:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.host_refresh:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.idle:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.idle:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.incomplete:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.install_client:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.install_client:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.internal_error:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.internal_error:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "code:host_refresh.internal_error:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.internal_error:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.internal_error:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.invalid_json:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.invalid_value:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.invalid:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.journal_unreadable:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.launcher_failed:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.launcher_failed:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.launcher_failed:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.listener_busy:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.listener_dependency_missing:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.listener_dependency_missing:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.lock_busy:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.missing:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.missing:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.no_qualified_rung:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.no_qualified_rung:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.no_qualified_rung:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.not_spawned:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.not_spawned:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.partial:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.partial:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.partial:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.payload_too_large:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.pending:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.pending:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.private_state_unavailable:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.probing:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.protocol_unreadable:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.protocol_unreadable:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.provisioned:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.provisioned:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.queued:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+        "code:host_refresh.queued:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.queued:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.queued:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.queued:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.recovery_pending:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.recovery_pending:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.recovery_pending:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.refresh_proof_expired:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_host_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_lifetime_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_malformed:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_missing:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_not_yet_valid:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_policy_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_request_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_proof_version_unsupported:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_remote_key_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_remote_unprovisioned:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_remote_unqualified:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_tier_not_remote:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_unavailable:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.refresh_verifier_failed:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.refresh_verifier_unavailable:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.refused:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.refused:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.refused:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.repaired:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+        "code:host_refresh.repaired:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.repaired:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.repaired:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.reporting:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.request_closed:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.request_closed:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.request_conflict:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.request_conflict:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.reservation_lost:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.reservation_lost:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.restarted:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.restarted:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.restarted:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.resume_request:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.resume_request:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.runner_unknown:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.runner_unknown:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.runner_unknown:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.running:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+        "code:host_refresh.running:consumer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.running:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+        "code:host_refresh.running:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.running:producer:test/modules/Test.HostRefreshIntent.psm1",
+        "code:host_refresh.spawn_failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.spawned:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.spawned:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.spawned:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.start_cycle:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.start_cycle:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.start_runner:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.start_runner:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.starting:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.still_unresponsive:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.still_unresponsive:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.succeeded:producer:test/modules/Invoke-StartCycleWorker.ps1",
+        "code:host_refresh.terminal:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.terminal:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.unavailable:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.unavailable:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.unknown:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.unknown:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.unknown:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.unqualified:producer:test/modules/Test.HostRefreshAuth.psm1",
+        "code:host_refresh.unqualified:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.unqualified:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.unsupported_field:producer:test/modules/Test.StatusControlRoute.psm1",
+        "code:host_refresh.unsupported_host:producer:test/modules/Test.HostRefresh.psm1",
+        "code:host_refresh.unsupported_host:producer:test/service/Start-StatusService.ps1",
+        "code:host_refresh.unsupported_media_type:producer:test/service/Start-StatusService.ps1"
+      ]
+    },
+    {
+      "id": "catalog-boundaries-host-refresh-pool",
+      "kind": "catalog-boundary",
+      "status": "implemented",
+      "owner": "G2-02",
+      "verification": "test/extension/pool-control-service/server/internal/httpsrv/hostrefresh_test.go",
+      "slices": [],
+      "domains": [
+        "extension-sdk",
+        "pool-control"
+      ],
+      "consumers": [
+        "code:host_refresh.active:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.already_claimed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.available:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.busy:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.capability_malformed:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.completed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.control_status_unreadable:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.host_reply_invalid:producer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.host_unreachable:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.idle:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.invalid:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.missing:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.never_observed:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.not_advertised:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.observation_expired:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.protocol_unsupported:producer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.provisioned:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.recovery_pending:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.refresh_auth_throttled:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+        "code:host_refresh.refresh_auth_unconfigured:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+        "code:host_refresh.refresh_credential_required:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+        "code:host_refresh.refresh_proof_expired:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_host_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_lifetime_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_malformed:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_missing:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_not_yet_valid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_policy_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_request_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_proof_version_unsupported:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_remote_key_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_remote_unprovisioned:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_remote_unqualified:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_tier_not_remote:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.refresh_verifier_failed:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+        "code:host_refresh.request_closed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.request_conflict:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.spawned:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+        "code:host_refresh.unavailable:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.unknown:consumer:test/extension/extension-sdk/pool/pool.go",
+        "code:host_refresh.unqualified:consumer:test/extension/extension-sdk/pool/pool.go"
+      ]
+    },
+    {
       "id": "catalog-boundaries-mcp",
       "kind": "catalog-boundary",
       "status": "implemented",
@@ -210,6 +453,7 @@
       ],
       "consumers": [
         "code:sequence.plan_invalid:consumer:test/modules/Test.SequenceResolve.psm1",
+        "code:sequence.plan_invalid:producer:test/modules/Test.SequencePlanner.psm1",
         "code:sequence.plan_invalid:producer:test/modules/Test.SequenceResolve.psm1"
       ]
     },
@@ -286,7 +530,7 @@
         "status-service"
       ],
       "consumers": [
-        "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/service/Start-StatusService.ps1",
+        "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/modules/Test.StatusControlRoute.psm1",
         "code:status.api_authentication_extension_unavailable_2ece9896:producer:test/service/Start-StatusService.ps1",
         "code:status.api_body_must_be_a_json_object_831ab327:producer:test/service/Start-StatusService.ps1",
         "code:status.api_could_not_pack_folder_detail_268ee848:producer:test/service/Start-StatusService.ps1",
@@ -1444,6 +1688,1932 @@
       "matchCount": 1
     },
     {
+      "id": "code:host_refresh.abandoned:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.abandoned",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.abandoned:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.abandoned",
+      "role": "producer",
+      "matchCount": 10
+    },
+    {
+      "id": "code:host_refresh.abandoned:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.abandoned",
+      "role": "producer",
+      "matchCount": 13
+    },
+    {
+      "id": "code:host_refresh.active:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.active",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.active:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.active",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.active:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.active",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.admission_unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.admission_unavailable",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.already_claimed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.already_claimed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.already_claimed:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.already_claimed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.already_healthy:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.already_healthy",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.already_healthy:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.already_healthy",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.available:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.available",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.available:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.available",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.available:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.available",
+      "role": "producer",
+      "matchCount": 11
+    },
+    {
+      "id": "code:host_refresh.available:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.available",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.available:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.available",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.body_timeout:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.body_timeout",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.busy:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.busy",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.busy:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "code": "host_refresh.busy",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.busy:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.busy",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.busy:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.busy",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.busy:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.busy",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.busy:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.busy",
+      "role": "producer",
+      "matchCount": 6
+    },
+    {
+      "id": "code:host_refresh.capability_malformed:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.capability_malformed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.capability_unavailable:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.capability_unavailable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.capability_unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.capability_unavailable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.capability_unavailable:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.capability_unavailable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.capturing:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.capturing",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.claimed:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.claimed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.cleanup_failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.cleanup_failed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.cleanup_timeout:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.cleanup_timeout",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.climbing:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.climbing",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.completed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.completed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.completed:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.completed",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.completed:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "code": "host_refresh.completed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.completed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.completed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.completed:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.completed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.completed:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.completed",
+      "role": "producer",
+      "matchCount": 12
+    },
+    {
+      "id": "code:host_refresh.completed:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.completed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.control_status_unreadable:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.control_status_unreadable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.converging:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.converging",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.dispose_obligations:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.dispose_obligations",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.dispose_obligations:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.dispose_obligations",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.elevate:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.elevate",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.elevate:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.elevate",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.failed:consumer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.failed",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.failed:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.failed",
+      "role": "consumer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.failed:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "code": "host_refresh.failed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.failed",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.failed:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.failed",
+      "role": "producer",
+      "matchCount": 10
+    },
+    {
+      "id": "code:host_refresh.failed:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.failed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.failed:producer:test/modules/Test.HostRefreshTrigger.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "code": "host_refresh.failed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.forbidden_field:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.forbidden_field",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.grant_automation:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.grant_automation",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.grant_automation:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.grant_automation",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.gui_session:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.gui_session",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.gui_session:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.gui_session",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.host_refresh:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.host_refresh",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.host_refresh:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.host_refresh",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.host_reply_invalid:producer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.host_reply_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.host_unreachable:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.host_unreachable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.idle:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.idle",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.idle:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.idle",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.idle:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.idle",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.incomplete:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.incomplete",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.install_client:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.install_client",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.install_client:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.install_client",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.internal_error:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.internal_error",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.internal_error:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "code": "host_refresh.internal_error",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.internal_error:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.internal_error",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.internal_error:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.internal_error",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.internal_error:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.internal_error",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.invalid_json:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.invalid_json",
+      "role": "producer",
+      "matchCount": 6
+    },
+    {
+      "id": "code:host_refresh.invalid_value:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.invalid_value",
+      "role": "producer",
+      "matchCount": 10
+    },
+    {
+      "id": "code:host_refresh.invalid:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.invalid",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.invalid",
+      "role": "producer",
+      "matchCount": 11
+    },
+    {
+      "id": "code:host_refresh.invalid:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.journal_unreadable:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.journal_unreadable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.launcher_failed:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.launcher_failed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.launcher_failed:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.launcher_failed",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.launcher_failed:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.launcher_failed",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.listener_busy:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.listener_busy",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.listener_dependency_missing:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.listener_dependency_missing",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.listener_dependency_missing:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.listener_dependency_missing",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.lock_busy:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.lock_busy",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.missing:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.missing",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.missing:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.missing",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.missing:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.missing",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.never_observed:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.never_observed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.no_qualified_rung:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.no_qualified_rung",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.no_qualified_rung:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.no_qualified_rung",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.no_qualified_rung:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.no_qualified_rung",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.not_advertised:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.not_advertised",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.not_spawned:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.not_spawned",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.not_spawned:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.not_spawned",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.observation_expired:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.observation_expired",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.partial:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.partial",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.partial:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.partial",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.partial:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.partial",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.payload_too_large:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.payload_too_large",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.pending:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.pending",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.pending:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.pending",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.private_state_unavailable:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.private_state_unavailable",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.probing:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.probing",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.protocol_unreadable:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.protocol_unreadable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.protocol_unreadable:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.protocol_unreadable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.protocol_unsupported:producer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.protocol_unsupported",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.provisioned:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.provisioned",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.provisioned:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.provisioned",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.provisioned:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.provisioned",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.queued:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "code": "host_refresh.queued",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.queued:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.queued",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.queued:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.queued",
+      "role": "producer",
+      "matchCount": 7
+    },
+    {
+      "id": "code:host_refresh.queued:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.queued",
+      "role": "producer",
+      "matchCount": 10
+    },
+    {
+      "id": "code:host_refresh.queued:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.queued",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.recovery_pending:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.recovery_pending",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.recovery_pending:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.recovery_pending",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.recovery_pending:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.recovery_pending",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.recovery_pending:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.recovery_pending",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_auth_throttled:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/gate.go",
+      "code": "host_refresh.refresh_auth_throttled",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_auth_unconfigured:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/gate.go",
+      "code": "host_refresh.refresh_auth_unconfigured",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_credential_required:producer:test/extension/extension-sdk/hostrefresh/gate.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/gate.go",
+      "code": "host_refresh.refresh_credential_required",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_expired:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_expired",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_expired:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_expired",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_host_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_host_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_host_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_host_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_invalid",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_lifetime_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_lifetime_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_lifetime_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_lifetime_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_malformed:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_malformed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_malformed:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_malformed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_missing:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_missing",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_missing:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_missing",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_not_yet_valid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_not_yet_valid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_not_yet_valid:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_not_yet_valid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_policy_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_policy_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_policy_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_policy_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_request_mismatch:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_request_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_request_mismatch:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_request_mismatch",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_version_unsupported:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_proof_version_unsupported",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_proof_version_unsupported:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_proof_version_unsupported",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_key_invalid:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_remote_key_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_key_invalid:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_remote_key_invalid",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_unprovisioned:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_remote_unprovisioned",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_unprovisioned:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_remote_unprovisioned",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_unqualified:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_remote_unqualified",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_remote_unqualified:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_remote_unqualified",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_tier_not_remote:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_tier_not_remote",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_tier_not_remote:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_tier_not_remote",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_unavailable:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.refresh_unavailable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.refresh_verifier_failed:producer:test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
+      "code": "host_refresh.refresh_verifier_failed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refresh_verifier_failed:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.refresh_verifier_failed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.refresh_verifier_unavailable:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.refresh_verifier_unavailable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.refused:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.refused",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.refused:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.refused",
+      "role": "producer",
+      "matchCount": 14
+    },
+    {
+      "id": "code:host_refresh.refused:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.refused",
+      "role": "producer",
+      "matchCount": 14
+    },
+    {
+      "id": "code:host_refresh.repaired:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "code": "host_refresh.repaired",
+      "role": "consumer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.repaired:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.repaired",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.repaired:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.repaired",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.repaired:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.repaired",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.reporting:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.reporting",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_closed:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.request_closed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_closed:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.request_closed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_closed:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.request_closed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_conflict:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.request_conflict",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_conflict:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.request_conflict",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.request_conflict:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.request_conflict",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.reservation_lost:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.reservation_lost",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.reservation_lost:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.reservation_lost",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.restarted:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.restarted",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.restarted:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.restarted",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.restarted:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.restarted",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.resume_request:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.resume_request",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.resume_request:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.resume_request",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.runner_unknown:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.runner_unknown",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.runner_unknown:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.runner_unknown",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.runner_unknown:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.runner_unknown",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.running:consumer:test/modules/Test.HostRefreshTrigger.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "code": "host_refresh.running",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.running:consumer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.running",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.running:producer:test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-HostDiagnosticWorker.ps1",
+      "code": "host_refresh.running",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.running:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.running",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.running:producer:test/modules/Test.HostRefreshIntent.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "code": "host_refresh.running",
+      "role": "producer",
+      "matchCount": 9
+    },
+    {
+      "id": "code:host_refresh.spawn_failed:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.spawn_failed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.spawned:consumer:test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "code": "host_refresh.spawned",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.spawned:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.spawned",
+      "role": "consumer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.spawned:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.spawned",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.spawned:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.spawned",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.start_cycle:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.start_cycle",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.start_cycle:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.start_cycle",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.start_runner:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.start_runner",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.start_runner:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.start_runner",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.starting:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.starting",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.still_unresponsive:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.still_unresponsive",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.still_unresponsive:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.still_unresponsive",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.succeeded:producer:test/modules/Invoke-StartCycleWorker.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Invoke-StartCycleWorker.ps1",
+      "code": "host_refresh.succeeded",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.terminal:consumer:test/status/yuruna.common.js",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "host_refresh.terminal",
+      "role": "consumer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.terminal:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.terminal",
+      "role": "producer",
+      "matchCount": 8
+    },
+    {
+      "id": "code:host_refresh.unavailable:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.unavailable",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unavailable:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.unavailable",
+      "role": "producer",
+      "matchCount": 4
+    },
+    {
+      "id": "code:host_refresh.unavailable:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.unavailable",
+      "role": "producer",
+      "matchCount": 5
+    },
+    {
+      "id": "code:host_refresh.unavailable:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.unavailable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:host_refresh.unknown:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.unknown",
+      "role": "consumer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.unknown:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.unknown",
+      "role": "producer",
+      "matchCount": 9
+    },
+    {
+      "id": "code:host_refresh.unknown:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.unknown",
+      "role": "producer",
+      "matchCount": 7
+    },
+    {
+      "id": "code:host_refresh.unknown:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.unknown",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.unqualified:consumer:test/extension/extension-sdk/pool/pool.go",
+      "finding": "catalog-boundaries-host-refresh-pool",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/pool/pool.go",
+      "code": "host_refresh.unqualified",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unqualified:producer:test/modules/Test.HostRefreshAuth.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefreshAuth.psm1",
+      "code": "host_refresh.unqualified",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unqualified:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.unqualified",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.unqualified:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.unqualified",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:host_refresh.unsupported_field:producer:test/modules/Test.StatusControlRoute.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
+      "code": "host_refresh.unsupported_field",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unsupported_host:producer:test/modules/Test.HostRefresh.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "code": "host_refresh.unsupported_host",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unsupported_host:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.unsupported_host",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:host_refresh.unsupported_media_type:producer:test/service/Start-StatusService.ps1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "host_refresh.unsupported_media_type",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
       "id": "code:mcp.mcp_dependency_drift:producer:test/service/Start-McpServer.ps1",
       "finding": "catalog-boundaries-mcp",
       "source": "code-registry",
@@ -1595,6 +3765,15 @@
       "code": "sequence.plan_invalid",
       "role": "consumer",
       "matchCount": 2
+    },
+    {
+      "id": "code:sequence.plan_invalid:producer:test/modules/Test.SequencePlanner.psm1",
+      "finding": "catalog-boundaries-planner",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequencePlanner.psm1",
+      "code": "sequence.plan_invalid",
+      "role": "producer",
+      "matchCount": 1
     },
     {
       "id": "code:sequence.plan_invalid:producer:test/modules/Test.SequenceResolve.psm1",
@@ -1831,10 +4010,10 @@
       "matchCount": 1
     },
     {
-      "id": "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/service/Start-StatusService.ps1",
+      "id": "code:status.api_another_start_cycle_request_is_in_progress_3f51d139:producer:test/modules/Test.StatusControlRoute.psm1",
       "finding": "catalog-boundaries-status",
       "source": "code-registry",
-      "path": "test/service/Start-StatusService.ps1",
+      "path": "test/modules/Test.StatusControlRoute.psm1",
       "code": "status.api_another_start_cycle_request_is_in_progress_3f51d139",
       "role": "producer",
       "matchCount": 1
@@ -1882,7 +4061,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_detail_caf3c2c2",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 1
     },
     {
       "id": "code:status.api_diagnostic_failed:producer:test/service/Start-StatusService.ps1",
@@ -1891,7 +4070,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_diagnostic_failed",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 1
     },
     {
       "id": "code:status.api_expected_diagnostics_folder_filename_5f581c78:producer:test/service/Start-StatusService.ps1",
@@ -2161,7 +4340,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_post_required_663cc07c",
       "role": "producer",
-      "matchCount": 3
+      "matchCount": 4
     },
     {
       "id": "code:status.api_project_repo_not_present_on_host_885e6338:producer:test/service/Start-StatusService.ps1",
@@ -2251,7 +4430,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_write_failed_detail_c07681e1",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 3
     },
     {
       "id": "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1",
@@ -2562,6 +4741,1476 @@
   ],
   "literalExclusions": [
     {
+      "wireCode": "host_refresh.active",
+      "path": "automation/Test-Runtime.ps1",
+      "matchCount": 1,
+      "reason": "systemd state of the kubelet unit; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "host/ubuntu.kvm/Enable-TestAutomation.ps1",
+      "matchCount": 1,
+      "reason": "systemd state of the libvirtd unit; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 9,
+      "reason": "systemd unit state and libvirt group membership; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/extension-sdk/beacon/beacon.go",
+      "matchCount": 1,
+      "reason": "JSON key of the host address beacon; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 5,
+      "reason": "JSON field name of the control-area and pool-wide pause payloads; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/new.js",
+      "matchCount": 1,
+      "reason": "CSS class name; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/modules/Test.Capability.psm1",
+      "matchCount": 1,
+      "reason": "Key of the capability area configuration; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/modules/Test.Extension.psm1",
+      "matchCount": 2,
+      "reason": "Key of the extension area configuration; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/modules/Test.ExtensionService.psm1",
+      "matchCount": 1,
+      "reason": "Key of the extension service configuration; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/modules/Test.HostCondition.Linux.psm1",
+      "matchCount": 5,
+      "reason": "systemd unit state in the Linux host condition; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/service/Start-CachingProxyServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "systemd state of libvirtd checked before the service VM starts; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/Test-Config.ps1",
+      "matchCount": 1,
+      "reason": "systemd state of libvirtd in the configuration report; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "tools/Invoke-CatalogTriage.ps1",
+      "matchCount": 1,
+      "reason": "Catalog message lifecycle; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.available",
+      "path": "host/ubuntu.kvm/Sync-HostConfiguration.ps1",
+      "matchCount": 1,
+      "reason": "Subnet sweep availability in the host-configuration report; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.available",
+      "path": "test/extension/download-agent-service/server/internal/imagestore/refresh.go",
+      "matchCount": 1,
+      "reason": "Image-download refresh state, outcome or JSON field name of the download agent; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.available",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 2,
+      "reason": "Daily budget availability of automatic refresh; not the host-refresh capability."
+    },
+    {
+      "wireCode": "host_refresh.busy",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "matchCount": 1,
+      "reason": "Grafana dashboard value mapping or legend label in the caching-proxy seed; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.busy",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 4,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.busy",
+      "path": "test/modules/Test.ServiceVm.psm1",
+      "matchCount": 1,
+      "reason": "Service VM lock reason, virtual machine state and hosting-mode fallback; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.completed",
+      "path": "test/modules/Invoke-TestCycleRunner.ps1",
+      "matchCount": 1,
+      "reason": "Outer-cycle outcome default; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.completed",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 2,
+      "reason": "Outer-cycle outcome the trigger counts evidence from; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.completed",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 6,
+      "reason": "Outer-cycle outcome; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.completed",
+      "path": "test/modules/Test.SingleInstance.psm1",
+      "matchCount": 2,
+      "reason": "Result reason of a completed refresh-gate transaction; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "automation/Collect-HostPerformance.ps1",
+      "matchCount": 1,
+      "reason": "Host performance capture status of a trace or guest sample (complete, partial, unavailable, failed); it never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
+      "matchCount": 1,
+      "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 8,
+      "reason": "macOS driver process-probe, signal and app-launch results; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/modules/Yuruna.DownloadAgent.psm1",
+      "matchCount": 5,
+      "reason": "Download-agent fetch outcome (skipped, downloaded, unavailable, failed); not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/ubuntu.kvm/guest.windows.11/Get-Image.ps1",
+      "matchCount": 1,
+      "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 10,
+      "reason": "KVM driver virtualization start-action result and systemd unit state; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/windows.hyper-v/guest.windows.11/Get-Image.ps1",
+      "matchCount": 1,
+      "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 4,
+      "reason": "Hyper-V driver virtualization start-action result; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "install/setup.ps1",
+      "matchCount": 1,
+      "reason": "Setup fact recorded for a provisioning step that failed; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "matchCount": 5,
+      "reason": "Download-agent operation audit outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Download-agent image-state badge vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js",
+      "matchCount": 2,
+      "reason": "Download-agent diagnostics badge; not a host-refresh or start-cycle value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/download-agent-service/server/internal/imagestore/refresh.go",
+      "matchCount": 4,
+      "reason": "Image-download refresh state, outcome or JSON field name of the download agent; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 1,
+      "reason": "JSON counter field name; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "matchCount": 2,
+      "reason": "JSON counter field name; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go",
+      "matchCount": 2,
+      "reason": "JSON counter field name of the pause-control fan-out reply; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js",
+      "matchCount": 1,
+      "reason": "Fallback error text for a pool control call that failed; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
+      "matchCount": 1,
+      "reason": "JSON counter field name; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.ConfigServiceSync.psm1",
+      "matchCount": 1,
+      "reason": "Pool-storage elevation result; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.HostMetricsExporter.psm1",
+      "matchCount": 2,
+      "reason": "Metrics exporter install outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.LocalLabStorage.psm1",
+      "matchCount": 3,
+      "reason": "Local storage removal result and smbutil verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.PoolNotifier.psm1",
+      "matchCount": 2,
+      "reason": "Notification spool directory name; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.PoolStorage.psm1",
+      "matchCount": 4,
+      "reason": "Pool storage firewall action and share-server verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.PoolWorker.psm1",
+      "matchCount": 12,
+      "reason": "Pool worker teardown and withdrawal action and virtual machine state; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.RunnerElevation.psm1",
+      "matchCount": 5,
+      "reason": "Elevation drop-in action result; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "matchCount": 4,
+      "reason": "Configuration reload result and cycle readiness; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 1,
+      "reason": "Readiness acknowledgment (ready, failed) the outer loop writes for a refresh handoff; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 3,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.SingleInstance.psm1",
+      "matchCount": 3,
+      "reason": "Readiness acknowledgment state (ready, failed) of a refresh handoff; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/pool/Convert-ToPoolWorker.ps1",
+      "matchCount": 4,
+      "reason": "Pool worker teardown and withdrawal action; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Start-CachingProxyServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Start-PoolControlServiceVM.ps1",
+      "matchCount": 2,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Start-StashServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Stop-CachingProxyServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Stop-DownloadAgentServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Stop-PoolControlServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/service/Stop-StashServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "tools/Invoke-TestSuite.ps1",
+      "matchCount": 4,
+      "reason": "Name of a test-suite result counter and a suite result label in the runner report table; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "matchCount": 1,
+      "reason": "Grafana dashboard value mapping or legend label in the caching-proxy seed; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 3,
+      "reason": "Runner overall status the aggregator reads from status.json; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Pool dashboard status-class vocabulary for runner and pause-control states; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/modules/Test.EventSchema.psm1",
+      "matchCount": 1,
+      "reason": "Runner state enumeration of the event schema; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 6,
+      "reason": "Runner state transition; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/modules/Test.RunnerState.psm1",
+      "matchCount": 10,
+      "reason": "Runner state machine enumeration; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/service/Start-StatusService.ps1",
+      "matchCount": 3,
+      "reason": "Runner liveness classification in the generated listener script; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.idle",
+      "path": "test/status/yuruna.common.js",
+      "matchCount": 7,
+      "reason": "Runner status class and banner state; the Config page reads no host-refresh state other than recovery_pending."
+    },
+    {
+      "wireCode": "host_refresh.incomplete",
+      "path": "tools/Invoke-TestSuite.ps1",
+      "matchCount": 1,
+      "reason": "Suite result label in the runner report table for a suite with no valid result file or a nonzero exit; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.invalid",
+      "path": "tools/Invoke-TestSuite.ps1",
+      "matchCount": 1,
+      "reason": "Name of a test-suite result counter; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 8,
+      "reason": "utmctl resolver source when no client is found; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 2,
+      "reason": "libvirt client evidence when virsh is absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 3,
+      "reason": "Hyper-V provider module probe fact; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Download-agent image-state badge vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.ConfigServiceSync.psm1",
+      "matchCount": 1,
+      "reason": "Configuration-sync state of a key that is absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.CriticalRecord.psm1",
+      "matchCount": 7,
+      "reason": "Critical-record read status when neither file exists; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "matchCount": 1,
+      "reason": "Protocol-file read reason, which the capability reports as protocol_unreadable; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "matchCount": 2,
+      "reason": "Journal read status when the file is absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 9,
+      "reason": "Ledger, streak and result read status when absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.InnerSpawn.psm1",
+      "matchCount": 1,
+      "reason": "Inner spawn record read failure; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.MacUtmFakeHost.psm1",
+      "matchCount": 1,
+      "reason": "utmctl placement option of the fake macOS host; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.PoolWorker.psm1",
+      "matchCount": 1,
+      "reason": "Pool worker teardown and withdrawal action and virtual machine state; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 2,
+      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 1,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.SingleInstance.psm1",
+      "matchCount": 10,
+      "reason": "Record read status when absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/modules/Test.SnapshotManifest.psm1",
+      "matchCount": 1,
+      "reason": "Snapshot manifest status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/pool/Convert-ToPoolWorker.ps1",
+      "matchCount": 1,
+      "reason": "Pool worker teardown and withdrawal action; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "test/Start-TestRunner.ps1",
+      "matchCount": 1,
+      "reason": "Runner record removal reason when the record is absent; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.missing",
+      "path": "tools/Invoke-Preflight.ps1",
+      "matchCount": 3,
+      "reason": "Preflight prerequisite state; not a remote-refresh key state."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "automation/Collect-HostPerformance.ps1",
+      "matchCount": 3,
+      "reason": "Host performance capture status of a trace or guest sample (complete, partial, unavailable, failed); it never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 3,
+      "reason": "Outcome of the driver UTM stop and restart operations; the refresh module maps it to a rung outcome, so it is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Stash item status vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js",
+      "matchCount": 1,
+      "reason": "Stash item upload status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/extension/stash-service/server/internal/meta/meta.go",
+      "matchCount": 2,
+      "reason": "Stash item status constant and schema check; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/modules/Test.Diagnostic.psm1",
+      "matchCount": 3,
+      "reason": "Guest diagnostic capture, structured completion classification and OCR verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/modules/Test.HostIdentity.psm1",
+      "matchCount": 2,
+      "reason": "Host identity setup action and serial-number fallback; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/modules/Test.HostSampling.psm1",
+      "matchCount": 3,
+      "reason": "Host sampling status and power source; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.partial",
+      "path": "test/modules/Test.Perf.psm1",
+      "matchCount": 1,
+      "reason": "Performance capture status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "globalization/kernel/yuruna.first-usable.js",
+      "matchCount": 1,
+      "reason": "First-usable measurement state before a page is ready; not the host-diagnostic reply action."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Stash item status vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js",
+      "matchCount": 1,
+      "reason": "Stash item upload status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/extension/stash-service/server/internal/meta/meta.go",
+      "matchCount": 2,
+      "reason": "Stash item status constant and schema check; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "matchCount": 4,
+      "reason": "Launch outcome and obligation status inside the private request journal; not the host-diagnostic reply action."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 2,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/modules/Test.Status.psm1",
+      "matchCount": 5,
+      "reason": "Guest and step status and failure class in status.json; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/status/yuruna.common.js",
+      "matchCount": 9,
+      "reason": "Guest and step status classes and the first-usable state; not the host-diagnostic reply action."
+    },
+    {
+      "wireCode": "host_refresh.probing",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Download-agent image-state badge vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.probing",
+      "path": "test/extension/download-agent-service/server/internal/imagestore/singleflight.go",
+      "matchCount": 1,
+      "reason": "Phase of the image-store single flight; not a host-refresh phase."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "automation/Yuruna.Common.psm1",
+      "matchCount": 3,
+      "reason": "TCP connect outcome (reachable, refused, timeout); not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 20,
+      "reason": "Outcome of the driver UTM stop, start and restart operations and its virtualization start actions; the refresh module maps it to a rung outcome, so it is not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 19,
+      "reason": "KVM driver virtualization start-action result and libvirt socket evidence; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 8,
+      "reason": "Hyper-V driver virtualization start-action result; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "matchCount": 1,
+      "reason": "Download-agent operation audit outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "matchCount": 2,
+      "reason": "Lab-gate login audit outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 2,
+      "reason": "Lab exchange outcome counter; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/index.js",
+      "matchCount": 1,
+      "reason": "Fallback error text for a stash delete that was refused; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 5,
+      "reason": "Decision action of the automatic trigger (disabled, unavailable, below-threshold, refused) written to the outer log; not a request state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "matchCount": 1,
+      "reason": "Caching-proxy TCP connect outcome; not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 2,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.SingleInstance.psm1",
+      "matchCount": 4,
+      "reason": "Detached runner launch outcome; not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.SnapshotManifest.psm1",
+      "matchCount": 2,
+      "reason": "Snapshot manifest status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.restarted",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 2,
+      "reason": "Outcome of the driver UTM restart operation; the refresh module maps it to a rung outcome, so it is not the start-cycle result."
+    },
+    {
+      "wireCode": "host_refresh.restarted",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "matchCount": 1,
+      "reason": "Host-driver restart result that the rung executor folds into a rung outcome; not the start-cycle result."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "automation/yuruna-network.sh",
+      "matchCount": 2,
+      "reason": "NetworkManager connection state; unrelated to host refresh."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "global/resources/localhost/registry/localhost-registry-check.sh",
+      "matchCount": 1,
+      "reason": "JSON key of the local container-registry health check; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 26,
+      "reason": "UTM virtual machine state; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "host/modules/Yuruna.HostProvision.psm1",
+      "matchCount": 1,
+      "reason": "Virtual machine state in a provisioning switch; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 7,
+      "reason": "libvirt domain state; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "matchCount": 2,
+      "reason": "Grafana dashboard value mapping or legend label in the caching-proxy seed; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 3,
+      "reason": "Hyper-V virtual machine state; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "install/setup.ps1",
+      "matchCount": 1,
+      "reason": "Service state in a setup switch; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/Debug-TestSequence.ps1",
+      "matchCount": 3,
+      "reason": "Virtual machine state and guest or step status; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 4,
+      "reason": "Runner overall status the aggregator reads from status.json; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-control-service/server/internal/discovery/scan.go",
+      "matchCount": 1,
+      "reason": "JSON field name of the discovery scan; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Pool dashboard status-class vocabulary for runner and pause-control states; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.CachingProxyServiceLock.psm1",
+      "matchCount": 1,
+      "reason": "Virtual machine state of the caching-proxy service VM; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.HostContract.psm1",
+      "matchCount": 2,
+      "reason": "Virtual machine state; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.Orchestrator.psm1",
+      "matchCount": 3,
+      "reason": "Virtual machine state and guest or step status; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "matchCount": 10,
+      "reason": "Virtual machine, guest and step status; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 2,
+      "reason": "Virtual machine state before and after an ARM64 Hyper-V cold power cycle; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 2,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.ServiceVm.psm1",
+      "matchCount": 8,
+      "reason": "Service VM lock reason, virtual machine state and hosting-mode fallback; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.Status.psm1",
+      "matchCount": 6,
+      "reason": "Guest and step status and failure class in status.json; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/modules/Test.VMUtility.psm1",
+      "matchCount": 2,
+      "reason": "Virtual machine state; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
+      "matchCount": 2,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/service/Start-PoolControlServiceVM.ps1",
+      "matchCount": 2,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/service/Start-StashServiceVM.ps1",
+      "matchCount": 2,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/status/yuruna.common.js",
+      "matchCount": 7,
+      "reason": "Runner, guest and step status classes; the Config page reads no host-refresh request state other than recovery_pending, and the diagnostics page never branches on the worker phase."
+    },
+    {
+      "wireCode": "host_refresh.spawned",
+      "path": "test/modules/Test.MacUtmFakeHost.psm1",
+      "matchCount": 2,
+      "reason": "State directory name of the fake macOS host; not the host-refresh admission action."
+    },
+    {
+      "wireCode": "host_refresh.starting",
+      "path": "host/modules/Yuruna.DownloadAgent.psm1",
+      "matchCount": 1,
+      "reason": "Progress status while a download-agent fetch starts; not a host-refresh phase."
+    },
+    {
+      "wireCode": "host_refresh.succeeded",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js",
+      "matchCount": 1,
+      "reason": "Download-agent diagnostics badge; not a host-refresh or start-cycle value."
+    },
+    {
+      "wireCode": "host_refresh.succeeded",
+      "path": "test/modules/Test.HostRefresh.psm1",
+      "matchCount": 6,
+      "reason": "Private per-rung outcome (attempted, succeeded, failed, skipped); not the start-cycle result."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "automation/Collect-HostPerformance.ps1",
+      "matchCount": 4,
+      "reason": "Host performance capture status of a trace or guest sample (complete, partial, unavailable, failed); it never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "globalization/kernel/yuruna.first-usable.js",
+      "matchCount": 2,
+      "reason": "Clock-source label when no monotonic clock exists; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 2,
+      "reason": "Guest display-capture verdict of the macOS driver; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "host/modules/Yuruna.DownloadAgent.psm1",
+      "matchCount": 1,
+      "reason": "Download-agent fetch outcome (skipped, downloaded, unavailable, failed); not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 2,
+      "reason": "KVM driver virtualization start-action result for an unqualified unit layout; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 5,
+      "reason": "Guest display verdict and virtualization start-action result of the Hyper-V driver; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/extension/caching-proxy-service/landing.go",
+      "matchCount": 1,
+      "reason": "Landing-page markup for an entry with nothing behind it; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Download-agent image-state badge vocabulary; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js",
+      "matchCount": 1,
+      "reason": "Fallback reason for an image that cannot be served; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/extension/download-agent-service/server/internal/imagestore/refresh.go",
+      "matchCount": 1,
+      "reason": "Image-download refresh state, outcome or JSON field name of the download agent; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "matchCount": 2,
+      "reason": "Lab-gate login audit outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.Diagnostic.psm1",
+      "matchCount": 7,
+      "reason": "Guest diagnostic capture and supervisor outcomes and OCR verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.HostCondition.Windows.psm1",
+      "matchCount": 1,
+      "reason": "Windows host condition status and network path; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.HostMetricsExporter.psm1",
+      "matchCount": 2,
+      "reason": "Metrics exporter install outcome; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "matchCount": 4,
+      "reason": "Admission decision that the listener projects to admission_unavailable; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 3,
+      "reason": "Decision action of the automatic trigger (disabled, unavailable, below-threshold, refused) written to the outer log; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.HostSampling.psm1",
+      "matchCount": 4,
+      "reason": "Host sampling status and power source; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.Perf.psm1",
+      "matchCount": 1,
+      "reason": "Performance capture status; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "matchCount": 1,
+      "reason": "Status of the failure host snapshot; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "matchCount": 1,
+      "reason": "OCR second-opinion verdict; not the host-refresh availability."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 1,
+      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "matchCount": 5,
+      "reason": "System diagnostic verdict for a check that could not be evaluated; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "automation/Yuruna.Common.psm1",
+      "matchCount": 7,
+      "reason": "On-link, segment and address-in-use verdicts for an address that could not be classified; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "automation/Yuruna.Component.psm1",
+      "matchCount": 1,
+      "reason": "Failure class of a component result manifest; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "automation/Yuruna.Result.psm1",
+      "matchCount": 4,
+      "reason": "Failure-class enumeration of the result manifest; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
+      "matchCount": 32,
+      "reason": "UTM virtual machine, session, app and automation-grant states that could not be read; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/macos.utm/Remove-OrphanedVMFiles.ps1",
+      "matchCount": 2,
+      "reason": "UTM registration probe that could not complete; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/macos.utm/Remove-StaleDhcpLease.ps1",
+      "matchCount": 1,
+      "reason": "Address-in-use verdict handed to the lease sweep; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/modules/Yuruna.HostProvision.psm1",
+      "matchCount": 3,
+      "reason": "Port-map verdict when NIC enumeration is incomplete; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 36,
+      "reason": "libvirt domain, process and unit states that could not be read; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "matchCount": 2,
+      "reason": "Grafana dashboard value mapping or legend label in the caching-proxy seed; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1",
+      "matchCount": 2,
+      "reason": "Uplink verdict fallback of the caching-proxy guest; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "matchCount": 21,
+      "reason": "Uplink verdict and virtual machine state fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "install/setup.ps1",
+      "matchCount": 1,
+      "reason": "Mount verdict that setup could not settle; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "install/windows.hyper-v.ps1",
+      "matchCount": 2,
+      "reason": "Windows edition and caption fallback; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/Debug-TestSequence.ps1",
+      "matchCount": 3,
+      "reason": "Reuse verdict and sequence outcome fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/download-agent-service/server/internal/imagestore/lease.go",
+      "matchCount": 1,
+      "reason": "Lease-holder placeholder when the holder cannot be read; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "matchCount": 12,
+      "reason": "Failure-class, pause-control and pinned-commit fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
+      "matchCount": 1,
+      "reason": "Pause-control state of a host that did not answer; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/autoenroll.go",
+      "matchCount": 3,
+      "reason": "Log fallback for an enrollment error with no detail; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "matchCount": 2,
+      "reason": "Pause-control state of a host with no reading; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/scan.go",
+      "matchCount": 1,
+      "reason": "Pause-control state of a scanned host; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "matchCount": 1,
+      "reason": "Pool dashboard status-class vocabulary for runner and pause-control states; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js",
+      "matchCount": 4,
+      "reason": "Pool pause-control state fallback; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
+      "matchCount": 2,
+      "reason": "Host network switch verdict; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.CachingProxyServiceLock.psm1",
+      "matchCount": 1,
+      "reason": "Virtual machine state of the caching-proxy service VM; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Diagnostic.psm1",
+      "matchCount": 9,
+      "reason": "Guest diagnostic capture outcome and OCR verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.ExtensionService.psm1",
+      "matchCount": 2,
+      "reason": "Hosting-mode fallback of an extension service; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.FailureTaxonomy.psm1",
+      "matchCount": 2,
+      "reason": "Failure class and severity enumerations; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.GuestQuarantine.psm1",
+      "matchCount": 2,
+      "reason": "Failure-class fallback of a quarantined guest; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostAddressBeacon.psm1",
+      "matchCount": 2,
+      "reason": "Address beacon verdict before evidence exists; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostAutomationState.psm1",
+      "matchCount": 2,
+      "reason": "Host family and captured-by fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostCondition.Mac.psm1",
+      "matchCount": 8,
+      "reason": "macOS TCC grant state; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostCondition.psm1",
+      "matchCount": 1,
+      "reason": "Host condition network path when unevaluated; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostCondition.Windows.psm1",
+      "matchCount": 5,
+      "reason": "Windows host condition status and network path; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostGit.psm1",
+      "matchCount": 3,
+      "reason": "Repository ahead/behind sync state and commit fallback; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostIdentity.psm1",
+      "matchCount": 3,
+      "reason": "Host identity setup action and serial-number fallback; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "matchCount": 16,
+      "reason": "Process liveness, spawn-gate state and runner readiness; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostRefreshTrigger.psm1",
+      "matchCount": 12,
+      "reason": "Process liveness, pool desired-state and token fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.HostSampling.psm1",
+      "matchCount": 2,
+      "reason": "Host sampling status and power source; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.LabHealth.psm1",
+      "matchCount": 1,
+      "reason": "Lab health verdict of an area that is not armed; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.LocalLabStorage.psm1",
+      "matchCount": 1,
+      "reason": "Local storage removal result and smbutil verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Log.psm1",
+      "matchCount": 2,
+      "reason": "Cycle disposition default; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Notify.psm1",
+      "matchCount": 4,
+      "reason": "Default failure class and severity of a notification; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Orchestrator.psm1",
+      "matchCount": 3,
+      "reason": "Failure class and project commit fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.PoolStorage.psm1",
+      "matchCount": 5,
+      "reason": "Pool storage firewall action and share-server verdict; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.PoolWorker.psm1",
+      "matchCount": 2,
+      "reason": "Pool worker teardown and withdrawal action and virtual machine state; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Remediation.psm1",
+      "matchCount": 8,
+      "reason": "Failure-class fallback of a remediation record; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "matchCount": 7,
+      "reason": "Network verdict, failure class, project commit and spawn-gate state fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "matchCount": 5,
+      "reason": "Spawn-gate state and barrier request-id fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SequenceAction.psm1",
+      "matchCount": 6,
+      "reason": "Failure class and severity enumerations; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "matchCount": 2,
+      "reason": "Failure class and severity fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SequenceFailureState.psm1",
+      "matchCount": 2,
+      "reason": "Failure class and severity fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 5,
+      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.ServiceCensus.psm1",
+      "matchCount": 3,
+      "reason": "Service census lock mapping, operation intent result, desired service state or hosting mode; the census never reads or writes a host-refresh record."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.ServiceVm.psm1",
+      "matchCount": 12,
+      "reason": "Service VM lock reason, virtual machine state and hosting-mode fallback; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SingleFlightLock.psm1",
+      "matchCount": 2,
+      "reason": "Lock state when the lock file cannot be classified; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.SingleInstance.psm1",
+      "matchCount": 3,
+      "reason": "Spawn-gate state when the gate cannot be read; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Ssh.psm1",
+      "matchCount": 4,
+      "reason": "SSH reachability probe verdict; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.Status.psm1",
+      "matchCount": 2,
+      "reason": "Guest and step status and failure class in status.json; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.StatusFirewall.psm1",
+      "matchCount": 1,
+      "reason": "Firewall platform fallback; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Start-PoolControlServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Start-StashServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Stop-CachingProxyServiceVM.ps1",
+      "matchCount": 2,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Stop-DownloadAgentServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Stop-PoolControlServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/service/Stop-StashServiceVM.ps1",
+      "matchCount": 1,
+      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/status/yuruna.common.js",
+      "matchCount": 2,
+      "reason": "Screen-reader status fallback and a placeholder when the capability names no reason; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/Test-Config.ps1",
+      "matchCount": 1,
+      "reason": "macOS TCC grant state in the configuration report; not the host-refresh state."
+    },
+    {
+      "wireCode": "repository_access.denied",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "matchCount": 1,
+      "reason": "The libvirt socket permission evidence uses the same generic word but is not a repository-access protocol consumer."
+    },
+    {
       "wireCode": "repository_access.denied",
       "path": "test/modules/Test.HostCondition.Mac.psm1",
       "matchCount": 4,
@@ -2609,8 +6258,8 @@
     "blockerCount": 15,
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
-    "catalogBoundaryCount": 9,
-    "consumerCount": 190,
-    "literalExclusionCount": 7
+    "catalogBoundaryCount": 11,
+    "consumerCount": 405,
+    "literalExclusionCount": 252
   }
 }

@@ -4,10 +4,10 @@
   "purpose": "The frozen English of every reference surface. Translation starts from what these say, so an edit to one of them is a change to the source language and has to be seen as one.",
   "rows": [
     {
-      "id": "cli-terminology-approved",
+      "id": "cli-terminology-current",
       "surface": "cli",
       "outcome": "pass",
-      "purpose": "The terminology gate reporting a complete, approved baseline.",
+      "purpose": "The terminology gate reporting a complete, content-bound baseline.",
       "producer": "command",
       "tool": "tools/Test-Terminology.ps1",
       "arguments": [],
@@ -30,7 +30,7 @@
       "purpose": "The per-document review listing, which names both repositories.",
       "producer": "command",
       "tool": "tools/Test-DocTranslation.ps1",
-      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}", "-RequireReviewed"],
+      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}"],
       "exitCode": 0
     },
     {
@@ -40,7 +40,7 @@
       "purpose": "The refusal an operator meets when a name reaches two repositories. It arrives on the error stream in terminal color, which normalization removes without touching the sentence.",
       "producer": "command",
       "tool": "tools/Test-DocTranslation.ps1",
-      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}", "-AcceptReview", "-Status", "reviewed", "-Path", "README.md"],
+      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}", "-Accept", "-Path", "README.md"],
       "exitCode": 2
     },
     {

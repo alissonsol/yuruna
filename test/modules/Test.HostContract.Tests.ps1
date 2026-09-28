@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 423dd1b8-e8b5-4131-80dc-f7bed94cafae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,13 +35,8 @@
     and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostContract.Tests.ps1
 #>
 
-BeforeAll {
-$here         = Split-Path -Parent $PSCommandPath
-$contractPath = Join-Path $here 'Test.HostContract.psm1'
-Import-Module $contractPath -Force -DisableNameChecking
-
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
+BeforeDiscovery {
+$contractPath = Join-Path $PSScriptRoot 'Test.HostContract.psm1'
 # The four siblings the facade promises to pull in.
 $siblingModule = @('Test.HostDetection', 'Test.HostCondition', 'Test.HostGit', 'Test.HostBootstrap')
 $script:siblingCase   = @($siblingModule | ForEach-Object { @{ name = $_ } })
@@ -62,6 +57,17 @@ if ($exportMatch.Success) {
 }
 $script:exportCase = @($declaredExport | ForEach-Object { @{ name = $_ } })
 
+if ($script:siblingCase.Count -ne 4 -or $script:exportCase.Count -lt 10) { throw 'Host-contract discovery must include all siblings and a non-empty facade surface.' }
+}
+
+BeforeAll {
+$here         = Split-Path -Parent $PSCommandPath
+$contractPath = Join-Path $here 'Test.HostContract.psm1'
+Import-Module $contractPath -Force -DisableNameChecking
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+
 }
 
 Describe 'Test.HostContract facade' {
@@ -79,7 +85,8 @@ Describe 'Test.HostContract facade' {
         # Non-vacuity guard: the -TestCases below are generated from the parse
         # above. If the parse ever came back empty, Pester would generate zero
         # tests and the whole Context would pass while checking nothing.
-        It 'parses a non-trivial export list out of the facade source' {
+        It 'parses a non-trivial export list out of the facade source' -TestCases @(@{ declaredExport = [string[]]@($script:exportCase.name) }) {
+            param($declaredExport)
             Assert-True ($declaredExport.Count -ge 10) "expected the facade to declare a real surface; parsed $($declaredExport.Count) name(s)"
             Assert-True ($declaredExport -contains 'Get-HostType')          'the parse must find the detection entry point'
             Assert-True ($declaredExport -contains 'Initialize-YurunaHost') 'the parse must find the bootstrap entry point'
@@ -107,7 +114,8 @@ Describe 'Test.HostContract facade' {
         # reloads them. The runner reloads the facade every cycle, so a
         # re-import that left the session without the names would break the
         # harness at an arbitrary point mid-run rather than at load.
-        It 'keeps the surface intact across a second -Force import' {
+        It 'keeps the surface intact across a second -Force import' -TestCases @(@{ siblingModule = [string[]]@($script:siblingCase.name) }) {
+            param($siblingModule)
             Import-Module $contractPath -Force -DisableNameChecking
             foreach ($m in $siblingModule) {
                 Assert-True ([bool](Get-Module -Name $m)) "'$m' must survive a facade reload"

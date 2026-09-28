@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,8 +90,7 @@ function New-AptProxyBlock {
 
 <#
 .SYNOPSIS
-    Build the first-logon bootstrap a Windows guest's answer file runs, as the
-    base64 an `-EncodedCommand` slot takes.
+    Build the Windows guest's seed scripts and compact first-logon launcher.
 .DESCRIPTION
     Establishes the guest's Yuruna coordinates and, when a token is supplied,
     its git credentials. Byte-identical across Hyper-V, UTM and KVM given the
@@ -138,16 +137,17 @@ function New-AptProxyBlock {
 .PARAMETER GhToken
     repositories.ghToken, or empty to skip the credential half entirely.
 .OUTPUTS
-    [string] base64 of the UTF-16LE script, for -EncodedCommand.
+    [pscustomobject] Files maps seed filenames to script text; EncodedCommand
+    is a small UTF-16LE launcher that finds the seed CD at first logon.
 #>
 function New-WindowsGuestBootstrap {
-    # Pure builder: returns the bootstrap text as base64 and changes no
+    # Pure builder: returns seed file text and a launcher, and changes no
     # host/system state. Same false positive, and same rationale, as
     # New-AptProxyBlock above.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure text builder with no state change; New- matches New-Guid/New-Object, which also do not support ShouldProcess.')]
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter()][AllowEmptyString()][string]$StatusServiceIp = '',
@@ -178,7 +178,6 @@ function New-WindowsGuestBootstrap {
     if (-not (Test-Path -LiteralPath $locatePath -PathType Leaf)) {
         throw (Format-YurunaOperatorMessage -Key 'automation.operator_0b62c1c9d3cf7476' -Arguments @{ locatePath = "$locatePath" })
     }
-    $locateB64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($locatePath))
 
     # The bootstrap body is a FILE, not a here-string here: it needs nested
     # here-strings of its own, and a here-string containing here-strings ends
@@ -198,10 +197,18 @@ function New-WindowsGuestBootstrap {
                       Replace('__STATUS_PORT__', $StatusServicePort).
                       Replace('__HOST_ID__',     $HostId).
                       Replace('__CACHE_IP__',    $CachingProxyIp).
-                      Replace('__LOCATE_B64__',  $locateB64).
                       Replace("`$token = '__TOKEN__'", "`$token = '$GhToken'")
 
-    return [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    # Setup's command-line field is small. Keep only CD discovery here; the
+    # trusted seed media carries both full scripts, independent of networking.
+    $launcher = '$p=@(Get-CimInstance Win32_LogicalDisk -Filter ''DriveType=5''|ForEach-Object{Join-Path $_.DeviceID ''yuruna-bootstrap.ps1''}|Where-Object{Test-Path -LiteralPath $_});if($p.Count-ne 1){throw ''Expected one Yuruna seed CD''};& $p[0]'
+    return [pscustomobject]@{
+        EncodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($launcher))
+        Files = [ordered]@{
+            'yuruna-bootstrap.ps1' = $script
+            'yuruna-host-locate.ps1' = [System.IO.File]::ReadAllText($locatePath)
+        }
+    }
 }
 
 Export-ModuleMember -Function New-AptProxyBlock, New-WindowsGuestBootstrap

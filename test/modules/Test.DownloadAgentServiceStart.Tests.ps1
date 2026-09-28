@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,12 +55,20 @@
     assertion.
 #>
 
+BeforeDiscovery {
+    $service = Join-Path (Split-Path -Parent $PSScriptRoot) 'service'
+$script:entryPointCases = @(
+    @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Path = (Join-Path $service 'Start-DownloadAgentServiceVM.ps1') },
+    @{ Name = 'Stop-DownloadAgentServiceVM.ps1';  Path = (Join-Path $service 'Stop-DownloadAgentServiceVM.ps1') }
+)
+}
+
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
-$startAgent = Join-Path $testDir 'service/Start-DownloadAgentServiceVM.ps1'
-$stopAgent  = Join-Path $testDir 'service/Stop-DownloadAgentServiceVM.ps1'
+$script:startAgent = Join-Path $testDir 'service/Start-DownloadAgentServiceVM.ps1'
+$script:stopAgent  = Join-Path $testDir 'service/Stop-DownloadAgentServiceVM.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -132,10 +140,7 @@ function Get-FirstCallOffset {
     return (@($calls | ForEach-Object { $_.Extent.StartOffset }) | Sort-Object)[0]
 }
 
-$script:entryPointCases = @(
-    @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Path = $startAgent },
-    @{ Name = 'Stop-DownloadAgentServiceVM.ps1';  Path = $stopAgent }
-)
+
 
 }
 
@@ -160,7 +165,7 @@ Describe 'Download-agent lifecycle entry points honor the entry-point contract' 
 
 Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advertises one' {
     It 'polls the real port inside a wall-clock deadline loop' {
-        $ast = Get-ScriptAst $startAgent
+        $ast = Get-ScriptAst $script:startAgent
         $deadlineLoops = @(Get-WhileStatement -Ast $ast | Where-Object { $_.Condition.Extent.Text -match '\$readyDeadline' })
         Assert-True ($deadlineLoops.Count -ge 1) 'the readiness wait is a while loop bounded by $readyDeadline (not an iteration counter)'
         $probes = @(Get-CommandCall -Ast $deadlineLoops[0] -Name 'Test-DownloadAgentServicePort')
@@ -170,7 +175,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'discriminates "still building" from "serving but unreachable" by asking the guest' {
-        $ast = Get-ScriptAst $startAgent
+        $ast = Get-ScriptAst $script:startAgent
         $sshCalls = @(Get-CommandCall -Ast $ast -Name 'Invoke-GuestSsh')
         Assert-True ($sshCalls.Count -ge 2) "the guest is asked both during the wait and for the failure diagnostics; found $($sshCalls.Count)"
         $listenerProbe = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'ss -ltn' })
@@ -180,7 +185,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'binds the marker''s active to the readiness verdict, which starts false' {
-        $ast = Get-ScriptAst $startAgent
+        $ast = Get-ScriptAst $script:startAgent
         $markerWrites = @(Get-CommandCall -Ast $ast -Name 'Write-DownloadAgentServiceMarker')
         Assert-True ($markerWrites.Count -ge 1) 'the marker is written through the module helper'
         $active = Get-NamedArgumentText -CommandAst $markerWrites[0] -ParameterName 'Active'
@@ -195,7 +200,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'publishes the Shared-NAT-aware address and refreshes the registration' {
-        $ast = Get-ScriptAst $startAgent
+        $ast = Get-ScriptAst $script:startAgent
         $resolves = @(Get-CommandCall -Ast $ast -Name 'Resolve-DownloadAgentServiceBaseUrl')
         Assert-True ($resolves.Count -ge 1) 'the published address goes through the Shared-NAT-aware resolver'
         Assert-True ((Get-NamedArgumentText -CommandAst $resolves[0] -ParameterName 'NetworkMode') -eq '$bundleMode') 'the resolver is told the bundle''s real network mode'
@@ -214,7 +219,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'gates the build on the pool-storage credential before anything is created' {
-        $ast = Get-ScriptAst $startAgent
+        $ast = Get-ScriptAst $script:startAgent
         $storageGate = Get-FirstCallOffset -Ast $ast -Name 'Test-PoolStorageStoredCredential'
         Assert-True ($storageGate -ge 0) 'the stored-credential hard gate is present'
         Assert-True ((Get-CommandCall -Ast $ast -Name 'Connect-YurunaPoolStorage').Count -ge 1) 'the soft gate verifies the credential actually authenticates'
@@ -254,7 +259,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
 
 Describe 'Stop-DownloadAgentServiceVM.ps1 retracts the claim before it destroys the VM' {
     It 'removes the marker and republishes the registration ahead of every teardown call' {
-        $ast = Get-ScriptAst $stopAgent
+        $ast = Get-ScriptAst $script:stopAgent
         $markerRemoval = Get-FirstCallOffset -Ast $ast -Name 'Remove-DownloadAgentServiceMarker'
         Assert-True ($markerRemoval -ge 0) 'the marker is removed through the module helper'
         $registration = Get-FirstCallOffset -Ast $ast -Name 'Write-HostRegistrationRecord'

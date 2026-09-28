@@ -16,6 +16,7 @@ firstLoginPrime:
 
   - action: waitForText
     pattern: "login:"
+    noSegmentMatch: true
     timeoutSeconds: 600
     description: "OCR: login:"
 

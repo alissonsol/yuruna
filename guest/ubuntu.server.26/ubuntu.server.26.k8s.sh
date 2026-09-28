@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -66,10 +66,12 @@ echo ""
 echo -e "\e[1;36m==== Basic tools ====\e[0m"
 apt_retry sudo apt-get update -y
 # Keep Kubernetes prerequisites here so callers do not need the unrelated Code
-# workload (and its JDK, .NET SDK, and VS Code) just to obtain socat.
+# workload (and its JDK, .NET SDK, and VS Code) just to obtain socat. This setup
+# installs packaged binaries and never compiles source, so pulling the compiler
+# and development stack through build-essential only adds guest I/O and time.
 apt_retry sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
-    build-essential procps file \
+    procps file \
     wget software-properties-common \
     ca-certificates lsb-release gnupg gpg \
     libnss3-tools unzip socat

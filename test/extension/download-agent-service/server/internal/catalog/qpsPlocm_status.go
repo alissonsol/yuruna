@@ -58,6 +58,15 @@ const DataqpsPlocmstatus = `{
       ]
     }
   },
+  "status.api_admission_unavailable": [
+    "[!‮ţħé ħóšţ çóúļď ñóţ řéçóřď ţħé řéʠúéšţ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.api_another_start_cycle_request_is_in_progress_3f51d139": "[!‮áñóţħéř šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~~~]",
   "status.api_authentication_extension_unavailable_2ece9896": "[!‮áúţħéñţíçáţíóñ éẋţéñšíóñ úñáṽáíļáƀļé‬ ~~~~~~~~~~~~~~~]",
   "status.api_body_must_be_a_json_object_831ab327": "[!‮ƀóďý ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ‬ ~~~~~~~~~~~]",
@@ -114,7 +123,37 @@ const DataqpsPlocmstatus = `{
   "status.api_forbidden_directory_listing_disabled_5d107f5b": "[!‮Ƒóřƀíďďéñ (ďířéçţóřý ļíšţíñğ ďíšáƀļéď)‬ ~~~~~~~~~~~~~~~~]",
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "[!‮ƒóřƀíďďéñ: ɱíššíñğ Ẋ-Ýúřúñá řéʠúéšţ ħéáďéř (çřóšš-šíţé řéʠúéšţ ğúářď)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_refresh_authorization_refused": [
+    "[!‮řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_refresh_busy": "[!‮áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~]",
+  "status.api_host_refresh_request_closed": [
+    "[!‮ţħíš řéʠúéšţ íď íš áļřéáďý çļóšéď (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_refresh_request_conflict": "[!‮ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_refresh_unavailable": [
+    "[!‮ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "[!‮íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_internal_error": "[!‮ţħé řéʠúéšţ ƒáíļéď óñ ţħé ħóšţ; šéé server.err‬ ~~~~~~~~~~~~~~~~~~~]",
   "status.api_invalid_json_detail_c907dfc3": [
     "[!‮íñṽáļíď ĴŠÓÑ: ",
     {
@@ -125,6 +164,8 @@ const DataqpsPlocmstatus = `{
     "‬ ~~~~~~~~~]"
   ],
   "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": "[!‮íñṽáļíď úƥļóáď ƥáţħ (ɱúšţ éñď íñ .ļóğ/.txt/.json/.err/.crash/.tar, ñó ţřáṽéřšáļ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_listener_busy": "[!‮ţóó ɱáñý řéʠúéšţ ƀóďíéš ářé ƀéíñğ řéáď; řéţřý šħóřţļý‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_listener_dependency_missing": "[!‮á ɱóďúļé ţħíš řóúţé ñééďš çóúļď ñóţ ƀé ļóáďéď; šéé server.err‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_method_not_allowed_be4fb6a2": "[!‮ɱéţħóď ñóţ áļļóŵéď‬ ~~~~~~~~]",
   "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf": "[!‮ɱéţħóď ñóţ áļļóŵéď; ƤÓŠŢ ţħé çħéçķƥóíñţ ƀóďý‬ ~~~~~~~~~~~~~~~~~~]",
   "status.api_method_not_allowed_post_the_dump_body_fa73866b": "[!‮ɱéţħóď ñóţ áļļóŵéď; ƤÓŠŢ ţħé ďúɱƥ ƀóďý‬ ~~~~~~~~~~~~~~~~]",
@@ -155,12 +196,38 @@ const DataqpsPlocmstatus = `{
   "status.api_path_escapes_log_root_13754cf8": "[!‮ƥáţħ éšçáƥéš ļóğ řóóţ‬ ~~~~~~~~~]",
   "status.api_payload_too_large_1_mb_350b49df": "[!‮ƥáýļóáď ţóó ļářğé (>1 ⱮɃ)‬ ~~~~~~~~~~]",
   "status.api_payload_too_large_256_kb_ad49d5cd": "[!‮ƥáýļóáď ţóó ļářğé (>256 ĶɃ)‬ ~~~~~~~~~~~]",
+  "status.api_payload_too_large_4_kb": "[!‮ƥáýļóáď ţóó ļářğé (4 ĶɃ ɱáẋ)‬ ~~~~~~~~~~~~]",
   "status.api_payload_too_large_4_mb_3455f869": "[!‮ƥáýļóáď ţóó ļářğé (>4 ⱮɃ)‬ ~~~~~~~~~~]",
   "status.api_payload_too_large_5_mb_ab90ca52": "[!‮ƥáýļóáď ţóó ļářğé (>5 ⱮɃ)‬ ~~~~~~~~~~]",
   "status.api_post_required_663cc07c": "[!‮ƤÓŠŢ řéʠúířéď‬ ~~~~~~]",
+  "status.api_private_state_unavailable": [
+    "[!‮ţħé ħóšţ'š ƥříṽáţé šţáţé ďířéçţóřý íš úñáṽáíļáƀļé (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.api_project_repo_not_present_on_host_885e6338": "[!‮ƥřóĵéçţ řéƥó ñóţ ƥřéšéñţ óñ ħóšţ‬ ~~~~~~~~~~~~~]",
   "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "[!‮ƥřóóƒ ɱíšɱáţçħ (ŵřóñğ óř šţáļé íñţéřñáļ áúţħéñţíçáţíóñ ķéý)‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_put_or_post_required_1f919659": "[!‮ƤÚŢ óř ƤÓŠŢ řéʠúířéď‬ ~~~~~~~~]",
+  "status.api_request_body_invalid": [
+    "[!‮íñṽáļíď řéʠúéšţ ƀóďý: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_request_body_timeout": "[!‮ţħé řéʠúéšţ ƀóďý ďíď ñóţ ářříṽé ŵíţħíñ 2 šéçóñďš‬ ~~~~~~~~~~~~~~~~~~~~]",
   "status.api_runner_script_missing": [
     "[!‮Start-TestRunner.ps1 ñóţ ƒóúñď áţ ",
     {
@@ -174,8 +241,18 @@ const DataqpsPlocmstatus = `{
   "status.api_test_config_yml_not_found_3b38d785": "[!‮test.config.yml ñóţ ƒóúñď‬ ~~~~~~~~~~]",
   "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c": "[!‮Test.ConfigServiceSync / Test.Config çóúļď ñóţ ƀé ļóáďéď íñ ţħé šéřṽéř řúñšƥáçé (šéé řúñţíɱé/server.err)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c": "[!‮Test.PoolStorage / Test.Config çóúļď ñóţ ƀé ļóáďéď íñ ţħé šéřṽéř řúñšƥáçé (šéé řúñţíɱé/server.err)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_unsupported_media_type": "[!‮Çóñţéñţ-Ţýƥé ɱúšţ ƀé áƥƥļíçáţíóñ/json‬ ~~~~~~~~~~~~~~~]",
   "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": "[!‮úšéř, ñóñçé áñď ƥřóóƒ ʠúéřý ƥářáɱéţéřš ářé řéʠúířéď‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3": "[!‮úšéř ñóţ řéƒéřéñçéď ƀý ţħíš ħóšţ'š ñéţŵóřķŠţóřáğé çóñƒíğ‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_worker_launcher_failed": [
+    "[!‮ţħé ŵóřķéř çóúļď ñóţ ƀé šţářţéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); ţħé řéʠúéšţ çáñ ƀé řéţříéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.api_write_failed_detail_c07681e1": [
     "[!‮ŵříţé ƒáíļéď: ",
     {
@@ -678,6 +755,16 @@ const DataqpsPlocmstatus = `{
   "status.guest_sequence_no_plan": "[!‮Ñó řéšóļṽéď ƥļáñ íš řéçóřďéď ƒóř ţħé ļášţ çýçļé.‬ ~~~~~~~~~~~~~~~~~~~~]",
   "status.guide": "[!‮Ğúíďé‬ ~~]",
   "status.host": "[!‮Ħóšţ‬ ~~]",
+  "status.host_diagnostic_pending": "[!‮Çóļļéçţíñğ ħóšţ ďíáğñóšţíçš; ţħíš çáñ ţáķé á ɱíñúţé...‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_diagnostic_timeout": [
+    "[!‮Ħóšţ ďíáğñóšţíçš ďíď ñóţ ƒíñíšħ ŵíţħíñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš. Řéļóáď ţħé ƥáğé ţó ţřý áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.host_diagnostics": "[!‮Ħóšţ ďíáğñóšţíçš‬ ~~~~~~~]",
   "status.host_ip_addresses": "[!‮Ħóšţ ÍƤ áďďřéššéš‬ ~~~~~~~]",
   "status.host_online_count": {
@@ -704,6 +791,280 @@ const DataqpsPlocmstatus = `{
       ]
     }
   },
+  "status.host_refresh_action_dispose_obligations": "[!‮Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_elevate": "[!‮Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_grant_automation": "[!‮Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_gui_session": "[!‮Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_install_client": "[!‮Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_resume_request": "[!‮Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_action_start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_authorization_refused": [
+    "[!‮Ţħíš řéƒřéšħ ñééďš á řéƒřéšħ ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƒřéšħ áçţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_busy": [
+    "[!‮Áñóţħéř ħóšţ řéƒřéšħ (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_check_host": "[!‮Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_closed": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš áļřéáďý çļóšéď (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_confirm": [
+    "[!‮Řéƒřéšħ ţħíš ħóšţ, úƥ ţó ţħé ",
+    {
+      "arg": "ceiling",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " šţéƥ? Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš, áñď ţħé řúññéř íš řéšţářţéď. Ţħíš çáñ ţáķé úƥ ţó ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_conflict": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_launcher_failed": "[!‮Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƒřéšħ ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_lost": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó óúţçóɱé áƒţéř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƒřéšħ ħóšţ ţó šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_note": "[!‮Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_progress": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": šţéƥ ",
+    {
+      "arg": "step",
+      "type": "integer",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "stepName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "), úƥ ţó ",
+    {
+      "arg": "remainingSeconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " šéçóñďš ļéƒţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_recovery_pending": "[!‮Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_rejected": [
+    "[!‮Ţħé ħóšţ řéĵéçţéď ţħé řéƒřéšħ řéʠúéšţ: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_retry": "[!‮Řéţřý‬ ~~]",
+  "status.host_refresh_stale": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó ƥřóğřéšš řéƥóřţ ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_start": "[!‮Řéƒřéšħ ħóšţ‬ ~~~~~]",
+  "status.host_refresh_start_cycle_busy": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_refresh_submitting": "[!‮Šéñďíñğ ţħé řéƒřéšħ řéʠúéšţ...‬ ~~~~~~~~~~~~]",
+  "status.host_refresh_title": "[!‮Ħóšţ řéƒřéšħ‬ ~~~~~]",
+  "status.host_refresh_unavailable": [
+    "[!‮Ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_abandoned": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áƀáñďóñéď áƒţéř řéƥéáţéď áţţéɱƥţš; íţš řéçóṽéřý řéçóřď íš ķéƥţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_already_healthy": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_failed": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ƒáíļéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_partial": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " éñďéď íñçóɱƥļéţé (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_refused": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš řéƒúšéď ƀéƒóřé áñý çħáñğé (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_repaired": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_still_unresponsive": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " éñďéď: ţħé ħýƥéřṽíšóř šţíļļ ďóéš ñóţ řéšƥóñď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_verdict_unknown": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " éñďéď ŵíţħ áñ óúţçóɱé ţħíš ƥáğé ďóéš ñóţ řéçóğñížé (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_waiting": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áççéƥţéď; ŵáíţíñğ ƒóř ţħé ŵóřķéř'š ƒířšţ řéƥóřţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_refresh_waiting_long": [
+    "[!‮Řéƒřéšħ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó řéƥóřţ áƒţéř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "status.host_value1": [
     "[!‮Ħóšţ: ",
     {
@@ -955,6 +1316,8 @@ const DataqpsPlocmstatus = `{
   "status.pausing_after_step": "[!‮Ţéšţ ƥáúšíñğ (áƒţéř šţéƥ)‬ ~~~~~~~~~~]",
   "status.perf_yuruna": "[!‮Ƥéřƒ — Ýúřúñá‬ ~~~~~~]",
   "status.performance": "[!‮Ƥéřƒóřɱáñçé‬ ~~~~~]",
+  "status.performance_fit": "[!‮Ƒíţ áļļ‬ ~~~]",
+  "status.performance_zoom": "[!‮Ţíɱé žóóɱ‬ ~~~~]",
   "status.pill_new_vm_resource": "[!‮Ñéŵ ṼⱮ‬ ~~~]",
   "status.pill_start_guestos": "[!‮Šţářţ ÓŠ‬ ~~~~]",
   "status.pill_start_guestworkload": "[!‮Ŵóřķļóáď‬ ~~~~]",
@@ -1088,6 +1451,51 @@ const DataqpsPlocmstatus = `{
     },
     ", řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "status.start_cycle_blocked_by_refresh": [
+    "[!‮Á ħóšţ řéƒřéšħ (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.start_cycle_cycle_restarted": "[!‮Çýçļé řéšţářţéď‬ ~~~~~~]",
+  "status.start_cycle_failed": [
+    "[!‮Šţářţ-çýçļé ƒáíļéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~]"
+  ],
+  "status.start_cycle_no_report": [
+    "[!‮Šţářţ-çýçļé ",
+    {
+      "arg": "operationId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ħáš ñóţ řéƥóřţéď áƒţéř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.start_cycle_not_spawned": [
+    "[!‮Ţħé çýçļé řéšţářţ ŵáš řéʠúéšţéď, ƀúţ ţħé řúññéř'š šţáţé çóúļď ñóţ ƀé çóñƒířɱéď, šó ñó šéçóñď řúññéř ŵáš šţářţéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). Á řúññíñğ řúññéř řéšţářţš íţš çýçļé; íƒ ñóñé íš řúññíñğ, šţářţ íţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.start_cycle_queued": "[!‮Šţářţ-çýçļé áççéƥţéď; šţóƥƥíñğ íñ-ƥřóğřéšš ṼⱮš áñď šţářţíñğ ţħé řúññéř...‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.start_cycle_runner_started": "[!‮Řúññéř šţářţéď‬ ~~~~~~]",
   "status.started": "[!‮Šţářţéď‬ ~~~]",
   "status.started_utc": "[!‮Šţářţéď (ÚŢÇ)‬ ~~~~~~]",
   "status.status": "[!‮Šţáţúš‬ ~~~]",

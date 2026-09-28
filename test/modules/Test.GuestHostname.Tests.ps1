@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,9 +246,32 @@ Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline'
         Assert-True ($body -match '(?m)^\s*nudgeKey:\s*Enter\s*$') "$name must redraw agetty with Enter"
         Assert-True ($body -match '(?m)^\s*nudgeIntervalSeconds:\s*60\s*$') "$name must recover a hidden prompt within about one minute"
         Assert-True ($body -match '(?m)^\s*freshMatch:\s*true\s*$') "$name must not match stale installer-console residue"
+        Assert-True ($body -match '(?m)^\s*noSegmentMatch:\s*true\s*$') "$name must reject account names and login.defs scattered through installer output"
         foreach ($failurePattern in 'install_fail.crash', 'Press enter to start a shell', 'An error occurred') {
             Assert-True ($body -match [regex]::Escape($failurePattern)) "$name must retain installer fast-fail pattern '$failurePattern'"
         }
+
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $topSteps = @($sequence['steps'])
+        $retry = @($topSteps | Where-Object { $_['action'] -eq 'retry' -and $_['restartVmBeforeRetry'] -eq 'arm64HyperVColdPowerCycle' }) | Select-Object -First 1
+        Assert-True ($null -ne $retry) "$name must retain the bounded pre-login retry"
+        Assert-Equal -Expected 'arm64HyperVColdPowerCycle' -Actual ([string]$retry['restartVmBeforeRetry']) `
+            -Because "$name must opt into the measured ARM64 Hyper-V recovery"
+        $restartStep = @($retry['stepsAfterVmRestart'])[0]
+        Assert-True ([bool]$restartStep['noSegmentMatch']) "$name must use bounded matching for the restarted login check too"
+        Assert-Equal -Expected 'waitForAndEnter' -Actual ([string]$restartStep['action']) `
+            -Because "$name must re-answer the live ISO after a cold restart"
+        Assert-True (@($restartStep['pattern']) -contains 'Continue with autoinstall?') `
+            "$name must recognize the restarted live installer"
+        Assert-True (@($restartStep['pattern']) -contains '${hostLabel} login:') `
+            "$name must also recognize an already-installed guest"
+        Assert-Equal -Expected '${hostLabel} login:' -Actual ([string]$restartStep['skipInputPattern']) `
+            -Because "$name must never type the autoinstall answer at a login prompt"
+        $retryActions = @($retry['steps'] | ForEach-Object { [string]$_['action'] })
+        Assert-Equal -Expected 'pressKey,waitForSeconds,waitForTextWithNudge' -Actual ($retryActions -join ',') `
+            -Because "$name may retry only pre-login, non-secret steps"
+        Assert-Equal -Expected 0 -Actual @($retry['steps'] | Where-Object { $_['action'] -eq 'passwdPrompt' }).Count `
+            -Because "$name must never replay password mutation after a restart"
     }
 }
 
@@ -314,6 +337,17 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
                 $_.Depth -eq 0 -and $_.Step['action'] -eq 'waitForText' -and
                 $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and [bool]$_.Step['freshMatch']
             })
+        $loginRetries = @($records | Where-Object {
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'retry' -and
+                @($_.Step['stepsAfterVmRestart'] | Where-Object {
+                        $_ -is [System.Collections.IDictionary] -and $_['action'] -eq 'waitForAndEnter'
+                    }).Count -eq 1 -and
+                @($_.Step['steps'] | Where-Object { $_['action'] -eq 'waitForTextWithNudge' }).Count -eq 1
+            })
+        $postProvisionRetries = @($records | Where-Object {
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'retry' -and
+                $_.Step['description'] -like 'Wait for post-provision login prompt*'
+            })
         $rotationRetries = @($records | Where-Object {
                 $_.Depth -eq 0 -and $_.Step['action'] -eq 'retry' -and
                 @($_.Step['steps'] | Where-Object { $_['action'] -eq 'passwdPrompt' -and $_['text'] -eq '${newPassword}' }).Count -ge 2
@@ -321,13 +355,39 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
         $loginPasswordPrompts = @($records | Where-Object {
                 $_.Step['action'] -eq 'passwdPrompt' -and $_.Step['pattern'] -eq 'Password:'
             })
+        $passwordPrompts = @($records | Where-Object { $_.Step['action'] -eq 'passwdPrompt' })
+        $newPasswordPrompts = @($passwordPrompts | Where-Object { $_.Step['text'] -eq '${newPassword}' })
 
         Assert-Equal -Expected 1 -Actual $commits.Count -Because "$name must have exactly one password commit"
         Assert-Equal -Expected 0 -Actual $commits[0].Depth -Because "$name must not commit from inside the retry block"
-        Assert-Equal -Expected 1 -Actual $rotationRetries.Count -Because "$name must retain its new/retype-password rotation"
+        if ($name -like '*ubuntu*') {
+            Assert-Equal -Expected 1 -Actual $loginRetries.Count -Because "$name must retain exactly one pre-login installer retry"
+            Assert-Equal -Expected 1 -Actual $postProvisionRetries.Count `
+                -Because "$name must recover a post-provision ARM64 Hyper-V boot livelock"
+            Assert-Equal -Expected 0 -Actual @($passwordPrompts | Where-Object { $_.Depth -ne 0 }).Count `
+                -Because "$name must keep every password mutation outside retry"
+            Assert-Equal -Expected 2 -Actual $newPasswordPrompts.Count -Because "$name must retain its new/retype-password rotation"
+            Assert-True ($loginRetries[0].TopIndex -lt $newPasswordPrompts[0].TopIndex) "$name starts password mutation before the restartable wait ends"
+            Assert-True ($commits[0].TopIndex -lt $postProvisionRetries[0].TopIndex) `
+                "$name must not make the post-provision VM restartable before password success is committed"
+
+            $postRetry = $postProvisionRetries[0].Step
+            Assert-Equal -Expected 3 -Actual ([int]$postRetry['maxAttempts']) `
+                -Because "$name must bound post-provision boot recovery"
+            Assert-Equal -Expected 'arm64HyperVColdPowerCycle' -Actual ([string]$postRetry['restartVmBeforeRetry']) `
+                -Because "$name must scope post-provision recovery to the measured ARM64 Hyper-V mode"
+            Assert-Equal -Expected 'waitForSeconds' -Actual (@($postRetry['stepsAfterVmRestart'] | ForEach-Object { [string]$_['action'] }) -join ',') `
+                -Because "$name must only settle the console after a post-provision cold restart"
+            Assert-Equal -Expected 'waitForTextWithNudge' -Actual (@($postRetry['steps'] | ForEach-Object { [string]$_['action'] }) -join ',') `
+                -Because "$name must retry only the installed login wait, never provisioning or credentials"
+        } else {
+            Assert-Equal -Expected 1 -Actual $rotationRetries.Count `
+                -Because "$name must retain its existing new/retype-password rotation retry"
+            Assert-True ($rotationRetries[0].TopIndex -lt $tokenInputs[0].TopIndex) `
+                "$name computes the token before password rotation finishes"
+        }
         Assert-Equal -Expected 1 -Actual $tokenInputs.Count -Because "$name must ask a live shell to compute the confirmation token"
         Assert-Equal -Expected 1 -Actual $tokenWaits.Count -Because "$name must freshly observe the computed confirmation token"
-        Assert-True ($rotationRetries[0].TopIndex -lt $tokenInputs[0].TopIndex) "$name computes the token before password rotation finishes"
         Assert-True ($tokenInputs[0].TopIndex -lt $tokenWaits[0].TopIndex) "$name waits for the token before asking the shell to produce it"
         Assert-True ($tokenWaits[0].TopIndex -lt $commits[0].TopIndex) "$name persists the new password before login success is confirmed"
         Assert-True (@($loginPasswordPrompts | Where-Object { $_.Step['text'] -ne '${currentPassword}' }).Count -eq 0) `

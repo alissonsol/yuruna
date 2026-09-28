@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -536,6 +536,8 @@ function Invoke-OrchestrationSequence {
     # --- REGION: Run each chain entry that overlaps the requested step range
     $results = New-Object System.Collections.Generic.List[object]
     $stopped = $false
+    $escapedException = $null
+    $logOutcome = $null
     $overall = 'pass'
     $firstFailureReason = ''
 
@@ -731,6 +733,12 @@ function Invoke-OrchestrationSequence {
                 if (-not $continueOnError) { $stopped = $true }
             }
         }
+    } catch {
+        $overall = 'fail'
+        $escapedException = $_.Exception
+        if (-not $firstFailureReason) { $firstFailureReason = [string]$escapedException.Message }
+        if ($escapedException.Data['YurunaCycleRestart'] -or $escapedException.Message -like 'YurunaCycleRestart:*') { $logOutcome = 'aborted' }
+        throw
     } finally {
         if ($orchNested) {
             # NESTED: finalize only THIS orchestration's node + seal its
@@ -744,8 +752,11 @@ function Invoke-OrchestrationSequence {
             if ($Config -is [System.Collections.IDictionary] -and $Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.recentDisplayCount) {
                 $maxHistory = [int]$Config.testCycle.recentDisplayCount
             }
-            if (Get-Command Complete-Run -ErrorAction SilentlyContinue) { Complete-Run -OverallStatus $overall -MaxHistoryRuns $maxHistory }
-            if (Get-Command Stop-LogFile -ErrorAction SilentlyContinue) { Stop-LogFile -Outcome $overall -Reason $firstFailureReason }
+            if (Get-Command Complete-Run -ErrorAction SilentlyContinue) {
+                Complete-Run -OverallStatus $overall -MaxHistoryRuns $maxHistory
+                if ($escapedException) { $escapedException.Data['YurunaCycleFinalized'] = $true }
+            }
+            if (Get-Command Stop-LogFile -ErrorAction SilentlyContinue) { Stop-LogFile -Outcome $(if ($logOutcome) { $logOutcome } else { $overall }) -Reason $firstFailureReason }
         }
     }
 

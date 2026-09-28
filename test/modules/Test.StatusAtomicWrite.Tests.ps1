@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,11 @@
     rotation may), each publish uses the atomic overload, the temp names
     are unique, and the overwrite overload behaves as relied upon.
 
+    The start-cycle status.json rewrite runs in the detached start-cycle worker
+    (test/modules/Invoke-StartCycleWorker.ps1), not in the listener, so its
+    publish is pinned there: through Write-YurunaStateFile, which is the same
+    per-writer temp plus [IO.File]::Move replace.
+
     The throw-based Assert-* helpers live in the file's BeforeAll, which is the
     scope Pester 5 shares with the It blocks.
 #>
@@ -42,6 +47,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $sss  = Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.ps1'
 $script:txt  = Get-Content -Raw -LiteralPath $sss
+$script:startCycleWorker = Get-Content -Raw -LiteralPath (Join-Path $here 'Invoke-StartCycleWorker.ps1')
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -56,7 +62,20 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
             Assert-True ($m.Value -match 'serverLogFile') "non-atomic Move-Item on shared state: $($m.Value.Trim())"
         }
         $atomic = [regex]::Matches($script:txt, '\[System\.IO\.File\]::Move\(').Count
-        Assert-True ($atomic -ge 5) "expected >= 5 atomic [IO.File]::Move publishes (test-config, perf-ckpt, status.json x2, diagnostics); found $atomic"
+        Assert-True ($atomic -ge 4) "expected >= 4 atomic [IO.File]::Move publishes (test-config, perf-ckpt, the pause status.json rewrite, diagnostics); found $atomic"
+    }
+
+    It 'publishes the start-cycle status.json rewrite atomically from its worker' {
+        # The listener no longer touches status.json for a start-cycle; the
+        # worker rewrites the pause and lab-hold fields, and it must do so with
+        # the same gap-free replace, never a delete-then-write.
+        Assert-True ($script:startCycleWorker -match "Write-YurunaStateFile -Path \`$statusPath") `
+            'the start-cycle worker must publish status.json through Write-YurunaStateFile'
+        foreach ($pattern in @('Move-Item', 'Set-Content', 'Out-File', 'WriteAllText\(\$statusPath')) {
+            Assert-True ($script:startCycleWorker -notmatch $pattern) "the start-cycle worker must not write shared state with $pattern"
+        }
+        Assert-True ($script:txt -notmatch 'cyclePausedSinceUtc''\]\s*=\s*''''') `
+            'the listener must not rewrite the start-cycle status.json fields itself'
     }
 
     It 'uses a per-writer unique temp for each publish (no fixed .tmp collision target)' {

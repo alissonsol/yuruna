@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42cccee0-5874-465b-83ed-85e8f9c9e9d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ function Get-PoolAggregatorServiceManifest {
     return @{
         SourceFiles = @(
             'main.go',
+            'handover.go',
             'go.mod',
             'pool-aggregator-service.service'
         )
@@ -197,7 +198,7 @@ function Get-PoolExtensionHostFrom {
         # 404 is the documented "no live host for this area" answer, not a
         # transport failure, so it must not throw its way into the catch and be
         # reported as an aggregator problem.
-        $response = Invoke-WebRequest -Uri $uri -TimeoutSec $TimeoutSeconds -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri $uri -TimeoutSec $TimeoutSeconds -NoProxy -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
         if ($response.StatusCode -eq 404) {
             # Two different 404s land here and both mean "cannot answer": this
             # handler's "no live host for that extension area", and the Go mux's

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -322,6 +322,10 @@ Describe 'the pool repository-access slice renders through shipped pseudo assets
                 "$($case.Locale) did not isolate a host-supplied repository URL"
             Assert-True ($row.Contains($start + 'https://example.test/project//spoof' + $end)) `
                 "$($case.Locale) did not isolate the denied project URL inside its tooltip"
+            # The page isolates a host value before the catalog formats it; in
+            # a right-to-left locale the formatter must not nest a second pair.
+            Assert-False ($row.Contains([string]$start + $start) -or $row.Contains([string]$end + $end)) `
+                "$($case.Locale) isolated a host-supplied value twice"
         }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -336,6 +336,27 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 
 Write-Verbose "  Preflight OK -- proceeding unattended (no further prompts)."
 
+# --- REGION: Record the start intent
+# The start is on record, and this service's operation lock held, before the
+# bring-up lock and before anything is torn down or built: a Stop issued
+# meanwhile waits for the lock instead of removing a half-built cache, and the
+# reboot sweep and a host refresh see the request. The operation lock comes
+# first, the same order Stop-CachingProxyServiceVM.ps1 takes them in, so the two
+# scripts can never each hold the lock the other waits for. A request that
+# cannot be recorded changes nothing.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'caching-proxy' -VMName $VMName -Operation Start -Script 'Start-CachingProxyServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit 1
+}
+# Every exit below runs the outer finally at the end of this file, which
+# records the result and releases the operation lock even inside a long-lived
+# shell.
+$serviceOpResult = 'failed'
+try {
+
 # --- REGION: Acquire the service lifecycle lock
 # Hold one lock across VM replacement and host port-map changes.
 # See https://yuruna.link/42e220c4-0008
@@ -402,6 +423,7 @@ if (-not $ForceRebuild) {
         Write-Verbose "            Pass -ForceRebuild to force a fresh build (e.g. after an image/config change)."
         Write-Verbose "========"
         [void](Exit-CachingProxyServiceLock -Handle $cpLock)
+        $serviceOpResult = 'confirmed'
         exit 0
     }
     Write-Verbose ""
@@ -410,6 +432,11 @@ if (-not $ForceRebuild) {
     Write-Verbose ""
     Write-Verbose "== -ForceRebuild specified -- rebuilding '$VMName' from scratch (adopt fast-path skipped). =="
 }
+
+# A stop published while this start was preparing wins: nothing is torn down
+# or built for a request that no longer stands (the outer finally reports the
+# newer one).
+if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit 1 }
 
 # --- REGION: Remove existing VM
 Write-Verbose ""
@@ -729,15 +756,35 @@ if ($IsMacOS) {
         exit 1
     }
 
+    # Every utmctl call below is bounded: utmctl reaches UTM over Apple Events,
+    # and a call that raised an Automation consent dialog nobody answers does not
+    # return on its own, so a bare call would hang the bring-up instead of
+    # reporting the stall. The macOS driver's wrappers are used when it exports
+    # them (they also resolve the bundle's utmctl when the PATH link is
+    # missing); otherwise the shared bounded runner calls utmctl by name.
+    $cpUtmctl = {
+        param([string]$Verb, [string]$Name, [int]$TimeoutSeconds)
+        if ($Verb -eq 'start' -and (Get-Command Invoke-UtmctlLifecycle -ErrorAction SilentlyContinue)) {
+            return (Invoke-UtmctlLifecycle -Verb start -VMName $Name -TimeoutSeconds $TimeoutSeconds -Quiet)
+        }
+        if ($Verb -eq 'status' -and (Get-Command Invoke-UtmctlProbe -ErrorAction SilentlyContinue)) {
+            return (Invoke-UtmctlProbe -Arguments @('status', $Name) -TimeoutSeconds $TimeoutSeconds -Quiet)
+        }
+        return (Invoke-BoundedNativeCommand -FilePath 'utmctl' -ArgumentList @($Verb, $Name) -TimeoutSeconds $TimeoutSeconds)
+    }
     # UTM registers asynchronously after import -- poll for up to 30 s against a
     # wall-clock deadline (an iteration counter drifts past 30 s by the per-call
-    # utmctl status latency; feedback_iter_counter_wallclock_trap).
+    # utmctl status latency; feedback_iter_counter_wallclock_trap). Each call
+    # gets at most the whole seconds left of those 30 s, and none starts with
+    # less than one left, so the window ends on time.
     $registered = $false
     $cpRegisterDeadline = [DateTime]::UtcNow.AddSeconds(30)
     while ([DateTime]::UtcNow -lt $cpRegisterDeadline) {
         Start-Sleep -Seconds 1
-        & utmctl status $VMName 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { $registered = $true; break }
+        $cpRegisterLeft = [int][Math]::Min(10, [Math]::Floor(($cpRegisterDeadline - [DateTime]::UtcNow).TotalSeconds))
+        if ($cpRegisterLeft -lt 1) { break }
+        $cpRegisterProbe = & $cpUtmctl 'status' $VMName $cpRegisterLeft
+        if ((Test-BoundedNativeResultComplete -Result $cpRegisterProbe) -and [int]$cpRegisterProbe.ExitCode -eq 0) { $registered = $true; break }
     }
     if (-not $registered) {
         Stop-UtmDialogWatchdog
@@ -767,10 +814,14 @@ if ($IsMacOS) {
     $started = $false
     $lastState = ''
     for ($attempt = 1; $attempt -le 3 -and -not $started; $attempt++) {
-        & utmctl start $VMName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        # A start that timed out or could not be read has an unknown outcome,
+        # which is a failure here: the status poll below cannot tell a start
+        # still in flight from one that never happened.
+        $cpStartCall = & $cpUtmctl 'start' $VMName 120
+        $cpStartRc = if (Test-BoundedNativeResultComplete -Result $cpStartCall) { [int]$cpStartCall.ExitCode } else { -1 }
+        if ($cpStartRc -ne 0) {
             Stop-UtmDialogWatchdog
-            Write-Error "'utmctl start $VMName' failed (exit $LASTEXITCODE)."
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.service_cachingproxy_utmctl_start_failed' -Arguments @{ vmName = "$VMName"; exitCode = "$cpStartRc" })
             exit 1
         }
         # Poll up to 15 s (wall-clock) for the VM to report itself running. Only
@@ -778,16 +829,17 @@ if ($IsMacOS) {
         $cpStartDeadline = [DateTime]::UtcNow.AddSeconds(15)
         while ([DateTime]::UtcNow -lt $cpStartDeadline) {
             Start-Sleep -Seconds 1
-            # Collected whole, and the exit code read before anything else runs.
-            # `| Select-Object -First 1` stops the upstream pipeline early, which
-            # leaves $LASTEXITCODE holding the value from the PREVIOUS native
-            # command -- here the `utmctl start` above, which succeeded. Every
-            # test against it then asks about the wrong command, and a refused
-            # status (Apple Events denied prints "Error from event: ... OSStatus
-            # error -1743" on stderr, which 2>&1 folds into the same stream) is
-            # read as though it were the VM's state.
-            $statusOut = @(& utmctl status $VMName 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
-            $statusRc = $LASTEXITCODE
+            # The exit code comes back with the output it belongs to, never
+            # from $LASTEXITCODE, which a later pipeline stage or native call
+            # can leave describing a different command. A call that timed out,
+            # was cut short or truncated counts as no answer (-1). stderr is
+            # read with stdout, so a refused status (Apple Events denied prints
+            # "Error from event: ... OSStatus error -1743") is seen as text,
+            # and it never matches a state word, so it is never read as the
+            # VM's state.
+            $cpStatusCall = & $cpUtmctl 'status' $VMName 10
+            $statusRc = if (Test-BoundedNativeResultComplete -Result $cpStatusCall) { [int]$cpStatusCall.ExitCode } else { -1 }
+            $statusOut = @(Get-BoundedNativeOutputLine -Result $cpStatusCall -IncludeError | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
             # Scanned across every line rather than taken from the first: utmctl
             # puts its diagnostics ahead of its payload, so the state is not
             # reliably line one. Confirm-UtmVMStarted reads it the same way.
@@ -1172,6 +1224,7 @@ if (-not $cacheIp) {
     Write-Output "== caching-proxy-service is NOT READY -- '$VMName' =="
     exit 1
 }
+$serviceOpResult = 'confirmed'
 
 } finally {
     # Rebuild critical section done -- normally, via any of the `exit 1` paths above,
@@ -1292,3 +1345,6 @@ if ($cacheForwarded -and $cacheLanIp -and $cacheLanIp -ne $cacheIp) {
     Write-Verbose "    direct:   ssh caching-proxy-service-admin@${cacheIp}"
 }
 Write-Verbose "========"
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -Confirm:$false)
+}

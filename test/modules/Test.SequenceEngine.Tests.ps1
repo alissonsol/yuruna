@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,8 @@ function Invoke-GatedWait {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$ScreenDir, [string[]]$Frames, [string[]]$Pattern, [bool]$Since,
-          [bool]$Fresh = $false, [string[]]$FailurePattern = @(), [int]$TimeoutSeconds = 4)
+          [bool]$Fresh = $false, [string[]]$FailurePattern = @(), [int]$TimeoutSeconds = 4,
+          [switch]$NoSegmentMatch)
     $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } $ScreenDir $Frames
     # Each call is a standalone wait, not a continuation of the previous one, so
     # it must read its own first frame. Invoke-Sequence clears the same slot for
@@ -112,6 +113,7 @@ function Invoke-GatedWait {
     Clear-CarriedConsoleBaseline
     return [bool](Wait-ForText -VMName 'vm-01' -Pattern $Pattern -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
         -SinceStepStart:$Since -FreshMatch:$Fresh -FailurePattern $FailurePattern `
+        -NoSegmentMatch:$NoSegmentMatch `
         -WarningAction SilentlyContinue -InformationAction SilentlyContinue)
 }
 
@@ -439,7 +441,7 @@ Describe 'Wait-ForConsoleChange separates a still console from an unreadable one
             function Test-CombinedOcrMatch {
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                     Justification = 'Stub: the signature has to match the real helper so the caller binds; the text is scripted.')]
-                param($ImagePath, $Pattern, $FreshMatchTailLines)
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
                 return @{ Match = $false; AnyText = [string]$script:ProbeStub.OcrText; EngineResults = @{} }
             }
             function Reset-ProbeStubState {
@@ -576,6 +578,7 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
     # a terminal PAM has not yet switched out of echo.
     BeforeAll {
         . (Get-Module Test.SequenceEngine) {
+            function Get-EnabledOcrProvider { return @('scripted') }
             function Get-CycleScreenDir {
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                     Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
@@ -598,7 +601,7 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
                 # nothing about the tolerance this gate exists to contain.
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                     Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
-                param($ImagePath, $Pattern, $FreshMatchTailLines)
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
                 $i = [Math]::Min($script:TextProbe.Poll, $script:TextProbe.Frames.Count - 1)
                 $text = [string]$script:TextProbe.Frames[$i]
                 $script:TextProbe.Poll++
@@ -606,8 +609,8 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
                     (($text -split "`n") | Select-Object -Last $FreshMatchTailLines) -join "`n"
                 } else { $text }
                 $matched = $false
-                foreach ($p in $Pattern) { if ($forMatch -and (Test-OCRMatch -Text $forMatch -Pattern $p)) { $matched = $true; break } }
-                return @{ Match = $matched; AnyText = $text; EngineResults = @{} }
+                foreach ($p in $Pattern) { if ($forMatch -and (Test-OCRMatch -Text $forMatch -Pattern $p -NoSegmentMatch:$NoSegmentMatch)) { $matched = $true; break } }
+                return @{ Match = $matched; AnyText = $text; EngineResults = [ordered]@{ scripted = @{ Text = $text; Matched = $matched } } }
             }
             function Reset-TextProbeState {
                 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -644,6 +647,27 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
     It 'ungated, prose already on screen satisfies the prompt pattern (the behavior the gate exists to stop)' {
         Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $false) `
             'the tolerant matcher finds the pattern in the banner, on a screen where the prompt was never printed'
+    }
+
+    It 'waits for a genuine prompt through installer frames (fresh=<Fresh>, since=<Since>)' -TestCases @(
+        @{ Fresh = $false; Since = $false }, @{ Fresh = $true; Since = $false },
+        @{ Fresh = $false; Since = $true }, @{ Fresh = $true; Since = $true }
+    ) {
+        param($Fresh, $Since)
+        $installer = "passwd --expire amisad-core-admin`nsed -i ... /target/etc/login.defs"
+        $frames = @('booting', $installer, $installer, 'amisad-core login: _')
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames $frames -Pattern 'amisad-core login:' `
+            -Since $Since -Fresh $Fresh -NoSegmentMatch -TimeoutSeconds 8)
+        $polls = & (Get-Module Test.SequenceEngine) { $script:TextProbe.Poll }
+        Assert-Equal -Expected 4 -Actual $polls -Because 'neither the live, filtered, nor accumulated installer text is a prompt'
+    }
+
+    It 'does not assemble a prompt from words in different captured frames' {
+        $frames = @('passwd --expire amisad-core-admin', 'sed -i ... /target/etc/login.defs', 'amisad-core login: _')
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames $frames -Pattern 'amisad-core login:' `
+            -Since $false -NoSegmentMatch -TimeoutSeconds 6)
+        $polls = & (Get-Module Test.SequenceEngine) { $script:TextProbe.Poll }
+        Assert-Equal -Expected 3 -Actual $polls -Because 'cross-frame accumulation must use the same bounded matching policy'
     }
 
     It 'gated, the same screen never satisfies the wait and it times out normally' {

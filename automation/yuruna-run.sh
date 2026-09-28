@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -225,7 +225,7 @@ yr_drain() {
     local total
     total="$(wc -l < "$YR_OUT" 2>/dev/null || echo 0)"
     if [ "$total" -ge "$yr_next" ]; then
-        sed -n "${yr_next},\$p" "$YR_OUT"
+        sed -n "${yr_next},${total}p" "$YR_OUT"
         yr_next=$((total + 1))
     fi
 }

@@ -236,11 +236,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   Logical properties would express this in one declaration, but they are
-   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
-   the offset silently disappears. So each physical side is restated here for
-   the direction the page actually has. Only the sides are mirrored: sizes,
-   colors and the tick glyph are the same in both directions.
+   The chrome states each physical side and restates it here for the
+   direction the page actually has. Logical properties would say it once, and
+   the Safari 16 floor has them, but the block is compared byte for byte
+   across the stylesheets that carry it, so switching it means changing every
+   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
+   are the same in both directions.
 
    These rules live inside the chrome block because the chrome is shared. Every
    stylesheet carrying the block carries them byte for byte, which the chrome
@@ -280,7 +281,7 @@ main {
 }
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th, td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 /* Banded rows. Every table here is wide enough that the eye loses its row
    between the first and the last column; the alternating background is what
@@ -306,14 +307,14 @@ button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); b
 button:disabled { opacity: .5; cursor: default; }
 input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-.row > * + * { margin-left: .5rem; }
+.row > * + * { margin-inline-start: .5rem; }
 .hint { color: var(--muted); font-size: .82rem; margin-top: .25rem; font-family: var(--mono); }
 .mono { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 /* The expand-on-click id (Y.idCell). A real <button> for the keyboard and the
    screen reader, stripped back to reading as the text it replaces -- the chrome
    of a button around an id would say "act on this", and it only reveals. */
 .id-toggle {
-  padding: 0; border: none; background: none; color: inherit; text-align: left;
+  padding: 0; border: none; background: none; color: inherit; text-align: start;
   word-break: break-all; cursor: pointer;
 }
 .id-toggle:hover { background: none; text-decoration: underline; }
@@ -324,17 +325,18 @@ input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px soli
 th > button.sort {
   padding: 0; border: none; background: none; cursor: pointer;
   font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
-  text-align: left; white-space: nowrap;
+  text-align: start; white-space: nowrap;
 }
 th > button.sort:hover { background: none; color: var(--fg); text-decoration: underline; }
 th[aria-sort] > button.sort { color: var(--fg); }
 th[aria-sort="ascending"] > button.sort::after { content: " \25B2"; font-size: .7em; }
 th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: .7em; }
 /* The counter column (Y.numCell). It numbers positions on screen rather than
-   rows of data, so it is furniture: muted, as narrow as its digits, and right
-   aligned on tabular figures so the units line up as the count passes ten. */
+   rows of data, so it is furniture: muted, as narrow as its digits, and
+   aligned to the end of the line on tabular figures so the units line up as
+   the count passes ten. */
 th.rownum, td.rownum {
-  width: 1%; text-align: right; white-space: nowrap;
+  width: 1%; text-align: end; white-space: nowrap;
   color: var(--muted); font-variant-numeric: tabular-nums;
 }
 /* The footnote a column header marks with an asterisk: one line under the
@@ -398,7 +400,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .discovered-host, .host-flags { display: inline-flex; flex-wrap: wrap; align-items: baseline; }
 /* Margins, not `gap`, for the same reason: below Safari 14.5 the id, the
    address and the marker would run together into one unreadable token. */
-.discovered-host > * + *, .host-flags > * + * { margin-left: .4rem; }
+.discovered-host > * + *, .host-flags > * + * { margin-inline-start: .4rem; }
 .badge {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
   padding: .05rem .35rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
@@ -436,7 +438,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    reads as a stuck page, and the operator reaches for reload, which throws the
    pending fetch away and starts the same wait over. */
 .loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: var(--muted); }
-.loading .loading-text { margin-left: .6rem; font-size: .95rem; }
+.loading .loading-text { margin-inline-start: .6rem; font-size: .95rem; }
 /* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring must be visibly incomplete. flex-shrink keeps it circular when the
    message beside it is long enough to compete for the row. */
@@ -450,7 +452,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 /* The same indicator, on the black footer bar, for a refresh nobody asked for:
    small, off to the side, and it never moves the text around it. */
 #footer-busy {
-  display: inline-block; width: .7rem; height: .7rem; margin-left: .4rem;
+  display: inline-block; width: .7rem; height: .7rem; margin-inline-start: .4rem;
   vertical-align: -1px;
   border: 2px solid var(--chrome-line); border-top-color: var(--chrome-fg);
   border-radius: 50%;
@@ -470,7 +472,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    same prompt at the same moment: when the change is attempted, never on
    arrival -- reads are open. */
 .unlock-overlay {
-  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0;
   background: rgba(0,0,0,0.45);
   display: flex; align-items: center; justify-content: center;
   z-index: 20; padding: 1rem;
@@ -501,18 +503,3 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .row-feedback { margin-top: .25rem; font-size: .8rem; }
 .row-feedback.ok { color: var(--ok); }
 .row-feedback.error { color: var(--err); }
-
-/* --------------------------------------------------------------------------
-   Right-to-left mirror. Logical properties would say this once, but they are
-   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
-   offset silently disappears -- so each side is restated for the direction the
-   page has. Sides only: sizes and colors are the same either way.
-   -------------------------------------------------------------------------- */
-[dir="rtl"] th, [dir="rtl"] td { text-align: right; }
-[dir="rtl"] th.rownum, [dir="rtl"] td.rownum { text-align: left; }
-[dir="rtl"] .id-toggle { text-align: right; }
-[dir="rtl"] th > button.sort { text-align: right; }
-[dir="rtl"] .row > * + * { margin-left: 0; margin-right: .5rem; }
-[dir="rtl"] .discovered-host > * + * { margin-left: 0; margin-right: .4rem; }
-[dir="rtl"] .loading .loading-text { margin-left: 0; margin-right: .6rem; }
-[dir="rtl"] #footer-busy { margin-left: 0; margin-right: .4rem; }

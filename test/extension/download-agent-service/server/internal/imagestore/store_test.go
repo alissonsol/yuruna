@@ -442,8 +442,8 @@ func TestSweepStagingRemovesOldAndDeadPidEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	live := filepath.Join(dir, "amd64.stable.img.iso."+strconv.Itoa(os.Getpid()))
-	dead := filepath.Join(dir, "amd64.stable.img.iso.999999")
+	live := filepath.Join(dir, "amd64.stable.img.iso."+s.stagingOwner+"."+strconv.Itoa(os.Getpid()))
+	dead := filepath.Join(dir, "amd64.stable.img.iso."+s.stagingOwner+".999999")
 	aged := filepath.Join(dir, "amd64.stable.old.iso."+strconv.Itoa(os.Getpid()))
 	for _, p := range []string{live, dead, aged} {
 		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
@@ -537,5 +537,43 @@ func TestValidateRejectsUnknownIdentities(t *testing.T) {
 	ok := ImageID{HostType: HostTypeUTM, ImageKey: KeyUbuntuExtension, Arch: ArchARM64, Variant: VariantStable}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("Validate rejected a valid identity: %v", err)
+	}
+}
+
+func TestStagingSweepNeverProbesForeignOrLegacyPIDs(t *testing.T) {
+	s := testStore(t)
+	s.stagingOwner = stagingOwner("machine-a")
+	other := NewStore(s.poolDir)
+	other.stagingOwner = stagingOwner("machine-b")
+	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+	mine, err := s.NewStagingPath(id, "image.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := other.NewStagingPath(id, "image.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine == theirs {
+		t.Fatal("equal PIDs on different owners share a staging path")
+	}
+	legacy := filepath.Join(filepath.Dir(mine), "amd64.stable.legacy.iso.999999")
+	for _, p := range []string{theirs, legacy} {
+		if err := os.WriteFile(p, []byte("live"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	n, err := s.SweepStaging(now, func(int) bool { t.Fatal("foreign or legacy PID was probed"); return false })
+	if err != nil || n != 0 {
+		t.Fatalf("sweep=(%d,%v)", n, err)
+	}
+	old := now.Add(-config.StagingMaxAge - time.Hour)
+	if err := os.Chtimes(theirs, old, old); err != nil {
+		t.Fatal(err)
+	}
+	n, err = s.SweepStaging(now, func(int) bool { t.Fatal("foreign PID was probed"); return false })
+	if err != nil || n != 1 {
+		t.Fatalf("aged sweep=(%d,%v)", n, err)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,9 +50,85 @@ param(
 # contract (or a new piece of cleanup state) lands in one place rather
 # than three.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
+
+# utmctl is an Apple Events client with no timeout of its own: a UTM that
+# stopped answering holds every call indefinitely, and this sweep runs
+# unattended at cycle start. Every call is therefore bounded -- through the
+# macOS driver's wrappers when the driver is loaded, through the shared
+# bounded runner otherwise -- and a call that did not finish proves nothing:
+# a bundle whose registration could not be read is kept, never deleted.
+function Invoke-OrphanSweepUtmctl {
+    <#
+    .SYNOPSIS
+        Run one utmctl subcommand under a wall-clock cap.
+    .PARAMETER Verb
+        list, status or delete.
+    .PARAMETER Target
+        The VM name or UUID the verb acts on (status, delete).
+    .PARAMETER UtmctlPath
+        The utmctl executable this run resolved.
+    .PARAMETER TimeoutSeconds
+        The cap; 20 s for the read-only verbs and 120 s for delete by default.
+    .OUTPUTS
+        [pscustomobject] @{ Complete; ExitCode; TimedOut; Seconds; Line [string[]] }.
+        Complete is $true only when the call ran to the end with its output
+        fully read.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('list', 'status', 'delete')][string]$Verb,
+        [string]$Target,
+        [Parameter(Mandatory)][string]$UtmctlPath,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds
+    )
+    $argv = @($Verb)
+    if ($Target) { $argv += $Target }
+    $cap = if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) { $TimeoutSeconds } elseif ($Verb -eq 'delete') { 120 } else { 20 }
+    if ($Verb -eq 'delete' -and (Get-Command -Name Invoke-UtmctlLifecycle -ErrorAction SilentlyContinue)) {
+        $result = Invoke-UtmctlLifecycle -Verb delete -VMName $Target -TimeoutSeconds $cap -Quiet
+    } elseif ($Verb -ne 'delete' -and (Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue)) {
+        $result = Invoke-UtmctlProbe -Arguments $argv -TimeoutSeconds $cap -UtmctlPath $UtmctlPath -Quiet
+    } else {
+        $result = Invoke-BoundedNativeCommand -FilePath $UtmctlPath -ArgumentList $argv -TimeoutSeconds $cap
+    }
+    $lines = @("$($result.StdOut)`n$($result.StdErr)" -split "`r?`n" | Where-Object { $_ -ne '' })
+    return [pscustomobject]@{
+        Complete = [bool](Test-BoundedNativeResultComplete -Result $result)
+        ExitCode = $result.ExitCode
+        TimedOut = [bool]$result.TimedOut
+        Seconds  = $cap
+        Line     = [string[]]$lines
+    }
+}
+
+function Get-OrphanSweepRegistration {
+    <#
+    .SYNOPSIS
+        Whether UTM has a VM registered under a name or UUID: registered,
+        absent, or unknown when the probe did not finish.
+    .DESCRIPTION
+        `utmctl status <uuid>` exits 0 for any registered VM, stopped ones
+        included, which is what catches a stopped VM `utmctl list` may omit.
+    .OUTPUTS
+        [string] registered | absent | unknown
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][string]$UtmctlPath,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
+    )
+    $probe = Invoke-OrphanSweepUtmctl -Verb status -Target $Target -UtmctlPath $UtmctlPath -TimeoutSeconds $TimeoutSeconds
+    if (-not $probe.Complete) { return 'unknown' }
+    if ($probe.ExitCode -eq 0) { return 'registered' }
+    return 'absent'
+}
 
 # --- REGION: Warning
 Write-CleanupMessage ""
@@ -77,11 +153,13 @@ $hostFolder     = $nameInfo.HostFolder
 $baseImageNames = $nameInfo.BaseImageNames
 
 # --- REGION: Check prerequisites
-if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+$utmctlCommand = @(Get-Command -Name utmctl -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+if (-not $utmctlCommand) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6c671ec7d3b6b0d2')
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1a34f423edf48db4')
     exit 1
 }
+$utmctlPath = [string]$utmctlCommand.Source
 
 # --- REGION: Scan for VM artifacts
 $scanPath = "$HOME/yuruna/guest.nosync"
@@ -91,8 +169,15 @@ if (-not (Test-Path $scanPath)) {
 }
 
 # --- REGION: Enumerate registered VMs
-$utmOutput = & utmctl list 2>&1
-if ($LASTEXITCODE -ne 0) {
+# A listing that did not finish is never read as a short one: every bundle
+# missing from a truncated list would look orphaned.
+$listing = Invoke-OrphanSweepUtmctl -Verb list -UtmctlPath $utmctlPath
+if (-not $listing.Complete) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.orphan_sweep_utmctl_unanswered' -Arguments @{ verb = 'list'; seconds = "$($listing.Seconds)" })
+    exit 1
+}
+$utmOutput = $listing.Line
+if ($listing.ExitCode -ne 0) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6d45ba53c1de42dd' -Arguments @{ utmOutput = "$utmOutput" })
     exit 1
 }
@@ -199,8 +284,12 @@ foreach ($vmName in $bundleMap.Keys) {
     $bundleUUID = Get-UTMBundleUUID -BundlePath $bundlePath
     if ($bundleUUID) {
         if ($registeredUUIDs.ContainsKey($bundleUUID)) { continue }
-        $null = & utmctl status $bundleUUID 2>&1
-        if ($LASTEXITCODE -eq 0) { continue }
+        $registration = Get-OrphanSweepRegistration -Target $bundleUUID -UtmctlPath $utmctlPath
+        if ($registration -eq 'registered') { continue }
+        if ($registration -eq 'unknown') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.orphan_sweep_registration_unknown' -Arguments @{ path = "$bundlePath"; target = "$bundleUUID" })
+            continue
+        }
     }
 
     $bundleSize = (Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
@@ -275,22 +364,21 @@ foreach ($item in $orphanedItems) {
         $bundleUUID = Get-UTMBundleUUID -BundlePath $item.Path
         $deregistered = $false
         if ($bundleUUID) {
-            & utmctl delete $bundleUUID 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { $deregistered = $true }
+            $deletion = Invoke-OrphanSweepUtmctl -Verb delete -Target $bundleUUID -UtmctlPath $utmctlPath
+            if ($deletion.Complete -and $deletion.ExitCode -eq 0) { $deregistered = $true }
         }
         if (-not $deregistered) {
-            & utmctl delete $item.Name 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { $deregistered = $true }
+            $deletion = Invoke-OrphanSweepUtmctl -Verb delete -Target $item.Name -UtmctlPath $utmctlPath
+            if ($deletion.Complete -and $deletion.ExitCode -eq 0) { $deregistered = $true }
         }
         # Verify no longer registered before removing files. Prefer the UUID
         # (unambiguous); otherwise re-query by NAME, because a name-based
         # `utmctl delete` can silently fail -- and without a probe a UUID-less
         # bundle would be removed while its VM is still registered in UTM,
-        # deleting the on-disk state of a live registration.
-        $stillRegistered = $false
+        # deleting the on-disk state of a live registration. A probe that did
+        # not finish counts as still registered for the same reason.
         $probeTarget = if ($bundleUUID) { $bundleUUID } else { $item.Name }
-        $null = & utmctl status $probeTarget 2>&1
-        if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
+        $stillRegistered = ((Get-OrphanSweepRegistration -Target $probeTarget -UtmctlPath $utmctlPath) -ne 'absent')
         if ($stillRegistered) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0f6134c653d7783e' -Arguments @{ path = "$($item.Path)"; probeTarget = "$probeTarget" })
             $errors++

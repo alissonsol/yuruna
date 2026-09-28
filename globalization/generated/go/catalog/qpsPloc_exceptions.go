@@ -616,6 +616,166 @@ const DataqpsPlocexceptions = `{
     },
     " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "exceptions.host_refresh_auth_authority_incomplete": [
+    "[Ŵřóţé ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ƀúţ ñóţ ",
+    {
+      "arg": "pendingPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); řúñ -ÑéŵÁúţħóříţý -Řóţáţé ţó ŵříţé ƀóţħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_authority_missing": [
+    "[Ñó řéƒřéšħ áúţħóříţý ƒóúñď úñďéř ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; çřéáţé óñé ŵíţħ -ÑéŵÁúţħóříţý ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_host_id_mismatch": [
+    "[Ţħé řéƒřéšħ ķéý ŵáš íššúéď ƒóř ħóšţ ",
+    {
+      "arg": "keyHostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ƀúţ ţħíš ħóšţ íš ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; éẋƥóřţ á ķéý ƒóř ţħíš ħóšţ íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_host_id_unavailable": [
+    "[Ţħíš ħóšţ ħáš ñó ħóšţ íď ýéţ (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " íš ɱíššíñğ); šţářţ ţħé řúññéř óñçé šó host.uuid éẋíšţš, ţħéñ řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_invalid_claim": [
+    "[Řéƒřéšħ ƥřóóƒ ƒíéļď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " íš ñóţ ṽáļíď. ~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_key_malformed": [
+    "[",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " íš ñóţ á řéƒřéšħ ķéý ƒíļé (éẋƥéçţéď óñé ļíñé šţářţíñğ ŵíţħ ",
+    {
+      "arg": "prefix",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_key_permissions_open": [
+    "[",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " íš řéáďáƀļé ƀý óţħéř úšéřš; řéšţříçţ íţ ţó íţš óŵñéř (çħɱóď 600) áñď řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_key_unusable": [
+    "[Ţħé řéƒřéšħ ķéý ƒíļé ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " çáññóţ ƀé úšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_key_write_failed": [
+    "[Çóúļď ñóţ ŵříţé ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ŵíţħ óŵñéř-óñļý ƥéřɱíššíóñš (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_auth_private_root_unavailable": [
+    "[Ţħé ƥříṽáţé šţáţé řóóţ çóúļď ñóţ ƀé šéçúřéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); ñó řéƒřéšħ ķéý ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_relaunch_parameter_unsupported": [
+    "[Ƥářáɱéţéř ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ħáš ţýƥé ",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ŵħíçħ çáññóţ çřóšš ţħé ļíƀṽířţ ğřóúƥ řéļáúñçħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_refresh_worker_argument_invalid": [
+    "[Ţħé ħóšţ-řéƒřéšħ ŵóřķéř ářğúɱéñţ ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ďóéš ñóţ ɱáţçħ ţħé éñţřý šçříƥţ'š ƥářáɱéţéřš; řéƒúšíñğ ţó ļáúñçħ á ŵóřķéř ţħé éñţřý ƥóíñţ ŵóúļď ñóţ áççéƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.host_utm_sudo_requires_noninteractive": "[Íñṽóķé-ÚţɱĦóšţŢóóļ: šúďó ɱúšţ ƀé çáļļéď ŵíţħ -ñ áš íţš ƒířšţ ářğúɱéñţ šó íţ çáñ ñéṽéř ŵáíţ óñ á ƥáššŵóřď ƥřóɱƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "exceptions.host_utmctl_kill_requires_stop": [
+    "[Íñṽóķé-ÚţɱçţļĻíƒéçýçļé: -Ķíļļ áƥƥļíéš óñļý ţó ţħé šţóƥ ṽéřƀ, ñóţ '",
+    {
+      "arg": "verb",
+      "type": "token",
+      "trust": "internal"
+    },
+    "'. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "exceptions.runner_037f5a478339db90": [
     "[Řúññéř çóñƒíğ ħáš ñó 'šéʠúéñçéš' éñţříéš: ",
     {
@@ -1570,6 +1730,60 @@ const DataqpsPlocexceptions = `{
       "trust": "external"
     },
     " ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.runner_libvirt_relaunch_parameter_name_invalid": [
+    "[Íñṽóķé-ĻíƀṽířţĞřóúƥŘéÉẋéçÍƒÑééďéď: '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "' íš ñóţ á ṽáļíď ƥářáɱéţéř ñáɱé, šó íţ çáññóţ ƀé ƒóřŵářďéď ţħřóúğħ ţħé šğ řéļáúñçħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.runner_libvirt_relaunch_parameter_unsupported": [
+    "[Íñṽóķé-ĻíƀṽířţĞřóúƥŘéÉẋéçÍƒÑééďéď: ƥářáɱéţéř '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ħóļďš á ṽáļúé óƒ ţýƥé '",
+    {
+      "arg": "valueType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ţħáţ çáññóţ ƀé ƒóřŵářďéď ţħřóúğħ ţħé šğ řéļáúñçħ; ƥášš óñļý šţříñğš, ñúɱƀéřš, šŵíţçħéš, ƀóóļéáñš áñď šţříñğ ářřáýš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.setup_service_vm_preserved": [
+    "[",
+    {
+      "arg": "service",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": ļéƒţ íñţáçţ ƀéçáúšé ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; ñóţħíñğ ŵáš šţóƥƥéď, řéɱóṽéď óř řéƀúíļţ. Řéšóļṽé ţħé ħýƥéřṽíšóř ƥřóƀļéɱ áñď řé-řúñ, óř ƥášš -Řéƀúíļď ţó řéƥļáçé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.setup_service_vm_preserved_retry": [
+    "[",
+    {
+      "arg": "service",
+      "type": "text",
+      "trust": "internal"
+    },
+    ": ļéƒţ íñţáçţ ƀéçáúšé ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; ñóţħíñğ ŵáš šţóƥƥéď, řéɱóṽéď óř řéƀúíļţ. Řé-řúñ óñçé ţħáţ ħáš çļéářéď, óř ƥášš -Řéƀúíļď ţó řéƥļáçé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ]
 }
 `

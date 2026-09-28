@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c1aae0-6851-429a-a359-f13d409e76c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,17 @@ function Invoke-SecondOpinionCase {
     return (Get-VMConsoleSecondOpinion -VMName 'test-guest.ubuntu.server.24-01' -IntervalSeconds 1)
 }
 
+    $operatorPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Globalization.psm1'
+    $script:FixtureOperatorModule = Import-Module $operatorPath -Global -PassThru -DisableNameChecking
+    $script:PreviousOperatorContext = & $script:FixtureOperatorModule { $script:OperatorContext }
+    $null = Get-YurunaOperatorLocale
+    & $script:FixtureOperatorModule {
+        $script:OperatorContext = New-LocaleContext -ConfigLanguage 'en-US' -ProcessCulture 'en-US'
+    }
+}
+
+AfterAll {
+    & $script:FixtureOperatorModule { param($Previous) $script:OperatorContext = $Previous } $script:PreviousOperatorContext
 }
 
 Describe 'Get-VMConsoleSecondOpinion (host.macos.utm)' {

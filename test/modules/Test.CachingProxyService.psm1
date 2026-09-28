@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Read-CachingProxyServiceState {
     # broken main aside with a timestamp suffix so it can be diff'd
     # against the next good write; the cycle continues with $empty.
     try {
-        $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ', [Globalization.CultureInfo]::InvariantCulture)
         $corruptPath = "$path.corrupt.$stamp"
         Move-Item -LiteralPath $path -Destination $corruptPath -Force -ErrorAction Stop
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1b930c492312c50' -Arguments @{ path = "$path"; corruptPath = "$corruptPath" })
@@ -400,7 +400,7 @@ function Invoke-CachingProxyServiceProbe {
                     # works on Windows but FAILS on macOS (DER-expecting backend).
                     $caDerB64 = (($raw -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch '-----') }) -join ''
                     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
-                    $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd')))")
+                    $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)))")
                     $passCount++
                 } catch {
                     $lines.Add("  [WARN] CA cert $caUrl returned PEM-looking bytes but X509 parse failed: $($_.Exception.Message)")

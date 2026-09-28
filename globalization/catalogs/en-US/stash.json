@@ -503,39 +503,32 @@
       }
     },
     "stash.q": {
-      "message": "q",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.class": {
-      "message": "class",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.host_4740ae63": {
-      "message": "host",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.sort": {
-      "message": "sort",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.dir": {
-      "message": "dir",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.limit": {
-      "message": "limit",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.offset": {
-      "message": "offset",
-      "description": "Operator-facing browser message in test/extension/stash-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
-      "lifecycle": "active"
+      "description": "API query parameter names are protocol identifiers and remain literal in every locale.",
+      "lifecycle": "tombstone"
     },
     "stash.deleting": {
       "message": "Deleting...",

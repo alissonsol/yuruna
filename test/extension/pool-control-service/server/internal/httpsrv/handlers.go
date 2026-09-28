@@ -41,6 +41,8 @@ func (s *Server) routes() http.Handler {
 	// /api/hosts so the page's periodic host-list reload does not pay (or
 	// trigger) the pool-wide fan-out.
 	mux.HandleFunc("GET /api/hosts/facts", s.handleHostFacts)
+	// Historical event bodies require an unlocked session or internal bearer.
+	mux.HandleFunc("GET /api/hosts/history", s.gate.Require(s.handleHostHistory))
 	mux.HandleFunc("GET /api/scan", s.handleScanStatus)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
@@ -58,6 +60,13 @@ func (s *Server) routes() http.Handler {
 	// pauses or continues work that is already running, and an operator holding
 	// the dashboard's rotating code is exactly who needs it mid-cycle.
 	mux.HandleFunc("POST /api/pool/host-control", s.gate.Require(s.handleHostControlApply))
+	// Per-host refresh takes BOTH gates, in this order: the ordinary write gate,
+	// then the refresh credential in its own header. A lab session or the
+	// internal authentication key alone is refused by the second, because the
+	// lab key is reachable from the enrollment code and a session from a
+	// public legacy proof. Registered even when unprovisioned, so the answer is
+	// a named 503 rather than a 404 that reads like an old build.
+	mux.HandleFunc("POST /api/host/refresh", s.gate.Require(s.refreshGate.Require(s.handleHostRefresh)))
 	mux.HandleFunc("POST /api/pool/host", s.gate.Require(s.handleAddHost))
 	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))
@@ -277,7 +286,7 @@ func (s *Server) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId and hostId are required")
 		return
 	}
-	s.relay(w, "remove-host", poolID, s.intent.RemoveHost(r.Context(), poolID, hostID))
+	s.relay(w, "remove-host", poolID, s.intent.RemoveHost(r.Context(), poolID, hostID, true))
 }
 
 func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {

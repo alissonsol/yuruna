@@ -118,6 +118,10 @@ func (a *Agent) FidoTest(ctx context.Context, arch string) (FidoAttempt, error) 
 		return FidoAttempt{}, fmt.Errorf("no Fido architecture for %q", arch)
 	}
 	at := a.resolver.Fido.FreshAttempt(ctx, fidoArch)
+	// An abandoned HTTP diagnostics request says nothing about resolver health.
+	if ctx.Err() != nil {
+		return at, nil
+	}
 	if at.Error != "" {
 		a.noteFidoOutcome(fmt.Errorf("%s", at.Error))
 	} else {

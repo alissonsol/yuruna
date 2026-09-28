@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42e7a1d5-3b90-4c68-8f24-05c6b93e1a7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -247,7 +247,7 @@ Describe 'localized transcript notification and MCP boundaries' {
         }
         $email = $script:AcceptanceEmailBody | ConvertFrom-Json
         $email.text | Should -BeExactly $hostile
-        $email.html | Should -Match '<html lang="en-US" dir="ltr">'
+        $email.html | Should -Match '<html lang="[A-Za-z]{2,3}(-[A-Za-z0-9]+)*" dir="(ltr|rtl)">'
         $email.html | Should -Not -Match '<script>'
         $email.html | Should -Match ([regex]::Escape([Net.WebUtility]::HtmlEncode($hostile)))
         $module = Get-Module Yuruna.Log

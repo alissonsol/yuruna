@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,7 +281,7 @@ function New-PoolAlertSpoolMessage {
         [Parameter()][string]$NowUtc = ''
     )
     if ($UnixSeconds -le 0) { $UnixSeconds = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
-    if (-not $NowUtc) { $NowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+    if (-not $NowUtc) { $NowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
     $frac    = if ($null -ne $GaugePool.healthyFraction) { [double]$GaugePool.healthyFraction } else { $null }
     $thr     = if ($null -ne $GaugePool.healthyThreshold) { [double]$GaugePool.healthyThreshold } else { $null }
     $healthy = if ($null -ne $GaugePool.membersHealthy) { [int]$GaugePool.membersHealthy } else { $null }
@@ -402,7 +402,7 @@ function Add-PoolAlertSpoolEntry {
         [Parameter()][int]$RearmCooldownSeconds = 900,
         [Parameter()][string]$NowUtc = ''
     )
-    if (-not $NowUtc) { $NowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+    if (-not $NowUtc) { $NowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
     $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     if (-not $State.ContainsKey('pools') -or $State['pools'] -isnot [System.Collections.IDictionary]) { $State['pools'] = @{} }
     $enqueued = 0
@@ -423,6 +423,10 @@ function Add-PoolAlertSpoolEntry {
                 if (Write-PoolSpoolMessage -SpoolRoot $SpoolRoot -Message $msg -Confirm:$false) {
                     $enqueued++
                     $State['pools'][$pool]['lastFiredUnix'] = $nowUnix
+                } else {
+                    # A failed enqueue did not deliver this edge. Leave it pending
+                    # so the next healthy spool write can record the alert.
+                    continue
                 }
             }
         }
@@ -569,7 +573,7 @@ function Invoke-PoolNotifierDelivery {
         # drain dies mid-flight the reclaim above measures the grace from when the message was
         # claimed rather than the file's preserved content-write mtime. Best-effort: on a write
         # failure the reclaim falls back to the file mtime.
-        $msg['claimedUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $msg['claimedUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
         if (Send-PoolAlertViaExtension -Message $msg -WorkDir $WorkDir -Ledger $ledger) {
             try { Move-Item -LiteralPath $claim -Destination (Join-Path $doneDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
@@ -579,7 +583,7 @@ function Invoke-PoolNotifierDelivery {
         $attempts = if ($msg.ContainsKey('attempts')) { [int]$msg['attempts'] } else { 0 }
         $attempts++
         $msg['attempts'] = $attempts
-        $msg['lastAttemptUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $msg['lastAttemptUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
         if ($attempts -ge $MaxAttempts) {
             try { Move-Item -LiteralPath $claim -Destination (Join-Path $failDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }

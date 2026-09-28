@@ -15,6 +15,10 @@ root:
 [`Start-StatusService.ps1`](Start-StatusService.ps1) /
 [`Stop-StatusService.ps1`](Stop-StatusService.ps1) complete the set: the host
 status HTTP server that publishes the status UI (no VM of its own).
+`Start-StatusService.ps1 -RefreshSafe -Port <n>` is the non-destructive start a
+host refresh uses: it never stops a process, never takes a port from another
+owner, and never clears control state, and it reports its outcome by exit code
+and by the result file named with `-ResultPath`.
 
 Two caching-proxy-service operations sit alongside the pair that owns that VM:
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42d48379-bb62-43d9-b80a-bcbb0440f82e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,22 +46,19 @@ function Clear-Configuration {
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b400ae75394f002b' -Arguments @{ resourcesFile = "$resourcesFile" }); return $false; }
     $yaml = ConvertFrom-File $resourcesFile
 
-    # Global variables saved expanded for reuse. Same expand -> Set-Item Env ->
-    # cache-back walk as the resource/component/workload publishers; call the one
-    # shared implementation (resolvable here because Yuruna.Validation, imported
-    # above, imports Yuruna.VariableExpansion -Global) so the teardown env matches
-    # what deploy set.
-    Set-ExpandedVariableHashtable -Variables $yaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
+    # The output manifest stores resolved globals. Re-expanding their dollar
+    # signs would change credentials or execute text supplied as a value.
+    Set-ExpandedVariableHashtable -Variables $yaml.globalVariables -DebugLabel 'globalVariables' -NoExpand
 
     # The deployed resource names are the top-level keys of resources.output.yml
     # other than globalVariables: Set-Resource writes that map plus one
-    # `<resourceName>: <tofu outputs>` block per resource it actually created.
+    # `<resourceName>: <tofu outputs>` block before applying each owned resource.
     # There is no `resources:` list here -- that shape belongs to the forward
     # resources.yml, and reading it would silently find nothing and report a
     # successful teardown that destroyed no resource. Two properties of the key
     # set matter: a resource declared with an empty template is never written
     # here (it only names an already-existing resource and owns no work folder),
-    # so the keys are exactly the set with something to destroy; and the keys are
+    # so the keys include partial applies that still need teardown; and the keys are
     # already variable-expanded, matching the .yuruna work folder names verbatim,
     # so they must not be expanded a second time.
     $resourceNames = @()
@@ -69,6 +66,7 @@ function Clear-Configuration {
         $resourceNames = @($yaml.Keys | Where-Object { (-Not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne 'globalVariables') })
     }
     if ($resourceNames.Count -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e39c3c3dc7a39a89' -Arguments @{ resourcesFile = "$resourcesFile" }); return $true; }
+    $tofuCommand = Get-Command -Name tofu -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     $destroyFailed = $false
     foreach ($resourceName in $resourceNames) {
         Write-Debug "resource: $resourceName"
@@ -80,12 +78,30 @@ function Clear-Configuration {
             Write-Debug "No work folder for ${resourceName}; nothing to destroy"
             continue
         }
-        Push-Location $workFolder
-        Write-Information "-- Clear: $workFolder"
-        $result = tofu destroy -auto-approve -refresh=false 2>&1
-        $destroyExit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-        Write-Debug "OpenTofu destroy (exit $destroyExit): $result"
-        Pop-Location
+        if ($null -eq $tofuCommand) {
+            Write-Warning "OpenTofu executable not found; retaining resource state at $workFolder."
+            $destroyFailed = $true
+            continue
+        }
+        Push-Location $workFolder -ErrorAction Stop
+        try {
+            Write-Information "-- Clear: $workFolder"
+            # Resolution or process startup failure cannot borrow another
+            # command's successful exit code and authorize deleting local state.
+            $global:LASTEXITCODE = $null
+            try {
+                $result = & $tofuCommand.Source destroy -auto-approve -refresh=false 2>&1
+                $destroyExit = if ($null -eq $global:LASTEXITCODE) { 127 } else { $global:LASTEXITCODE }
+            }
+            catch {
+                $result = $_
+                $destroyExit = 127
+            }
+            Write-Debug "OpenTofu destroy (exit $destroyExit): $result"
+        }
+        finally {
+            Pop-Location
+        }
         if ($destroyExit -ne 0) {
             # Keep the work folder (and its tfstate) when destroy fails: it is the
             # only local state that lets the destroy be retried. Deleting it here

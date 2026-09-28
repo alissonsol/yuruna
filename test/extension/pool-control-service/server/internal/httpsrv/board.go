@@ -11,7 +11,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"pool-control-service/internal/intent"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
@@ -458,6 +457,11 @@ type boardHost struct {
 	// dashboard's two-way collapse: `mismatch` (wrong token) and `skew` (clock)
 	// need different fixes and must not be shown as the same thing.
 	Control string `json:"control"`
+	// Refresh is the host's refresh capability as the aggregator last judged
+	// it, already normalized; a host this daemon only discovered, or that the
+	// aggregator has not reported, carries the never-observed value. No action
+	// is offered from the page for it.
+	Refresh pool.HostRefresh `json:"refresh"`
 	// Access is the pool's question -- can this member read the project its
 	// POOL assigned (ok/denied/unreachable) -- from the host's registration
 	// record. The page's repository columns come from each host's own live
@@ -489,7 +493,8 @@ type boardHost struct {
 	// where two rows are one machine and the operator has to act: the id here
 	// may still hold the pool membership, while the work is being done under
 	// the id named. Empty on every ordinary row.
-	SupersededBy string `json:"supersededBy,omitempty"`
+	SupersededBy    string   `json:"supersededBy,omitempty"`
+	PreviousHostIDs []string `json:"previousHostIds,omitempty"`
 }
 
 // hostTypeLabel drops the "host." prefix a host serializes its type with, for
@@ -626,7 +631,10 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		if base != "" {
 			seenBase[base] = true
 		}
-		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Pool: poolOf[h.HostID], Address: h.CurrentIP}
+		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Refresh: h.Refresh, Pool: poolOf[h.HostID], Address: h.CurrentIP, PreviousHostIDs: h.PreviousHostIDs}
+		if row.Refresh.Availability == "" {
+			row.Refresh = pool.UnobservedRefresh()
+		}
 		if row.Control == "" {
 			row.Control = "unknown"
 		}
@@ -652,7 +660,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	// operator needs to see them -- a silent member is the interesting case.
 	for hid, pid := range poolOf {
 		if !seen[hid] {
-			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Pool: pid})
+			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Refresh: pool.UnobservedRefresh(), Pool: pid})
 			seen[hid] = true
 		}
 	}
@@ -680,7 +688,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 // picker: remove from the current pool, then add to the chosen one.
 //
 // Choosing "(none)" ALSO records the host in autoEnrollment.excluded[] -- via
-// Remove-HostFromPool against the target pool, which owns that list. Without
+// Remove-HostFromPool's atomic remove-and-exclude operation. Without
 // that write the sweep would put the host straight back within a minute and the
 // UI would look broken.
 func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
@@ -705,6 +713,12 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if body.PoolID == "" {
+		// Membership and exclusion are one durable intent write, including for
+		// hosts already unassigned or when no enrollment target exists yet.
+		s.relay(w, "move-host", body.HostID, s.intent.RemoveHost(r.Context(), "", body.HostID, true))
+		return
+	}
 	if current == body.PoolID {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "unchanged": true})
 		return
@@ -715,20 +729,12 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if body.PoolID == "" {
-		// Out of every pool. Remove-HostFromPool against the auto-enrollment
-		// target records the exclusion, so the sweep does not undo this.
-		if t := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID); t != "" && current != t {
-			_ = s.intent.RemoveHost(r.Context(), t, body.HostID)
-		}
-		s.relay(w, "move-host", body.HostID, intent.Result{OK: true})
-		return
-	}
+
 	s.relay(w, "move-host", body.HostID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID))
 }
 
-// handleAdoptRekey hands a re-keyed machine's pool membership to the id it now
-// reports, and forgets the id it stopped reporting.
+// handleAdoptRekey hands membership to the live ID, persists an identity alias,
+// and retires the old ID from the aggregator's live view.
 //
 // A host mints its id into its runtime directory, so a reimage or a re-clone
 // leaves the machine running under a new one. Pool membership is keyed by id in
@@ -758,6 +764,10 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are the same host")
 		return
 	}
+	if s.opts.AuthToken == "" {
+		writeErr(w, http.StatusServiceUnavailable, "the internal authentication key is required to retire the old host identity")
+		return
+	}
 
 	status, err := s.pool.Status(r.Context())
 	if err != nil {
@@ -768,16 +778,33 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 	}
 	oldHost, oldKnown := status.Host(oldID)
 	newHost, newKnown := status.Host(newID)
-	if !oldKnown || !newKnown {
+	// If the aggregator applied a previous attempt but its response was lost,
+	// the old row is gone. The durable alias proves this is a safe retry.
+	alreadyHanded := false
+	if !oldKnown && newKnown {
+		var alias struct {
+			CanonicalHostID string   `json:"canonicalHostId"`
+			HostIDs         []string `json:"hostIds"`
+		}
+		if err := s.pool.Get(r.Context(), "/api/v1/host-aliases?hostId="+url.QueryEscape(oldID), &alias); err == nil && alias.CanonicalHostID == newID {
+			for _, id := range alias.HostIDs {
+				if id == oldID {
+					alreadyHanded = true
+					break
+				}
+			}
+		}
+	}
+	if (!oldKnown && !alreadyHanded) || !newKnown {
 		writeErr(w, http.StatusNotFound, "the aggregator does not report both of those hosts")
 		return
 	}
 	base := hostBase(newHost.BaseURL)
-	if base == "" || base != hostBase(oldHost.BaseURL) {
+	if !alreadyHanded && (base == "" || base != hostBase(oldHost.BaseURL)) {
 		writeErr(w, http.StatusConflict, "those two hosts do not answer at the same address, so they are not one machine that re-keyed")
 		return
 	}
-	if currentHostByBase(status.Hosts)[base] != newID {
+	if !alreadyHanded && currentHostByBase(status.Hosts)[base] != newID {
 		writeErr(w, http.StatusConflict, "that address does not answer as the new host id; reload the page and read the pair again")
 		return
 	}
@@ -799,25 +826,45 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove first, always. A host belongs to at most one pool, so adding the
-	// new id while the old one is still a member would put one machine in a
-	// pool twice under two names -- the very state this repairs.
-	if oldPool != "" {
-		if res := s.intent.RemoveHost(r.Context(), oldPool, oldID); !res.OK {
-			writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the old host id could not be removed from "+oldPool))
-			return
-		}
+	// One intent-store write replaces both IDs. Separate remove/add commits
+	// could leave the machine unassigned if the second write failed.
+	if res := s.intent.MoveHostIdentity(r.Context(), oldID, newID); !res.OK {
+		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the host identities could not be moved in the intent store"))
+		return
 	}
 	// The new id keeps the pool it is already in: it is the live host, and an
 	// operator who has since placed it somewhere deliberately must not have
 	// that undone by a repair.
 	moved := ""
 	if oldPool != "" && newPool == "" {
-		if res := s.intent.AddHost(r.Context(), oldPool, newID); !res.OK {
-			writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the new host id could not be added to "+oldPool))
-			return
-		}
 		moved = oldPool
+	}
+	if err := s.pool.HandoverHost(r.Context(), oldID, newID, s.opts.AuthToken); err != nil {
+		writeErr(w, http.StatusBadGateway, "pool membership may have moved, but the aggregator could not retire the old identity; retry adopt-rekey: "+err.Error())
+		return
+	}
+	var confirmed struct {
+		CanonicalHostID string   `json:"canonicalHostId"`
+		HostIDs         []string `json:"hostIds"`
+	}
+	if err := s.pool.Get(r.Context(), "/api/v1/host-aliases?hostId="+url.QueryEscape(oldID), &confirmed); err != nil || confirmed.CanonicalHostID != newID {
+		writeErr(w, http.StatusBadGateway, "the aggregator did not confirm the durable identity alias; retry adopt-rekey")
+		return
+	}
+	aliasFound := false
+	for _, id := range confirmed.HostIDs {
+		aliasFound = aliasFound || id == oldID
+	}
+	if !aliasFound {
+		writeErr(w, http.StatusBadGateway, "the aggregator did not retain the old identity in host history; retry adopt-rekey")
+		return
+	}
+	if refreshed, err := s.pool.Status(r.Context()); err != nil {
+		writeErr(w, http.StatusBadGateway, "the aggregator accepted the handover, but its refreshed status could not be read; retry adopt-rekey: "+err.Error())
+		return
+	} else if _, remains := refreshed.Host(oldID); remains {
+		writeErr(w, http.StatusBadGateway, "the aggregator still reports the old identity; retry adopt-rekey")
+		return
 	}
 	// The scan's own list is keyed by id too, so the retired id would go on
 	// showing there as a host of its own. Best-effort: it may never have been
@@ -828,6 +875,31 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 	s.auditScan("adopt-rekey", oldID+" -> "+newID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "oldHostId": oldID, "newHostId": newID,
-		"movedToPool": moved, "keptPool": newPool, "forgotten": forgot,
+		"movedToPool": moved, "keptPool": newPool, "forgotten": forgot, "historyTransferred": true,
 	})
+}
+
+// handleHostHistory exposes merged cycle and event history only to an
+// authenticated operator. The aggregator checks the internal bearer too.
+func (s *Server) handleHostHistory(w http.ResponseWriter, r *http.Request) {
+	if s.opts.AuthToken == "" {
+		writeErr(w, http.StatusServiceUnavailable, "host history is unavailable without the internal authentication key")
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("hostId"))
+	window := strings.TrimSpace(r.URL.Query().Get("range"))
+	if window == "" {
+		window = "30d"
+	}
+	if id == "" || !boardRanges[window] {
+		writeErr(w, http.StatusBadRequest, "hostId and a supported range are required")
+		return
+	}
+	var history any
+	path := "/api/v1/host-history?hostId=" + url.QueryEscape(id) + "&range=" + url.QueryEscape(window)
+	if err := s.pool.GetAuthenticated(r.Context(), path, s.opts.AuthToken, &history); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
 }

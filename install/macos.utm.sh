@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.24
+# Version: 2026.09.27
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -29,9 +29,24 @@ YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 # does any tool whose newest copy has to be put in front of an older one.
 PATH_LINK_DIR="/usr/local/bin"
 
+# Where UTM keeps its command line: inside the app bundle, on nobody's PATH until
+# the UTM verification region below links it. Defined up here because the
+# service-VM gate has to ask that same binary well before the link exists.
+UTM_APP="/Applications/UTM.app"
+UTMCTL_BUNDLE="$UTM_APP/Contents/MacOS/utmctl"
+
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# Every destructive region calls this before it acts. It sits next to die() so
+# it exists before its first call, and it dies unless the refresh dispatch took
+# its explicit install branch: a region reached any other way is a run whose
+# intent was never confirmed, and guessing "install" there is how a refresh
+# request ends up rewriting the checkout.
+yuruna_require_install_mode() {
+  [[ "${YURUNA_INSTALL_MODE:-0}" == "1" ]] || die "Internal error: a destructive installer step ran outside a confirmed install run."
+}
 
 # --- REGION: Refresh dispatch (fail-safe, before any destructive step)
 # --refresh hands off to the already-installed checkout's own host-refresh
@@ -55,20 +70,28 @@ YURUNA_REFRESH_PROTOCOL_VERSION=1
 yuruna_pwsh_candidates() {
   # In resolution order, without assuming a login shell ran `brew shellenv`:
   # PATH, the arm64 Homebrew prefix (this installer requires Apple Silicon),
-  # the fixed Intel-era Homebrew location some docs/scripts still assume, and
+  # the fixed Intel-era Homebrew location some docs/scripts still assume,
   # PATH_LINK_DIR, which is where this installer's own version-floor
   # promotion (bring_tools_to_required_versions) links the newest pwsh it
-  # finds so a stale copy earlier on PATH stops winning by name.
+  # finds so a stale copy earlier on PATH stops winning by name, and the
+  # location Microsoft's PowerShell package installs to, which that same
+  # promotion step names explicitly because no package manager reports it. A
+  # host whose only pwsh is that package, reached over `ssh host command`
+  # before any link was made, still resolves one here.
   command -v pwsh 2>/dev/null || true
   printf '%s\n' "/opt/homebrew/bin/pwsh"
   printf '%s\n' "/usr/local/bin/pwsh"
   printf '%s\n' "$PATH_LINK_DIR/pwsh"
+  printf '%s\n' "/usr/local/microsoft/powershell/7/pwsh"
 }
 
 yuruna_resolve_pwsh() {
   local candidate
   while IFS= read -r candidate; do
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
+    # -f as well as -x: -x alone is true for a DIRECTORY named pwsh (search
+    # permission), and exec'ing a directory fails only after this function has
+    # already reported success.
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -115,16 +138,24 @@ yuruna_refresh_dispatch() {
   [[ -f "$entry" ]] || die "Refresh entry script not found: $entry."
 
   local pwsh_path
-  pwsh_path="$(yuruna_resolve_pwsh)" || die "pwsh not found (checked PATH, /opt/homebrew/bin, /usr/local/bin and $PATH_LINK_DIR). Run the installer without --refresh first."
+  pwsh_path="$(yuruna_resolve_pwsh)" || die "pwsh not found (checked PATH, /opt/homebrew/bin, /usr/local/bin, $PATH_LINK_DIR and /usr/local/microsoft/powershell/7). Run the installer without --refresh first."
 
+  # The refresh may run with nobody at the keyboard (the ssh form has no
+  # terminal to answer on), so every prompt predicate in the checkout has to
+  # decline rather than wait on a read that never completes. Exported, not
+  # passed as an argument: the entry script and every child it starts read it
+  # from the environment.
+  export YURUNA_NONINTERACTIVE=1
   exec "$pwsh_path" -NoLogo -NoProfile -NonInteractive -File "$entry"
+  # Reached only when exec failed and the shell kept going: bash does that under
+  # `shopt -s execfail` whenever errexit is not in force at this call (a caller
+  # that runs the dispatch as a condition suspends it). Returning here would
+  # fall through into the installer body with an unconfirmed mode, so a failed
+  # hand-off ends the run instead.
+  die "Could not start $pwsh_path for the refresh entry script; nothing was changed."
 }
 YURUNA_INSTALL_MODE=0
 yuruna_refresh_dispatch "$0" "$@"
-
-yuruna_require_install_mode() {
-  [[ "${YURUNA_INSTALL_MODE:-0}" == "1" ]] || die "Internal error: a destructive installer step ran outside a confirmed install run."
-}
 
 # --- REGION: Deferred issues
 # Every non-fatal problem is recorded here as well as printed where it happens.
@@ -556,6 +587,39 @@ stop_yuruna_processes() {
 # from the orphaned-bundle sweep.
 SERVICE_VM_DETECT_REASON=""
 YURUNA_SERVICE_VM_NAME=(yuruna-caching-proxy-service yuruna-stash-service yuruna-pool-control-service yuruna-download-agent-service)
+# The same cap the macOS host driver gives one `utmctl status` call.
+UTMCTL_STATUS_TIMEOUT_SECONDS=20
+
+# One `utmctl status` call that cannot outlive UTMCTL_STATUS_TIMEOUT_SECONDS.
+# utmctl asks UTM over Apple Events, and the first time a terminal does that
+# macOS raises an Automation consent dialog. Until someone answers it the call
+# neither fails nor returns: it waits out the Apple Events timeout (-1712,
+# about two minutes) before anything the caller could classify comes back.
+# Prints what the call printed and returns 0 when it finished; returns 124 when
+# it was stopped at the cap and 125 when it could not be started, printing
+# nothing in either case. The answer goes through a private file rather than a
+# pipe so a stopped call cannot leave a reader waiting on it.
+yuruna_utmctl_status() {
+  local bin="$1" vm="$2" out pid ticks=0
+  local limit_ticks=$((UTMCTL_STATUS_TIMEOUT_SECONDS * 10))
+  out="$(mktemp "${TMPDIR:-/tmp}/yuruna-utmctl.XXXXXX" 2>/dev/null)" || return 125
+  "$bin" status "$vm" >"$out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( ticks >= limit_ticks )); then
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$out"
+      return 124
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+  wait "$pid" 2>/dev/null || true
+  cat "$out" 2>/dev/null || true
+  rm -f "$out"
+  return 0
+}
 
 is_service_vm_running() {
   local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy-service.yml"
@@ -581,10 +645,35 @@ is_service_vm_running() {
     return 1
   fi
 
-  command -v utmctl >/dev/null 2>&1 || { SERVICE_VM_DETECT_REASON=""; return 1; }
-  local vm status
+  # UTM is up (or could not be ruled out), so the question has to be asked. The
+  # link on PATH is made only further down, so a first run -- or a Mac whose link
+  # was removed -- has no utmctl by name even though the bundle carries one.
+  # Neither copy answering is not evidence that nothing runs: it only means the
+  # state cannot be read, and an unread state preserves.
+  local utmctl_bin
+  utmctl_bin="$(command -v utmctl 2>/dev/null || true)"
+  if [[ -z "$utmctl_bin" && -f "$UTMCTL_BUNDLE" && -x "$UTMCTL_BUNDLE" ]]; then
+    utmctl_bin="$UTMCTL_BUNDLE"
+  fi
+  if [[ -z "$utmctl_bin" ]]; then
+    SERVICE_VM_DETECT_REASON="UTM is running but no utmctl was found (not on PATH, not at $UTMCTL_BUNDLE) -- cannot confirm service VM state; preserving out of caution"
+    return 0
+  fi
+  # Every call is bounded: on a first run with UTM up, the call below can be the
+  # one that raises the Automation consent dialog, and a call stopped at its cap
+  # has read nothing, so it preserves like any other unread state.
+  local vm status status_rc
   for vm in "${YURUNA_SERVICE_VM_NAME[@]}"; do
-    status=$(utmctl status "$vm" 2>&1 || true)
+    status_rc=0
+    status="$(yuruna_utmctl_status "$utmctl_bin" "$vm")" || status_rc=$?
+    if [[ $status_rc -eq 124 ]]; then
+      SERVICE_VM_DETECT_REASON="utmctl status for $vm did not answer within ${UTMCTL_STATUS_TIMEOUT_SECONDS}s (an unanswered Automation consent dialog, or a UTM that stopped responding) -- cannot confirm service VM state; preserving out of caution"
+      return 0
+    fi
+    if [[ $status_rc -ne 0 ]]; then
+      SERVICE_VM_DETECT_REASON="utmctl status for $vm could not be started -- cannot confirm service VM state; preserving out of caution"
+      return 0
+    fi
     case "$status" in
       started|paused|suspended)
         SERVICE_VM_DETECT_REASON="utmctl reports $vm '$status'"
@@ -592,8 +681,14 @@ is_service_vm_running() {
       *OSStatus*|*"-1743"*|*"Apple Event"*|*"does not work from SSH"*)
         SERVICE_VM_DETECT_REASON="utmctl could not reach UTM (Apple Events denied) -- cannot confirm service VM state; preserving out of caution"
         return 0 ;;
-      stopped|*"not found"*|"")
+      stopped|*"not found"*)
         ;;
+      "")
+        # An empty answer is a call that produced nothing -- killed, wedged
+        # and reaped, or a client that exited before writing. It names no
+        # state at all, so it cannot stand for "stopped".
+        SERVICE_VM_DETECT_REASON="utmctl status for $vm returned no output -- cannot confirm service VM state; preserving out of caution"
+        return 0 ;;
       *)
         SERVICE_VM_DETECT_REASON="utmctl status for $vm returned an unrecognized result ('$status'); preserving out of caution"
         return 0 ;;
@@ -751,9 +846,8 @@ command -v git  >/dev/null 2>&1 || die "git not found after install."
 # PATH_LINK_DIR is the target because the stock /etc/paths lists it, so a login
 # shell, a LaunchAgent and an `ssh host command` all see it. Homebrew's bin only
 # reaches shells that ran `brew shellenv`, which the status service and the
-# runner's own children do not.
-UTM_APP="/Applications/UTM.app"
-UTMCTL_BUNDLE="$UTM_APP/Contents/MacOS/utmctl"
+# runner's own children do not. UTM_APP and UTMCTL_BUNDLE are defined beside
+# PATH_LINK_DIR at the top, where the service-VM gate already needed them.
 UTMCTL_LINK="$PATH_LINK_DIR/utmctl"
 UTMCTL_LINK_DIR="$PATH_LINK_DIR"
 

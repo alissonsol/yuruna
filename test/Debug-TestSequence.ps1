@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,6 +100,10 @@ param(
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
+
+# A Windows console code page prints Chinese and Hebrew catalog text as
+# question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
+if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
 
 # Cmdline override for three-state resolution further down (after config
 # load). PSBoundParameters is the only reliable source -- `[string]` defaults
@@ -493,24 +497,6 @@ if (-not $VMName) {
     $VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
 }
 
-# --- REGION: UTM concurrent-VM pre-flight
-# On some macOS versions vmnet-shared assigns a separate host-side bridge
-# per vmnet "session" (bridge100, bridge101, ...) that don't route between
-# each other, so a foreign concurrent VM can push the test guests onto a
-# different bridge from the host's vmnet gateway and break the cloud-init
-# host-proxy URL baked into seed.iso. Refuse the cycle if a foreign VM is
-# running. Two names are exempt inside Assert-NoConcurrentUtmVm: the
-# caching-proxy-service VM (a dependency the guests consume, reachable on the
-# shared bridge) and the operator's own target VM ($VMName, so the
-# iterate-on-an-existing-VM dev loop still works).
-# Stop first, refuse second: a leftover guest is stopped rather than left to
-# strand the host, and the guard below refuses only over what would not stop.
-# The operator's own target VM is left running so the dev loop still works.
-[void](Stop-ConcurrentVM -ExceptVmName $VMName)
-if ($HostType -eq 'host.macos.utm') {
-    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
-}
-
 # --- REGION: Build chain plan
 # Chain planning + warm-path requiresSnapshot probe live in
 # Test.SequenceRunner.psm1 so they can be unit-tested with fixture
@@ -543,6 +529,24 @@ $requiredSnapshotId = $plan.requiredSnapshotId
 # VM, so it wins: overwriting it here would silently redirect the run to
 # a different VM than the one the operator named on the command line.
 if ($plan.warmPath -and -not $PSBoundParameters.ContainsKey('VMName')) { $VMName = $requiredSnapshotId }
+
+# --- REGION: UTM concurrent-VM pre-flight
+# On some macOS versions vmnet-shared assigns a separate host-side bridge
+# per vmnet "session" (bridge100, bridge101, ...) that don't route between
+# each other, so a foreign concurrent VM can push the test guests onto a
+# different bridge from the host's vmnet gateway and break the cloud-init
+# host-proxy URL baked into seed.iso. Refuse the cycle if a foreign VM is
+# running. Two names are exempt inside Assert-NoConcurrentUtmVm: the
+# caching-proxy-service VM (a dependency the guests consume, reachable on the
+# shared bridge) and the operator's own target VM ($VMName, so the
+# iterate-on-an-existing-VM dev loop still works).
+# Stop first, refuse second: a leftover guest is stopped rather than left to
+# strand the host, and the guard below refuses only over what would not stop.
+# The operator's own target VM is left running so the dev loop still works.
+[void](Stop-ConcurrentVM -ExceptVmName $VMName)
+if ($HostType -eq 'host.macos.utm') {
+    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
+}
 
 # --- REGION: SSH-user override
 # Same cascade registration as Invoke-TestRunnerInnerLoop: Test.Ssh's

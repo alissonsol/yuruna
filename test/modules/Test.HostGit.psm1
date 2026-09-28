@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -937,8 +937,8 @@ function Resolve-GitRemoteLink {
       - a rooted local path becomes a file: URL, drive letters and UNC shares
         included. A trailing `.git` is kept here: a bare clone's directory is
         literally named that.
-      - any other scheme is passed through untouched. Nothing here can improve
-        it, and the consumer is what decides which schemes may become a link.
+      - any other scheme keeps its spelling and path, with URI userinfo
+        removed. The consumer decides which schemes may become a link.
 
     Kind names which of those answered -- 'web', 'file', 'other', or '' when
     the input names nothing -- so a caller that needs specifically a web URL
@@ -956,6 +956,10 @@ function Resolve-GitRemoteLink {
 
     $s = "$Url".Trim()
     if (-not $s) { return [pscustomobject]@{ Url = ''; Kind = '' } }
+
+    # Userinfo belongs to the transport, never to a published repository link.
+    # Limit removal to the URI authority; @ in a path, query or fragment is data.
+    $s = $s -replace '^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@', '$1'
 
     # https is matched FIRST because its optional userinfo (`https://user@host/`)
     # would otherwise read as the scp-like form's `user@host:`.

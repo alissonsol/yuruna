@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42093d47-05e6-02af-9320-e715f26a3f72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,21 @@
 # locale: qps-Ploc  domain: automation
 
 @{
+    'automation.host_setup_module_install_skipped' = @(
+        '['
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš ñóţ íñšţáļļéď, áñď ţħíš řúñ ɱáý ñóţ íñšţáļļ ɱóďúļéš. Íñšţáļļ íţ ŵíţħ: Íñšţáļļ-Ɱóďúļé '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' -Šçóƥé ÇúřřéñţÚšéř ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'automation.memory_plan' = @{
         'kind' = 'plural'
         'selector' = 'count'
@@ -5225,5 +5240,26 @@
             'trust' = 'external'
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'automation.setup_service_vm_reason_intended_stopped' = '[íţ ŵáš šţóƥƥéď óñ ƥúřƥóšé; řéƀúíļďíñğ ƀéçáúšé šéţúƥ ŵáš ášķéď ţó ƀříñğ íţ úƥ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'automation.setup_service_vm_reason_lock_unavailable' = '[íţš óƥéřáţíóñ ļóçķ çóúļď ñóţ ƀé ţáķéñ ~~~~~~~~~~~~~~~]'
+    'automation.setup_service_vm_reason_operation_busy' = '[áñóţħéř šţářţ óř šţóƥ óƒ ţħíš šéřṽíçé íš šţíļļ řúññíñğ ~~~~~~~~~~~~~~~~~~~~~~]'
+    'automation.setup_service_vm_reason_state_unknown' = @(
+        '[íţš ṼⱮ šţáţé çóúļď ñóţ ƀé çóñƒířɱéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'automation.system_diagnostic_utmctl_list_incomplete' = @(
+        '[  úţɱçţļ ļíšţ ďíď ñóţ řéţúřñ á çóɱƥļéţé áñšŵéř ŵíţħíñ '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' šéçóñďš; ţħé ļíšţíñğ áƀóṽé ɱáý ƀé íñçóɱƥļéţé (ÚŢⱮ ɱáý ñóţ ƀé áñšŵéříñğ Áƥƥļé Éṽéñţš). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
 }

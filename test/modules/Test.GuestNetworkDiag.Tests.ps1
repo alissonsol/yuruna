@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -523,8 +523,9 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -notmatch 'command not found') 'the shell fixture must load every production dependency'
         Assert-True ($out -match 'GUEST HAS NO IPv4') "the guest-side cause must lead; output was:`n$out"
         Assert-True ($out -notmatch 'HOST UNREACHABLE') 'the host-side theory must be suppressed when the guest holds no address'
         Assert-True ($out -match 'SOURCE=github') 'resolution must still fall through rather than stall'
@@ -541,8 +542,9 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -notmatch 'command not found') 'the shell fixture must load every production dependency'
         Assert-True ($out -match 'HOST UNREACHABLE') "an addressed guest that cannot reach the host still gets the host-side banner; output was:`n$out"
         Assert-True ($out -notmatch 'GUEST HAS NO IPv4') 'the no-address banner must not fire for an addressed guest'
         Assert-True ($out -match 'SOURCE=github') 'resolution falls through to the off-LAN source'
@@ -745,7 +747,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source >/dev/null 2>&1
 echo "ATTEMPTS=$attempts NAPS=$naps SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $m = [regex]::Match($out, 'ATTEMPTS=(\d+) NAPS=(\d+) SOURCE=(\w*)')
         Assert-True $m.Success "the driver must report its tallies; output was:`n$out"

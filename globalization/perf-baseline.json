@@ -7,39 +7,49 @@
     "requests": 0
   },
   "assets": {
+    "test/status/he-IL.status.js": {
+      "rawBytes": 100191,
+      "gzipBytes": 15204,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
     "test/status/pt-BR.status.js": {
-      "rawBytes": 38716,
-      "gzipBytes": 10511,
+      "rawBytes": 47958,
+      "gzipBytes": 12645,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/qps-Ploc.status.js": {
-      "rawBytes": 84584,
-      "gzipBytes": 12882,
+      "rawBytes": 111185,
+      "gzipBytes": 15810,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/qps-Plocm.status.js": {
-      "rawBytes": 89306,
-      "gzipBytes": 13122,
+      "rawBytes": 116713,
+      "gzipBytes": 16144,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/yuruna.common.css": {
-      "rawBytes": 32141,
-      "gzipBytes": 10900,
+      "rawBytes": 31596,
+      "gzipBytes": 10832,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/yuruna.common.js": {
-      "rawBytes": 212452,
-      "gzipBytes": 58969,
+      "rawBytes": 250157,
+      "gzipBytes": 68144,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/status/zh-CN.status.js": {
+      "rawBytes": 59641,
+      "gzipBytes": 13531,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/extension-sdk/webui/assets/yuruna.core.js": {
-      "rawBytes": 99015,
-      "gzipBytes": 30536,
+      "rawBytes": 109263,
+      "gzipBytes": 32675,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.css": {
-      "rawBytes": 7074,
-      "gzipBytes": 2799,
+      "rawBytes": 6422,
+      "gzipBytes": 2611,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js": {
@@ -48,8 +58,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js": {
-      "rawBytes": 41756,
-      "gzipBytes": 11460,
+      "rawBytes": 45549,
+      "gzipBytes": 12231,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js": {
@@ -57,9 +67,14 @@
       "gzipBytes": 2346,
       "transferDisposition": "deterministic-gzip-estimate"
     },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/he-IL.pool.js": {
+      "rawBytes": 186106,
+      "gzipBytes": 26814,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js": {
-      "rawBytes": 26223,
-      "gzipBytes": 8999,
+      "rawBytes": 26850,
+      "gzipBytes": 9159,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js": {
@@ -68,23 +83,23 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js": {
-      "rawBytes": 16210,
+      "rawBytes": 16184,
       "gzipBytes": 5290,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pt-BR.pool.js": {
-      "rawBytes": 78981,
-      "gzipBytes": 19695,
+      "rawBytes": 92736,
+      "gzipBytes": 22603,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Ploc.pool.js": {
-      "rawBytes": 172765,
-      "gzipBytes": 24230,
+      "rawBytes": 209211,
+      "gzipBytes": 28183,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Plocm.pool.js": {
-      "rawBytes": 181780,
-      "gzipBytes": 24674,
+      "rawBytes": 219266,
+      "gzipBytes": 28712,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js": {
@@ -93,8 +108,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 30892,
-      "gzipBytes": 10382,
+      "rawBytes": 30045,
+      "gzipBytes": 10287,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js": {
@@ -102,14 +117,24 @@
       "gzipBytes": 1979,
       "transferDisposition": "deterministic-gzip-estimate"
     },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/zh-CN.pool.js": {
+      "rawBytes": 109303,
+      "gzipBytes": 23597,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js": {
-      "rawBytes": 17158,
-      "gzipBytes": 5607,
+      "rawBytes": 17009,
+      "gzipBytes": 5545,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/he-IL.stash.js": {
+      "rawBytes": 121953,
+      "gzipBytes": 18106,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/index.js": {
-      "rawBytes": 19370,
-      "gzipBytes": 6982,
+      "rawBytes": 19172,
+      "gzipBytes": 6957,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/new.js": {
@@ -118,18 +143,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/pt-BR.stash.js": {
-      "rawBytes": 50014,
-      "gzipBytes": 13077,
+      "rawBytes": 59091,
+      "gzipBytes": 15150,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/qps-Ploc.stash.js": {
-      "rawBytes": 108849,
-      "gzipBytes": 16062,
+      "rawBytes": 135126,
+      "gzipBytes": 18948,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/qps-Plocm.stash.js": {
-      "rawBytes": 115472,
-      "gzipBytes": 16376,
+      "rawBytes": 142464,
+      "gzipBytes": 19336,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js": {
@@ -138,13 +163,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 30415,
-      "gzipBytes": 9757,
+      "rawBytes": 30446,
+      "gzipBytes": 9776,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/zh-CN.stash.js": {
+      "rawBytes": 73105,
+      "gzipBytes": 16095,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js": {
-      "rawBytes": 15426,
-      "gzipBytes": 4329,
+      "rawBytes": 15409,
+      "gzipBytes": 4324,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js": {
@@ -152,24 +182,29 @@
       "gzipBytes": 3123,
       "transferDisposition": "deterministic-gzip-estimate"
     },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/he-IL.download.js": {
+      "rawBytes": 128832,
+      "gzipBytes": 19257,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js": {
-      "rawBytes": 22745,
-      "gzipBytes": 7355,
+      "rawBytes": 22715,
+      "gzipBytes": 7351,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/pt-BR.download.js": {
-      "rawBytes": 54300,
-      "gzipBytes": 13976,
+      "rawBytes": 63525,
+      "gzipBytes": 16109,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/qps-Ploc.download.js": {
-      "rawBytes": 116939,
-      "gzipBytes": 17123,
+      "rawBytes": 143514,
+      "gzipBytes": 20027,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/qps-Plocm.download.js": {
-      "rawBytes": 123705,
-      "gzipBytes": 17652,
+      "rawBytes": 151073,
+      "gzipBytes": 20635,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/sort.js": {
@@ -178,8 +213,13 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 24311,
-      "gzipBytes": 8204,
+      "rawBytes": 24392,
+      "gzipBytes": 8243,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/zh-CN.download.js": {
+      "rawBytes": 77215,
+      "gzipBytes": 17031,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.aggregator.js": {
@@ -188,13 +228,13 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.auth.js": {
-      "rawBytes": 2147,
-      "gzipBytes": 804,
+      "rawBytes": 2630,
+      "gzipBytes": 949,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.automation.js": {
-      "rawBytes": 106476,
-      "gzipBytes": 30242,
+      "rawBytes": 107491,
+      "gzipBytes": 30545,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.cache.js": {
@@ -208,18 +248,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.download.js": {
-      "rawBytes": 13632,
-      "gzipBytes": 3560,
+      "rawBytes": 13615,
+      "gzipBytes": 3555,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.exceptions.js": {
-      "rawBytes": 27217,
-      "gzipBytes": 7548,
+      "rawBytes": 31335,
+      "gzipBytes": 8568,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.host.js": {
-      "rawBytes": 179399,
-      "gzipBytes": 50312,
+      "rawBytes": 190973,
+      "gzipBytes": 52802,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.notification.js": {
@@ -233,8 +273,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.pool.js": {
-      "rawBytes": 33805,
-      "gzipBytes": 8445,
+      "rawBytes": 37598,
+      "gzipBytes": 9229,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.remediation.js": {
@@ -243,18 +283,93 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.runner.js": {
-      "rawBytes": 439041,
-      "gzipBytes": 127155,
+      "rawBytes": 484650,
+      "gzipBytes": 135616,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.stash.js": {
-      "rawBytes": 9934,
-      "gzipBytes": 2793,
+      "rawBytes": 9785,
+      "gzipBytes": 2736,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.status.js": {
-      "rawBytes": 33680,
-      "gzipBytes": 9079,
+      "rawBytes": 42913,
+      "gzipBytes": 10978,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.aggregator.js": {
+      "rawBytes": 29954,
+      "gzipBytes": 5619,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.auth.js": {
+      "rawBytes": 6952,
+      "gzipBytes": 1270,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.automation.js": {
+      "rawBytes": 227042,
+      "gzipBytes": 39373,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.cache.js": {
+      "rawBytes": 9217,
+      "gzipBytes": 2195,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.configsync.js": {
+      "rawBytes": 27218,
+      "gzipBytes": 4546,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.download.js": {
+      "rawBytes": 28642,
+      "gzipBytes": 4829,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.exceptions.js": {
+      "rawBytes": 61708,
+      "gzipBytes": 10413,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.host.js": {
+      "rawBytes": 426276,
+      "gzipBytes": 68941,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.notification.js": {
+      "rawBytes": 3510,
+      "gzipBytes": 910,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.parser.js": {
+      "rawBytes": 2255,
+      "gzipBytes": 724,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.pool.js": {
+      "rawBytes": 85916,
+      "gzipBytes": 12229,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.remediation.js": {
+      "rawBytes": 84931,
+      "gzipBytes": 13478,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.runner.js": {
+      "rawBytes": 1073849,
+      "gzipBytes": 173828,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.stash.js": {
+      "rawBytes": 21763,
+      "gzipBytes": 3626,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/he-IL.status.js": {
+      "rawBytes": 100191,
+      "gzipBytes": 15204,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.aggregator.js": {
@@ -263,13 +378,13 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.auth.js": {
-      "rawBytes": 2844,
-      "gzipBytes": 968,
+      "rawBytes": 3508,
+      "gzipBytes": 1154,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.automation.js": {
-      "rawBytes": 119900,
-      "gzipBytes": 33497,
+      "rawBytes": 121071,
+      "gzipBytes": 33854,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.cache.js": {
@@ -283,18 +398,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.download.js": {
-      "rawBytes": 15585,
-      "gzipBytes": 4279,
+      "rawBytes": 15568,
+      "gzipBytes": 4275,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.exceptions.js": {
-      "rawBytes": 30486,
-      "gzipBytes": 8327,
+      "rawBytes": 35254,
+      "gzipBytes": 9488,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.host.js": {
-      "rawBytes": 197455,
-      "gzipBytes": 54879,
+      "rawBytes": 210681,
+      "gzipBytes": 57792,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.notification.js": {
@@ -308,8 +423,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.pool.js": {
-      "rawBytes": 40266,
-      "gzipBytes": 9914,
+      "rawBytes": 44779,
+      "gzipBytes": 10739,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.remediation.js": {
@@ -318,18 +433,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.runner.js": {
-      "rawBytes": 488957,
-      "gzipBytes": 138481,
+      "rawBytes": 538353,
+      "gzipBytes": 147948,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.stash.js": {
-      "rawBytes": 11299,
-      "gzipBytes": 3298,
+      "rawBytes": 11134,
+      "gzipBytes": 3233,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/pt-BR.status.js": {
-      "rawBytes": 38716,
-      "gzipBytes": 10511,
+      "rawBytes": 47958,
+      "gzipBytes": 12645,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.aggregator.js": {
@@ -338,13 +453,13 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.auth.js": {
-      "rawBytes": 6645,
-      "gzipBytes": 1201,
+      "rawBytes": 8633,
+      "gzipBytes": 1437,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.automation.js": {
-      "rawBytes": 275060,
-      "gzipBytes": 41931,
+      "rawBytes": 278113,
+      "gzipBytes": 42389,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.cache.js": {
@@ -358,18 +473,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.download.js": {
-      "rawBytes": 32356,
-      "gzipBytes": 5128,
+      "rawBytes": 32330,
+      "gzipBytes": 5122,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.exceptions.js": {
-      "rawBytes": 67369,
-      "gzipBytes": 9822,
+      "rawBytes": 78595,
+      "gzipBytes": 11260,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.host.js": {
-      "rawBytes": 497553,
-      "gzipBytes": 71878,
+      "rawBytes": 530489,
+      "gzipBytes": 75414,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.notification.js": {
@@ -383,8 +498,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.pool.js": {
-      "rawBytes": 88182,
-      "gzipBytes": 12005,
+      "rawBytes": 98027,
+      "gzipBytes": 13037,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.remediation.js": {
@@ -393,18 +508,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.runner.js": {
-      "rawBytes": 1208475,
-      "gzipBytes": 176648,
+      "rawBytes": 1330221,
+      "gzipBytes": 188822,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.stash.js": {
-      "rawBytes": 24266,
-      "gzipBytes": 3999,
+      "rawBytes": 23942,
+      "gzipBytes": 3917,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Ploc.status.js": {
-      "rawBytes": 84584,
-      "gzipBytes": 12882,
+      "rawBytes": 111185,
+      "gzipBytes": 15810,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.aggregator.js": {
@@ -413,13 +528,13 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.auth.js": {
-      "rawBytes": 6921,
-      "gzipBytes": 1233,
+      "rawBytes": 8948,
+      "gzipBytes": 1471,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.automation.js": {
-      "rawBytes": 284202,
-      "gzipBytes": 42441,
+      "rawBytes": 287333,
+      "gzipBytes": 42908,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.cache.js": {
@@ -433,18 +548,18 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.download.js": {
-      "rawBytes": 34400,
-      "gzipBytes": 5232,
+      "rawBytes": 34361,
+      "gzipBytes": 5226,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.exceptions.js": {
-      "rawBytes": 69231,
-      "gzipBytes": 9888,
+      "rawBytes": 80691,
+      "gzipBytes": 11334,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.host.js": {
-      "rawBytes": 512181,
-      "gzipBytes": 72664,
+      "rawBytes": 545754,
+      "gzipBytes": 76243,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.notification.js": {
@@ -458,8 +573,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.pool.js": {
-      "rawBytes": 92475,
-      "gzipBytes": 12220,
+      "rawBytes": 102554,
+      "gzipBytes": 13248,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.remediation.js": {
@@ -468,18 +583,93 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.runner.js": {
-      "rawBytes": 1243383,
-      "gzipBytes": 178429,
+      "rawBytes": 1367950,
+      "gzipBytes": 190793,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.stash.js": {
-      "rawBytes": 26167,
-      "gzipBytes": 4087,
+      "rawBytes": 25752,
+      "gzipBytes": 4004,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/qps-Plocm.status.js": {
-      "rawBytes": 89306,
-      "gzipBytes": 13122,
+      "rawBytes": 116713,
+      "gzipBytes": 16144,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.aggregator.js": {
+      "rawBytes": 18511,
+      "gzipBytes": 5312,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.auth.js": {
+      "rawBytes": 3764,
+      "gzipBytes": 1195,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.automation.js": {
+      "rawBytes": 143582,
+      "gzipBytes": 35520,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.cache.js": {
+      "rawBytes": 5501,
+      "gzipBytes": 2113,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.configsync.js": {
+      "rawBytes": 17218,
+      "gzipBytes": 4213,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.download.js": {
+      "rawBytes": 17575,
+      "gzipBytes": 4533,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.exceptions.js": {
+      "rawBytes": 40680,
+      "gzipBytes": 9630,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.host.js": {
+      "rawBytes": 263311,
+      "gzipBytes": 60997,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.notification.js": {
+      "rawBytes": 2779,
+      "gzipBytes": 900,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.parser.js": {
+      "rawBytes": 1408,
+      "gzipBytes": 718,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.pool.js": {
+      "rawBytes": 49663,
+      "gzipBytes": 11107,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.remediation.js": {
+      "rawBytes": 45530,
+      "gzipBytes": 12214,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.runner.js": {
+      "rawBytes": 668084,
+      "gzipBytes": 155704,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.stash.js": {
+      "rawBytes": 13465,
+      "gzipBytes": 3463,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/zh-CN.status.js": {
+      "rawBytes": 59641,
+      "gzipBytes": 13531,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/kernel/yuruna.first-usable.js": {
@@ -488,8 +678,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/kernel/yuruna.i18n.js": {
-      "rawBytes": 14115,
-      "gzipBytes": 5079,
+      "rawBytes": 14792,
+      "gzipBytes": 5254,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/kernel/yuruna.rawpage.js": {
@@ -508,14 +698,14 @@
     "test/status/performance.html": {
       "disposition": "budgeted",
       "requests": 2,
-      "rawBytes": 7837,
-      "gzipBytes": 2974
+      "rawBytes": 8339,
+      "gzipBytes": 2979
     },
     "test/status/config.html": {
       "disposition": "budgeted",
       "requests": 2,
-      "rawBytes": 15438,
-      "gzipBytes": 4457
+      "rawBytes": 16832,
+      "gzipBytes": 4761
     },
     "test/status/diagnostics.html": {
       "disposition": "budgeted",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -936,8 +936,10 @@ function Invoke-YurunaWingetInstall {
         return $outcome
     }
     $argument = Get-YurunaHostMetricsInstallArgument -PackageId $PackageId -LogPath $LogPath
+    Import-Module (Join-Path $PSScriptRoot 'Test.InnerSpawn.psm1') -Global -ErrorAction Stop
+    $commandLine = ConvertTo-YurunaWindowsCommandLine -Argument $argument
     try {
-        $process = Start-Process -FilePath $WingetPath -ArgumentList $argument `
+        $process = Start-Process -FilePath $WingetPath -ArgumentList $commandLine `
             -WindowStyle Hidden -PassThru -ErrorAction Stop
     } catch {
         $outcome.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_02f3101f9fa2510c' -Arguments @{ message = "$($_.Exception.Message)" })

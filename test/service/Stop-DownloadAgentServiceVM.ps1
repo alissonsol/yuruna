@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429cbb3b-d9b5-4a3c-af14-67208c19e773
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,24 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# --- REGION: Record the stop intent
+# The stop is on record, and this service's operation lock held, before the
+# first change: the reboot sweep and a host refresh then honor the request
+# instead of restarting the guest, and a concurrent Start cannot rebuild it
+# mid-teardown. A request that cannot be recorded changes nothing.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
+$serviceOp = Enter-YurunaServiceOperation -Key 'download-agent' -VMName $VMName -Operation Stop -Script 'Stop-DownloadAgentServiceVM.ps1' -Confirm:$false
+if (-not $serviceOp.Proceed) {
+    Write-Error $serviceOp.Message
+    exit $ExitFailure
+}
+# Every exit below runs the finally at the end of this file, which records the
+# result and releases the operation lock even inside a long-lived shell.
+$serviceOpResult = 'failed'
+$serviceOpFinalState = 'unknown'
+try {
+
 # --- REGION: Clear the service marker
 # See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
@@ -127,10 +145,17 @@ Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationA
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
 # --- REGION: Verify the final VM state
+# Confirmed only by a final reading of absent: a removal that left the VM
+# registered is a failed stop, and the stop request still stands.
 $finalState = Get-VMState -VMName $VMName
+$serviceOpFinalState = [string]$finalState
 if ($finalState -eq 'absent') {
+    $serviceOpResult = 'confirmed'
     Write-Information "Download-agent service stopped; marker cleared; VM '$VMName' and its files removed. The image pool on the pool share is untouched." -InformationAction Continue
     exit $ExitOk
 }
 Write-Warning "VM '$VMName' final state: $finalState (expected absent after removal). Inspect via the host's tooling, then re-run or use Remove-TestVMFiles.ps1."
 exit $ExitFailure
+} finally {
+    [void](Exit-YurunaServiceOperation -Context $serviceOp -Result $serviceOpResult -FinalState $serviceOpFinalState -Confirm:$false)
+}

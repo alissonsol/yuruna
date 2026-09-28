@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -251,7 +251,7 @@ $labVault = Join-Path $vaultDir "lab.$Name.vault.yml"
 if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3ef003e468ca0535' -Arguments @{ labVault = "$labVault" })
 } else {
-    $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('schemaVersion: 1')
     $lines.Add('lab:')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 429a66cc-5713-49fc-2b0e-289ebc145f6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,17 @@
     'auth.proof_expired' = 'the control proof is expired or not from this pool'
     'auth.proof_shape' = 'not a control proof'
     'auth.proof_unconfigured' = 'no lab auth token and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked'
+    'auth.refresh_credential_required' = 'This action requires the refresh credential in the X-Yuruna-Refresh-Credential header; a lab session, lab token or internal authentication key is not accepted.'
+    'auth.refresh_throttled' = @(
+        'Too many refresh credential attempts from this address; wait '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' minutes and try again.'
+    )
+    'auth.refresh_unconfigured' = 'Remote host refresh is disabled: this service has no refresh credential provisioned.'
     'auth.route_disabled' = 'no lab auth token configured; this route is disabled'
     'auth.session_required' = 'lab token session or lab auth token required'
     'auth.token_check_failed' = @(

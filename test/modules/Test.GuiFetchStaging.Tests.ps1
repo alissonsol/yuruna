@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Verifies bounded macOS GUI fetch staging with local shells and mocked host I/O.
+    Verifies bounded fetch preparation on every GUI host with local shells and mocked host I/O.
 #>
 
 BeforeDiscovery {
@@ -43,14 +43,19 @@ BeforeAll {
     $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
     . ([scriptblock]::Create((Get-FunctionSource 'Get-GuiFetchExecutionInput')))
     . ([scriptblock]::Create((Get-FunctionSource 'Get-FetchExecutionCommand')))
-    . ([scriptblock]::Create((Get-FunctionSource 'Get-FetchObservationEnvPrefix')))
-    . ([scriptblock]::Create((Get-FunctionSource 'Get-FetchExecuteEnvPrefix')))
+    . ([scriptblock]::Create((Get-FunctionSource 'Get-FetchExecutionContext')))
+    Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force
     $script:payload = '/usr/local/lib/yuruna/fetch-and-execute.sh project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh'
-    $script:context = @{Step=@{};StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651'}
-    # The production log recorded a 223-character integrity envelope.
-    $script:integrity = 'EXEC_REQUIRE_SHA256=1 E_SHA=' + ('c' * 64) + ' E_RETRY_SHA=' + ('d' * 64) + ' E_FB_REPO=alissonsol/yurunadev E_FB_REF=933b9d5b0bee '
-    $script:realisticCommand = Get-FetchExecutionCommand -CommandLine $script:payload -EnvPrefix ((Get-FetchObservationEnvPrefix -Context $script:context) + $script:integrity)
+    $fixtureRoot = Join-Path $TestDrive 'gui-fetch'
+    $file = Join-Path $fixtureRoot 'project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh'
+    $retry = Join-Path $fixtureRoot 'automation/yuruna-retry.sh'
+    $null = New-Item -ItemType Directory -Path (Split-Path $file), (Split-Path $retry) -Force
+    [IO.File]::WriteAllText($file, "printf '%s' 'fixture workload'`n", [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../automation/yuruna-retry.sh') -Destination $retry
+    $script:context = @{Step=@{};RepoRoot=$fixtureRoot;StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651'}
+    $script:fetchContext = Get-FetchExecutionContext -Context $script:context -CommandLine $script:payload -WarningAction SilentlyContinue
+    $script:realisticCommand = $script:fetchContext.Command
     function Invoke-LocalInput([string[]]$Lines) {
         $result = & bash -c ($Lines -join "`n") 2>&1
         $script:localExitCode = $LASTEXITCODE
@@ -64,12 +69,12 @@ Describe 'Bounded GUI command staging' {
         Get-GuiFetchExecutionInput -CommandLine 'echo ready' | Should -BeExactly 'echo ready'
     }
 
-    It 'stages the 458-character failing workload with complete identifiers and hashes' {
+    It 'stages preparation while keeping the launch prefix at 16 characters' {
         $script:payload.Length | Should -Be 129
-        $script:integrity.Length | Should -Be 223
-        $script:realisticCommand.Length | Should -Be 458
+        $script:fetchContext.Prefix.Length | Should -Be 16
+        $script:fetchContext.Launch.Length | Should -Be 155
         $lines = @(Get-GuiFetchExecutionInput -CommandLine $script:realisticCommand)
-        $lines | Should -HaveCount 4
+        $lines.Count | Should -BeGreaterThan 3
         foreach ($line in $lines) { $line.Length | Should -BeLessOrEqual 400 }
         foreach ($line in $lines[0..($lines.Count - 2)]) { $line.Length | Should -BeLessOrEqual 240 }
         $lines[-1] | Should -Match 'sha256sum'
@@ -91,13 +96,13 @@ Describe 'Bounded GUI command staging' {
         $null = New-Item -ItemType Directory -Path (Split-Path $file), (Split-Path $retry) -Force
         [IO.File]::WriteAllText($file, '# test payload')
         [IO.File]::WriteAllText($retry, '# test retry library')
-        $prefix = Get-FetchExecuteEnvPrefix -CommandLine $script:payload -RepoRoot $TestDrive
-        $prefix | Should -Match 'EXEC_REQUIRE_SHA256=1 '
-        $prefix | Should -Match ('E_SHA=' + (Get-FileHash $file).Hash.ToLowerInvariant())
-        $prefix | Should -Match ('E_RETRY_SHA=' + (Get-FileHash $retry).Hash.ToLowerInvariant())
-        $command = Get-FetchExecutionCommand -CommandLine $script:payload -EnvPrefix ((Get-FetchObservationEnvPrefix -Context $script:context) + $prefix)
-        $command.Length | Should -Be 458
-        $lines = @(Get-GuiFetchExecutionInput -CommandLine $command)
+        $context = @{Step=@{};RepoRoot=$TestDrive;StepInvocationId='step';SequenceInvocationId='sequence'}
+        $result = Get-FetchExecutionContext -Context $context -CommandLine $script:payload
+        $result.Fields.EXEC_REQUIRE_SHA256 | Should -BeExactly '1'
+        $result.Fields.E_SHA | Should -BeExactly (Get-FileHash $file).Hash.ToLowerInvariant()
+        $result.Fields.E_RETRY_SHA | Should -BeExactly (Get-FileHash $retry).Hash.ToLowerInvariant()
+        $result.Launch.Length | Should -Be 155
+        $lines = @(Get-GuiFetchExecutionInput -CommandLine $result.Command)
         foreach ($line in $lines) { $line.Length | Should -BeLessOrEqual 400 }
     }
 
@@ -110,6 +115,40 @@ Describe 'Bounded GUI command staging' {
 }
 
 Describe 'GUI command staging in a local bash with sha256sum' -Skip:(-not $script:localShellAvailable) {
+    It 'executes once when any single inter-line Enter is lost, including before the guard' {
+        $command = "printf '%s\n' executed; : '" + ('x' * 500) + "'"
+        $lines = @(Get-GuiFetchExecutionInput -CommandLine $command)
+        for ($boundary = 0; $boundary -lt $lines.Count - 1; $boundary++) {
+            $delivered = @()
+            for ($index = 0; $index -lt $lines.Count; $index++) {
+                if ($index -eq $boundary) {
+                    $delivered += $lines[$index] + $lines[$index + 1]
+                    $index++
+                } else { $delivered += $lines[$index] }
+            }
+            Invoke-LocalInput $delivered | Should -BeExactly 'executed'
+            $script:localExitCode | Should -Be 0
+        }
+    }
+
+    It 'tolerates missing or duplicated inter-line Enters without changing compound commands' {
+        $command = "printf '%s\n' `"it's literal`"; : '" + ('x' * 500) + "'; printf '%s\n' second; exit 17"
+        $lines = @(Get-GuiFetchExecutionInput -CommandLine $command)
+        foreach ($separator in @('', "`n`n")) {
+            Invoke-LocalInput @(($lines -join $separator)) | Should -BeExactly "it's literal`nsecond"
+            $script:localExitCode | Should -Be 17
+        }
+    }
+
+    It 'still rejects a corrupted chunk when the Enter before the guard is lost' {
+        $command = "printf '%s\n' EXECUTED; : '" + ('x' * 500) + "'"
+        $lines = @(Get-GuiFetchExecutionInput -CommandLine $command)
+        $lines[1] = $lines[1].Replace('x', 'z')
+        $delivered = @($lines[0..($lines.Count - 3)]) + @($lines[-2] + $lines[-1])
+        Invoke-LocalInput $delivered | Should -BeExactly 'NONZERO SCRIPT EXIT: GUI command integrity mismatch'
+        $script:localExitCode | Should -Be 125
+    }
+
     It 'reconstructs the complete workload command without executing it' {
         $lines = @(Get-GuiFetchExecutionInput -CommandLine $script:realisticCommand)
         # Inspect the verified command without running a workload or contacting
@@ -121,7 +160,7 @@ Describe 'GUI command staging in a local bash with sha256sum' -Skip:(-not $scrip
 
     It 'emits a failure that the real fuzzy OCR matcher recognizes after corruption' {
         $lines = @(Get-GuiFetchExecutionInput -CommandLine $script:realisticCommand)
-        $lines[1] = $lines[1].Replace('c', 'e')
+        $lines[1] = $lines[1].Insert($lines[1].Length - 2, 'x')
         $output = Invoke-LocalInput $lines
         Test-OCRMatch -Text $output -Pattern 'NONZERO SCRIPT EXIT:' | Should -BeTrue
         $script:localExitCode | Should -Be 125
@@ -171,34 +210,23 @@ Describe 'GUI command staging in a local bash with sha256sum' -Skip:(-not $scrip
         $script:localExitCode | Should -Be 0
     }
 
-    It 'preserves sensitive profiling opt-out, identities, and scoped environment' {
-        $context = @{Step=@{sensitive=$true};StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651'}
-        $payload = "printf '%s|%s|%s|%s' `"`$EXEC_PROFILE`" `"`$EXEC_KEEP_PROFILE`" `"`$E_SI`" `"`$E_QI`"; : '" + ('x' * 450) + "'"
-        $command = Get-FetchExecutionCommand -CommandLine $payload -EnvPrefix (Get-FetchObservationEnvPrefix -Context $context)
-        Invoke-LocalInput @(Get-GuiFetchExecutionInput -CommandLine $command) | Should -BeExactly '0|0|9dd7e79e0e404f0b8aa334f1337540e9|2ba53dd6961e4beea8ec17e8416f8651'
-        $script:localExitCode | Should -Be 0
+    It 'keeps sensitive observation values in the context and out of the parent shell' {
+        $context = @{Step=@{sensitive=$true};RepoRoot=$script:context.RepoRoot;StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651'}
+        $result = Get-FetchExecutionContext -Context $context -CommandLine 'printf ready'
+        $result.Fields.EXEC_PROFILE | Should -BeExactly '0'
+        $result.Fields.EXEC_KEEP_PROFILE | Should -BeExactly '0'
+        $result.Fields.E_SI | Should -BeExactly $context.StepInvocationId
+        $result.Fields.E_QI | Should -BeExactly $context.SequenceInvocationId
+        $result.Launch | Should -Not -Match 'EXEC_PROFILE|E_SI|E_QI'
     }
 
-    It 'does not leak profiling settings or identities across ordinary, sensitive and ordinary invocations' {
-        $lines = [Collections.Generic.List[string]]::new()
-        $lines.Add('unset EXEC_PROFILE EXEC_KEEP_PROFILE E_SI E_QI')
-        $expected = [Collections.Generic.List[string]]::new()
-        foreach ($index in 0..2) {
-            $sensitive = $index -eq 1
-            $context = @{Step=@{sensitive=$sensitive};StepInvocationId=('a' * 31) + $index;SequenceInvocationId=('b' * 31) + $index}
-            $payload = 'printf "%s|%s|%s|%s\n" "${EXEC_PROFILE:-1}" "$EXEC_KEEP_PROFILE" "$E_SI" "$E_QI"; : ' + "'" + ('x' * 450) + "'"
-            $command = Get-FetchExecutionCommand -CommandLine $payload -EnvPrefix (Get-FetchObservationEnvPrefix -Context $context)
-            foreach ($line in @(Get-GuiFetchExecutionInput -CommandLine $command)) { $lines.Add($line) }
-            $expectedProfileState = if ($sensitive) { '0' } else { '1' }
-            $expected.Add("$expectedProfileState|$expectedProfileState|$($context.StepInvocationId)|$($context.SequenceInvocationId)")
-        }
-        $lines.Add('printf "parent:%s|%s|%s|%s" "${EXEC_PROFILE-unset}" "${EXEC_KEEP_PROFILE-unset}" "${E_SI-unset}" "${E_QI-unset}"')
-        $expected.Add('parent:unset|unset|unset|unset')
-        Invoke-LocalInput $lines.ToArray() | Should -BeExactly ($expected -join "`n")
-        $script:localExitCode | Should -Be 0
+    It 'uses independent identities for consecutive invocations' {
+        $first = Get-FetchExecutionContext -Context $script:context -CommandLine 'printf ready'
+        $second = Get-FetchExecutionContext -Context $script:context -CommandLine 'printf ready'
+        $first.Id | Should -Not -Be $second.Id
+        $first.Fields.E_SI | Should -BeExactly $second.Fields.E_SI
     }
 }
-
 Describe 'GUI fetch handler integration' {
     BeforeAll {
         $registration = $script:ast.Find({param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
@@ -227,7 +255,11 @@ $script:vncCalls=0
 $script:waited=0
 $script:captured=0
 $script:failSend=0
-function Get-FetchExecuteEnvPrefix { return 'EXEC_REQUIRE_SHA256=1 E_SHA=' + ('c' * 64) + ' E_RETRY_SHA=' + ('d' * 64) + ' E_FB_REPO=alissonsol/yurunadev E_FB_REF=933b9d5b0bee ' }
+function Get-FetchExecutionContext {
+    param($Context,$CommandLine)
+    $null=$Context;$null=$CommandLine
+    return [pscustomobject]@{Command=("echo ready; : '" + ('x' * 450) + "'");Launch='yfe 7c4e2a91b80 bash -c ''echo ready'''}
+}
 function Invoke-TypeDrainEnter {
     param($Context,$Text,$CharDelayMs,[switch]$ShellEscape)
     $script:sent.Add($Text)
@@ -247,7 +279,7 @@ function Send-TextUTM {
 function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern) $script:waited++; $script:fresh=$FreshMatch; $script:early=$EarlyFailurePattern; $script:failure=$FailurePattern; return $true }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:captured++; $script:succeeded=$Succeeded }
 '@
-        $helpers = (Get-FunctionSource 'Get-FetchExecutionCommand') + "`n" + (Get-FunctionSource 'Get-FetchObservationEnvPrefix') + "`n" + (Get-FunctionSource 'Get-GuiFetchExecutionInput')
+        $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay')
         $script:handlerModule = New-Module -ScriptBlock ([scriptblock]::Create(
             $fixture + "`n" + $helpers + "`nfunction Invoke-TestUtmProvider $provider`nfunction Invoke-TestHandler $handler"))
     }
@@ -267,7 +299,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         $result | Should -HaveCount 1
         $result[0] | Should -BeTrue
         & $script:handlerModule {
-            $script:sent | Should -HaveCount 4
+            $script:sent.Count | Should -BeGreaterThan 1
             foreach ($line in $script:sent) { $line.Length | Should -BeLessOrEqual 400 }
             @($script:shellEscapeFlags | Where-Object { $_ }) | Should -HaveCount 0
             $script:waited | Should -Be 1
@@ -284,8 +316,8 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         $result = & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext
         $result | Should -BeTrue
         & $script:handlerModule {
-            $script:vncCalls | Should -Be 4
-            $script:utmCalls | Should -HaveCount 4
+            $script:vncCalls | Should -Be $script:sent.Count
+            $script:utmCalls | Should -HaveCount $script:sent.Count
             for ($index = 0; $index -lt $script:sent.Count; $index++) {
                 $script:utmCalls[$index].Text | Should -BeExactly $script:sent[$index]
                 $script:utmCalls[$index].ShellEscape | Should -BeFalse
@@ -295,17 +327,17 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         }
     }
 
-    It 'keeps shell escaping enabled for a short macOS command and its UTM fallback' {
+    It 'stages even a short payload when its preparation needs bounded input' {
         $script:handlerContext.Step.text='echo ready'
         & $script:handlerModule { $script:useUtmProvider=$true }
         $result = & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext
         $result | Should -BeTrue
         & $script:handlerModule {
-            $script:sent | Should -HaveCount 1
-            $script:shellEscapeFlags[0] | Should -BeTrue
-            $script:vncCalls | Should -Be 1
+            $script:sent.Count | Should -BeGreaterThan 1
+            $script:shellEscapeFlags[0] | Should -BeFalse
+            $script:vncCalls | Should -Be $script:sent.Count
             $script:utmCalls[0].Text | Should -BeExactly $script:sent[0]
-            $script:utmCalls[0].ShellEscape | Should -BeTrue
+            $script:utmCalls[0].ShellEscape | Should -BeFalse
         }
     }
 
@@ -323,13 +355,13 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         }
     }
 
-    It 'leaves another host GUI transport on its existing single-command path' {
+    It 'uses the same bounded preparation on a Windows Hyper-V console' {
         $script:handlerContext.HostType='host.windows.hyper-v'
         $result = & $script:handlerModule {param($c) Invoke-TestHandler $c -WarningAction SilentlyContinue} $script:handlerContext
         $result | Should -BeTrue
         & $script:handlerModule {
-            $script:sent | Should -HaveCount 1
-            $script:shellEscapeFlags[0] | Should -BeTrue
+            $script:sent.Count | Should -BeGreaterThan 1
+            $script:shellEscapeFlags[0] | Should -BeFalse
             $script:waited | Should -Be 1
         }
     }

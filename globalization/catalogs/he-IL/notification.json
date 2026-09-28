@@ -1,0 +1,52 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "notification",
+  "locale": "he-IL",
+  "messages": {
+    "notification.all_delivery_failed": {
+      "sourceHash": "6de380e04855eb19421d8e8c5d9398e07af569f624abfcf6f2fb7dd3aa77bf0d",
+      "origin": "machine",
+      "message": "הודעה '{eventCode}': כל {attempted} ניסיונות המסירה נכשלו. השגיאה האחרונה: {detail}"
+    },
+    "notification.config_mapping_required": {
+      "sourceHash": "da7ad18c0687decc5074a1cc9d9d71190f95083e129f35f53ec0598cd7ed3352",
+      "origin": "machine",
+      "message": "פענוח ⁦transports.yml⁩ לא הניב מיפוי; הקובץ ייחשב לריק."
+    },
+    "notification.config_parse_failed": {
+      "sourceHash": "9607879da3b01a48c05617fa0a0cb02a0221dea3ff7dc2d5ce9cb986d96f7dcf",
+      "origin": "machine",
+      "message": "פענוח ⁦transports.yml⁩ נכשל: {detail}. הקובץ ייחשב לריק."
+    },
+    "notification.delivered": {
+      "sourceHash": "d16da8b65138ab0c1eda3e790e5a8b83d693b4ae5e5f06decae1164c7f54b92e",
+      "origin": "machine",
+      "message": "ההודעה '{eventCode}' נמסרה אל {address}"
+    },
+    "notification.delivery_failed": {
+      "sourceHash": "6d006047452bf7cfd673d72fc479f2fffee5d293456f10beda9ddd539b7c153f",
+      "origin": "machine",
+      "message": "מסירת ההודעה נכשלה עבור '{eventCode}' -> {address}: {detail}"
+    },
+    "notification.failure_body": {
+      "sourceHash": "44c254aecb41ceff8e6538865d8d1c4e2dce0e54a4bb6775a0fa799120197d07",
+      "origin": "machine",
+      "message": "כשל בבדיקת Yuruna\n\nמארח:     {host}\nמכונה:  {machine}\nאורח:    {guest}\nשלב:     {step}\nשגיאה:    {error}\nתחילת מחזור: {cycleStart}\nקיבוע:   {commit}\nזמן:     {time}"
+    },
+    "notification.failure_subject": {
+      "sourceHash": "98ea4a44a3892cc85393aaec84674bcef36cb7fc84825345be9ab20ae2020b2f",
+      "origin": "machine",
+      "message": "בדיקת Yuruna: FAIL במארח {host} / {subject}"
+    },
+    "notification.unknown_transport": {
+      "sourceHash": "7c09654a72297db8cfbac2086ce02e04e32d5fdad3fec9978f553962cdc405be",
+      "origin": "machine",
+      "message": "אמצעי מסירה לא מוכר '{transport}' עבור האירוע '{eventCode}'."
+    },
+    "notification.resend_config_required": {
+      "sourceHash": "78a3a7df6e03b6ab148bcbb4c7b639de437e94a246487687429a2fb6d1c0ba2f",
+      "origin": "machine",
+      "message": "השדות ⁦transports.resend.apiKey⁩ וגם ⁦transports.resend.fromEmail⁩ נדרשים."
+    }
+  }
+}

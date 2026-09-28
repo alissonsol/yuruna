@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42dd4c19-b2ea-45c5-930f-d248ded193bb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,6 +139,20 @@ Describe 'Resolve-GitRemoteLink -- a remote as somewhere a browser can be pointe
         Assert-Equal 'git://example.com/acme/project.git' $r.Url
         Assert-Equal 'other' $r.Kind
     }
+    It 'strips URI authority userinfo while preserving scheme and path' -TestCases @(
+        @{ Url = 'ftp://user:PRIVATE_FIXTURE_TOKEN@example.invalid/repo.git'; Expected = 'ftp://example.invalid/repo.git'; Kind = 'other' }
+        @{ Url = 'custom+git://PRIVATE_FIXTURE_TOKEN@example.invalid:8022/repo.git'; Expected = 'custom+git://example.invalid:8022/repo.git'; Kind = 'other' }
+        @{ Url = 'git+ssh://user:PRIVATE_FIXTURE_TOKEN@[::1]:2222/repo.git'; Expected = 'git+ssh://[::1]:2222/repo.git'; Kind = 'other' }
+        @{ Url = 'ftp://user%40name:PRIVATE_FIXTURE_TOKEN@example.invalid/a@b.git?label=c@d#e@f'; Expected = 'ftp://example.invalid/a@b.git?label=c@d#e@f'; Kind = 'other' }
+        @{ Url = 'file://user:PRIVATE_FIXTURE_TOKEN@example.invalid/share/repo.git'; Expected = 'file://example.invalid/share/repo.git'; Kind = 'file' }
+        @{ Url = 'custom+git://example.invalid/a@b.git?label=c@d#e@f'; Expected = 'custom+git://example.invalid/a@b.git?label=c@d#e@f'; Kind = 'other' }
+    ) {
+        param($Url, $Expected, $Kind)
+        $result = Resolve-GitRemoteLink -Url $Url
+        Assert-StringEqual $Expected $result.Url
+        Assert-StringEqual $Kind $result.Kind
+        Assert-False ($result.Url -match 'PRIVATE_FIXTURE_TOKEN')
+    }
     It 'answers nothing for nothing, and for a path with no root to address' {
         Assert-Equal '' (Resolve-GitRemoteLink -Url '').Url
         Assert-Equal '' (Resolve-GitRemoteLink -Url '   ').Kind
@@ -172,7 +186,8 @@ Describe 'Resolve-GitRepositoryWebUrl -- local clone-path origin walk' {
     }
 }
 
-# Pester 4 executes Describe blocks inline, so this runs after all tests.
+AfterAll {
 if ($script:tmpRoot -and (Test-Path -LiteralPath $script:tmpRoot)) {
     Remove-Item -LiteralPath $script:tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 }

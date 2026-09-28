@@ -328,12 +328,16 @@ BEGIN SELECT RAISE(ABORT, 'index refuses writes'); END`); err != nil {
 func TestSCPSessionSpeaksBeforeItExits(t *testing.T) {
 	t.Run("storage cannot be prepared", func(t *testing.T) {
 		s := newTestServer(t, true)
-		// Take write permission off the share's files root: the day directory
-		// cannot be created, which is an abort reached after the ID banner.
-		if err := os.Chmod(s.Store.FilesRoot(), 0o500); err != nil {
-			t.Fatalf("chmod: %v", err)
+		// A regular file blocks directory creation on every platform, even
+		// where chmod cannot remove write access. Bypass the allocator's disk
+		// scan so the obstruction is reached after the ID banner.
+		s.IDs = &scriptedIDs{queue: []string{"6tat"}}
+		if err := os.Remove(s.Store.FilesRoot()); err != nil {
+			t.Fatalf("remove empty files root: %v", err)
 		}
-		t.Cleanup(func() { _ = os.Chmod(s.Store.FilesRoot(), 0o700) })
+		if err := os.WriteFile(s.Store.FilesRoot(), []byte("not a directory"), 0o600); err != nil {
+			t.Fatalf("obstruct files root: %v", err)
+		}
 		ch := scpChannel("payload.txt", "hello")
 		s.runCommand(ch, "scp -t /amisad", "u", "192.168.7.46:32881")
 		stderr := ch.errOut.String()
@@ -341,7 +345,7 @@ func TestSCPSessionSpeaksBeforeItExits(t *testing.T) {
 			t.Fatalf("session exited %d (sent=%v), want a non-zero exit", code, sent)
 		}
 		if !strings.Contains(stderr, "stash-service: storage unavailable") {
-			t.Fatalf("an unwritable share told the client nothing:\n%s", stderr)
+			t.Fatalf("an obstructed share told the client nothing:\n%s", stderr)
 		}
 	})
 

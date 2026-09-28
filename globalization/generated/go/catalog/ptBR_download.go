@@ -595,7 +595,6 @@ const DataptBRdownload = `{
   "download.unavailable": "não disponível",
   "download.unlock_actions": "Desbloquear ações",
   "download.unlock_actions_first_enter_the_lab_token_above": "Desbloquear ações primeiro -- insira o token do laboratório acima.",
-  "download.v": "v",
   "download.value1_failed_for_value2_value3": [
     {
       "arg": "value1",

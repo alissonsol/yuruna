@@ -75,7 +75,6 @@ const DataqpsPlocmstash = `{
   "stash.audio": "[!‮Áúďíó‬ ~~]",
   "stash.author_optional": "[!‮Áúţħóř (óƥţíóñáļ)‬ ~~~~~~~]",
   "stash.choose_at_least_one_file": "[!‮Çħóóšé áţ ļéášţ óñé ƒíļé.‬ ~~~~~~~~~~]",
-  "stash.class": "[!‮çļášš‬ ~~]",
   "stash.content": "[!‮Çóñţéñţ‬ ~~~]",
   "stash.could_not_be_checked": "[!‮çóúļď ñóţ ƀé çħéçķéď‬ ~~~~~~~~]",
   "stash.could_not_list_archive_value1": [
@@ -194,7 +193,6 @@ const DataqpsPlocmstash = `{
     "? Ţħíš çáññóţ ƀé úñďóñé.‬ ~~~~~~~~~~~~~~~~]"
   ],
   "stash.deleting": "[!‮Ďéļéţíñğ...‬ ~~~~~]",
-  "stash.dir": "[!‮ďíř‬ ~~]",
   "stash.download": "[!‮Ďóŵñļóáď‬ ~~~~]",
   "stash.error_value1": [
     "[!‮Éřřóř: ",
@@ -210,13 +208,11 @@ const DataqpsPlocmstash = `{
   "stash.filter_by_host": "[!‮Ƒíļţéř ƀý ħóšţ‬ ~~~~~~]",
   "stash.guide": "[!‮Ğúíďé‬ ~~]",
   "stash.host": "[!‮Ħóšţ‬ ~~]",
-  "stash.host_4740ae63": "[!‮ħóšţ‬ ~~]",
   "stash.if_unlocking_answers_that_the_code_could_not_be_checked_the_code_": "[!‮Íƒ úñļóçķíñğ áñšŵéřš ţħáţ ţħé çóďé çóúļď ñóţ ƀé çħéçķéď, ţħé çóďé íš ñóţ ţħé ƥřóƀļéɱ -- ţħé ƥóóļ áğğřéğáţóř ţħáţ çħéçķš íţ íš úñřéáçħáƀļé, áñď ýóú çáññóţ úñļóçķ úñţíļ íţ íš ƀáçķ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "stash.image": "[!‮Íɱáğé‬ ~~]",
   "stash.incomplete_upload_partial_bytes_available_via_download": "[!‮Íñçóɱƥļéţé úƥļóáď -- ƥářţíáļ ƀýţéš áṽáíļáƀļé ṽíá Ďóŵñļóáď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "stash.ips": "[!‮ÍƤš:‬ ~~]",
   "stash.lab_token": "[!‮Ļáƀ ţóķéñ‬ ~~~~]",
-  "stash.limit": "[!‮ļíɱíţ‬ ~~]",
   "stash.listed_count": {
     "kind": "plural",
     "selector": "count",
@@ -282,7 +278,6 @@ const DataqpsPlocmstash = `{
   ],
   "stash.notes_txt": "[!‮notes.txt‬ ~~~~]",
   "stash.nothing_to_store_paste_some_content_first": "[!‮Ñóţħíñğ ţó šţóřé -- ƥášţé šóɱé çóñţéñţ ƒířšţ.‬ ~~~~~~~~~~~~~~~~~~]",
-  "stash.offset": "[!‮óƒƒšéţ‬ ~~~]",
   "stash.open_on_that_host": "[!‮óƥéñ óñ ţħáţ ħóšţ‬ ~~~~~~~]",
   "stash.open_pdf": "[!‮Óƥéñ ƤĎƑ‬ ~~~~]",
   "stash.other": "[!‮Óţħéř‬ ~~]",
@@ -294,7 +289,6 @@ const DataqpsPlocmstash = `{
   "stash.permalink": "[!‮Ƥéřɱáļíñķ‬ ~~~~]",
   "stash.preview_truncated_download_for_the_full_content": "[!‮Ƥřéṽíéŵ ţřúñçáţéď -- Ďóŵñļóáď ƒóř ţħé ƒúļļ çóñţéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "stash.preview_unavailable_use_download_to_open_the_file": "[!‮Ƥřéṽíéŵ úñáṽáíļáƀļé. Úšé Ďóŵñļóáď ţó óƥéñ ţħé ƒíļé.‬ ~~~~~~~~~~~~~~~~~~~~~]",
-  "stash.q": "[!‮ʠ‬ ~]",
   "stash.received": "[!‮Řéçéíṽéď‬ ~~~~]",
   "stash.received_by_host": "[!‮ Řéçéíṽéď ƀý ħóšţ ‬ ~~~~~~~~]",
   "stash.received_host": [
@@ -346,7 +340,6 @@ const DataqpsPlocmstash = `{
   "stash.short_link": "[!‮Šħóřţ ļíñķ‬ ~~~~]",
   "stash.six_character_lab_token_from_the_dashboard": "[!‮Šíẋ-çħářáçţéř ļáƀ ţóķéñ ƒřóɱ ţħé ďášħƀóářď‬ ~~~~~~~~~~~~~~~~~]",
   "stash.size": "[!‮Šížé‬ ~~]",
-  "stash.sort": "[!‮šóřţ‬ ~~]",
   "stash.source": "[!‮Šóúřçé‬ ~~~]",
   "stash.stash": "[!‮Šţášħ‬ ~~]",
   "stash.stash_not_found": "[!‮Šţášħ ñóţ ƒóúñď.‬ ~~~~~~~]",

@@ -296,11 +296,12 @@ footer.app a { color: var(--chrome-muted); }
 /* --------------------------------------------------------------------------
    The right-to-left mirror for the chrome above.
 
-   Logical properties would express this in one declaration, but they are
-   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
-   the offset silently disappears. So each physical side is restated here for
-   the direction the page actually has. Only the sides are mirrored: sizes,
-   colors and the tick glyph are the same in both directions.
+   The chrome states each physical side and restates it here for the
+   direction the page actually has. Logical properties would say it once, and
+   the Safari 16 floor has them, but the block is compared byte for byte
+   across the stylesheets that carry it, so switching it means changing every
+   copy at once. Only the sides are mirrored: sizes, colors and the tick glyph
+   are the same in both directions.
 
    These rules live inside the chrome block because the chrome is shared. Every
    stylesheet carrying the block carries them byte for byte, which the chrome
@@ -335,7 +336,7 @@ footer.app a { color: var(--chrome-muted); }
    Transparent until .shown: it blocks from the moment it exists, and only
    starts LOOKING blocked once the work has outlasted the grace period. */
 .blocking {
-  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0;
   z-index: 25;
   display: flex; align-items: center; justify-content: center;
   background: transparent;
@@ -352,7 +353,7 @@ footer.app a { color: var(--chrome-muted); }
   visibility: hidden;
 }
 .blocking.shown .blocking-box { visibility: visible; }
-.blocking-text { margin-left: .6rem; font-size: .95rem; }
+.blocking-text { margin-inline-start: .6rem; font-size: .95rem; }
 /* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring has to be visibly incomplete. flex-shrink keeps it circular when the
    message beside it competes for the row. */
@@ -380,7 +381,7 @@ h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-.toolbar > * + * { margin-left: 0.5rem; }
+.toolbar > * + * { margin-inline-start: 0.5rem; }
 .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select {
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--border-input);
@@ -414,13 +415,13 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
    standalone .btn would nearly double the height of every row. */
 .btn.compact { min-height: 0; padding: 0.3rem 0.6rem; font-size: 0.8rem; }
 
-/* Row count on the left, bulk action on the right, directly above the table. */
+/* Row count at the start, bulk action at the end, directly above the table. */
 .list-head { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
-.list-head > * + * { margin-left: 0.5rem; }
+.list-head > * + * { margin-inline-start: 0.5rem; }
 /* An auto margin rather than flex-growing the status text: the action stays
-   flush with the table's right edge both inline and once a narrow viewport
+   flush with the table's end edge both inline and once a narrow viewport
    wraps it onto a line of its own. */
-.list-head .list-action { margin-left: auto; }
+.list-head .list-action { margin-inline-start: auto; }
 
 /* Visually hidden, still in the accessibility tree. The clip-path pattern is
    the one that survives every engine this UI targets: display:none and
@@ -441,7 +442,7 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
    exact thing this wrapper exists to prevent. */
 .table-wrap { position: relative; overflow-x: auto; }
 table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+table.stashes th, table.stashes td { text-align: start; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 table.stashes th { color: var(--fg-muted); font-weight: 600; }
 /* Banded rows. A stash row is a run of near-identical mono text across eight
    columns, and the alternating background is what keeps the eye on one row
@@ -456,7 +457,7 @@ tbody tr:nth-child(odd) { background: var(--band-odd); }
 tbody tr:nth-child(even) { background: var(--band-even); }
 table.stashes tr:hover td { background: var(--bg-hover); cursor: pointer; }
 table.stashes .mono { font-family: var(--mono); }
-table.stashes .num { text-align: right; white-space: nowrap; }
+table.stashes .num { text-align: end; white-space: nowrap; }
 /* Selection and per-row action columns: as narrow as their content, and never
    the column that wraps when the table is squeezed. */
 table.stashes th.pick, table.stashes td.pick,
@@ -466,7 +467,7 @@ table.stashes th.pick input, table.stashes td.pick input { width: 1.5rem; height
    the stash), these cells are not. */
 table.stashes tr:hover td.pick, table.stashes tr:hover td.row-actions { cursor: default; }
 .pick-all { display: inline-flex; align-items: center; cursor: pointer; }
-.pick-all input { margin-right: 0.35rem; }
+.pick-all input { margin-inline-end: 0.35rem; }
 /* Sortable column headers. The button is stripped back to the header's own
    type so the row still reads as a header rather than a strip of controls --
    the affordance is the caret and the hover, not a raised button.
@@ -482,14 +483,13 @@ table.stashes th button.sort {
   /* A two-character header ("ID") gives a 14x20 box with no padding, under the
      24x24 minimum on both axes -- and the neighboring header starts close
      enough that the undisturbed-circle exception cannot be claimed either. The
-     padding buys the target without moving the label.
-     Physical margins, not margin-inline: the logical properties are Safari
-     14.1+, and below that the padding above would shift every header right. */
-  min-height: 24px; padding: 0 0.25rem; margin-left: -0.25rem; margin-right: -0.25rem;
+     padding buys the target, and the negative inline margins cancel it on
+     both sides so the label does not move. */
+  min-height: 24px; padding: 0 0.25rem; margin-inline: -0.25rem;
 }
 /* The caret is spaced with its own margin rather than the button's `gap`: flex
    gap needs Safari 14.5, and below it the arrow would sit against the label. */
-table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; margin-left: 0.3rem; }
+table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; margin-inline-start: 0.3rem; }
 table.stashes th button.sort:hover { color: var(--fg-primary); }
 table.stashes th button.sort:hover::after { opacity: 0.7; }
 table.stashes th button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
@@ -538,7 +538,7 @@ form.create input[type="text"], form.create textarea, form.create input[type="fi
 form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0.85rem; }
 
 .tabs { display: flex; margin-bottom: 0.5rem; }
-.tabs > * + * { margin-left: 0.5rem; }
+.tabs > * + * { margin-inline-start: 0.5rem; }
 /* .tab is a <button>, so it needs the UA button styling reset: font: inherit
    stops it rendering at the browser's own smaller default, and appearance: none
    removes the native chrome that would fight the border below. */
@@ -552,8 +552,8 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
 /* Margins, not `gap`: flex gap needs Safari 14.5, and below it the field and
    its button would touch. */
 .login .row { display: flex; flex-wrap: wrap; align-items: center; }
-.login .row > * { margin: 0.25rem 0.5rem 0.25rem 0; }
-.login .row > *:last-child { margin-right: 0; }
+.login .row > * { margin-block: 0.25rem; margin-inline: 0 0.5rem; }
+.login .row > *:last-child { margin-inline-end: 0; }
 .login p { margin: 0.6rem 0 0; font-size: 0.85rem; }
 .login input { min-height: var(--touch-min); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-input); background: var(--bg-elevated); color: var(--fg-primary); }
 
@@ -563,9 +563,9 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
 .notice.error { background: var(--fail-bg); color: var(--fail-fg); }
 
 .muted { color: var(--fg-muted); }
-.right { text-align: right; }
+.right { text-align: end; }
 .actions { display: flex; flex-wrap: wrap; margin: 1rem 0; }
-.actions > * + * { margin-left: 0.5rem; }
+.actions > * + * { margin-inline-start: 0.5rem; }
 
 @media (max-width: 600px) {
   /* iOS Safari zooms the viewport whenever a focused text control computes under

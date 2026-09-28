@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,27 @@ function Remove-RegFixture {
 }
 
 Describe 'Write-HostRegistrationRecord' {
+
+    It 'publishes project origin without embedded credentials' -TestCases @(
+        @{ Remote = 'https://fixture-user:PRIVATE_FIXTURE_TOKEN@example.invalid/owner/project.git' }
+        @{ Remote = 'ssh://fixture-user:PRIVATE_FIXTURE_TOKEN@example.invalid/owner/project.git' }
+    ) {
+        param($Remote)
+        $fx = New-RegFixture
+        try {
+            $runtime = Join-Path $fx.Tmp 'runtime'
+            $project = Join-Path $fx.Tmp 'project'
+            $null = New-Item -ItemType Directory -Path $runtime, $project
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            & git -C $project init --quiet
+            & git -C $project remote add origin $Remote
+            $path = Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp
+            Assert-NotNull $path
+            $json = [IO.File]::ReadAllText($path)
+            Assert-False ($json -match 'PRIVATE_FIXTURE_TOKEN|fixture-user') 'registration cannot publish credentials'
+            Assert-StringEqual 'https://example.invalid/owner/project' ($json | ConvertFrom-Json).projectUrl
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
 
     It 'writes host.registration.json with identity, capabilities, and reserved fields' {
         $fx = New-RegFixture

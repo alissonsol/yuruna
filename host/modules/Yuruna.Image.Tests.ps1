@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -207,7 +207,10 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
                 -TargetFileName $script:ImageTargetName -WarningAction SilentlyContinue
             Assert-StringEqual -Expected 'absent' -Actual $r.State
             Assert-StringEqual -Expected 404 -Actual $r.Status
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally {
+            $bound.Listener.Stop()
+            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'reports unreachable when nothing is listening at the address' {
@@ -235,7 +238,10 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
             $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" -TargetFileName $script:ImageTargetName
             Assert-StringEqual -Expected 'found' -Actual $r.State
             Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
-        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally {
+            $bound.Listener.Stop()
+            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -280,6 +286,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'a verified download is accepted'
             Assert-True (Test-Path -LiteralPath $dest) 'and the file is kept'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -301,6 +308,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'a mismatch fails the caller'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the tampered file is removed'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -323,6 +331,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'an unlisted file is accepted under the default policy'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -342,6 +351,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'the strict policy refuses the artifact'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and removes it'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -362,6 +372,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'an unreachable checksum file is accepted under the default policy'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -383,6 +394,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'the supplied hash is compared, and it does not match'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the file is removed'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -400,8 +412,73 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'the caller opted out of verification, which is not a failure'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
+            $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+}
+
+Describe 'image preparation returns only its boolean outcome' {
+    BeforeAll {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.HostDownload.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Global -DisableNameChecking
+    }
+
+    BeforeEach {
+        $script:AgentOutcome = 'downloaded'
+        $script:FixtureImage = @{
+            HostType = 'host.windows.hyper-v'; Arch = 'amd64'; SourceUrl = 'https://example.invalid/image.img'
+            ChecksumUrl = 'https://example.invalid/SHA256SUMS'; DownloadDir = $TestDrive
+            BaseImageName = 'fixture-extension'; BaseImageFile = (Join-Path $TestDrive 'fixture-extension.vhdx')
+            OriginFile = (Join-Path $TestDrive 'fixture-extension.txt'); Format = 'vhdx'
+        }
+        Mock -ModuleName Yuruna.Image Resolve-DownloadAgentEndpoint { 'http://127.0.0.1:1' }
+        Mock -ModuleName Yuruna.Image Request-DownloadAgentImage {
+            if ($script:AgentOutcome -eq 'downloaded') { [IO.File]::WriteAllBytes($StagingPath, [byte[]]@(1, 2, 3, 4)) }
+            @{ outcome = $script:AgentOutcome; sourceUrl = 'https://example.invalid/image.img'; filename = 'image.img'; lastModified = '' }
+        }
+        Mock -ModuleName Yuruna.Image Test-DownloadAlreadyCurrent { $false }
+        Mock -ModuleName Yuruna.Image Write-ImageSentinel { }
+        Mock -ModuleName Yuruna.Image Save-ImageWithChecksum { throw 'The fixture agent already supplied the bytes.' }
+        Mock -ModuleName Yuruna.Image Convert-Qcow2ToVhdx { $false }
+        Mock -ModuleName Yuruna.Image Resolve-QemuImgCommand { $null }
+    }
+
+    It 'rejects an undersized agent download with one false value' {
+        $result = Save-UbuntuExtensionImage -Image $script:FixtureImage -MinimumBytes 100 -ErrorAction SilentlyContinue
+        Assert-StringEqual 'Boolean' $result.GetType().Name 'agent progress must not make a failed download truthy'
+        Assert-False $result
+        Should -Invoke -ModuleName Yuruna.Image Convert-Qcow2ToVhdx -Times 0 -Exactly
+    }
+
+    It 'rejects a failed conversion after agent progress with one false value' {
+        $result = Save-UbuntuExtensionImage -Image $script:FixtureImage -MinimumBytes 1 -ErrorAction SilentlyContinue
+        Assert-StringEqual 'Boolean' $result.GetType().Name 'agent progress must not make a failed conversion truthy'
+        Assert-False $result
+        Should -Invoke -ModuleName Yuruna.Image Convert-Qcow2ToVhdx -Times 1 -Exactly
+    }
+
+    It 'reports an already-current agent result with one true value' {
+        $script:AgentOutcome = 'skipped'
+        $result = Save-UbuntuExtensionImage -Image $script:FixtureImage -MinimumBytes 1
+        Assert-StringEqual 'Boolean' $result.GetType().Name 'skip progress belongs outside the return stream'
+        Assert-True $result
+    }
+
+    It 'reports a completed qcow2 promotion with one true value' {
+        $script:FixtureImage.Format = 'qcow2'
+        $script:FixtureImage.BaseImageFile = Join-Path $TestDrive 'fixture-extension.qcow2'
+        $result = Save-UbuntuExtensionImage -Image $script:FixtureImage -MinimumBytes 1
+        Assert-StringEqual 'Boolean' $result.GetType().Name 'promotion progress belongs outside the return stream'
+        Assert-True $result
+        Assert-True ([IO.File]::Exists($script:FixtureImage.BaseImageFile))
+    }
+
+    It 'rejects an unavailable resize tool with one false value' {
+        $result = Expand-ExtensionVmDisk -Path (Join-Path $TestDrive 'fixture.qcow2') -SizeBytes 256GB -Format qcow2 -WarningAction SilentlyContinue
+        Assert-StringEqual 'Boolean' $result.GetType().Name 'resize progress must not bypass the caller failure gate'
+        Assert-False $result
     }
 }

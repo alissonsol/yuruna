@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.24
+.VERSION 2026.09.27
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -556,5 +556,29 @@ Describe 'the transcript pointer is decided, not discovered' {
         } finally {
             $env:YURUNA_TRANSCRIPT_PATH = ''
         }
+    }
+}
+
+Describe 'MCP native argument boundaries' {
+    It 'passes spaced paths, literal quotes, backslashes, and empty arguments to a real child' {
+        $priorDir = $script:AutomationDir
+        $priorTranscript = $env:YURUNA_TRANSCRIPT_PATH
+        try {
+            $script:AutomationDir = Join-Path $TestDrive 'automation with spaces'
+            $null = New-Item -ItemType Directory -Path $script:AutomationDir -Force
+            Set-Content -LiteralPath (Join-Path $script:AutomationDir 'Echo Arguments.ps1') -Value @'
+param([string]$First, [string]$Second, [string]$Third, [string]$Fourth)
+@($First, $Second, $Third, $Fourth) | ConvertTo-Json -Compress
+[Console]::Error.Write('fixture diagnostic')
+exit 7
+'@
+            $values = @('two words', 'a"quoted"value', 'C:\fixture folder\', '')
+            $result = Invoke-McpEntryPoint -Script 'Echo Arguments.ps1' -ScriptArgument @('-First', $values[0], '-Second', $values[1], '-Third', $values[2], '-Fourth', $values[3])
+            $result.ExitCode | Should -Be 7
+            @($result.Stdout | ConvertFrom-Json) | Should -Be $values
+            $result.Stderr | Should -Be 'fixture diagnostic'
+            $result.TranscriptPath | Should -BeNullOrEmpty
+            $env:YURUNA_TRANSCRIPT_PATH | Should -Be $priorTranscript
+        } finally { $script:AutomationDir = $priorDir }
     }
 }
